@@ -30,8 +30,9 @@ Annotations (on the hit's line or on the line directly above it, comment-only or
 line: the plan's "on the line or the line above", the same rule as task 066's sync-layout guardrail):
 `// sync-layout: <why>` (DC11, MQ-sync-layout), `// input-driven: <why>` (MQ-springs, MQ-frameclients),
 `// frame-client: <why>` (MQ-frameclients; a hit inside an `#if DEBUG` or `#if DEBUG || CMUX_BENCH_HOOKS` branch
-counts as marked too), `// invalidate: <why>` (--invalidate, which also accepts `!= oldValue`, `guard ... !=` and
-`if ... !=`), `// tracking-area: <why>` (MQ-tracking-areas), `// draw: <why>` (MQ-draw), `// decode: <why>`
+counts as marked too, a comment line that names the API is no site, and neither is a factory such as
+`makeFrameClient(owner:`), `// invalidate: <why>` (--invalidate, which also accepts `!= oldValue`, `guard ... !=`
+and `if ... !=`), `// tracking-area: <why>` (MQ-tracking-areas), `// draw: <why>` (MQ-draw), `// decode: <why>`
 (MQ-image-decode), `LoopVisibility` (MQ-loops). MQ-shadow-path takes `shadowPath` or `// shadow: alpha-derived <why>`
 anywhere in the file, as the plan's comm query does.
 
@@ -220,7 +221,12 @@ def either(*markers: Marker) -> Marker:
     return lambda tree, hit: any(m(tree, hit) for m in markers)
 
 
-FRAME_CLIENT_MARK = either(comment("input-driven", "frame-client"), debug_only)
+def comment_line(tree: Tree, hit: Hit) -> bool:
+    """The hit is in a comment (a doc comment that names the API), not a call."""
+    return hit.text.lstrip().startswith("//")
+
+
+FRAME_CLIENT_MARK = either(comment("input-driven", "frame-client"), debug_only, comment_line)
 INVALIDATE_MARK = either(near(r"!=\s*oldValue", r"\bguard\b.*!=", r"\bif\b.*!="), comment("invalidate"))
 SYNC_LAYOUT_MARK = comment("sync-layout")
 
@@ -352,7 +358,7 @@ def q(pattern: str, *paths: str, globs: tuple[str, ...] = (), files: bool = Fals
 
 
 SYNC_LAYOUT = r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush"
-FRAME_CLIENT = r"FrameClient\(owner:"
+FRAME_CLIENT = r"\bFrameClient\(owner:"
 INVALIDATE = r"needsLayout = true|needsDisplay = true"
 DISPLAY_LINK = r"displayLink\(target:|CADisplayLink\(|CVDisplayLink"
 TRACKING = r"override (public |open )?func updateTrackingAreas"

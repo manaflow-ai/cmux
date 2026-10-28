@@ -24,9 +24,12 @@ impl ShmSeg {
         }
         // SAFETY: fd is a fresh descriptor we own.
         let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: `owned` keeps `fd` open for the call; ftruncate takes no pointers.
         if unsafe { libc::ftruncate(fd, len as libc::off_t) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
+        // SAFETY: a fresh shared mapping of `len` bytes at an address the kernel picks: it aliases
+        // no Rust object, and `owned` keeps `fd` open for the call.
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),

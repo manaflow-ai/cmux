@@ -57,6 +57,7 @@ public final class IdleScheduler {
     /// The shortest long period worth starting (Chrome `kMinimumIdlePeriodDurationMillis`).
     static let minimumPeriodNanos: UInt64 = 1_000_000
 
+    /// Its counters since launch (``Stats``).
     public internal(set) var stats = Stats()
     /// The next main-thread deadline a long period must end before (the `MainDeadline` registry).
     public weak var deadlines: (any IdleNextDeadlineSource)? {

@@ -86,12 +86,15 @@ public final class AgentPaneLaunchImages {
     public init(directory: URL?, reader: LaunchFileReader = LaunchFileReader(), clock: any Clock<Duration> = ContinuousClock()) {
         self.directory = directory
         self.reader = reader
+        // timer-class-allow: armed in the app's main before NSApplication.run (prefetch(on:keep:mark:)), before the
+        // composition root makes its deadline scheduler; one 30 s fire per launch that drops unclaimed pages
         discard = DemandTimer(owner: "agent-pane.launch-images.keep", clock: clock)
     }
 
     /// The saved pages in `state`, the tag's state directory (beside its launch snapshot).
-    public convenience init(state: URL?) {
-        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory))
+    /// `reader`: reads the saved pages; the app's skips every one in a crash streak's safe launch (`LaunchSafeMode`).
+    public convenience init(state: URL?, reader: LaunchFileReader = LaunchFileReader()) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), reader: reader)
     }
 
     /// Starts reading and decoding every saved page on `work`'s files lane at once; a later call does nothing.
@@ -119,6 +122,12 @@ public final class AgentPaneLaunchImages {
         discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: ends with the read; only tests await it.
         return Task { _ = await read.finished() }
+    }
+
+    /// The launch settled (`LaunchSettle`) and no pane draws a launch page any more: the decoded pages no pane
+    /// took go now, not at the keep deadline, and no read starts later. Held frames stay: they are not launch reads.
+    public func dropLaunchRead() {
+        dropRead()
     }
 
     /// Drops the read's results that no pane took, and the deadline that would drop them.

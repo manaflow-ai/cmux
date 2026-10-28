@@ -1,0 +1,16 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostTabs",
+  "owner": "PL-cef-helper",
+  "description": "With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["chromium-host"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "benchOnly": true,
+  "replaces": ["browserHost.tabs"]
+}

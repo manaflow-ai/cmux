@@ -338,14 +338,10 @@ pub(super) fn shared(
     mux: &Mux,
     operation: &str,
 ) -> Result<Option<Arc<Mutex<Shared>>>, ResourceError> {
-    static OPEN: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<Shared>>>>> = OnceLock::new();
-    let Some(dir) = mux
-        .session_state_directory()
-        .and_then(|session| session.parent().map(|state| state.join("history")))
-    else {
+    let Some(dir) = history_directory(mux) else {
         return Ok(None);
     };
-    let mut open = OPEN.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
+    let mut open = open_stores().lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(shared) = open.get(&dir) {
         return Ok(Some(shared.clone()));
     }
@@ -358,6 +354,31 @@ pub(super) fn shared(
     }));
     open.insert(dir, shared.clone());
     Ok(Some(shared))
+}
+
+/// The machine's history directory, `<state>/history`, when `mux` keeps
+/// durable state.
+fn history_directory(mux: &Mux) -> Option<PathBuf> {
+    mux.session_state_directory()
+        .and_then(|session| session.parent().map(|state| state.join("history")))
+}
+
+/// The visit stores opened so far, by history directory.
+fn open_stores() -> &'static Mutex<HashMap<PathBuf, Arc<Mutex<Shared>>>> {
+    static OPEN: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<Shared>>>>> = OnceLock::new();
+    OPEN.get_or_init(Mutex::default)
+}
+
+/// Frees the page cache of `mux`'s open visit logs under their lock
+/// (`mux/sqlite_trim.rs`). Stores not opened yet are not opened.
+pub(crate) fn release_memory(mux: &Mux) -> Result<(), cmux_history::HistoryError> {
+    let Some(shared) = history_directory(mux).and_then(|dir| {
+        open_stores().lock().unwrap_or_else(PoisonError::into_inner).get(&dir).cloned()
+    }) else {
+        return Ok(());
+    };
+    let shared = shared.lock().unwrap_or_else(PoisonError::into_inner);
+    shared.stores.release_memory()
 }
 
 /// Runs `body` on the machine's stores, after retention when it is due.

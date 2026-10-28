@@ -11,9 +11,16 @@
 //! as on a direct PTY. Terminals share the link fairly: each pump starts at
 //! the next terminal in turn and gives each one an equal share, and a small
 //! frame (an echo) goes ahead of queued bulk output. No timers: `poll`
-//! waits forever unless a CLOSE grace, a handshake deadline or the idle
-//! exit is pending. Each pass of the work after `poll` is one hang scope
-//! ([`HangWatch`], on its own watcher thread); the wait is not.
+//! waits forever unless a CLOSE grace, a handshake deadline, the idle exit
+//! or a ring turning cold (`cold_rings`) is pending. Each pass of the work
+//! after `poll` is one hang scope ([`HangWatch`], on its own watcher
+//! thread); the wait is not.
+//!
+//! The loop thread is also registered with the process hang watch
+//! (p09-observability section 3E): it registers as [`POLL_THREAD`] and each
+//! turn's work, never its `poll` wait, runs in one scope with the
+//! [`TURN_DEADLINE`] (Chrome's `WatchHangsInScope` around a task, not around
+//! the message pump's wait, base/threading/hang_watcher.h).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
@@ -23,21 +30,26 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+use cmux_hang_watch::ThreadKind;
+
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
 use crate::{ExitStatus, SpawnRequest, pty};
 
+mod cold_rings;
 mod handshake;
 mod hang;
 mod input_flow;
 mod trace;
 
+use cold_rings::RingBudget;
 pub use hang::{HOLDER_LOOP, HangWatch};
 use input_flow::InputFlow;
 pub use trace::{ProcessTrace, TraceControl};
 
-/// Output kept per terminal for a daemon that reconnects: the memory
-/// budget's largest holder ring.
+/// The largest ring a holder makes (it makes the budget's
+/// `holder_ring_bytes` of this Mac, at least `cold_rings::MIN_RING_BYTES`);
+/// a daemon makes a fresh segment this size.
 pub const RING_BYTES: usize = cmux_memory::budget::HOLDER_RING_BYTES_MAX;
 /// Output queued on the link before the holder stops making DATA frames
 /// (the rest waits in the rings).
@@ -61,6 +73,13 @@ const READ_PER_TURN: usize = 256 * 1024;
 const HANDSHAKE: Duration = Duration::from_secs(5);
 /// Connections waiting to authenticate at once; the oldest goes first.
 const MAX_PENDING: usize = 8;
+/// The loop thread's name in a hang record.
+pub const POLL_THREAD: &str = "cmux-holder-poll";
+/// How long one turn's work may take before the hang watch reports the
+/// loop: its reads and writes are nonblocking and bounded per turn, so only
+/// a stuck system call or a runaway loop runs this long. The 2 s of a write
+/// lane (p09-observability task 069).
+pub const TURN_DEADLINE: Duration = Duration::from_secs(2);
 /// A holder with no terminal and no daemon link exits after this long: it
 /// keeps nothing, and the next daemon starts a holder of its own build.
 pub const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -143,6 +162,8 @@ struct Terminal {
     /// The flow of the newest WRITE with [`wire::FLAG_FLOW`]: the master
     /// read after its input reached the PTY carries it.
     flow: InputFlow,
+    /// When the holder last read output from the master (`cold_rings`).
+    last_output: Instant,
 }
 
 /// One frame waiting for the link, with the descriptors it passes.
@@ -274,8 +295,11 @@ pub struct Holder {
     trace: Box<dyn TraceControl>,
     /// The current link started the recording: it stops when the link ends.
     link_recording: bool,
+    ring_budget: RingBudget,
     /// Watches each pass of the loop's work ([`HangWatch`]); `None`: unwatched.
     hangs: Option<HangWatch>,
+    /// The process hang-watch deadline of one turn's work ([`TURN_DEADLINE`]).
+    turn_deadline: Duration,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -370,7 +394,9 @@ impl Holder {
             sigchld,
             trace: Box::new(ProcessTrace::new(wake_loop)),
             link_recording: false,
+            ring_budget: RingBudget::for_host(),
             hangs: None,
+            turn_deadline: TURN_DEADLINE,
         })
     }
 
@@ -392,9 +418,17 @@ impl Holder {
         self.orphan_grace = grace;
     }
 
+    /// Report a turn whose work takes longer than `deadline` (default
+    /// [`TURN_DEADLINE`]) as a hang of the loop thread.
+    pub fn set_turn_deadline(&mut self, deadline: Duration) {
+        self.turn_deadline = deadline;
+    }
+
     /// Serve until launchd ends the holder or it has been idle for its idle
-    /// exit, then remove the socket file.
+    /// exit, then remove the socket file. The calling thread is the loop:
+    /// it is registered with the process's hang watch while it serves.
     pub fn run(&mut self) -> io::Result<()> {
+        let _hang_watch = cmux_hang_watch::register_thread(ThreadKind::Io, POLL_THREAD);
         loop {
             self.turn()?;
             let idle_over = self.idle_since.is_some_and(|since| since.elapsed() >= self.idle_exit);
@@ -464,6 +498,8 @@ impl Holder {
         // The same work is one hang scope; the poll above is not.
         let watcher = self.pass_watcher();
         let _pass = watcher.as_deref().map(|watcher| watcher.scope(&HOLDER_LOOP));
+        // The same turn, watched by the process hang watch: the wait above stays outside.
+        let _watched = cmux_hang_watch::watch(self.turn_deadline);
         if fds[1].revents != 0 {
             self.reap();
             self.poll_trace();
@@ -499,6 +535,7 @@ impl Holder {
             self.accept();
         }
         self.kill_overdue();
+        self.release_cold_rings(now);
         self.send_hang_reports();
         self.pump();
         self.retire_closed();
@@ -548,7 +585,8 @@ impl Holder {
             .zip(self.orphan_grace)
             .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
             .map(|(since, grace)| since + grace);
-        kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
+        let cold = self.cold_ring_deadline();
+        kill.into_iter().chain(handshake).chain(idle).chain(orphan).chain(cold).min()
     }
 
     /// Take new connections. They wait in `pending` until they authenticate;
@@ -786,7 +824,8 @@ impl Holder {
             .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
         let spawned = pty::spawn(&request, self.child_open_file_limit)
             .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
-        let mut terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
+        let ring = Ring::new(0, self.ring_budget.ring_bytes);
+        let mut terminal = Terminal::with_ring(request.id, spawned.master, spawned.pid, true, ring);
         // Until the daemon's ATTACH (from 0) arrives, read no more than an
         // attached stream would.
         terminal.held = Some(terminal.ring.end());
@@ -835,7 +874,7 @@ impl Holder {
             .flatten()
             .and_then(|segment| Ring::adopt(segment).ok())
             .filter(|ring| ring.end() >= resume)
-            .unwrap_or_else(|| Ring::new(resume, RING_BYTES));
+            .unwrap_or_else(|| Ring::new(resume, self.ring_budget.ring_bytes));
         let version = self.link.as_ref().map_or(0, |link| link.version);
         if version >= wire::RING_VERSION {
             // Only a holder of this version continues it from here on.
@@ -1029,6 +1068,7 @@ impl Holder {
             });
             if n > 0 {
                 read += n as usize;
+                terminal.last_output = Instant::now();
                 cmux_flow_trace::hop_id("holder.pty.read", terminal.flow.take(), &terminal.id);
                 cmux_trace::trace_instant!(
                     task,
@@ -1279,10 +1319,6 @@ impl Holder {
 }
 
 impl Terminal {
-    fn new(id: [u8; 16], master: OwnedFd, pid: libc::pid_t, own_child: bool, base: u64) -> Self {
-        Self::with_ring(id, master, pid, own_child, Ring::new(base, RING_BYTES))
-    }
-
     /// A terminal whose output continues `ring` (a dead holder's segment).
     fn with_ring(
         id: [u8; 16],
@@ -1311,6 +1347,7 @@ impl Terminal {
             prologue_base: base,
             strikes: Vec::new(),
             flow: InputFlow::default(),
+            last_output: Instant::now(),
         }
     }
 

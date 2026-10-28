@@ -1,7 +1,7 @@
 public import CmuxNextWakeups
 public import Foundation
 
-extension CEFTab: BrowserProcessReporting {
+extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     /// Renderer client ids hosting this tab's frames (main frame, out-of-process iframes; one per site).
     public var contentProcesses: BrowserContentProcesses {
         guard let browserID, let shim = runtime.shim else { return .none }
@@ -42,8 +42,25 @@ extension CEFTab: BrowserProcessReporting {
     /// pane shows the sad tab; a hidden tab reloads when it is shown. Chromium
     /// reported it, so the crash log records a renderer.
     func rendererTerminated(_ exit: BrowserProcessExit) {
+        contentFullscreenEnded()
         guard showProcessExit(exit) else { return }
         runtime.recordRendererExit(exit, tab: self)
+    }
+
+    /// Renderer `pid`, which hosted a frame of this page (``CEFChildProcessMonitor/Exit/subframeBrowsers``), ended
+    /// abnormally. When it is not the page's main frame renderer (whose end is ``rendererTerminated(_:)``, the sad tab),
+    /// a subframe crashed: ``onSubframeCrash`` runs. Chrome reads the same from the frame nodes of the dead process
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    func subframeRendererEnded(pid: pid_t) {
+        guard let hook = onSubframeCrash, let main = rendererPID,
+              Self.isSubframeCrash(main: main, ended: pid, pageExited: state.processExit != nil, closed: isClosed) else { return }
+        hook()
+    }
+
+    /// Whether a renderer `ended` that hosted a frame of a page is a subframe's crash: the page is open, its
+    /// own renderer, `main`, is another process, and Chromium did not report the page's own end.
+    nonisolated static func isSubframeCrash(main: pid_t, ended: pid_t, pageExited: Bool, closed: Bool) -> Bool {
+        !closed && !pageExited && main > 0 && main != ended
     }
 
     /// The Chromium Host ended with this page's browser in it (`CEFRuntime.hostEnded`): the sad tab
@@ -56,7 +73,18 @@ extension CEFTab: BrowserProcessReporting {
         (browserID, isCreationPending) = (nil, false)
         agentRelay.browserEnded()
         dismissPrompts()
+        contentFullscreenEnded()
         showProcessExit(exit)
+    }
+
+    /// The page left HTML fullscreen without a FULLSCREEN a = 0 (its renderer, browser or host ended):
+    /// the toolbar shows again and, in host mode with cmux's locks, its pane's fullscreen zoom ends
+    /// (``BrowserTabIntent/contentFullscreen(_:)``), as Chrome exits tab fullscreen when the tab's
+    /// renderer dies or the tab closes (`WebContentsImpl::RenderViewTerminated`, `ExitFullscreen`).
+    func contentFullscreenEnded() {
+        guard state.isContentFullscreen else { return }
+        machine.apply(.contentFullscreenChanged(false))
+        if runtime.hostStart?.locks != nil { emit(.contentFullscreen(false)) }
     }
 
     /// True from the Chromium Host's end with this tab's browser, or the one it was making
@@ -69,20 +97,17 @@ extension CEFTab: BrowserProcessReporting {
     @discardableResult
     private func showProcessExit(_ exit: BrowserProcessExit) -> Bool {
         guard !isClosed else { return false }
-        // A new renderer need not keep the old one's media emulation, so forget
-        // what the dead one was told: whichever way the page comes back (Reload
-        // here, or a hidden tab reloading when shown), the restarted renderer's
-        // `.loadStart` sends the color scheme again rather than trusting a memo
-        // no live page ever heard.
+        // A new renderer need not keep the old one's media emulation, so forget what the dead one was told:
+        // whichever way the page comes back (Reload here, or a hidden tab reloading when shown), the restarted
+        // renderer's `.loadStart` sends the color scheme again rather than trusting a memo no live page heard.
         sentColorScheme = nil
         machine.apply(.processExited(exit))
         noteAudible()
-        // After the sad tab, not before it: no first paint or load end is
-        // coming for the document that was loading, so the page area stops
-        // standing in for it (`CEFTab+LoadingBackground`) -- but settling
-        // repaints the base white, and doing that before the view that reads
-        // `state.processExit` is laid out shows a white page area for a frame
-        // in a dark theme.
+        // The sad tab in this turn (a host's end cleared the page's context in it), not at the chrome's next render.
+        crashPagePresenter?.showCrashPage(of: self)
+        // After the sad tab, not before it: no first paint or load end is coming for the document that was
+        // loading, so the page area stops standing in for it (`CEFTab+LoadingBackground`) -- but settling
+        // repaints the base white, which would show for a frame in a dark theme before the sad tab.
         documentDidSettle()
         firstContentFrame.contentShown() // the sad tab is what a new tab shows
         reloadWhenShown = host.visibleTab !== self

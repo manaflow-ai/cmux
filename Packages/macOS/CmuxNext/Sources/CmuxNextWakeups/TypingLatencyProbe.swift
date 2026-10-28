@@ -52,6 +52,7 @@ import CmuxNextTrace
 ///
 /// The same samples, 1 key in 16, give the field histogram `key.echo_frame` (TypingLatencyProbe+EchoFrame.swift).
 public final class TypingLatencyProbe: Sendable {
+    /// The process's probe; it records when `CMUX_NEXT_TYPING_PROBE` is set or flows start (``startFlows()``).
     public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
                                                   echoFrames: Metrics(runtime: .shared))
 
@@ -62,6 +63,7 @@ public final class TypingLatencyProbe: Sendable {
     /// unfinished.
     public static let openCapacity = 16
 
+    /// Whether the probe samples at all (``isRecording``).
     public static var isEnabled: Bool { shared.isRecording }
 
     struct Sample {
@@ -165,6 +167,8 @@ public final class TypingLatencyProbe: Sendable {
     let echoMetrics: Metrics?
     /// Key-downs counted while no echo sample was open (``echoSampleInterval``).
     let echoKeys = Atomic<UInt32>(0)
+    /// Who hears key flows start and stop (``observeRecording(_:)``).
+    let recordingObservers = ObserverSlots<Bool>(capacity: 4)
     /// The commit observer is on the main run loop (added once, at the first recording).
     private let observing = Atomic<Bool>(false)
     /// The last ``SurfaceKey`` handed out (``makeSurfaceKey(route:)``).
@@ -190,7 +194,7 @@ public final class TypingLatencyProbe: Sendable {
         signposter = Signposter(category: .key, trace: trace)
         self.hopRecorder = hopRecorder
         if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
-           let handle = FileHandle(forWritingAtPath: path) {
+           let handle = try? FileHandle.blockingForWriting(to: URL(fileURLWithPath: path)) {
             output = handle
             let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
             handle.write(Data(header.utf8))
@@ -213,8 +217,9 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Starts key flows: each later key-down gets a flow id, and its hops become `key.flow` events.
     public func startFlows() {
-        setModes(Modes.flows, on: true)
+        let before = setModes(Modes.flows, on: true)
         observeCommits()
+        if before & Modes.flows == 0 { recordingObservers.notify(isRecording) }
     }
 
     /// Starts key flows when the app was launched with ``flowsEnvironmentKey`` set.
@@ -225,12 +230,14 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Stops key flows. Without a CSV the open presses are dropped unwritten.
     public func stopFlows() {
-        setModes(Modes.flows, on: false)
-        guard !writesCSV else { return }
-        withState { state in
-            state.open.removeAll()
-            state.echoCommits.removeAll()
+        let before = setModes(Modes.flows, on: false)
+        if !writesCSV {
+            withState { state in
+                state.open.removeAll()
+                state.echoCommits.removeAll()
+            }
         }
+        if before & Modes.flows != 0 { recordingObservers.notify(isRecording) }
     }
 
     /// The commit mark: the end of each main run-loop turn, after Core Animation's commit observer

@@ -3,6 +3,7 @@ import CmuxNextSettings
 public import CmuxNextDaemonService
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// What every diff tab shares: the per-user session root, the sidecar pool
 /// (4 children at once, nil when this build has no bundled sidecar) and the
@@ -17,19 +18,19 @@ public final class DiffPageRuntime {
     nonisolated private static let live = Mutex<[ObjectIdentifier: DiffSessionGrant]>([:])
 
     init(root: URL = DiffSessionRoot.url(), sidecar: (any DiffSidecarRunning)?? = nil,
-         configFile: URL = CmuxConfigFile.defaultURL(),
+         configFile: URL = CmuxConfigFile.defaultURL(), mainWork: MainWorkScheduler,
          status: (@MainActor (String) async throws -> JSONValue)? = nil) {
         self.root = root
         self.sidecar = sidecar ?? DiffSidecarLauncher.bundled(root: root).map { DiffSidecarPool(runner: $0) }
-        languages = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: configFile))
+        languages = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: configFile), mainWork: mainWork)
         self.status = status ?? { _ in throw DiffTabFailure(title: "", message: DiffPageStrings.notRepository) }
     }
 
     /// The runtime of the running app: `git.status` through the agent pane's
     /// git link (its own daemon connection, so a slow read never holds
-    /// terminal commands).
-    public convenience init(git: AgentPaneGitLink) {
-        self.init(status: { directory in
+    /// terminal commands). `mainWork` is the app's one main-thread scheduler (the language pack's reads land on it).
+    public convenience init(git: AgentPaneGitLink, mainWork: MainWorkScheduler) {
+        self.init(mainWork: mainWork, status: { directory in
             let data = try await git.read(.status(cwd: directory))
             return try JSONValue.parse(data)
         })
@@ -46,7 +47,8 @@ public final class DiffPageRuntime {
     /// Last turn. Fails with a ``DiffTabFailure`` the page shows.
     public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil) -> Task<DiffTabReady, any Error> {
         let root = root, available = sidecar != nil
-        return Task {
+        // Off main: the grant's folder work is @concurrent, and the config is built from Sendable values.
+        return Task { @concurrent in
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
             let grant = try await Self.grant(root: root, repository: repository.root)
             if Task.isCancelled {

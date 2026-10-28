@@ -144,11 +144,90 @@ inside its own namespaces, and no page namespace maps to a denied operation. The
 agent, settings, coderouter, cloud, passwords, keybindings, changelog and icon picker pages use
 Swift providers, not the daemon relay. None of them is a catalog operation.
 
-Precondition for ANY allow entry: a per-page identity on the relay. Today one page_relay
-connection carries every page of the app, so the daemon cannot tell which page sent a request,
-and no rule exists for "the terminal this page was opened for". An entry also needs a shipped page
-that calls it, a rule that scopes it to that page's own object (never "any terminal by id"), and
-its own allowed and refused tests.
+Precondition for ANY allow entry: a per-page identity on the relay. `page-router-v1` gives it per
+connection (`client-hello {page}`) and `page-streams-v1` per stream (below), but still no rule
+exists for "the terminal this page was opened for". An entry also needs a shipped page that calls
+it, a rule that scopes it to that page's own object (never "any terminal by id"), and its own
+allowed and refused tests.
+
+## Page streams (`page-streams-v1`, p05-ipc-103, risk:high)
+
+Why: the app opens one page relay connection per page today (PageRelayChannel, plus one for Home
+channels). The p05-ipc spec (D3) wants one control connection and at most one page relay
+connection per daemon. Chrome's model is Mojo's associated interfaces: many endpoints share one
+message pipe, each message names its endpoint, and ordering per endpoint is kept
+(`mojo/public/cpp/bindings/README.md`, "Associated Interfaces"; `mojo/core/ports/node.h`). A
+page is an endpoint (a stream) on the one page relay connection. Page streams never live on the
+main connection: the main connection derives `user` or `agent`, and putting pages there would
+make the fail-safe default (`page` for every request of the connection) depend on a per-request
+tag instead of on the connection's role.
+
+Wire (daemon side; the app side is p05-ipc-104 and p05-ipc-108):
+- `{"cmd":"client-hello","role":"page_relay","streams":true}`: a streamed page relay. `streams`
+  is a boolean, true only with role `page_relay` and no `page`; anything else is
+  `client_hello.bad_request {field: "streams"}`. The reply adds `page_streams: true`.
+  Capability `page-streams-v1` in `identify`.
+- Stream 0 is the connection itself. Its only lines are `open-stream {stream, page}` and
+  `close-stream {stream}` (stream 1-65535; page as in `client-hello`), plus `cmux.protocol/2`
+  requests. Every other line (`identify`, `subscribe`, any legacy command) is
+  `origin.forbidden {reason: "stream_zero", derived: "page"}`. A member other than
+  `cmd`, `id`, `stream` (and `page` for open) is `page_stream.bad_request {field}`.
+- `open-stream` replies `{stream, page, relay_id, page_operations}`. The page is the stream's for
+  its whole life: opening an open id is `page_stream.in_use`; only `close-stream` frees the id.
+  At most `MAX_SERVER_CONNECTIONS` (64) streams are open per relay (`page_stream.limit`): each
+  stream stands for what was one relay connection, so the bound is the old one.
+- `close-stream` is idempotent (`closed: false` for a stream that was not open) and drops every
+  token issued for the stream.
+- Every `cmux.protocol/2` request on a streamed relay names its stream in the origin claim:
+  `"origin": {"claim": "page", "stream": N}` or `{"claim": "user", "confirmation": T,
+  "stream": N}`. No claim, or a claim without `stream`, is `origin.forbidden {reason:
+  "stream_required"}`; a stream that is not open is `{reason: "stream_not_open"}`; `stream: 0`
+  fails the envelope parse (`validation.invalid`). The request is judged with that stream's page
+  exactly as a one-page relay's request is judged with the connection page (catalog
+  `page_refusal`, routed `routed_origin`).
+- Any other connection (main, legacy, a one-page relay, a WebSocket) refuses `open-stream` and
+  `close-stream` with `origin.forbidden {reason: "page_stream_not_here", derived}`, also after its
+  hello window closed, and refuses a `stream` member in a v2 origin claim the same way.
+- Confirmation tokens: `origin.confirmation.issue {relay_connection_id}` takes either a one-page
+  relay's connection id or a stream's `relay_id`. A `relay_id` comes from the daemon's connection
+  id counter, so it never equals a connection id or an earlier stream's id; a reopened stream gets
+  a new one. The token is bound to (operation, params hash, endpoint) and is consumed only on that
+  stream. The streamed connection's own id names no page, so issue for it is `relay_mismatch`.
+  The same-peer rule (`peer_key`) is unchanged. Each endpoint holds at most 16 live tokens, so one
+  page's gestures never evict another page's.
+
+Analysis (remote-relay rules applied to a local trust boundary):
+- Local command and content execution: a page stream request is origin `page` before any claim,
+  whatever its tag says. The hard classes (terminal input, screen and history reads,
+  attach/detach, renderer grants, file system, terminal cwd) stay refused for every page on every
+  stream, a confirmed-user claim included (`every_page_stream_is_denied_the_hard_classes`). Stream
+  0 reaches no legacy command, so no `send`, `subscribe {surface}` or `new-tab` is reachable from
+  the relay connection.
+- Access to unowned objects: a stream can act only as its own page. The page is fixed at open and
+  cannot be rebound while the stream lives; another stream's token fails; a token of a closed
+  stream fails on the reopened one. A page cannot open a stream itself: page JS has no line on
+  the relay, the host opens streams.
+- Local-state exposure: `open-stream` returns only the page's allow list (already public in
+  page-router.json) and an opaque relay id. Nothing on stream 0 reads daemon state.
+- Escalation: `origin.confirmation.issue` stays refused on every page relay, streamed included;
+  only the verified app of the same peer mints, as before.
+- Fail-safe defaults: an untagged request is refused, not run as some page; an unknown page id
+  gets no operation (page-router.json has no entry); the main connection can never hold a page
+  stream, so a bug in the app's stream tagging cannot run a page request as `user`.
+
+Not in this task (follow-ups):
+- Events per stream: a streamed relay has no `subscribe`; the History page's `history-changed`
+  needs `subscribe {stream}` (p05-ipc-148). Until then the app keeps History on a one-page relay.
+- The Chief registry's ledger label (`user_local via page:<page>`) reads the connection page; on
+  a streamed relay it records `user_local`. The page is known per request
+  (`request.envelope.origin.stream`); chief_registry_resource.rs must read it before
+  home-channels moves to a stream (p05-ipc-108).
+- No app uses `streams: true` yet (p05-ipc-104), so no user-visible behavior changes; the app
+  gates its use behind its own setting.
+
+Tests: `cargo test -p cmux-tui-core --lib -- page_stream page_access origin_gate request_origin
+client_hello` (server/page_stream_tests.rs, page_access_tests.rs
+`every_page_stream_is_denied_the_hard_classes`, request_origin_tests.rs page stream unit tests).
 
 ## Red tests (first commit)
 

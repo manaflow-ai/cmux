@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The pane host of an agent chat tab whose session runs on another machine: the tab's own
@@ -13,6 +14,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let session: String?
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// The app's one main-thread scheduler (`AppServices.mainWork`), for the wires it makes.
+    let mainWork: MainWorkScheduler
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
@@ -56,14 +59,15 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
+            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint, mainWork] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, trust: mode == .attach && servesTrust ? ask : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session,
+                                        trust: mode == .attach && servesTrust ? ask : nil, mainWork: mainWork)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
+            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint, mainWork] in
                 RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness in
                     let started: AgentTabRemoteStart.Started
                     do {
@@ -74,7 +78,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, trust: servesTrust ? ask : nil)
+                }, trust: servesTrust ? ask : nil, mainWork: mainWork)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

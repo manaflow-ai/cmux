@@ -4,8 +4,9 @@
 /// Fields: `bucket_edges_ms`, `slots_received`, `slots_without_frame_update` (non-key slots dropped
 /// as Chrome drops events with no `caused_frame_update`), `slots_dropped` (lost before the ledger:
 /// ring, table or hand-off), `rows` (per kind, target, entrypoint, presentation source and display: `count`,
-/// `total`, `stages`; the most frequent first) and `scroll_jank` (frame counts and Chrome's
-/// `Event.ScrollJank.*` histograms). Enum case names only: no user text.
+/// `total`, `stages`; the most frequent first), `scroll_jank` (frame counts and Chrome's
+/// `Event.ScrollJank.*` histograms) and `interactions` (cmux's INP, ``InteractionLatency``). Enum
+/// case names only: no user text.
 public struct InputLatencySnapshot: Sendable, Equatable, Codable {
     /// One row: a kind, target, entrypoint, presentation source and display.
     public struct Row: Sendable, Equatable, Codable {
@@ -76,21 +77,59 @@ public struct InputLatencySnapshot: Sendable, Equatable, Codable {
         }
     }
 
+    /// The person's interactions (cmux's INP, ``InteractionLatency/Summary``): the count, the
+    /// longest, the longest after ignoring one for each 50, and the kind and target of the longest.
+    public struct Interactions: Sendable, Equatable, Codable {
+        public var count: UInt64
+        public var worstMilliseconds: Double
+        public var highPercentileMilliseconds: Double
+        /// ``InteractionLatency/Kind/wireName`` of the longest, nil with none.
+        public var kindOfWorst: String?
+        /// The ``InputTarget`` case name of the longest, nil with none.
+        public var targetOfWorst: String?
+
+        public init(count: UInt64 = 0, worstMilliseconds: Double = 0, highPercentileMilliseconds: Double = 0,
+                    kindOfWorst: String? = nil, targetOfWorst: String? = nil) {
+            self.count = count
+            self.worstMilliseconds = worstMilliseconds
+            self.highPercentileMilliseconds = highPercentileMilliseconds
+            self.kindOfWorst = kindOfWorst
+            self.targetOfWorst = targetOfWorst
+        }
+
+        /// `summary`'s numbers in milliseconds and its kind and target by name.
+        public init(_ summary: InteractionLatency.Summary) {
+            self.init(count: summary.count, worstMilliseconds: summary.worstMs,
+                      highPercentileMilliseconds: summary.highPercentileMs, kindOfWorst: summary.kindOfWorst?.wireName,
+                      targetOfWorst: summary.targetOfWorst.map { String(describing: $0) })
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case count
+            case worstMilliseconds = "worst_ms"
+            case highPercentileMilliseconds = "high_pct_ms"
+            case kindOfWorst = "kind_of_worst"
+            case targetOfWorst = "target_of_worst"
+        }
+    }
+
     public var bucketEdgesMilliseconds: [Double]
     public var slotsReceived: UInt64
     public var slotsWithoutFrameUpdate: UInt64
     public var slotsDropped: UInt64
     public var rows: [Row]
     public var scrollJank: ScrollJank
+    public var interactions: Interactions
 
     public init(bucketEdgesMilliseconds: [Double], slotsReceived: UInt64, slotsWithoutFrameUpdate: UInt64,
-                slotsDropped: UInt64, rows: [Row], scrollJank: ScrollJank) {
+                slotsDropped: UInt64, rows: [Row], scrollJank: ScrollJank, interactions: Interactions = Interactions()) {
         self.bucketEdgesMilliseconds = bucketEdgesMilliseconds
         self.slotsReceived = slotsReceived
         self.slotsWithoutFrameUpdate = slotsWithoutFrameUpdate
         self.slotsDropped = slotsDropped
         self.rows = rows
         self.scrollJank = scrollJank
+        self.interactions = interactions
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -100,5 +139,6 @@ public struct InputLatencySnapshot: Sendable, Equatable, Codable {
         case slotsDropped = "slots_dropped"
         case rows
         case scrollJank = "scroll_jank"
+        case interactions
     }
 }

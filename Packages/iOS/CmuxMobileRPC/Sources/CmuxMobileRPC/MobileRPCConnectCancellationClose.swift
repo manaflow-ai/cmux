@@ -15,7 +15,7 @@ actor MobileRPCConnectCancellationClose {
 
     func start(_ candidate: any CmxByteTransport) {
         guard closeTask == nil, !settledWithoutClose else { return }
-        let task = Task.detached {
+        let task = Task {
             await candidate.close()
         }
         closeTask = task

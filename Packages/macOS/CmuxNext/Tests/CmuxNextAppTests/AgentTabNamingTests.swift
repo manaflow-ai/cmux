@@ -80,8 +80,8 @@ struct AgentTabNamingTests {
         let chief = try TaggingAcpmux(sessions: ["c1": ["optchat.subagent": "a345"]],
                                       fields: ["c1": ["title": "ACP agent tab names", "name": "optchat-sub-2e448bc2-a345"]])
         let turns = AgentTurnStateStore()
-        let localFeed = AgentTurnStateFeed(socketPath: local.path, turns: turns, lanes: AgentLaneStore())
-        let chiefFeed = AgentTurnStateFeed(socketPath: chief.path, turns: turns, lanes: AgentLaneStore(), mirroring: Self.chiefHost)
+        let localFeed = AgentTurnStateFeed(socketPath: local.path, turns: turns, lanes: AgentLaneStore(), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
+        let chiefFeed = AgentTurnStateFeed(socketPath: chief.path, turns: turns, lanes: AgentLaneStore(), mirroring: Self.chiefHost, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         localFeed.start(localHost: Self.localHost)
         chiefFeed.start(localHost: nil)
         let subagent = AgentSessionRef(host: Self.chiefHost, session: "c1", harness: "claude")

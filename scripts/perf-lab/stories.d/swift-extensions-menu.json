@@ -1,0 +1,17 @@
+{
+  "id": "swift-extensions-menu",
+  "tier": "builder",
+  "description": "ExtensionsMenuPerformanceTests: main-thread CPU of the Extensions menu's prepare, first open, warm open and each row hover with 40 extensions (needs a display).",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-extensions-menu", "--filter", "ExtensionsMenuPerformanceTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.extensions_menu\\.(prepare|first_open|open|hover)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/ExtensionsMenuPerformanceTests.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Browser>Extensions"
+}

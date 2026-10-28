@@ -158,6 +158,7 @@ public final class TerminalLastFrames {
     static func frameID(_ key: String) -> HiddenFrameID { HiddenFrameID(kind: .terminal, key: key) }
 
     private func dropOldest() {
+        guard !order.isEmpty else { return }
         let key = order.removeFirst()
         if let frame = frames.removeValue(forKey: key) { unlink(frame, key: key) }
     }

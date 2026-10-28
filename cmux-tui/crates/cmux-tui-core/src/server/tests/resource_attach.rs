@@ -239,6 +239,17 @@ fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
         item["item"]["render"]["rows"].as_array().unwrap().len(),
         item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
     );
+    // p04-input-084, p05-ipc-080: the stream worker that sent the snapshot
+    // is registered as a control stream (user-initiated): it waits for its
+    // attach to commit, so it is not an echo path thread.
+    let workers: Vec<_> = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|row| row.name == "mux-resource-terminal-attach")
+        .map(|row| row.declared)
+        .collect();
+    assert!(!workers.is_empty(), "the attach worker is registered while it runs");
+    let control = crate::thread_qos::ThreadType::Interactive.qos();
+    assert!(workers.iter().all(|qos| *qos == control), "{workers:?}");
 
     let resize = resource_request(
         "terminal-attach-resize",
@@ -598,7 +609,7 @@ fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
         }),
     };
 
-    let encoded = encode_browser_attach_update(&writer, 1, update);
+    let encoded = encode_browser_attach_update(&writer, 1, update, &stream);
     send_encoded_browser_attach_update(&writer, encoded, &stream).unwrap();
     let first: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     let second: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();

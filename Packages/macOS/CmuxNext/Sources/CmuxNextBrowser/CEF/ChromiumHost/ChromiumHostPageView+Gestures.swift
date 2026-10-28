@@ -114,7 +114,7 @@ extension ChromiumHostPageView {
     private func sendGesture(_ gestures: [Gesture], at point: (x: Int32, y: Int32), flags: UInt64, t0: UInt64) {
         let buttons = Self.pressedButtons()
         for gesture in gestures {
-            _ = sink?(ChromiumHostFrame(.gesture, v: [point.x, point.y, gesture.type.rawValue, gesture.value, gesture.stage, buttons],
+            sendInput(ChromiumHostFrame(.gesture, v: [point.x, point.y, gesture.type.rawValue, gesture.value, gesture.stage, buttons],
                                         flags: flags, t0: t0))
         }
     }

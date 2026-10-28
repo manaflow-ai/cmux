@@ -157,6 +157,7 @@ impl Client {
         let stdin = child.stdin.take().ok_or("codex app-server proxy has no stdin")?;
         let stdout = child.stdout.take().ok_or("codex app-server proxy has no stdout")?;
         let (sender, lines) = channel();
+        // supervise-allow: the proxy's stdout reader for this CLI run; it ends at EOF, and a panic drops `sender`, so requests fail at their deadline.
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
@@ -248,7 +249,7 @@ impl Client {
         self.send(&json!({"id": id, "method": method, "params": params}))?;
         loop {
             let left = self.deadline.saturating_duration_since(Instant::now());
-            let line = match self.lines.recv_timeout(left) {
+            let line = match crate::blocking::sync::recv_timeout(&self.lines, left) {
                 Ok(line) => line,
                 Err(RecvTimeoutError::Timeout) => {
                     return Err(format!("the Codex app-server did not answer {method} in time"));

@@ -263,10 +263,9 @@ pub struct BookmarkOutcome {
 pub fn validate_bookmark_id(value: &str) -> anyhow::Result<()> {
     ensure_valid!(
         value.len() == 35
-            && value.starts_with("bm_")
-            && value[3..]
+            && value.strip_prefix("bm_").is_some_and(|digits| digits
                 .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))),
         "bookmark id must be \"bm_\" and 32 lowercase hex digits"
     );
     Ok(())

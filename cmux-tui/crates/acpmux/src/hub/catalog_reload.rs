@@ -16,11 +16,11 @@ impl Hub {
         let (path, sources) = self.config_sources().await?;
         // The file read back holds every save queued before this reload (`config_writer.rs`).
         let hub = self.clone();
-        let _ = tokio::task::spawn_blocking(move || hub.config_writer.flush()).await;
+        let _ = crate::daemon::spawn_blocking(move || hub.config_writer.flush()).await;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
-        let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
+        let mut next = crate::daemon::spawn_blocking(move || {
+            cmux_blocking::fs::metadata(&path)?;
             crate::config::Config::load_from_with(&path, &sources)
         })
         .await

@@ -29,12 +29,13 @@ public final class DaemonRecovery {
     /// True once the local daemon's launcher is known (`DaemonService.start(launch:)`).
     public var canRetry: Bool { wake != nil }
 
-    /// Follows `launcher`'s ensure outcomes; `wake` is the service's retry wake.
-    func attach(_ launcher: DaemonLauncher, wake: RetryWake) {
+    /// Follows `launcher`'s ensure outcomes, each change one visible task on `work` (the launch window shows the
+    /// offer); `wake` is the service's retry wake.
+    func attach(_ launcher: DaemonLauncher, wake: RetryWake, on work: MainWorkScheduler) {
         self.launcher = launcher
         self.wake = wake
         let outcome = launcher.ensureOutcome
-        outcome.observe { [weak self] in
+        outcome.observe(on: work, .visible, owner: "DaemonRecovery.offersRestart") { [weak self] in
             guard let self else { return }
             offersRestart = outcome.ownerLooksStuck
             // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.

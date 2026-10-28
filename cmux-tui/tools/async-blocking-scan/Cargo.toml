@@ -1,0 +1,30 @@
+[package]
+name = "async-blocking-scan"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Lexical scan of cmux Rust code for blocking calls in async code, unsupervised spawns, pre_exec bodies, unreaped children and unbounded channels."
+
+[dependencies]
+proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
+quote = { version = "1.0.40", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+syn = { version = "2.0.119", default-features = false, features = ["full", "parsing", "printing", "visit", "visit-mut"] }
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+
+# Its own workspace: the tool never enters cmux-tui's Cargo.lock.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

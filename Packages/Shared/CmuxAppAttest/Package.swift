@@ -10,8 +10,13 @@ let package = Package(
     name: "CmuxAppAttest",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "CmuxAppAttest", targets: ["CmuxAppAttest"])],
+    dependencies: [
+        // blockingCall for the Keychain calls (p02-threads-130, 146).
+        .package(path: "../CmuxThreading"),
+    ],
     targets: [
-        .target(name: "CmuxAppAttest", swiftSettings: [.swiftLanguageMode(.v6)]),
+        .target(name: "CmuxAppAttest", dependencies: [.product(name: "CmuxThreading", package: "CmuxThreading")],
+                swiftSettings: [.swiftLanguageMode(.v6)]),
     ]
 )
 

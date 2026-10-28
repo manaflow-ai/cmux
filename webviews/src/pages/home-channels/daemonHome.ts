@@ -61,6 +61,9 @@ const TAPBACK_EMOJI: Record<string, string> = {
   question: "❓",
 };
 const MAX_PAGE = 200;
+/** The app's host verb that records a gesture-backed op's `transaction` as the person's
+ * (CmuxNextPages PagePersonCauseRoute, p06-scheduler-231). */
+export const PERSON_CAUSE_OP = "cmux.host.cause.person";
 /** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
 const RUNS_CAPABILITY = "conversation-runs-v1";
 /** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
@@ -485,6 +488,9 @@ function str(params: Json, field: string, max = 256): string {
 export class DaemonHomeClient implements PageClient {
   private me = LOCAL_USER;
   private nextKey = 1;
+  /** Each local op's client `transaction` (`home-<page load>-<n>`): unique per page load. */
+  private readonly transactionPrefix = `home-${Date.now().toString(36)}-`;
+  private nextTransaction = 1;
   /** The one daemon `subscribe` stream of each connection; page subscriptions share it. */
   private readonly streamStarted = new Map<DaemonSocket, Promise<void>>();
   /** Conversations whose page the page read (refetched after a lost event). */
@@ -539,10 +545,12 @@ export class DaemonHomeClient implements PageClient {
     return started;
   }
 
-  /** `daemon`: the build daemon (Cloud, and local conversations unless `local` is given). */
+  /** `daemon`: the build daemon (Cloud, and local conversations unless `local` is given). `host`:
+   * the app's page bridge, which records a gesture-backed op as the person's (none in a browser). */
   constructor(
     private readonly daemon: DaemonSocket,
     local?: DaemonSocket,
+    private readonly host: PageClient | null = null,
   ) {
     this.local = local ?? daemon;
     this.sockets = this.local === daemon ? [daemon] : [daemon, this.local];
@@ -622,12 +630,32 @@ export class DaemonHomeClient implements PageClient {
       const sent = await this.cloud.op(conversationId, key, op);
       return { rev: num(sent.rev), replayed: sent.replayed === true, conversation: conversationId };
     }
+    const transaction = await this.personTransaction();
     const result = await this.local.request("conversation-op", {
       conversation: conversationId,
       idempotency_key: key,
       op,
+      ...(transaction ? { transaction } : {}),
     });
     return { rev: num(result.rev), replayed: result.replayed === true, conversation: conversationId };
+  }
+
+  /**
+   * In the app: a new client `transaction` for one local op, which the daemon echoes in the op's
+   * `conversation-changed`. The host records it as the person's when a real key or click in this
+   * page backs the op (`cmux.host.cause.person`), before the op goes out, so the app's connections
+   * apply the echo as the person's change. A host that refuses (an older app) leaves the echo the
+   * daemon's cause.
+   */
+  private async personTransaction(): Promise<string | undefined> {
+    if (!this.host) return undefined;
+    const transaction = this.transactionPrefix + this.nextTransaction++;
+    try {
+      await this.host.call(PERSON_CAUSE_OP, { transaction });
+    } catch {
+      // Scheduling only: the op still goes out.
+    }
+    return transaction;
   }
 
   /** A read of the conversation's owner: the local one, or a cloud owner through the daemon. */

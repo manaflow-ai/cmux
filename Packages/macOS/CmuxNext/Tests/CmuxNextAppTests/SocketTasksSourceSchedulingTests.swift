@@ -27,6 +27,49 @@ import Testing
         #expect(rig.sawDisconnect, "the held lines never ran once the input was dispatched")
         #expect(rig.work.postedCount(.automation) == 0)
     }
+
+    /// p06-scheduler-340 (rule 9, the automation class): the reconnect attempt is a classed deadline on the app's
+    /// wake-up queue, and the attempt waits for a person's pending input like the owner's lines. Before, a
+    /// DemandTimer ran it on main in its own fire, beside the person's keys.
+    @Test func theReconnectAttemptIsAnAutomationDeadlineThatWaitsForPendingInput() throws {
+        let directory = "/tmp/cmux-tasks-\(UInt32.random(in: 0 ... .max))"
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let input = TasksRigInput()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input), clock: ManualClock()) { _ -> (any FrameLink)? in
+            TasksRigLink()
+        }
+        let deadlines = MainDeadlineScheduler(work: work)
+        let source = SocketTasksSource(path: directory + "/tasks.sock", deadlines: deadlines)
+        var connecting = 0
+        source.start { event in
+            if case .connection(.connecting) = event { connecting += 1 }
+        }
+        defer { source.stop() }
+        #expect(connecting == 1)
+        #expect(deadlines.nextFire != nil, "the reconnect attempt is not on the app's wake-up queue")
+
+        input.pending = true
+        Self.spin { work.postedCount(.automation) >= 1 }
+        #expect(work.postedCount(.automation) == 1, "the reconnect attempt was not posted as automation work")
+        #expect(connecting == 1, "the reconnect attempt ran while a person's input was pending")
+
+        input.pending = false
+        var timestamp: CFTimeInterval = 0
+        Self.spin {
+            timestamp += 1.0 / 60
+            work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
+            return connecting == 2
+        }
+        #expect(connecting == 2, "the held attempt never ran once the input was dispatched")
+    }
+
+    private static func spin(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+    }
 }
 
 /// A listening Unix socket the source connects to, and a scheduler on a fake link and a manual
@@ -53,7 +96,7 @@ import Testing
         }
         self.input = input
         self.work = work
-        source = SocketTasksSource(path: path, mainWork: work)
+        source = SocketTasksSource(path: path, deadlines: MainDeadlineScheduler(work: work))
         source.start { [weak self] event in
             if case .connection(.disconnected) = event { self?.sawDisconnect = true }
         }

@@ -1,0 +1,18 @@
+{
+  "id": "bundle-size",
+  "tier": "builder",
+  "description": "Bytes on disk of each bench build (bundle-size.py story): the whole app and its Chromium Embedded Framework, symlinks counted once; the per-component report is attached. The size budget of the shipped nightly stays bundle-size.py check against bundle-size-budget.json.",
+  "command": ["scripts/cmux-next/bundle-size.py", "story"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "bundle\\.app_bytes", "unit": "bytes", "better": "lower"},
+    {"name": "bundle\\.cef_framework_bytes", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 30,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Build>Size"
+}

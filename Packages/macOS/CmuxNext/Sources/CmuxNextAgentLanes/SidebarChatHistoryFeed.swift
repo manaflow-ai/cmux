@@ -6,6 +6,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
+public import CmuxNextWakeups
 import Foundation
 public import Observation
 
@@ -20,24 +21,24 @@ public final class SidebarChatHistoryFeed {
 
     /// The chat index mirror. The app sets it on each index change (a copy-on-write value).
     public var chats = AcpmuxChatsStore()
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var observation: ServiceObservation<SidebarChatHistoryState?>?
 
     /// Follows the setting, the index, the lanes, every machine's `workspaces` and the user's pins
-    /// from now on; a row opens its chat with `open` (the app's Open Chat path).
+    /// from now on, on `mainWork` (the app's one main-thread scheduler); a row opens its chat with
+    /// `open` (the app's Open Chat path).
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
-                      open: @escaping @MainActor (String) -> Void, lanes: AgentLaneStore = .shared,
-                      history: SidebarChatHistory = .shared) {
-        guard task == nil else { return }
+                      open: @escaping @MainActor (String) -> Void, mainWork: MainWorkScheduler,
+                      lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
+        guard observation == nil else { return }
         history.onOpen = open
-        // task-owner: the app (one feed for the app's life); event-driven (Observation)
-        task = Task { [self] in
-            for await state in ObservationStream({ [self] () -> SidebarChatHistoryState? in
-                guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                let live = Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost)
-                return Self.state(chats, live: live, pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
-            }) where history.state != state {
-                history.state = state
-            }
+        // A service observation: it writes the history model every window's sidebar reads, shown or not.
+        // `visible`: an agent's or the index's change shows in the rows; a person's pin or fold flushes before its frame.
+        observation = ServiceObservation(.visible, owner: "SidebarChatHistoryFeed.state", on: mainWork) { [self] () -> SidebarChatHistoryState? in
+            guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
+            let live = Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost)
+            return Self.state(chats, live: live, pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
+        } apply: { state in
+            if history.state != state { history.state = state }
         }
     }
 

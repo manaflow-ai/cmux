@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4d7b70e8f59c1edd691398b791a050b123e7235b3ee05a7652613d7f80150c85'
+IR_SHA256 = 'd60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3'
 
 
 @dataclass(frozen=True)
@@ -733,6 +733,7 @@ COMMANDS = {
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
             'snapshot_local_history': CommandFieldMetadata(None, 'terminal-snapshot-local-history-v1'),
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
@@ -749,6 +750,17 @@ COMMANDS = {
             'harness': CommandFieldMetadata(None, None),
             'session': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'bridge-hello': CommandMetadata(
+        'bridge-hello',
+        'local-admin',
+        12,
+        'bridge-hello-v1',
+        ('local-admin',),
+        None,
+        {
+            'features': CommandFieldMetadata(None, None),
         },
     ),
     'browser-activate': CommandMetadata(
@@ -981,6 +993,17 @@ COMMANDS = {
             'target': CommandFieldMetadata(None, None),
         },
     ),
+    'cancel-stream': CommandMetadata(
+        'cancel-stream',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
     'chief-inspect': CommandMetadata(
         'chief-inspect',
         'local-admin',
@@ -1034,6 +1057,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'features': CommandFieldMetadata(None, None),
             'install_id': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, None),
             'proof': CommandFieldMetadata(None, None),
@@ -2133,6 +2157,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -2751,6 +2776,16 @@ COMMANDS = {
         None,
         {
             'authority': CommandFieldMetadata(None, None),
+        },
+    ),
+    'memory-report': CommandMetadata(
+        'memory-report',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'mint-terminal-renderer': CommandMetadata(
@@ -3499,6 +3534,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3692,6 +3728,7 @@ COMMANDS = {
             'identity': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'lease': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -4187,6 +4224,18 @@ COMMANDS = {
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
         },
     ),
+    'set-stream-priority': CommandMetadata(
+        'set-stream-priority',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'priority': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-tab-pinned': CommandMetadata(
         'set-tab-pinned',
         'control',
@@ -4321,6 +4370,7 @@ COMMANDS = {
             'have': CommandFieldMetadata(None, None),
             'reason': CommandFieldMetadata(None, None),
             'request_id': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
         },
     ),
@@ -4870,6 +4920,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'input-failed': EventMetadata('input-failed', 12, 'ipc-frames-v2', ('attach-byte',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),
@@ -4896,9 +4947,11 @@ EVENTS = {
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'script-log': EventMetadata('script-log', 12, None, ('control',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'server-diagnostic-site': EventMetadata('server-diagnostic-site', 12, 'diagnostic-sites-v1', ('subscribe',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
+    'stream-end': EventMetadata('stream-end', 12, 'attach-streams-v1', ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),
     'surface-resize-failed': EventMetadata('surface-resize-failed', 7, None, ('subscribe',), 'emitted'),

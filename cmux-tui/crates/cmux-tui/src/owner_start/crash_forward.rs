@@ -7,7 +7,9 @@
 //! line goes on the next start) to the app's Sentry project, tagged
 //! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
-//! and right after each alert.
+//! and right after each alert. A terminal host's panic, which the owner
+//! appends to its log with `"source": "cmux-tui-host"`, goes as the host's
+//! (`process=cmux-tui-host`, its own fingerprint), as the app labels it.
 //!
 //! It sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
@@ -125,9 +127,16 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     let message = scrub(record.get("message")?.as_str()?);
     let location = scrub(record.get("location").and_then(Value::as_str).unwrap_or_default());
     let text = |key: &str| record.get(key).and_then(Value::as_str).map(String::from);
+    let host =
+        text("source").as_deref() == Some(cmux_tui_core::terminal_host_runtime::PANIC_LOG_SOURCE);
+    let (process, crash_source, fingerprint, label) = if host {
+        ("cmux-tui-host", "terminal_host_crash", "host-panic", "cmux-tui terminal host panic")
+    } else {
+        ("cmux-tui", "owner_panic_log", "owner-panic", "cmux-tui owner panic")
+    };
     let mut tags = serde_json::Map::new();
-    tags.insert("process".into(), json!("cmux-tui"));
-    tags.insert("crash_source".into(), json!("owner_panic_log"));
+    tags.insert("process".into(), json!(process));
+    tags.insert("crash_source".into(), json!(crash_source));
     for (field, tag) in [
         ("thread", "thread"),
         ("version", "tui_version"),
@@ -179,9 +188,9 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
             "value": message,
             "mechanism": {"type": "rust_panic", "handled": false},
         }]},
-        "message": {"formatted": format!("cmux-tui owner panic at {location}: {message}")},
+        "message": {"formatted": format!("{label} at {location}: {message}")},
         // Same panic site, same issue, whatever the message text holds (as the app does).
-        "fingerprint": ["owner-panic", location],
+        "fingerprint": [fingerprint, location],
         "tags": tags,
         "extra": {
             "location": location,
@@ -209,12 +218,12 @@ pub(super) fn forward_new(
     home: Option<&str>,
     mut send: impl FnMut(&[u8]) -> Result<(), String>,
 ) -> Result<usize, String> {
-    let bytes = match std::fs::read(log) {
+    let bytes = match cmux_blocking::fs::read(log) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(error) => return Err(format!("read {}: {error}", log.display())),
     };
-    let mut offset = std::fs::read_to_string(state)
+    let mut offset = cmux_blocking::fs::read_to_string(state)
         .ok()
         .and_then(|text| text.trim().parse::<usize>().ok())
         .unwrap_or(0);
@@ -254,10 +263,11 @@ fn write_offset(state: &Path, offset: usize) -> Result<(), String> {
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     use std::io::Write;
-    let mut file = options.open(&temp).map_err(|error| format!("write offset: {error}"))?;
+    let mut file = crate::blocking::fs::open_with(&options, &temp)
+        .map_err(|error| format!("write offset: {error}"))?;
     file.write_all(offset.to_string().as_bytes())
         .map_err(|error| format!("write offset: {error}"))?;
-    std::fs::rename(&temp, state).map_err(|error| format!("write offset: {error}"))
+    cmux_blocking::fs::rename(&temp, state).map_err(|error| format!("write offset: {error}"))
 }
 
 /// The offset file beside `log`.
@@ -305,9 +315,10 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
         crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
         return None;
     }
-    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let executable =
+        std::env::current_exe().ok().and_then(|path| cmux_blocking::fs::canonicalize(path).ok());
     let managed = cmux_config::managed::default_reader(env).read();
-    let settings = std::fs::read_to_string(cmux_config::config_path())
+    let settings = cmux_blocking::fs::read_to_string(cmux_config::config_path())
         .ok()
         .and_then(|text| cmux_config::jsonc::parse(&text).ok());
     let decision = consent(&ConsentInputs {
@@ -327,6 +338,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     };
     let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
     let worker = forwarder.clone();
+    // supervise-allow: one best-effort pass over the logs present at start; a panic loses only this pass (the lines stay unsent and the next owner start sends them).
     let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
         let mut sent = 0;
         let mut failures = Vec::new();
@@ -350,17 +362,20 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
 fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> {
     // reqwest's rustls-no-provider build needs the workspace's ring provider.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| format!("runtime: {error}"))?;
+    let runtime = cmux_threads::tokio::builder(
+        "crash-forward",
+        cmux_threads::ThreadQos::Background,
+        cmux_threads::tokio::Flavor::CurrentThread,
+    )
+    .build()
+    .map_err(|error| format!("runtime: {error}"))?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("http client: {error}"))?;
     forward_new(log, &state_path(log), MAX_PER_START, home, |body| {
-        runtime.block_on(async {
+        cmux_threads::tokio::block_on(&runtime, async {
             let response = client
                 .post(&dsn.endpoint)
                 .header("Content-Type", "application/x-sentry-envelope")
@@ -457,6 +472,22 @@ mod tests {
         assert_eq!(event["tags"]["tui_version"], "0.13.5");
         assert_eq!(event["release"], "cmux-tui@0.13.5");
         assert_eq!(event["fingerprint"], json!(["owner-panic", "a.rs:1"]));
+    }
+
+    #[test]
+    fn a_terminal_host_line_is_labeled_as_the_host() {
+        let event = event_for(
+            r#"{"source":"cmux-tui-host","message":"boom","location":"vt.rs:9:1","thread":"parser"}"#,
+            None,
+        )
+        .unwrap();
+        assert_eq!(event["tags"]["process"], "cmux-tui-host");
+        assert_eq!(event["tags"]["crash_source"], "terminal_host_crash");
+        assert_eq!(event["fingerprint"], json!(["host-panic", "vt.rs:9:1"]));
+        assert_eq!(
+            event["message"]["formatted"],
+            "cmux-tui terminal host panic at vt.rs:9:1: boom"
+        );
     }
 
     #[test]

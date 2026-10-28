@@ -1,8 +1,17 @@
 public import CmuxNextActions
+public import CmuxNextMetrics
 
 /// Folds every action run into a latency histogram per report id and entrypoint, off the main
 /// actor: the Release side of the per-action budget. ``ActionBudgetReporter`` feeds it the
 /// monitor's batches; the opt-in nightly report reads ``snapshot(dropped:)``.
+///
+/// The same fold records the actions' field histograms (p09-observability task 056; Chrome reads latency and
+/// smoothness per interaction the same way, cc/metrics/event_latency_tracker.cc and
+/// cc/metrics/frame_sequence_tracker.cc): `action.commit.<entrypoint>` for every committed run, `action.cmd_t`,
+/// `action.cmd_n` and `action.cmd_w` for the key runs of New Tab, New Window and Close Tab (``command(for:)``).
+/// None of it adds work to the action's turn: the runs reach the ledger after the commit they are timed to. Their
+/// `action.missed_frames.<command>` is recorded on main where the frames after the commit are counted
+/// (``ActionCommitWindows``), not here.
 public actor ActionBudgetLedger {
     /// The histogram's bucket edges in milliseconds (fixed, so reports from every build and day
     /// add up, and p95 / p99 come out of the counts): a run counts in the first edge it does not
@@ -21,6 +30,7 @@ public actor ActionBudgetLedger {
     /// The budget, in milliseconds.
     public let budgetMilliseconds: Double
     private let naming: ActionReportNaming
+    private let metrics: Metrics
     private var rows: [Key: ActionBudgetRow] = [:]
     private var total = 0
     private var excluded = 0
@@ -29,9 +39,27 @@ public actor ActionBudgetLedger {
     /// - Parameters:
     ///   - budgetMilliseconds: The monitor's budget.
     ///   - naming: Maps an action to its report id (catalog id, `custom` or `extension`).
-    public init(budgetMilliseconds: Double, naming: ActionReportNaming) {
+    ///   - metrics: Where the field histograms go (the app's metrics file by default; tests pass their own).
+    public init(budgetMilliseconds: Double, naming: ActionReportNaming, metrics: Metrics = Metrics()) {
         self.budgetMilliseconds = budgetMilliseconds
         self.naming = naming
+        self.metrics = metrics
+    }
+
+    /// The timed command whose `action.cmd_*` and `action.missed_frames.*` histograms `id`'s key runs go to: the
+    /// catalog's New Tab (Cmd-T), New Window (`cmd_n`, the catalog's "Cmd-N, a new window"; Shift-Cmd-N in cmux)
+    /// and Close Tab (Cmd-W). Keyed by action, so a rebound shortcut still counts as its action.
+    public nonisolated static func command(for id: ActionID) -> HistogramID.Command? {
+        HistogramID.Command.allCases.first { actionID(of: $0) == id }
+    }
+
+    /// The catalog action whose key runs `command`'s histograms time (the inverse of ``command(for:)``).
+    public nonisolated static func actionID(of command: HistogramID.Command) -> ActionID {
+        switch command {
+        case .cmdT: "newTab.default"
+        case .cmdN: "newWindow"
+        case .cmdW: "closeTab"
+        }
     }
 
     /// Folds `runs` in.
@@ -45,6 +73,7 @@ public actor ActionBudgetLedger {
             excluded += 1
             return
         }
+        recordFieldHistograms(run)
         let ms = run.milliseconds
         if ms > budgetMilliseconds { over += 1 }
         let edges = Self.bucketEdgesMilliseconds
@@ -62,6 +91,16 @@ public actor ActionBudgetLedger {
         }
     }
 
+    /// `action.commit.<entrypoint>` (start to commit) and, for a timed command's key run, `action.cmd_*` from the
+    /// key event to the commit.
+    private func recordFieldHistograms(_ run: ActionTimingSample) {
+        let microseconds = Int64(clamping: run.nanos / 1_000)
+        metrics.record(.actionCommit(HistogramID.Entrypoint(run.entrypoint)), microseconds)
+        guard run.entrypoint == .key, let command = Self.command(for: run.id) else { return }
+        let fromInput = run.inputToCommitMilliseconds.flatMap { Int64(exactly: ($0 * 1_000).rounded()) } ?? microseconds
+        metrics.record(.actionCommand(command), fromInput)
+    }
+
     /// The counters now, the most frequent row first (then the slowest, then by id).
     ///
     /// - Parameter dropped: Runs the monitor could not hand over (``ActionBudgetMonitor/droppedRunCount``).
@@ -71,5 +110,21 @@ public actor ActionBudgetLedger {
         }
         return ActionBudgetCounts(budgetMilliseconds: budgetMilliseconds, bucketEdgesMilliseconds: Self.bucketEdgesMilliseconds,
                                   runsTotal: total, runsExcluded: excluded, runsDropped: dropped, overBudgetTotal: over, rows: sorted)
+    }
+}
+
+extension HistogramID.Entrypoint {
+    /// The `action.commit` histogram of runs from `entrypoint` (the same cases, by name).
+    init(_ entrypoint: ActionEntrypoint) {
+        switch entrypoint {
+        case .key: self = .key
+        case .pointer: self = .pointer
+        case .unattributed: self = .unattributed
+        case .cli: self = .cli
+        case .mcp: self = .mcp
+        case .script: self = .script
+        case .remote: self = .remote
+        case .page: self = .page
+        }
     }
 }

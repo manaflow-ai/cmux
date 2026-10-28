@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import CmuxNextCompat
 
 /// A small read-write SQLite handle for history stores. Not thread safe:
 /// one actor owns each instance.
@@ -27,9 +28,9 @@ nonisolated final class HistorySQLite {
             path = ":memory:"
         }
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
-        guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
+        guard blockingSQLiteOpen(path, &handle, flags, nil) == SQLITE_OK else {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
-            sqlite3_close(handle)
+            blockingSQLiteClose(handle)
             handle = nil
             throw Failure.open(message)
         }
@@ -37,11 +38,11 @@ nonisolated final class HistorySQLite {
     }
 
     deinit {
-        sqlite3_close(handle)
+        blockingSQLiteClose(handle)
     }
 
     func execute(_ sql: String) throws {
-        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+        guard blockingSQLiteExec(handle, sql) == SQLITE_OK else {
             throw Failure.statement(String(cString: sqlite3_errmsg(handle)))
         }
     }
@@ -49,7 +50,7 @@ nonisolated final class HistorySQLite {
     /// Runs one statement with `bindings`; `row` sees each result row.
     func run(_ sql: String, _ bindings: [Value] = [], row: ((Row) -> Void)? = nil) throws {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        guard blockingSQLitePrepare(handle, sql, -1, &statement, nil) == SQLITE_OK else {
             throw Failure.statement(String(cString: sqlite3_errmsg(handle)))
         }
         defer { sqlite3_finalize(statement) }
@@ -63,7 +64,7 @@ nonisolated final class HistorySQLite {
             }
         }
         while true { // wakeup-allow: bounded by the result set; ends at SQLITE_DONE
-            let step = sqlite3_step(statement)
+            let step = blockingSQLiteStep(statement)
             if step == SQLITE_DONE { return }
             guard step == SQLITE_ROW else { throw Failure.statement(String(cString: sqlite3_errmsg(handle))) }
             row?(Row(statement: statement))
@@ -71,6 +72,33 @@ nonisolated final class HistorySQLite {
     }
 
     var changes: Int { Int(sqlite3_changes(handle)) }
+
+    /// SQLite's default page cache cap, in KiB (`SQLITE_DEFAULT_CACHE_SIZE`, -2000).
+    static let defaultCacheKiB = 2_000
+
+    /// Frees this connection's unused page cache: the clean pages no statement holds
+    /// (`sqlite3_db_release_memory`, as Chrome's `sql::Database::TrimMemory()` in sql/database.cc).
+    /// The next query reads them again from the file. It never calls the process-wide
+    /// `sqlite3_release_memory`, which reaches connections other actors own.
+    func releaseMemory() {
+        sqlite3_db_release_memory(handle)
+    }
+
+    /// The heap bytes this connection's page cache holds now (`SQLITE_DBSTATUS_CACHE_USED`), or
+    /// nil when SQLite refuses the query.
+    var cacheUsedBytes: Int? {
+        var current: Int32 = 0
+        var highwater: Int32 = 0
+        guard sqlite3_db_status(handle, SQLITE_DBSTATUS_CACHE_USED, &current, &highwater, 0) == SQLITE_OK else {
+            return nil
+        }
+        return Int(current)
+    }
+
+    /// Caps the page cache at `kibibytes` (`PRAGMA cache_size`); frees nothing by itself.
+    func limitCache(kibibytes: Int) throws {
+        try execute("PRAGMA cache_size = -\(max(kibibytes, 1))")
+    }
 
     struct Row {
         let statement: OpaquePointer?

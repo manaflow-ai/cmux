@@ -1,0 +1,263 @@
+# What async-blocking-scan treats as blocking, spawning, fork-unsafe, unreaped
+# and unbounded. Paths are full paths after `use` resolution: `fs::read` with
+# `use std::fs;` in scope is `std::fs::read`. The scan is lexical: it knows a
+# receiver's type only when the value was built from a constructor listed
+# under [[types]] in the same function (or a parameter declared with that type).
+#
+# Chromium's rule for the same job: base/threading/scoped_blocking_call.h
+# (a call that may block is marked, and is refused on threads that disallow
+# blocking); tokio's equivalent is spawn_blocking / block_in_place.
+
+[scan]
+# Directory names never scanned (below a root): tests, benches and examples
+# do not ship; vendor is third-party; target is build output.
+skip_dirs = ["tests", "benches", "examples", "fuzz", "target", "vendor"]
+# File names that hold tests only (crash_ratchet.py's Rust convention).
+skip_file_names = ["tests.rs"]
+skip_file_suffixes = ["_tests.rs", "_test.rs"]
+# Files that implement a rule's primitive itself (path suffixes).
+exempt_files = [
+    "cmux-panic-log/src/supervise.rs",
+    "cmux-threads/src/spawn.rs",
+    "cmux-blocking/src/lib.rs",
+]
+# Methods that hand their receiver's value on (Result/Option plumbing): a
+# typed value stays typed through them, and a spawned Child stays the same Child.
+passthrough = [
+    "unwrap", "expect", "context", "with_context", "map_err", "ok", "inspect_err",
+    "unwrap_or_else", "into_inner",
+]
+
+[blocking]
+# Every function under these modules blocks (the exceptions below aside).
+modules = ["std::fs", "reqwest::blocking", "ureq"]
+# Builders and value types under those modules that do not touch the disk.
+not_blocking = [
+    "std::fs::OpenOptions::new",
+    "std::fs::Permissions",
+    "std::fs::FileType",
+    "std::fs::Metadata",
+    "std::fs::File::from",
+    "std::fs::File::from_raw_fd",
+    "std::fs::File::options",
+    "std::fs::DirBuilder::new",
+]
+functions = [
+    "std::thread::sleep",
+    "std::thread::park",
+    "std::thread::park_timeout",
+    "std::net::TcpStream::connect",
+    "std::net::TcpStream::connect_timeout",
+    "std::net::TcpListener::bind",
+    "std::net::UdpSocket::bind",
+    "std::os::unix::net::UnixStream::connect",
+    "std::os::unix::net::UnixListener::bind",
+    "std::io::copy",
+    "futures::executor::block_on",
+    "futures_executor::block_on",
+    "pollster::block_on",
+    "libc::waitpid",
+    "libc::sleep",
+    "libc::usleep",
+    "libc::nanosleep",
+    "nix::sys::wait::waitpid",
+    # Joins every thread it starts before it returns.
+    "std::thread::scope",
+]
+# Method names that block when they are not awaited. `args` is the argument
+# count. `async_twin`: tokio has a method of that name returning a future, so
+# an unawaited call handed to another call as an argument (`timeout(d,
+# rx.recv())`, `join!(a.wait(), b.wait())`) is that future, not a wait.
+# `always` blocks even when awaited (tokio's blocking_* panic on a runtime thread).
+methods = [
+    { name = "recv", args = 0, async_twin = true },
+    { name = "recv_timeout", args = 1 },
+    { name = "join", args = 0, async_twin = true },
+    { name = "wait", args = 0, async_twin = true },
+    { name = "wait", args = 1 },
+    { name = "wait_while", args = 2 },
+    { name = "wait_timeout", args = 2 },
+    { name = "wait_timeout_while", args = 3 },
+    { name = "exists", args = 0 },
+    { name = "try_exists", args = 0 },
+    { name = "canonicalize", args = 0 },
+    { name = "read_dir", args = 0 },
+    { name = "read_link", args = 0 },
+    { name = "symlink_metadata", args = 0 },
+    { name = "metadata", args = 0 },
+    { name = "to_socket_addrs", args = 0 },
+    { name = "blocking_recv", args = 0, always = true },
+    { name = "blocking_send", args = 1, always = true },
+    { name = "blocking_lock", args = 0, always = true },
+    { name = "blocking_read", args = 0, always = true },
+    { name = "blocking_write", args = 0, always = true },
+    { name = "block_on", args = 1, always = true },
+]
+# A closure handed to these runs where blocking is allowed.
+# cmux_blocking and cmux_threads are the wrappers the plan prescribes for a
+# Q11 fix (p10-stability.md); their closures run on a blocking-allowed thread
+# or under a compensated block_in_place.
+offload_functions = [
+    "tokio::task::spawn_blocking",
+    "tokio::task::block_in_place",
+    "std::thread::spawn",
+    "cmux_threads::spawn",
+    "cmux_threads::spawn::spawn",
+    "cmux_threads::spawn_with_stack",
+    "cmux_threads::spawn::spawn_with_stack",
+    "cmux_threads::allow_blocking",
+    "cmux_threads::blocking::allow_blocking",
+    "cmux_threads::scoped_blocking_call",
+    "cmux_threads::blocking::scoped_blocking_call",
+    "cmux_blocking::spawn_blocking",
+    "cmux_blocking::scoped_blocking_call",
+    "rayon::spawn",
+]
+offload_methods = ["spawn_blocking", "block_in_place"]
+# Lock calls whose guard must not live across an `.await` (std and
+# parking_lot locks: they are not awaited; tokio's are).
+guard_methods = [
+    { name = "lock", args = 0 },
+    { name = "read", args = 0 },
+    { name = "write", args = 0 },
+]
+# Macros whose arguments are futures that the macro awaits.
+future_macros = ["join", "try_join", "select", "select_biased", "pin_mut", "pin"]
+
+[spawn]
+# A statement-level call whose JoinHandle is dropped loses the task's panic.
+task_functions = [
+    "tokio::spawn",
+    "tokio::task::spawn",
+    "tokio::task::spawn_local",
+    "tokio::task::spawn_blocking",
+    "cmux_blocking::spawn_blocking",
+]
+# Every thread start outside a supervisor.
+thread_functions = [
+    "std::thread::spawn",
+    "cmux_threads::spawn",
+    "cmux_threads::spawn::spawn",
+    "cmux_threads::spawn_with_stack",
+    "cmux_threads::spawn::spawn_with_stack",
+]
+# Calls whose arguments are supervised (cmux_panic_log::supervise_*).
+supervisor_prefixes = ["cmux_panic_log::supervise"]
+
+[pre_exec]
+# Calls allowed between fork and exec: POSIX async-signal-safe functions
+# (signal-safety(7)) and constructors that neither allocate nor lock.
+signal_safe = [
+    "libc::setsid", "libc::setpgid", "libc::setpgrp", "libc::dup", "libc::dup2", "libc::dup3",
+    "libc::close", "libc::fcntl", "libc::ioctl", "libc::signal", "libc::sigaction",
+    "libc::sigemptyset", "libc::sigfillset", "libc::sigaddset", "libc::sigdelset",
+    "libc::sigprocmask", "libc::pthread_sigmask", "libc::chdir", "libc::fchdir", "libc::umask",
+    "libc::setuid", "libc::setgid", "libc::setgroups", "libc::getpid", "libc::getppid",
+    "libc::kill", "libc::open", "libc::read", "libc::write", "libc::_exit", "libc::prctl",
+    "libc::setrlimit", "libc::tcsetpgrp", "libc::login_tty",
+    "std::io::Error::last_os_error", "std::io::Error::from_raw_os_error",
+    "Ok", "Err", "Some",
+]
+# Methods that neither allocate nor lock (slice and pointer accessors).
+safe_methods = ["as_raw_fd", "is_null", "is_negative", "len", "is_empty", "as_ptr", "as_mut_ptr"]
+
+[child]
+# Calls that start a process and return its Child.
+spawn_methods = [{ name = "spawn", args = 0 }]
+spawn_functions = ["cmux_threads::checked::process::spawn"]
+# A Child is reaped when one of these is called on it.
+reap_methods = ["wait", "wait_with_output", "try_wait", "wait_timeout"]
+drop_kills = ["kill_on_drop"]
+awaited_reap_methods = ["kill"]
+
+[unbounded]
+functions = [
+    "tokio::sync::mpsc::unbounded_channel",
+    "std::sync::mpsc::channel",
+    "crossbeam_channel::unbounded",
+    "crossbeam::channel::unbounded",
+    "flume::unbounded",
+    "async_channel::unbounded",
+    "futures::channel::mpsc::unbounded",
+]
+
+# Receiver types the scan follows inside one function.
+[[types]]
+path = "std::process::Command"
+constructors = ["std::process::Command::new"]
+chain = [
+    "arg", "args", "env", "envs", "env_remove", "env_clear", "current_dir", "stdin", "stdout",
+    "stderr", "uid", "gid", "process_group", "arg0", "pre_exec",
+]
+blocking = ["output", "status"]
+returns = { spawn = "std::process::Child" }
+
+[[types]]
+path = "std::process::Child"
+blocking = ["wait", "wait_with_output"]
+
+[[types]]
+path = "std::fs::OpenOptions"
+constructors = ["std::fs::OpenOptions::new", "std::fs::File::options"]
+chain = ["read", "write", "append", "truncate", "create", "create_new", "mode", "custom_flags"]
+blocking = ["open"]
+returns = { open = "std::fs::File" }
+
+[[types]]
+path = "std::fs::File"
+constructors = ["std::fs::File::open", "std::fs::File::create", "std::fs::File::create_new"]
+blocking = [
+    "read", "read_to_end", "read_to_string", "read_exact", "write", "write_all", "flush",
+    "sync_all", "sync_data", "set_len", "metadata", "lock", "lock_shared",
+]
+
+[[types]]
+path = "std::io::Stdin"
+constructors = ["std::io::stdin"]
+blocking = ["read_line", "read_to_string", "read_to_end", "lines"]
+
+[[types]]
+path = "std::net::TcpStream"
+constructors = ["std::net::TcpStream::connect", "std::net::TcpStream::connect_timeout"]
+blocking = ["read", "read_exact", "read_to_end", "write", "write_all", "flush"]
+
+[[types]]
+path = "std::thread::Builder"
+constructors = ["std::thread::Builder::new"]
+chain = ["name", "stack_size", "no_hooks"]
+spawns_threads = ["spawn", "spawn_scoped", "spawn_unchecked"]
+
+[[types]]
+path = "tokio::runtime::Handle"
+constructors = ["tokio::runtime::Handle::current", "tokio::runtime::Handle::try_current"]
+spawns_tasks = ["spawn", "spawn_blocking"]
+
+[[types]]
+path = "tokio::runtime::Runtime"
+constructors = ["tokio::runtime::Runtime::new"]
+spawns_tasks = ["spawn", "spawn_blocking"]
+
+[[types]]
+path = "std::sync::mpsc::Receiver"
+blocking = ["recv", "recv_timeout", "iter"]
+
+[[types]]
+path = "crossbeam_channel::Receiver"
+blocking = ["recv", "recv_timeout", "iter"]
+
+# Constructors that return a pair: `let (tx, rx) = channel();`.
+[[pairs]]
+function = "std::sync::mpsc::channel"
+types = ["std::sync::mpsc::Sender", "std::sync::mpsc::Receiver"]
+
+[[pairs]]
+function = "std::sync::mpsc::sync_channel"
+types = ["std::sync::mpsc::SyncSender", "std::sync::mpsc::Receiver"]
+
+[[pairs]]
+function = "crossbeam_channel::unbounded"
+types = ["crossbeam_channel::Sender", "crossbeam_channel::Receiver"]
+
+[[pairs]]
+function = "crossbeam_channel::bounded"
+types = ["crossbeam_channel::Sender", "crossbeam_channel::Receiver"]

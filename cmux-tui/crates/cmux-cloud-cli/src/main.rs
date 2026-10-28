@@ -1,5 +1,8 @@
 //! Cloud command facade. CodeRouter owns its grammar and presentation; the
 //! guest adapter owns Cloud/session commands and delegates to cmux-tui.
+
+#![forbid(unsafe_code)]
+
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};

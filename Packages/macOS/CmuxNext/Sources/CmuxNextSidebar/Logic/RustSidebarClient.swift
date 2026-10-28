@@ -17,7 +17,17 @@ nonisolated enum RustSidebarClient {
             var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
             // The output buffer's own count, not `output.count`: reading `output`
             // inside its mutable-bytes closure is an overlapping access.
-            let code: Int32 = data.withUnsafeBytes { requestBytes in operation.withCString { operationCString in output.withUnsafeMutableBytes { outputBytes in cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operationCString, outputBytes.bindMemory(to: UInt8.self).baseAddress, outputBytes.count, &outputLength) } } }
+            // SAFETY: each buffer views its own storage (the request's data.count bytes, the operation's C string, the
+            // output's outputBytes.count bytes), valid for its closure; the reducer reads and writes within those
+            // counts and the local `outputLength` during the call and keeps no pointer.
+            let code: Int32 = unsafe data.withUnsafeBytes { requestBytes in
+                unsafe operation.withCString { operationCString in
+                    unsafe output.withUnsafeMutableBytes { outputBytes in
+                        unsafe cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operationCString,
+                                                        outputBytes.bindMemory(to: UInt8.self).baseAddress, outputBytes.count, &outputLength)
+                    }
+                }
+            }
             if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, outputLength > capacity {
                 capacity = outputLength
                 continue

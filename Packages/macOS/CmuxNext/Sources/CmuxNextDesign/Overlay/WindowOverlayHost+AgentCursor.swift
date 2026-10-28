@@ -25,7 +25,6 @@ final class AgentCursorCarrierView: NSView {
     private(set) var hovered: AgentCursorTagTarget?
     /// The tag a mouse down landed on; its mouse up there presses it.
     private var pressing: String?
-    private var tracking: NSTrackingArea?
     /// The tag hover's moves (feature `pointerFrameHover`): the first of a frame interval hovers in its own
     /// turn, the rest once at the frame, at the latest point. Without frames each move hovers.
     private(set) lazy var hoverMoves = PointerFrameHover(owner: "AgentCursorCarrierView.hover", view: self) { [weak self] point in
@@ -60,6 +59,8 @@ final class AgentCursorCarrierView: NSView {
         addSubview(cursorView)
         glassView.layer?.mask = glassLayer
         setAccessibilityElement(false)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInActiveApp, .inVisibleRect],
+                                       owner: self))
         syncLayerFrame()
     }
 
@@ -97,15 +98,8 @@ final class AgentCursorCarrierView: NSView {
         tags?.pressAgentCursorTag(id)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        guard tracking == nil else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate,
-                                                         .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
+    // local-monitor-allow: the moves go to the carrier's PointerFrameHover, on its window's FrameInputCoalescer
+    // (recipe R-input); in the routed panel the host's tap routing hovers them instead
     override func mouseMoved(with event: NSEvent) {
         // In the routed panel the host's routing hovers this move already.
         if let routedPanel, window === routedPanel { return }

@@ -8,6 +8,8 @@
 //! the effects. The TypeScript brain runs the same behavior corpus
 //! (`cmux-chief-corpus/1`), so the Mac and cloud brains stay equal.
 
+#![forbid(unsafe_code)]
+
 pub mod acp;
 pub mod core;
 pub mod corpus;

@@ -55,6 +55,7 @@ impl From<anyhow::Error> for CommandError {
 
 fn run(args: &[String]) -> Result<(), CommandError> {
     let args = parse(args).map_err(CommandError::Other)?;
+    // SAFETY: PR_SET_DUMPABLE takes integer arguments only and touches no memory of this process.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(CommandError::Other(io::Error::last_os_error().into()));
@@ -109,11 +110,11 @@ fn parse(args: &[String]) -> anyhow::Result<InstallArgs> {
 }
 
 fn open_authority(path: &Path) -> anyhow::Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
+    let file = crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        path,
+    )
+    .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
     let metadata = file.metadata()?;
     if !metadata.is_file()
         || metadata.uid() != 0
@@ -145,18 +146,15 @@ fn read_authority(path: &Path) -> anyhow::Result<ProviderWorkspaceAuthority> {
 /// The provider management listener systemd passed this daemon (socket
 /// activation, `LISTEN_FDS`), or `None` when it passed none.
 pub fn take_management_listener() -> anyhow::Result<Option<std::os::unix::net::UnixListener>> {
+    use crate::startup_env;
     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
     const SYSTEMD_FIRST_FD: RawFd = 3;
     const FD_NAME: &str = "cmux-provider-authority";
-    let listen_pid = std::env::var("LISTEN_PID").ok();
-    let listen_fds = std::env::var("LISTEN_FDS").ok();
-    let listen_names = std::env::var("LISTEN_FDNAMES").ok();
-    unsafe {
-        std::env::remove_var("LISTEN_PID");
-        std::env::remove_var("LISTEN_FDS");
-        std::env::remove_var("LISTEN_FDNAMES");
-    }
+    // Taken from the environment as the first statement of `main`, before
+    // this function's caller started its threads.
+    let startup_env::SystemdListenEnv { pid: listen_pid, fds: listen_fds, names: listen_names } =
+        startup_env::take_systemd_listen_env();
     if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
         return Ok(None);
     }
@@ -175,12 +173,17 @@ pub fn take_management_listener() -> anyhow::Result<Option<std::os::unix::net::U
     if socket_type != libc::SOCK_STREAM || accepting != 1 {
         anyhow::bail!("provider management descriptor is not a listening stream socket");
     }
+    // SAFETY: F_GETFD takes no pointer; descriptor 3 was checked above to be the listening socket
+    // systemd passed to this process.
     let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
     if flags < 0
+        // SAFETY: F_SETFD takes an integer flag set; descriptor 3 is open (checked above).
         || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
     {
         return Err(io::Error::last_os_error().into());
     }
+    // SAFETY: systemd passed descriptor 3 to this process (LISTEN_PID and LISTEN_FDS checked
+    // above), and only the first take of the variables reaches this line, so this is its one owner.
     let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
     Ok(Some(std::os::unix::net::UnixListener::from(owned)))
 }
@@ -190,6 +193,8 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 
     let mut value = 0;
     let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most `length` bytes into `value` and updates `length`; both are
+    // live locals and `length` starts as the size of `value`.
     let result = unsafe {
         libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
     };
@@ -227,7 +232,7 @@ mod tests {
 
     #[test]
     fn unavailable_live_management_protocol_is_retryable() {
-        if unsafe { libc::geteuid() } != 0 {
+        if cmux_tui_core::platform::effective_uid() != 0 {
             return;
         }
         let suffix = format!("{}-{}", std::process::id(), std::thread::current().name().unwrap());
@@ -260,7 +265,7 @@ mod tests {
     fn unresponsive_listener_is_retryable() {
         use std::os::unix::net::UnixListener;
 
-        if unsafe { libc::geteuid() } != 0 {
+        if cmux_tui_core::platform::effective_uid() != 0 {
             return;
         }
         let suffix = format!("old-{}", std::process::id());
@@ -297,7 +302,7 @@ mod tests {
         use std::io::{BufRead, BufReader};
         use std::os::unix::net::UnixListener;
 
-        if unsafe { libc::geteuid() } != 0 {
+        if cmux_tui_core::platform::effective_uid() != 0 {
             return;
         }
         let suffix = format!("future-{}", std::process::id());

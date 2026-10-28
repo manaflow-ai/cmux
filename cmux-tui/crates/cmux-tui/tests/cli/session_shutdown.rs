@@ -81,6 +81,7 @@ fn stop_fixture_terminal_hosts(host_root: &std::path::Path) {
         let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
             record_path,
             record,
+            None,
         );
     }
 }

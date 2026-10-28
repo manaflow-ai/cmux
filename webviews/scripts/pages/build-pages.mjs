@@ -38,6 +38,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appBundleOptions, reactCompilerPass, shikiAlias, sourcePlugins } from "../agent-pane/bundle.mjs";
 import { buildSharedReact, sharedReactEsbuildPlugin } from "../shared/shared-react.mjs";
+import { joinSectionChunks } from "./section-chunks.mjs";
 import { SHARED_ORIGIN } from "./shared-origin.mjs";
 
 export { SHARED_ORIGIN };
@@ -232,6 +233,20 @@ export async function buildPages(options) {
         : undefined,
     ]);
     await compiler.finish(options.report);
+    // A page's lazy sections (src/pages/<page>/sections/) load one file each and leave every other
+    // page's chunks as they were with the sections built in (section-chunks.mjs).
+    if (pages) {
+      const pageEntries = new Map(
+        options.pages.map((page) => [page, entryOutput(pages.outputs, path.join(root, page, "main.tsx"), page)]),
+      );
+      pages.outputs = await joinSectionChunks({
+        outdir: pagesWork,
+        outputs: pages.outputs,
+        pageEntries,
+        pagesRoot: root,
+        target: appBundleOptions.target,
+      });
+    }
 
     fs.rmSync(path.join(options.out, SHARED), { recursive: true, force: true });
     fs.mkdirSync(path.join(options.out, SHARED), { recursive: true });

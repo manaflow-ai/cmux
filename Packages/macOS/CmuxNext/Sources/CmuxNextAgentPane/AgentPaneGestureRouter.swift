@@ -1,12 +1,17 @@
 public import AppKit
 public import CmuxNextInput
 import CmuxNextPages
+import CmuxNextWakeups
 
 /// A pane that takes the person's key presses and clicks as user gestures (``AgentPaneView``; tests
 /// use light views). ``AgentPaneGestureRouter`` finds the one pane an event goes to and calls only it.
 @MainActor protocol AgentPaneGestureTarget: NSView {
     /// Judges `event` as this pane's gesture; the pane checks again that it is the person's and its own.
     func judge(_ event: NSEvent, eventWindow: NSWindow?)
+    /// The pane's tab in the visibility tree, once the pane that shows it gave one: while it is
+    /// hidden the router asks the pane nothing, in O(1). Nil before then. A node that is not hidden
+    /// does not prove the pane shows: ``ownsChildWindow(_:)`` still checks.
+    var gestureNode: VisibilityNode? { get }
     /// Whether `eventWindow`, a child window of the pane's window, is the window this pane's page
     /// draws in now (a Chromium page draws in such a window, over its pane). A hidden pane owns none:
     /// tabs of one pane keep their pages in the window, hidden, at the same frame.
@@ -20,9 +25,9 @@ import CmuxNextPages
 /// The pane is the one the event goes to: for a key, the pane holding the window's first responder;
 /// for a click, the pane under the pointer (the window's hit test, so a hidden pane or a view over the
 /// page takes nothing); for an event in a child window (a Chromium page's), the shown pane whose page
-/// window it is, by identity, not by position. Chrome grants user activation the same way, to the frame the event is routed to and to no
-/// other (`content/browser/renderer_host/render_widget_host_input_event_router.cc` picks the target
-/// widget; `third_party/blink/renderer/core/frame/web_frame_widget_impl.cc` notifies activation for
+/// window it is, by identity, not by position, asked only of panes whose tab node is not hidden.
+/// Chrome grants user activation the same way, to the frame the event is routed to and to no other
+/// (`content/browser/renderer_host/render_widget_host_input_event_router.cc` picks the target widget; `third_party/blink/renderer/core/frame/web_frame_widget_impl.cc` notifies activation for
 /// that frame's input only).
 ///
 /// The subscription is an intercept at ``InputEventTap/InterceptOrder/standard`` that always passes,
@@ -101,7 +106,8 @@ import CmuxNextPages
                         window: NSWindow) -> (any AgentPaneGestureTarget)? {
         guard eventWindow === window else {
             for slot in entry.targets {
-                if let target = slot.target, target.ownsChildWindow(eventWindow) { return target }
+                guard let target = slot.target, target.gestureNode?.effective != .hidden else { continue }
+                if target.ownsChildWindow(eventWindow) { return target }
             }
             return nil
         }
@@ -122,7 +128,12 @@ import CmuxNextPages
 }
 
 extension AgentPaneView: AgentPaneGestureTarget {
-    func ownsChildWindow(_ eventWindow: NSWindow) -> Bool { // visibility-walk-allow: one press's hit test; hitTest skips a hidden view too
+    var gestureNode: VisibilityNode? { visibilityNode }
+
+    /// The router asks only while ``gestureNode`` is not hidden. The view tree is still read: a pane's
+    /// node does not follow its screen's hiding yet (p06-scheduler-023), and a page window is matched
+    /// by place, so a pane on a hidden screen at the same rect must not own the shown pane's window.
+    func ownsChildWindow(_ eventWindow: NSWindow) -> Bool { // visibility-walk-allow: one pane per press, after the router's O(1) node skip
         page.showsChromium && !isHiddenOrHasHiddenAncestor && chromiumPage?.isPageWindow(eventWindow) == true
     }
 }

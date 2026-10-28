@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4d7b70e8f59c1edd691398b791a050b123e7235b3ee05a7652613d7f80150c85.
+// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -812,6 +812,8 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub viewer_backlog_bytes: Optional<u64>,
@@ -838,6 +840,12 @@ pub struct BindConversationTabSessionResult {
     pub conversation: T::ConversationTabRecord,
     pub replayed: bool,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgeHelloRequest {
+    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]
@@ -1064,6 +1072,12 @@ pub type CancelRequestResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelStreamRequest {
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChiefInspectRequest {
     pub path: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1115,6 +1129,8 @@ pub struct ClientFocusResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ClientHelloRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub features: Optional<T::ClientHelloFeatures>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2446,6 +2462,8 @@ pub type DeleteWorkspaceGroupResult = T::JsonValue;
 pub struct DetachAttachedViewRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -3009,6 +3027,14 @@ pub struct MarkWorkspacesProviderManagedRequest {
 
 #[rustfmt::skip]
 pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MemoryReportRequest {
+}
+
+#[rustfmt::skip]
+pub type MemoryReportResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3806,6 +3832,8 @@ pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
 pub struct ReleaseAttachedViewSizeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -3998,6 +4026,8 @@ pub struct ResizeAttachedViewRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub lease: Optional<String>,
     pub rows: u16,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,
@@ -4506,6 +4536,24 @@ pub struct SetSplitRatioRequest {
 pub type SetSplitRatioResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetStreamPriorityRequestPriority {
+    #[serde(rename = "focused")]
+    Focused,
+    #[serde(rename = "visible")]
+    Visible,
+    #[serde(rename = "hidden")]
+    Hidden,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetStreamPriorityRequest {
+    pub priority: SetStreamPriorityRequestPriority,
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTabPinnedRequest {
     pub pinned: bool,
@@ -4629,6 +4677,8 @@ pub struct SnapshotRequestRequest {
     pub reason: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub request_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<u16>,
     pub surface: T::Id,
 }
 
@@ -5395,6 +5445,10 @@ impl CmuxClient {
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if !request.stream.is_missing() {
+            self.require_protocol_field("attach-surface", 12)?;
+            self.require_capability_field("attach-surface", "attach-streams-v1")?;
+        }
         if !request.viewer_backlog_bytes.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
@@ -5403,6 +5457,10 @@ impl CmuxClient {
 
     pub fn bind_conversation_tab_session(&mut self, request: BindConversationTabSessionRequest) -> Result<BindConversationTabSessionResult> {
         self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
+    }
+
+    pub fn bridge_hello(&mut self, request: BridgeHelloRequest) -> Result<T::BridgeHelloResult> {
+        self.execute(&BRIDGE_HELLO_METADATA, &request)
     }
 
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
@@ -5475,6 +5533,10 @@ impl CmuxClient {
 
     pub fn cancel_request(&mut self, request: CancelRequestRequest) -> Result<CancelRequestResult> {
         self.execute(&CANCEL_REQUEST_METADATA, &request)
+    }
+
+    pub fn cancel_stream(&mut self, request: CancelStreamRequest) -> Result<T::CancelStreamResult> {
+        self.execute(&CANCEL_STREAM_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
@@ -5885,6 +5947,10 @@ impl CmuxClient {
     }
 
     pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("detach-attached-view", 12)?;
+            self.require_capability_field("detach-attached-view", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("detach-attached-view", 12)?;
             self.require_capability_field("detach-attached-view", "shared-sizing-v1")?;
@@ -6121,6 +6187,10 @@ impl CmuxClient {
 
     pub fn mark_workspaces_provider_managed(&mut self, request: MarkWorkspacesProviderManagedRequest) -> Result<MarkWorkspacesProviderManagedResult> {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
+    }
+
+    pub fn memory_report(&mut self, request: MemoryReportRequest) -> Result<MemoryReportResult> {
+        self.execute(&MEMORY_REPORT_METADATA, &request)
     }
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
@@ -6487,6 +6557,10 @@ impl CmuxClient {
     }
 
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("release-attached-view-size", 12)?;
+            self.require_capability_field("release-attached-view-size", "attach-streams-v1")?;
+        }
         if !request.view.is_missing() {
             self.require_protocol_field("release-attached-view-size", 12)?;
             self.require_capability_field("release-attached-view-size", "shared-sizing-v1")?;
@@ -6582,6 +6656,10 @@ impl CmuxClient {
         if !request.identity.is_missing() {
             self.require_protocol_field("resize-attached-view", 12)?;
             self.require_capability_field("resize-attached-view", "shared-sizing-v1")?;
+        }
+        if !request.stream.is_missing() {
+            self.require_protocol_field("resize-attached-view", 12)?;
+            self.require_capability_field("resize-attached-view", "attach-streams-v1")?;
         }
         if !request.view.is_missing() {
             self.require_protocol_field("resize-attached-view", 12)?;
@@ -6826,6 +6904,10 @@ impl CmuxClient {
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
     }
 
+    pub fn set_stream_priority(&mut self, request: SetStreamPriorityRequest) -> Result<T::SetStreamPriorityResult> {
+        self.execute(&SET_STREAM_PRIORITY_METADATA, &request)
+    }
+
     pub fn set_tab_pinned(&mut self, request: SetTabPinnedRequest) -> Result<SetTabPinnedResult> {
         self.execute(&SET_TAB_PINNED_METADATA, &request)
     }
@@ -6887,6 +6969,10 @@ impl CmuxClient {
     }
 
     pub fn snapshot_request(&mut self, request: SnapshotRequestRequest) -> Result<T::SnapshotRequestResult> {
+        if !request.stream.is_missing() {
+            self.require_protocol_field("snapshot-request", 12)?;
+            self.require_capability_field("snapshot-request", "attach-streams-v1")?;
+        }
         self.execute(&SNAPSHOT_REQUEST_METADATA, &request)
     }
 

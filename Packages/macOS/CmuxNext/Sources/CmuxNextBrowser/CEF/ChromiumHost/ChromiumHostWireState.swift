@@ -206,7 +206,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
         while open {
             let room = chunk.count
             // SAFETY: read writes at most `room` bytes, the array's size, into its buffer during the call.
-            let count = unsafe Darwin.read(fd, &chunk, room)
+            let count = unsafe blockingRead(fd, &chunk, room)
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }  // EOF: the host ended, or close() shut the socket down
             buffer.append(contentsOf: chunk[0..<count])
@@ -221,11 +221,12 @@ nonisolated final class ChromiumHostWireState: Sendable {
                 start += consumed
                 decoded = ChromiumHostFrame.decode(buffer[start...])
             }
-            if decoded == .invalid {
+            // A frame never claims more than the bytes read; one that does is an invalid wire too.
+            if decoded != .invalid, start <= buffer.count {
+                buffer.removeFirst(start)
+            } else {
                 protocolError.store(true, ordering: .releasing)
                 open = false
-            } else {
-                buffer.removeFirst(start)
             }
         }
         let waiters = wire.withLock { wire -> [OnceContinuation<Void, OnceContinuationError>] in

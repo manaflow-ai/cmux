@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBridge
 import CmuxNextBookmarks
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextHistory
@@ -43,7 +44,7 @@ import Testing
         rig.hide()
         #expect(rig.discards.nextCheck == 60, "a hidden Passwords page waits its one minute")
         // A picture of the listing from before (a cover, a preview) must not outlive the page.
-        rig.cache.internalPagePictures.insert(try #require(Self.picture()), for: rig.key)
+        rig.cache.internalPagePictures.insert(PurgeablePicture(resident: try #require(Self.picture())), for: rig.key)
 
         rig.advance(59)
         rig.discards.replan()

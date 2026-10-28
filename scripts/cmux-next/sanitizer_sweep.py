@@ -13,8 +13,10 @@ Usage (a fleet step only; see README-sanitizers.md):
    A target red here is base-red: it goes to base-red.jsonl and the printed base-red list, and nothing
    it reports under a sanitizer is counted. A package that does not build here has no verdict.
 4. One pass per mode: thread, address and undefined set CMUX_SWIFT_SANITIZE (the lane builds into its
-   own scratch folder); coop-strict sets CMUX_SWIFT_TEST_COOP_STRICT=1, so the lane gives
-   LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 to the test runs and not to the build.
+   own scratch folder); coop-strict puts the sweep's own `swift` shim first on PATH, which gives
+   LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 to `swift test` (and the test process it starts) and not to
+   `swift build`. The lane itself has no coop-strict knob: the fleet runs package-test-lane.sh only at
+   its reviewed (main / feat-cmux-next) bytes, so a branch-only lane change would refuse every step.
 5. Each target's output is read with crash_signature.py. Only the mode's own kind counts (thread: tsan,
    address: asan, undefined: ubsan, coop-strict: the blocked cooperative-pool thread of a stalled test
    process). Each unique (mode, hash12) is one line of --out, the Q15 queue. Everything else goes to
@@ -63,7 +65,24 @@ TIMEOUT_MULTIPLIER = {"thread": 3, "address": 2, "undefined": 2, "coop-strict": 
 STALL_SECONDS = 180
 TIMEOUT_SECONDS = 900
 TSAN_TYPES = ("race", "race_top", "thread", "mutex", "signal", "deadlock", "called_from_lib")
-LANE_MODE_VARIABLES = ("CMUX_SWIFT_SANITIZE", "CMUX_SWIFT_TEST_COOP_STRICT", "LIBDISPATCH_COOPERATIVE_POOL_STRICT")
+LANE_MODE_VARIABLES = ("CMUX_SWIFT_SANITIZE", "LIBDISPATCH_COOPERATIVE_POOL_STRICT")
+# coop-strict: the directory (under the sweep's output folder) of the `swift` shim put first on PATH.
+COOP_STRICT_BIN = "coop-strict-bin"
+# The shim drops its own PATH entry and runs the next `swift` (the xcrun shim, which honors DEVELOPER_DIR).
+# Only `swift test`, which package-test-lane.sh runs under hung_test_watchdog.py, gets the strict pool:
+# a `swift build` on a one-thread pool has no watchdog.
+COOP_STRICT_SHIM = """#!/bin/bash
+# Written by scripts/cmux-next/sanitizer_sweep.py for its coop-strict pass.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+path=":$PATH:"
+path="${path//":$here:"/:}"
+path="${path#:}"
+export PATH="${path%:}"
+if [ "${1:-}" = test ]; then
+  export LIBDISPATCH_COOPERATIVE_POOL_STRICT=1
+fi
+exec swift "$@"
+"""
 POOL_STALL = "cooperative-pool stall"
 
 FLEET_COMMAND = ("cmux-ci run --class isolated --ref SHA --script scripts/cmux-next/sanitizer-sweep.sh"
@@ -325,13 +344,24 @@ def parse_lane_output(text: str) -> tuple[dict[str, str], dict[str, str]]:
     return results, {target: "\n".join(lines) for target, lines in output.items()}
 
 
-def mode_environment(base: Mapping[str, str], mode: str | None) -> dict[str, str]:
+def write_coop_strict_shim(directory: Path) -> Path:
+    """The coop-strict `swift` shim in `directory` (COOP_STRICT_SHIM); returns the directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    shim = directory / "swift"
+    shim.write_text(COOP_STRICT_SHIM, encoding="utf-8")
+    shim.chmod(0o755)
+    return directory.resolve()
+
+
+def mode_environment(base: Mapping[str, str], mode: str | None, coop_strict_bin: Path | None = None) -> dict[str, str]:
     """The lane's environment: no sanitizer for the base pass, else the mode's variables and longer limits."""
     env = {k: v for k, v in base.items() if k not in LANE_MODE_VARIABLES}
     if mode is None:
         return env
     if mode == "coop-strict":
-        env["CMUX_SWIFT_TEST_COOP_STRICT"] = "1"
+        if coop_strict_bin is None:
+            raise SweepError("coop-strict needs the swift shim (write_coop_strict_shim)")
+        env["PATH"] = os.pathsep.join(filter(None, [str(coop_strict_bin), env.get("PATH", "")]))
     else:
         env["CMUX_SWIFT_SANITIZE"] = mode
     multiplier = TIMEOUT_MULTIPLIER[mode]
@@ -480,6 +510,8 @@ def sweep(root: Path, modes: Iterable[str], packages: list[Package], out_dir: Pa
           environ: Mapping[str, str], checkpoint: Callable[[Sweep], None] = lambda _: None) -> Sweep:
     result = Sweep()
     base_runs: dict[str, LaneRun] = {}
+    modes = list(modes)
+    coop_strict_bin = write_coop_strict_shim(out_dir / COOP_STRICT_BIN) if "coop-strict" in modes else None
     for package in packages:
         run = run_lane(package, mode_environment(environ, None), out_dir / "logs" / "base" / f"{package.name}.log")
         base_runs[package.path] = run
@@ -498,7 +530,8 @@ def sweep(root: Path, modes: Iterable[str], packages: list[Package], out_dir: Pa
             if not base_runs[package.path].built():
                 continue
             red = {row["target"] for row in result.base_red if row["package"] == package.path}
-            run = run_lane(package, mode_environment(environ, mode), out_dir / "logs" / mode / f"{package.name}.log")
+            run = run_lane(package, mode_environment(environ, mode, coop_strict_bin),
+                           out_dir / "logs" / mode / f"{package.name}.log")
             classify(result, mode, package, run, red)
             result.runs.append(f"{mode} {package.path}")
             checkpoint(result)

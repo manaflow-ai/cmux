@@ -6,6 +6,9 @@ import os
 /// (`WindowOverlayHost`), so nothing of the app can fall below a page that
 /// the CEF fork re-adds above every child.
 ///
+/// With pages in the view tree (``PageSurface/views``, the Chromium Host) no child window is a page:
+/// only content panels (`ContentChildPanel`) are page content there.
+///
 /// Presenters that still add a panel of their own are listed in
 /// `legacyPanels` until they move onto the host; each move removes its entry.
 /// The main window's `addChildWindow` override calls `check(_:parent:)`.
@@ -28,7 +31,7 @@ public struct ChildWindowPolicy {
 
     /// Whether `child` may be a child window of a main window `parent`.
     public static func allows(_ child: NSWindow, parent: NSWindow) -> Bool {
-        if WindowOverlayHost.isPageWindow(child) { return true }
+        if WindowOverlayHost.isPageWindow(child, on: PageSurface.of(parent)) { return true }
         // AppKit's full screen titlebar: AppKit adds it, the app does not.
         if WindowOverlayHost.isAppKitChrome(child) { return true }
         if let host = WindowOverlayHost.existingHost(for: parent), child === host.madePanel { return true }

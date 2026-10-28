@@ -27,6 +27,10 @@ public enum TerminalChannelEvent: Sendable, Hashable {
     /// (p09-observability-018), so the typing probe marks that press when the session and the lane
     /// take that chunk. Only while the probe records.
     case inputEcho(flow: UInt64)
+    /// Live output waits behind the events before this one: resume the marker once they are applied, and
+    /// output goes straight to the view's lane again (``TerminalAttachment/setOutputSink(_:)``). Only while
+    /// a sink is set.
+    case outputResume(TerminalOutputMarker)
     /// Canonical size changed: discard the mirror and rebuild from this replay
     /// before later output.
     case resized(TerminalReplay)

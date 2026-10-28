@@ -25,6 +25,20 @@ import Testing
         #expect(event.extra?["turn_ms"] as? Int == 3_000)
     }
 
+    /// p09-observability-077: a hang the watchdog caught inside the Chromium message pump is tagged `hang.cef`.
+    @Test func aHangInsideTheCEFPumpIsTaggedCEF() {
+        let event = MainThreadHangEvent(duration: .seconds(2), addresses: [], phase: "cef_pump", cef: true).event()
+        #expect(event.tags?["hang.cef"] == "true")
+        #expect(event.tags?["main_thread_phase"] == "cef_pump")
+        #expect(MainThreadHangEvent(duration: .seconds(2), addresses: []).event().tags?["hang.cef"] == nil)
+    }
+
+    @Test func aLagSpikeInsideTheCEFPumpIsTaggedCEF() {
+        let spike = LagSpikeEvent(duration: .milliseconds(300), cpu: .milliseconds(300), addresses: [], cef: true).event()
+        #expect(spike.tags?["hang.cef"] == "true")
+        #expect(LagSpikeEvent(duration: .milliseconds(300), cpu: .milliseconds(300), addresses: []).event().tags?["hang.cef"] == nil)
+    }
+
     @Test func noAttributionSetsNoTags() {
         let event = MainThreadHangEvent(duration: .seconds(2), addresses: []).event()
         #expect(event.tags?["hang_owner"] == nil)

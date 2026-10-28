@@ -16,6 +16,7 @@ enum PinnedPage {
         // browser tab away from its pinned page. An unresolved target keeps
         // the row (its handler reports why).
         ActionTargetVisibility.hide("browser.resetPinnedTab", in: registry) { invocation in
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return false }
             return target(of: tab, ctx).map { $0.absoluteString == tab.url } ?? true
         }

@@ -25,6 +25,6 @@ extension EmptyWorkspaceRepair {
             if case .connected = daemon.store.connectionState { return true }
             return false
         }, epoch: { [weak daemon] in daemon?.store.connectionEpoch ?? 0 },
-        isLive: { [weak daemon] in daemon?.store.isLoaded ?? false })
+        isLive: { [weak daemon] in daemon?.store.isLoaded ?? false }, on: daemon.mainWork)
     }
 }

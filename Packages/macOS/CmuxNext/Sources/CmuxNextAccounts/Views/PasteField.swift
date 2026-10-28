@@ -11,6 +11,8 @@ struct PasteField: View {
     let palette: AccountsPalette
     @State private var secret = ""
     @State private var error: String?
+    /// A Keychain save is in flight: Save is off until it answers.
+    @State private var saving = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space3) {
@@ -27,10 +29,15 @@ struct PasteField: View {
                 }
                 if provider.acceptsPastedKey {
                     Button(AccountsStrings.saveToKeychain) {
-                        error = model.saveKey(secret, for: provider)
-                        if error == nil { close() }
+                        let value = secret
+                        saving = true
+                        // The Keychain write runs off the main thread; the field stays until it answers.
+                        model.saveKey(value, for: provider) { failure in
+                            saving = false
+                            if let failure { error = failure } else { close() }
+                        }
                     }
-                    .disabled(secret.isEmpty)
+                    .disabled(secret.isEmpty || saving)
                 }
                 if provider.codeRouterLink != .unsupported {
                     Button(AccountsStrings.sendToCodeRouter) {

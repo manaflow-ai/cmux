@@ -526,7 +526,9 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
             path.addRect(CGRect(x: 0, y: 8, width: 10, height: 2))
         }
         // The grid runs y-down from the top-left corner.
-        var place = CGAffineTransform(a: rect.width / grid, b: 0, c: 0, d: -rect.height / grid, tx: rect.minX, ty: rect.maxY)
-        return path.copy(using: &place) ?? path
+        let placed = CGMutablePath()
+        placed.addPath(path, transform: CGAffineTransform(a: rect.width / grid, b: 0, c: 0, d: -rect.height / grid,
+                                                          tx: rect.minX, ty: rect.maxY))
+        return placed
     }
 }

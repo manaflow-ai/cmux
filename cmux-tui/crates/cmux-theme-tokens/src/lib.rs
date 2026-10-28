@@ -40,6 +40,8 @@
 //! }
 //! ```
 
+#![forbid(unsafe_code)]
+
 mod app_theme;
 mod colors;
 mod config;

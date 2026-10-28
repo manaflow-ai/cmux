@@ -18,6 +18,7 @@ public final class IdentifyResult implements WireValue {
     private final Field<List<String>> capabilities;
     private final Field<String> cliPath;
     private final Field<String> crateVersion;
+    private final Field<List<Integer>> framedMethods;
     private final String generation;
     private final Field<String> ghosttyCommit;
     private final Field<String> install;
@@ -31,6 +32,7 @@ public final class IdentifyResult implements WireValue {
     private final long pid;
     private final long protocol;
     private final String registryId;
+    private final Field<String> sdkSchemaDigest;
     private final String session;
     private final Field<String> sessionId;
     private final Field<DaemonStartupMarks> startupMarks;
@@ -47,6 +49,7 @@ public final class IdentifyResult implements WireValue {
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
         this.cliPath = builder.cliPath;
         this.crateVersion = builder.crateVersion;
+        this.framedMethods = builder.framedMethods.map(value -> List.copyOf(value));
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         this.ghosttyCommit = builder.ghosttyCommit;
@@ -64,6 +67,7 @@ public final class IdentifyResult implements WireValue {
         this.protocol = builder.protocol;
         if (!builder.registryIdSet) throw new IllegalArgumentException("registry_id is required");
         this.registryId = Wire.nonNull(builder.registryId, "registry_id");
+        this.sdkSchemaDigest = builder.sdkSchemaDigest;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = Wire.nonNull(builder.session, "session");
         this.sessionId = builder.sessionId;
@@ -88,6 +92,7 @@ public final class IdentifyResult implements WireValue {
     public Field<String> cliPath() { return cliPath; }
     public Field<String> crateVersion() { return crateVersion; }
     public Long daemonHandoff() { return 1L; }
+    public Field<List<Integer>> framedMethods() { return framedMethods; }
     public String generation() { return generation; }
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
     public Field<String> install() { return install; }
@@ -101,6 +106,7 @@ public final class IdentifyResult implements WireValue {
     public long pid() { return pid; }
     public long protocol() { return protocol; }
     public String registryId() { return registryId; }
+    public Field<String> sdkSchemaDigest() { return sdkSchemaDigest; }
     public String session() { return session; }
     public Field<String> sessionId() { return sessionId; }
     public Field<DaemonStartupMarks> startupMarks() { return startupMarks; }
@@ -144,6 +150,10 @@ public final class IdentifyResult implements WireValue {
         }
         Object rawDaemonHandoff = Wire.required(object, "daemon_handoff");
         ProtocolSupport.literal(rawDaemonHandoff, 1L, "IdentifyResult.daemon_handoff");
+        Object rawFramedMethods = Wire.optional(object, "framed_methods");
+        if (!Wire.isMissing(rawFramedMethods)) {
+            builder.framedMethods(rawFramedMethods == null ? null : Wire.array(rawFramedMethods, "IdentifyResult.framed_methods", item -> Wire.uint16(item, "IdentifyResult.framed_methods item")));
+        }
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "IdentifyResult.generation"));
         Object rawGhosttyCommit = Wire.optional(object, "ghostty_commit");
@@ -188,6 +198,10 @@ public final class IdentifyResult implements WireValue {
         builder.protocol(Wire.uint32(rawProtocol, "IdentifyResult.protocol"));
         Object rawRegistryId = Wire.required(object, "registry_id");
         builder.registryId(Wire.string(rawRegistryId, "IdentifyResult.registry_id"));
+        Object rawSdkSchemaDigest = Wire.optional(object, "sdk_schema_digest");
+        if (!Wire.isMissing(rawSdkSchemaDigest)) {
+            builder.sdkSchemaDigest(rawSdkSchemaDigest == null ? null : Wire.string(rawSdkSchemaDigest, "IdentifyResult.sdk_schema_digest"));
+        }
         Object rawSession = Wire.required(object, "session");
         builder.session(Wire.string(rawSession, "IdentifyResult.session"));
         Object rawSessionId = Wire.optional(object, "session_id");
@@ -223,6 +237,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "cli_path", cliPath);
         Wire.put(object, "crate_version", crateVersion);
         Wire.put(object, "daemon_handoff", 1L);
+        Wire.put(object, "framed_methods", framedMethods);
         Wire.put(object, "generation", generation);
         Wire.put(object, "ghostty_commit", ghosttyCommit);
         Wire.put(object, "install", install);
@@ -236,6 +251,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
         Wire.put(object, "registry_id", registryId);
+        Wire.put(object, "sdk_schema_digest", sdkSchemaDigest);
         Wire.put(object, "session", session);
         Wire.put(object, "session_id", sessionId);
         Wire.put(object, "startup_marks", startupMarks);
@@ -249,11 +265,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(startupMarks, that.startupMarks) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(framedMethods, that.framedMethods) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(sdkSchemaDigest, that.sdkSchemaDigest) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(startupMarks, that.startupMarks) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, session, sessionId, startupMarks, terminalRevision, updateCommand, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, framedMethods, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, sdkSchemaDigest, session, sessionId, startupMarks, terminalRevision, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -266,6 +282,7 @@ public final class IdentifyResult implements WireValue {
         private Field<List<String>> capabilities = Field.omitted();
         private Field<String> cliPath = Field.omitted();
         private Field<String> crateVersion = Field.omitted();
+        private Field<List<Integer>> framedMethods = Field.omitted();
         private String generation;
         private boolean generationSet;
         private Field<String> ghosttyCommit = Field.omitted();
@@ -283,6 +300,7 @@ public final class IdentifyResult implements WireValue {
         private boolean protocolSet;
         private String registryId;
         private boolean registryIdSet;
+        private Field<String> sdkSchemaDigest = Field.omitted();
         private String session;
         private boolean sessionSet;
         private Field<String> sessionId = Field.omitted();
@@ -321,6 +339,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder crateVersion(String value) {
             this.crateVersion = Field.ofNullable(value);
+            return this;
+        }
+        public Builder framedMethods(List<Integer> value) {
+            this.framedMethods = Field.ofNullable(value);
             return this;
         }
         public Builder generation(String value) {
@@ -377,6 +399,10 @@ public final class IdentifyResult implements WireValue {
         public Builder registryId(String value) {
             this.registryId = value;
             this.registryIdSet = true;
+            return this;
+        }
+        public Builder sdkSchemaDigest(String value) {
+            this.sdkSchemaDigest = Field.ofNullable(value);
             return this;
         }
         public Builder session(String value) {

@@ -536,6 +536,11 @@ body {
     animation: none;
   }
 }
+/* Energy Saver and animations off (`data-cmux-energy`, `data-cmux-motion`, WebTheme.swift): the
+   ring holds still. */
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) .base-picker-spinner {
+  animation: none;
+}
 .base-picker-popover {
   /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
      `.toolbar-left`'s `overflow-x: clip` AND its `container-type: inline-size`:
@@ -1310,6 +1315,10 @@ body[data-loading="true"] #status::before {
   body[data-loading="true"] #status::before {
     animation: none;
   }
+}
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) #status[data-pending="true"]::before,
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) body[data-loading="true"] #status::before {
+  animation: none;
 }
 
 /* Diff review comments */

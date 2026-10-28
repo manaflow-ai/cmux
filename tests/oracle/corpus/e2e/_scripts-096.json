@@ -1,0 +1,60 @@
+{
+  "$comment": "p15-oracle-096: e2e scripts 45-55 of MQ-e2e (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted), each converted to a case of this suite or excluded with a reason. The scripts stay; each case's first step names its script. `fix` is the commit that made the behavior the case checks, `parent` that commit's parent: the case's acceptance is red on `parent`. `catches` names the step (before the colon) that shows the bug there, and `shows` how: `failure` (the run ends Failure or Timeout at that step) or `baseline` (the run passes, and that step's snapshot differs from the head's reviewed baseline). `catches: null` means the case cannot see the bug yet, and `gap` says why. One file per batch, as _scripts-093.json and _scripts-094.json; oracle.py skips `_` files.",
+  "task": "p15-oracle-096",
+  "queue": "MQ-e2e",
+  "range": [45, 55],
+  "red_on_parent": "not run: each parent predates the debug.oracle.* methods (e0c736692e5, 2026-10-26), so driver_app refuses the launch (no-oracle-methods) before the first step. The fleet runs each case on its parent with oracle.py diff --overlay once p15-oracle-202 lands; until then `catches` is the expected failing step, not an observed one. scripts/cmux-next/oracle/e2e_096_cases_test.py shows each case tells the described parent behavior apart at that step.",
+  "scripts": {
+    "scripts/cmux-next/rapid-workspace-e2e.py": {
+      "case": "e2e/rapid-workspace",
+      "fix": "951211aeb48f507d527cece5228e5b1d3ee32001",
+      "parent": "21b316fd4d3173b316cea0a999756619765033f8",
+      "cited": "cx-7cit9 (#19757)",
+      "catches": "after-burst: on the parent the creates run at once, so the daemon numbers the new workspaces with gaps, a Cmd-Shift-W closes the workspace the window still showed, and a 'no workspace <uuid>' refusal counts in intents.totals.refused",
+      "shows": "baseline",
+      "gap": "the sidebar rows' order against the daemon's: the sidebar facet (p15-oracle-036) has no provider on the base"
+    },
+    "scripts/cmux-next/relaunch-e2e.py": {
+      "excluded": "ends the app on purpose (SIGKILL, Quit, debug.crash.app) and relaunches it on the tag's saved state, then types tokens into top, vim and an output loop through real shells and compares the Ghostty mirror's text and `stty size`: driver_app has no restart step (p15-oracle-023), allow_crashes has no app kind (p15-oracle-188), and its --matrix needs display, scale and appearance changes no launch applies. The re-attach it checks is the daemon restart cases' (driver_daemon) until restart reaches the app driver"
+    },
+    "scripts/cmux-next/remote-group-e2e.py": {
+      "excluded": "real SSH host: `cmux remote connect ssh://HOST` bootstraps the pinned cmux-tui on another machine over the network and drives a scratch git repository there; oracle cases are offline (section 3D) and hold no host credential"
+    },
+    "scripts/cmux-next/sidebar-archive-e2e.py": {
+      "case": "e2e/sidebar-archive",
+      "fix": "fdb69742b252b4d01f76c6a5e8bbe9dc8f8abda7",
+      "parent": "0498645db2e766fa4b902127abc95f732da03b30",
+      "cited": "plans/cmux-next/archiving-DESIGN.md (Aziz 2026-10-23)",
+      "catches": "archive-grouped: on the parent workspace.toggleArchive is no action (control.not_found), so expect ok fails",
+      "shows": "failure",
+      "gap": "the archived row's place and dimmed look: the sidebar facet (p15-oracle-036) has no provider on the base and its rows have no archived field (p15-oracle-271); the restart and palette-undo legs need a restart step and that field"
+    },
+    "scripts/cmux-next/sidebar-disclosure-e2e.py": {
+      "excluded": "the chevron's icon, size and place and the row fill on hover are drawing, read from debug.sidebar_rows view frames while debug.mouse hovers: no facet records disclosure geometry, hover or fill (the sidebar facet's rows say only collapsed), and case-v1 has no pointer step; the cited fix (cx-fo2t, 575c79494de) changed only how the rows draw"
+    },
+    "scripts/cmux-next/sidebar-notification-e2e.py": {
+      "excluded": "the bug it cites (cx-sv425, fix 9f88ede93c5, parent 8daa6eaf790) is the notified workspace moving to the top row, a sidebar placement (SidebarBridge reorder) the script reads from debug.sidebar_rows. The topology lists the daemon's order, which the move does not change, the sidebar facet (p15-oracle-036) has no provider on the base, and driver_app cannot compare one field of a cli step's output (no resultExcept, and expect.result is the whole reply), so no case can go red on the parent. The unread mark and the unchanged focus were already right on the parent; convert it when 036 provides the sidebar rows"
+    },
+    "scripts/cmux-next/sidebar-reorder-e2e.py": {
+      "excluded": "drags a row with debug.mouse held open, captures the window during the hold, drops, relaunches and captures again, and records the R99 space slide with trackpad scroll phases: case-v1 has no pointer step, driver_app has no restart (p15-oracle-023), and the hold is pixels"
+    },
+    "scripts/cmux-next/sidebar-tab-drop-e2e.py": {
+      "excluded": "the bug (cx-8g6ez) is the pointer's path and timing: a pass through the slot above a row inside its 0.25 s dwell opened a new-workspace gap that slid the row out from under the drop. case-v1 has no pointer step and debug.key cannot drag"
+    },
+    "scripts/cmux-next/sidebar-tab-rows-e2e.py": {
+      "excluded": "reads each tab row's right-click menu at a point (debug.sidebar_rows menu_x/menu_y) and drags tab rows onto another row's top edge and onto the gap after a workspace with debug.mouse: case-v1 has no pointer step and no facet reads menu titles"
+    },
+    "scripts/cmux-next/split-dwell-e2e.py": {
+      "excluded": "the dwell (tabDrag.splitDwell) is time held still on a pane edge during a drag, read from debug.tab_drag's winner while the button is down: case-v1 has no pointer step, no facet reads a drag's preview, and a wall-clock dwell is not a checkpoint"
+    },
+    "scripts/cmux-next/split-new-tab-page-e2e.py": {
+      "case": "e2e/split-new-tab-page",
+      "fix": "8bdc0afd40a8b1e1821fc1cdadde68d8662e2c8d",
+      "parent": "b945566eb879b6a3936e35c65b5a16f061f26cbc",
+      "cited": "cx-jfo7, cmuxterm-hq#1829 (#19022)",
+      "catches": "split-browser: on the parent Cmd-D on a browser tab opens a terminal, so the wait for the New Tab page's agentPage focus times out",
+      "shows": "failure",
+      "gap": "the Open Tabs rows' titles: no facet reads the page's rows, so the case picks row 0"
+    }
+  }
+}

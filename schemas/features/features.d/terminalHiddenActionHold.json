@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalHiddenActionHold",
+  "owner": "PL-ghostty",
+  "description": "A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-24",
+  "process": "app",
+  "params": [],
+  "stories": ["idle-tabs", "automation-typing"],
+  "sticky": false,
+  "runtimeMutable": false
+}

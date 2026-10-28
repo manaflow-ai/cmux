@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
+import Dispatch
 import Testing
 
 /// The startup phases (StartupPhase.swift; p06-scheduler.md section A): launching holds background
@@ -298,6 +299,28 @@ import Testing
         #expect(startup.settleCause == .references)
     }
 
+    /// p06-scheduler-204: raising the launch fence only counts: a best-effort item that already runs is not
+    /// waited on and finishes while the fence is up. A raise that waited for it would never return: the item
+    /// waits for the test's release, sent after the raise. The reveal lowering the fence, user-visible work
+    /// running at once and the held items' post order are LaunchOrderTests (CmuxNextAppTests), where the
+    /// order wires the fence to the phase.
+    @Test func theLaunchFenceDoesNotWaitForARunningItem() async {
+        let started = LaneSignal<Bool>(), finished = LaneSignal<Bool>()
+        let release = DispatchSemaphore(value: 0)
+        let work = BackgroundWork(label: "test.startup.fence.running")
+        work.post(.bestEffort, mayBlock: .files) {
+            started.send(true)
+            release.wait()
+            finished.send(true)
+        }
+        #expect(await started.next() == true)
+        let fence = work.raiseLaunchFence(cap: nil)
+        release.signal()
+        #expect(await finished.next() == true)
+        #expect(fence.isUp, "the running item finished under the raised fence")
+        fence.lower()
+    }
+
     /// Returns once `startup` reaches `phase` (event-driven: the phase change runs the resume).
     private func reached(_ phase: StartupPhase.Phase, _ startup: StartupPhase) async {
         await withCheckedContinuation { continuation in
@@ -331,4 +354,19 @@ private final class StartupUptime {
     private var now: UInt64 = 1_000_000_000
     var read: () -> UInt64 { { [self] in self.now } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+}
+
+/// Values sent from lane bodies (synchronous), awaited by the test in send order.
+private struct LaneSignal<Value: Sendable>: Sendable {
+    private let stream: AsyncStream<Value>
+    private let continuation: AsyncStream<Value>.Continuation
+
+    init() { (stream, continuation) = AsyncStream.makeStream(of: Value.self) }
+
+    func send(_ value: Value) { continuation.yield(value) }
+
+    func next() async -> Value? {
+        for await value in stream { return value }
+        return nil
+    }
 }

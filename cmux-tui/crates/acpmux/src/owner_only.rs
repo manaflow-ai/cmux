@@ -373,7 +373,11 @@ fn ensure_safe_parent(path: &Path) -> io::Result<()> {
 
 fn same_opened_object(left: &File, right: &File) -> io::Result<bool> {
     let identity = |file: &File| -> io::Result<(u32, u64)> {
+        // SAFETY: BY_HANDLE_FILE_INFORMATION is plain integers and FILETIMEs;
+        // all-zero is a valid value.
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        // SAFETY: `file` keeps the handle open across the call, and `info` is a
+        // writable structure of the type GetFileInformationByHandle fills.
         if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
             return Err(io::Error::last_os_error());
         }

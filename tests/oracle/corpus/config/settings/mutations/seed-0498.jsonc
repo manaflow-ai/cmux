@@ -1,0 +1,18 @@
+{
+    "editor": {
+        "tabSize": 4e0
+    },
+    "sidebar": {
+        "priorityView": {
+            "enabled": 1e0
+        },
+    },
+    "diff": {
+        "showBackgrounds": false,
+    },
+    "terminal": {
+        "linkOpener": {
+            "default": 10E-1,
+        },
+    }
+}

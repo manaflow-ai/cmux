@@ -88,7 +88,7 @@ import Testing
         for feature in AppFeature.catalog {
             guard let key = feature.settingsLink else { continue }
             // The anchor Settings scrolls to (`SettingsWindowService.show(setting:)`), not just a schema key.
-            #expect(SettingsAnchor(key: key) != nil, "\(feature.id) links to \(key), which Settings cannot show")
+            #expect(SettingsAnchor(key: key, availability: SettingsAvailability()) != nil, "\(feature.id) links to \(key), which Settings cannot show")
         }
         var shown: [String] = []
         let bridge = SettingsAppFeatures(settings: { nil }, showSettings: { shown.append($0) })

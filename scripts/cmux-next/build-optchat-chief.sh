@@ -107,6 +107,9 @@ deliver() {
     cp -f "$cache_bin" "$output"
     cp -f "$cache_bin.ref" "$output.ref" 2>/dev/null || true
     chmod 755 "$output"
+    # Its dSYM goes along (nightly.yml uploads <output>.dSYM to Sentry).
+    rm -rf "$output.dSYM"
+    if [[ -d "$cache_bin.dSYM" ]]; then cp -RL "$cache_bin.dSYM" "$output.dSYM"; fi
     found="$output"
   fi
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$found"; else echo "optchat-chief $verb at $found"; fi
@@ -149,6 +152,17 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 mkdir -p "$cache_dir"
+# Line tables go to a packed .dSYM beside each slice, cached beside the binary.
+# rustc makes it by running `dsymutil` from PATH after the link, so a host with
+# no dsymutil (the Linux pool's cross build of the app components, where acpmux
+# and cmux-tui have no dSYM either) builds without one: asking for it there
+# fails the link ("unable to run `dsymutil`"). A Mac always has /usr/bin/dsymutil.
+dsym_env=()
+if command -v dsymutil >/dev/null 2>&1; then
+  dsym_env=(CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed)
+else
+  echo "note: no dsymutil on PATH: optchat-chief builds without a dSYM" >&2
+fi
 slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
@@ -160,12 +174,15 @@ for target in "${targets[@]}"; do
   fi
   # An app build never ships the inspector's placeholder page: build.rs fails
   # when the page was not built (build-web-bundles.sh runs before this).
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
-    cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
+  (cd "$crate" && env ${dsym_env[@]+"${dsym_env[@]}"} OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 \
+    CARGO_TARGET_DIR="$target_dir" cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
   slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")
 done
+dsyms=()
+for slice in "${slices[@]}"; do dsyms+=("$slice.dSYM"); done
+"$repo_root/scripts/cmux-next/lipo-dsym.sh" "$cache_bin.dSYM" "${dsyms[@]}"
 staged="$cache_bin.tmp.$$"
 if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
 chmod 755 "$staged"

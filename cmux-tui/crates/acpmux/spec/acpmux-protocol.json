@@ -345,6 +345,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/memory_limit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true

@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// The persisted appearance tuner values in `cmux.json`.
 ///

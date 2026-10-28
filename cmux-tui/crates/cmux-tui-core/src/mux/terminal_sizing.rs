@@ -6,6 +6,7 @@ mod grid_hold;
 mod handheld_ceiling;
 pub(super) use grid_hold::AppliedSeat;
 pub(crate) mod host_policy;
+mod thread_qos;
 
 impl Mux {
     /// Activity by one client view: attach, explicit focus-click, or keyboard,
@@ -406,16 +407,7 @@ impl Mux {
         participant: &str,
         counts: Option<bool>,
     ) -> Option<bool> {
-        let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        self.mutate_terminal_sizing(runtime, |_, sizing| {
-            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
-            if !entry.engine.contains(participant) {
-                return None;
-            }
-            let changed = entry.engine.set_counts_override(participant, counts);
-            sizing.note_size_state(runtime, changed);
-            Some(changed)
-        })
+        self.set_terminal_size_counts_hiding(surface, participant, counts, None)
     }
 
     /// Set (`Some`) or clear (`None`) a terminal's policy override.
@@ -730,11 +722,15 @@ impl Mux {
     /// only without the sizing lock held.
     pub(super) fn publish_size_states(&self) {
         let follows_visibility = self.kitty_share_follows_visibility();
-        let (publications, visible) = {
+        let (publications, visible, thread_qos_changed) = {
             let mut sizing = self.client_sizing.lock().unwrap();
             let visible = follows_visibility.then(|| sizing.visible_terminals());
-            (sizing.take_size_state_publications(), visible)
+            let thread_qos_changed = self.request_terminal_threads_shown(&mut sizing);
+            (sizing.take_size_state_publications(), visible, thread_qos_changed)
         };
+        for surface in thread_qos_changed {
+            surface.send_thread_qos_to_host();
+        }
         // Size leases are what the person sees: the Kitty share follows them
         // (claimed, released, expired), never a bare attach.
         if let Some((order, visible)) = visible {

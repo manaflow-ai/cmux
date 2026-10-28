@@ -140,6 +140,7 @@ public actor ImportHistorySync {
     /// A write arrived: one read `delay` later, however many writes follow.
     private func changed(_ key: String) {
         guard watches[key] != nil else { return }
+        // timer-class-allow: off-main: the debounce fires into this actor (ImportHistorySync) and never wakes the main thread
         let timer = timers[key] ?? DemandTimer(owner: "ImportHistorySync")
         timers[key] = timer
         timer.scheduleIfIdle(after: delay) { [weak self] in await self?.refresh(key) }
@@ -184,14 +185,16 @@ final class HistoryFileWatch: Sendable {
 
     private var paths: [String] { [file.path, file.path + "-wal", file.deletingLastPathComponent().path] }
 
-    /// Size and change time of the database, its `-wal` and `-journal`: equal stamps, nothing to read.
+    /// Size and change time (seconds, nanoseconds) of the database, its `-wal` and `-journal`: equal stamps,
+    /// nothing to read. The fields are kept apart: any time a file system holds is a stamp, with no product
+    /// that a far-future change time could overflow.
     static func stamp(_ file: URL) -> [Int64] {
         [file.path, file.path + "-wal", file.path + "-journal"].flatMap { path -> [Int64] in
             var info = stat()
             // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; stat writes one
             // `stat` into the local `info`, which outlives it.
-            guard unsafe stat(path, &info) == 0 else { return [-1, -1] }
-            return [Int64(info.st_size), Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec)]
+            guard unsafe blockingStat(path, &info) == 0 else { return [-1, -1, -1] }
+            return [info.st_size, Int64(truncatingIfNeeded: info.st_mtimespec.tv_sec), Int64(truncatingIfNeeded: info.st_mtimespec.tv_nsec)]
         }
     }
 

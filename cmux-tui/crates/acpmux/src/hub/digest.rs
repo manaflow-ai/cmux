@@ -196,7 +196,7 @@ impl Hub {
             .collect();
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.supervise("hub.held-retry", Fatal, ShutdownBehavior::Skip, async move {
             let delays = hub.config.read().await.auto_resume_delays_ms.clone();
             let delays = delays
                 .filter(|d| !d.is_empty())

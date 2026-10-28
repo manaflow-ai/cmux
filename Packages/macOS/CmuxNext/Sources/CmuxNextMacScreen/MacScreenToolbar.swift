@@ -74,7 +74,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         disconnect = MacScreenButton(L.t("macScreen.toolbar.disconnect", "Disconnect"), compact: true, id: "macScreen.disconnect") {
             actions.disconnect()
         }
-        super.init(frame: .zero)
+        super.init(frame: .zero, node: node)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
         for view in [dot, icon, name, stats, badge, hint, displayButton, quality, sendKeys, refresh, connect, disconnect, line] as [NSView] {

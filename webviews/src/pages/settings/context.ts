@@ -1,9 +1,10 @@
 import { createContext, useContext, useRef, useSyncExternalStore } from "react";
 import type { AnyRouter } from "@tanstack/react-router";
+import type { SectionLoader } from "./lazySections";
 import type { ManagedInfo } from "./ops";
 import { managedOf, valueOf, type RowError, type SettingsState, type SettingsStore } from "./store";
 
-export type SettingsContextValue = { store: SettingsStore; router: AnyRouter };
+export type SettingsContextValue = { store: SettingsStore; router: AnyRouter; sections: SectionLoader };
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);
 
@@ -19,6 +20,11 @@ export function useStore(): SettingsStore {
 
 export function useSettingsRouter(): AnyRouter {
   return useSettingsContext().router;
+}
+
+/** The page's section code (lazySections.ts). */
+export function useSectionLoader(): SectionLoader {
+  return useSettingsContext().sections;
 }
 
 /**

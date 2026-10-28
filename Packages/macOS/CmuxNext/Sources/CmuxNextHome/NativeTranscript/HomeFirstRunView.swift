@@ -313,6 +313,7 @@ final class HomeFirstRunRow: NSView {
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
@@ -372,12 +373,6 @@ final class HomeFirstRunRow: NSView {
                              width: max(0, trailing - 8 * scale - textX), height: textHeight)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
 
@@ -397,6 +392,7 @@ final class HomeFirstRunRow: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // visibility-walk-allow: the key's own input check: a hidden row can still be first responder (AppKit does not resign it on hide), once per key
         guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
         // Return only: Home sends printable keys, Space included, to the message box first.
         switch event.keyCode {
@@ -409,6 +405,7 @@ final class HomeFirstRunRow: NSView {
 
     /// Moves keyboard focus to the previous or next first-run row in the same column.
     private func focusSibling(by step: Int) {
+        // visibility-walk-allow: keyboard focus moves only to the rows AppKit draws (its key-view rule), once per arrow key
         let rows = superview?.subviews.compactMap { $0 as? HomeFirstRunRow }.filter { !$0.isHiddenOrHasHiddenAncestor } ?? []
         guard let index = rows.firstIndex(where: { $0 === self }), rows.indices.contains(index + step) else { return }
         window?.makeFirstResponder(rows[index + step])

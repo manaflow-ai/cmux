@@ -1,9 +1,6 @@
 import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
-import class CmuxSafeConcurrency.OnceContinuation
-import enum CmuxSafeConcurrency.OnceContinuationError
-import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One file page document in the R96 quit hook: shared by every tab that shows the file, unsaved
 /// from the first edit a page reports (`cmux.<page>.edited`), with a recovery draft written on
@@ -23,7 +20,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// `FileDocument.hash` of `latestText`, taken once per edit so a save does not hash it again;
     /// nil when no edit compared it (an edit with no base hash).
     private var latestHash: String?
-    private var flushers: [UUID: () async -> Bool] = [:]
+    private var flushers: [UUID: Flush] = [:]
     private var work: [Task<Void, Never>] = []
     private let clock: any Clock<Duration>
     private let pageFlushTimeout: Duration
@@ -31,6 +28,8 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// answers; after this the host writes the last reported text itself, inside the registry's
     /// own deadline (`quitFlushDeadline`, 3 s; the registry does not cancel a timed-out flush).
     static let pageFlushTimeout: Duration = .seconds(2)
+    /// A page's save: its router call, on main; returns whether edits are still unsaved.
+    typealias Flush = @MainActor @Sendable () async -> Bool
 
     /// `id` defaults to `QuitParticipantID.file(path:)` (host "local"); tests pass a malformed one.
     init(url: URL, id: String? = nil, drafts: RecoveryDraftStore, writable: @escaping () -> Bool,
@@ -78,7 +77,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     }
 
     /// A page that can save the document now; returns whether edits are still unsaved.
-    func addFlusher(_ flush: @escaping () async -> Bool) -> () -> Void {
+    func addFlusher(_ flush: @escaping Flush) -> () -> Void {
         let id = UUID()
         flushers[id] = flush
         return { [weak self] in self?.flushers[id] = nil }
@@ -112,27 +111,17 @@ final class FileQuitDocument: QuitUnsavedParticipant {
         }
     }
 
-    /// Asks every page to save at once and waits until all answered or `pageFlushTimeout` passed.
-    /// The page calls are not awaited after the timeout: a dead page's call ends when it closes.
-    private func askPages(_ flushes: [() async -> Bool]) async {
-        let clock = clock, timeout = pageFlushTimeout
-        // Answers dropped unfinished end the wait abandoned: nothing is left to wait for.
-        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
-            let answers = FlushAnswer(done, waiting: flushes.count)
-            // task-owner: the quit's wait for the pages; ends when all answered or at the timeout
-            let deadline = Task { @MainActor in
-                // wakeup-allow: bounded the quit's one wait for its pages to save, cancelled when all answered
-                do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
-                answers.finish()
-            }
-            answers.onFinish = { deadline.cancel() }
-            for flush in flushes {
-                // task-owner: one page's flush call; a dead page's call ends when the page closes
-                Task { @MainActor in
-                    _ = await flush()
-                    answers.answered()
-                }
-            }
+    /// Asks every page to save at once and waits until all answered or `pageFlushTimeout` passed (a flexible,
+    /// no-sooner deadline on the injected clock). The page calls are not awaited after the timeout: a dead page's
+    /// call ends when the page closes.
+    private func askPages(_ flushes: [Flush]) async {
+        _ = await Deadline(pageFlushTimeout, clock: clock).value("files.quit-flush") { await Self.flushAll(flushes) }
+    }
+
+    /// Every page's flush at once; returns when all answered.
+    @concurrent private static func flushAll(_ flushes: [Flush]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for flush in flushes { group.addTask { _ = await flush() } }
         }
     }
 
@@ -145,34 +134,13 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     private func markClean() {
         hasUnsavedChanges = false
         let drafts = drafts, id = quitParticipantID
-        work.append(Task { await drafts.remove(id: id) })
+        // task-owner: work; one draft removal (the store's own async write), awaited by settled(). It only starts it.
+        work.append(Task { @concurrent in await drafts.remove(id: id) })
     }
 
     @concurrent private static func write(_ text: String, to url: URL, baseHash: String?,
                                           inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
         try FileDocument.save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
-    }
-}
-
-/// Resumes the pages' flush wait once: when every page answered, or at the timeout.
-private final class FlushAnswer {
-    private var continuation: OnceContinuation<Void, OnceContinuationError>?
-    private var waiting: Int
-    var onFinish: (() -> Void)?
-    init(_ continuation: OnceContinuation<Void, OnceContinuationError>, waiting: Int) {
-        self.continuation = continuation
-        self.waiting = waiting
-    }
-    func answered() {
-        waiting -= 1
-        if waiting <= 0 { finish() }
-    }
-    func finish() {
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(returning: ())
-        onFinish?()
-        onFinish = nil
     }
 }
 

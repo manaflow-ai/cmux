@@ -32,7 +32,7 @@ struct ChannelDaemonSessionTests {
         func appLauncher(_ bundleID: String) throws -> DaemonLauncher.Configuration {
             try DaemonLauncher.forApp(
                 work: BackgroundWork(label: "test.daemon-launcher"),
-                build: BuildIdentity(bundleID: bundleID, bundledTag: nil), terminalEnvironment: [:],
+                build: BuildIdentity(bundleID: bundleID, bundledTag: nil), team: CodeSigningTeam.current(), terminalEnvironment: [:],
                 processEnvironment: [DaemonLauncher.binaryOverrideKey: binary.path],
                 socketMemory: DaemonSocketMemory(defaults: { UserDefaults(suiteName: defaultsSuite) ?? .standard }),
                 applicationSupport: support

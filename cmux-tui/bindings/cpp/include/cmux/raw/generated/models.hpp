@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4d7b70e8f59c1edd691398b791a050b123e7235b3ee05a7652613d7f80150c85";
+inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -71,6 +71,7 @@ struct Base64;
 struct Bookmark;
 struct BookmarkChangeResult;
 struct BookmarkImportNode;
+struct BridgeHelloResult;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
@@ -82,9 +83,13 @@ struct BrowserRuntimeRow;
 struct BrowserRuntimeStartResult;
 struct BrowserRuntimeStatusResult;
 struct BrowserRuntimeStopResult;
+struct CancelStreamResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
+struct ClientHelloFeaturePending;
+struct ClientHelloFeatureReport;
+struct ClientHelloFeatures;
 struct ClientHelloPageOperations;
 struct ClientHelloResult;
 struct ClientInfo;
@@ -222,6 +227,8 @@ struct SavedTabGroupRecord;
 struct Screen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
+struct ServerStatsHangRecord;
+struct ServerStatsHangs;
 struct ServerStatsHistogram;
 struct ServerStatsIpc;
 struct ServerStatsIpcKind;
@@ -255,6 +262,7 @@ struct SetCellPixelsResult;
 struct SetHostSizePolicyResult;
 struct SetSizeCountsResult;
 struct SetSizePolicyResult;
+struct SetStreamPriorityResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
 struct ShownProgramStatus;
@@ -399,6 +407,7 @@ struct AppsUnmountRequest;
 struct AttachSurfaceRequest;
 struct BindConversationTabSessionRequest;
 struct BindConversationTabSessionResult;
+struct BridgeHelloRequest;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -417,6 +426,7 @@ struct BrowserRuntimeStopRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
 struct CancelRequestRequest;
+struct CancelStreamRequest;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ClearHistoryRequest;
@@ -594,6 +604,8 @@ struct MachineCatalogPublishRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
+struct MemoryReportRequest;
+struct MemoryReportResult;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
@@ -708,6 +720,7 @@ struct SetSessionIconRequest;
 struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
+struct SetStreamPriorityRequest;
 struct SetTabPinnedRequest;
 struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
@@ -802,6 +815,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct InputFailedEvent;
 struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct LoopbackClosedEvent;
@@ -828,9 +842,11 @@ struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScriptLogEvent;
 struct ScrollChangedEvent;
+struct ServerDiagnosticSiteEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
+struct StreamEndEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
 struct SurfaceResizeFailedEvent;
@@ -863,6 +879,7 @@ struct AgentCliJobResolutionIndeterminate;
 struct AgentCliJobResolutionNotFound;
 struct AgentCliJobResolutionPending;
 struct AgentCliJobResolutionPrepared;
+enum class CancelStreamResultOutcome;
 enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
@@ -876,6 +893,7 @@ enum class IdMappingKind;
 struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
+enum class SetStreamPriorityResultOutcome;
 enum class SnapshotRequestResultStatus;
 enum class TabBrowserSource;
 enum class TabBrowserStatus;
@@ -892,14 +910,18 @@ struct CloudAttachmentUploadResultStored;
 struct ConversationAttachmentUploadResultStored;
 enum class CopyRequestMode;
 enum class IdsRequestKind;
+enum class SetStreamPriorityRequestPriority;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class InputFailedEventReason;
 enum class KeybindingsChangedEventOrigin;
+enum class ServerDiagnosticSiteEventFamily;
 enum class SettingsChangedEventOrigin;
+enum class StreamEndEventReason;
 struct CloudAttachmentUploadResultStoredPoster;
 struct CloudAttachmentUploadResultStoredPreview;
 struct ConversationAttachmentUploadResultStoredPoster;
@@ -1958,6 +1980,7 @@ struct AttachSurfaceRequest {
     std::optional<bool> snapshot_images{};
     std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
+    Field<std::uint16_t> stream{};
     Field<Id> surface{};
     Field<std::uint64_t> viewer_backlog_bytes{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
@@ -2042,6 +2065,16 @@ struct BookmarksChangedEvent {
     std::string browser_profile_id{};
     std::optional<EventCause> cause{};
     friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
+};
+
+struct BridgeHelloRequest {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloRequest&, const BridgeHelloRequest&) = default;
+};
+
+struct BridgeHelloResult {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloResult&, const BridgeHelloResult&) = default;
 };
 
 struct BrowserActivateRequest {
@@ -2274,6 +2307,22 @@ struct BrowserWheelRequest {
 struct CancelRequestRequest {
     std::optional<JsonValue> target{};
     friend bool operator==(const CancelRequestRequest&, const CancelRequestRequest&) = default;
+};
+
+struct CancelStreamRequest {
+    std::uint16_t stream{};
+    friend bool operator==(const CancelStreamRequest&, const CancelStreamRequest&) = default;
+};
+
+enum class CancelStreamResultOutcome {
+    applied,
+    ended,
+};
+
+struct CancelStreamResult {
+    CancelStreamResultOutcome outcome{};
+    std::uint16_t stream{};
+    friend bool operator==(const CancelStreamResult&, const CancelStreamResult&) = default;
 };
 
 struct CellPixelFailure {
@@ -2518,6 +2567,26 @@ struct ClientFocusResult {
     friend bool operator==(const ClientFocusResult&, const ClientFocusResult&) = default;
 };
 
+struct ClientHelloFeaturePending {
+    bool app{};
+    bool daemon{};
+    std::string name{};
+    friend bool operator==(const ClientHelloFeaturePending&, const ClientHelloFeaturePending&) = default;
+};
+
+struct ClientHelloFeatureReport {
+    std::vector<std::string> applied{};
+    std::string hash{};
+    std::vector<ClientHelloFeaturePending> pending{};
+    friend bool operator==(const ClientHelloFeatureReport&, const ClientHelloFeatureReport&) = default;
+};
+
+struct ClientHelloFeatures {
+    std::optional<std::string> hash{};
+    std::map<std::string, bool, std::less<>> values{};
+    friend bool operator==(const ClientHelloFeatures&, const ClientHelloFeatures&) = default;
+};
+
 struct ClientHelloPageOperations {
     std::vector<std::string> confirm{};
     std::vector<std::string> gesture{};
@@ -2526,6 +2595,7 @@ struct ClientHelloPageOperations {
 };
 
 struct ClientHelloRequest {
+    Field<ClientHelloFeatures> features{};
     std::optional<std::string> install_id{};
     Field<std::string> page{};
     std::optional<std::string> proof{};
@@ -2535,6 +2605,7 @@ struct ClientHelloRequest {
 
 struct ClientHelloResult {
     std::string connection_id{};
+    std::optional<ClientHelloFeatureReport> features{};
     std::optional<std::string> install_id{};
     std::optional<std::string> nonce{};
     std::optional<std::string> page{};
@@ -3858,6 +3929,7 @@ struct DeleteWorkspaceGroupRequest {
 
 struct DetachAttachedViewRequest {
     Field<std::string> lease{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const DetachAttachedViewRequest&, const DetachAttachedViewRequest&) = default;
@@ -4525,6 +4597,7 @@ struct IdentifyResult {
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
     Field<std::string> crate_version{};
+    Field<std::vector<std::uint16_t>> framed_methods{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
     Field<std::string> install{};
@@ -4538,6 +4611,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> sdk_schema_digest{};
     std::string session{};
     std::optional<std::string> session_id{};
     Field<DaemonStartupMarks> startup_marks{};
@@ -4590,6 +4664,22 @@ struct ImportSessionOrganizationRequest {
     std::string session_id{};
     std::optional<std::vector<JsonValue>> workspaces{};
     friend bool operator==(const ImportSessionOrganizationRequest&, const ImportSessionOrganizationRequest&) = default;
+};
+
+enum class InputFailedEventReason {
+    terminal_ended,
+    not_a_terminal,
+    write_failed,
+    daemon_handoff,
+    overflow,
+    attach_failed,
+};
+
+struct InputFailedEvent {
+    std::uint64_t bytes{};
+    InputFailedEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const InputFailedEvent&, const InputFailedEvent&) = default;
 };
 
 struct JournalFrontendEventRequest {
@@ -5100,6 +5190,15 @@ struct MachineUsageResult {
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
+};
+
+struct MemoryReportRequest {
+    friend bool operator==(const MemoryReportRequest&, const MemoryReportRequest&) = default;
+};
+
+struct MemoryReportResult {
+    Json value{};
+    friend bool operator==(const MemoryReportResult&, const MemoryReportResult&) = default;
 };
 
 struct MintTerminalRendererByTerminalRequest {
@@ -5821,6 +5920,7 @@ struct RegisterBrowserProviderRequest {
 
 struct ReleaseAttachedViewSizeRequest {
     Field<std::string> lease{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const ReleaseAttachedViewSizeRequest&, const ReleaseAttachedViewSizeRequest&) = default;
@@ -6046,6 +6146,7 @@ struct ResizeAttachedViewRequest {
     Field<SizingIdentity> identity{};
     Field<std::string> lease{};
     std::uint16_t rows{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const ResizeAttachedViewRequest&, const ResizeAttachedViewRequest&) = default;
@@ -6324,6 +6425,24 @@ struct ServerBlockingResult {
     friend bool operator==(const ServerBlockingResult&, const ServerBlockingResult&) = default;
 };
 
+enum class ServerDiagnosticSiteEventFamily {
+    blocking,
+    inversion,
+    hang,
+};
+
+struct ServerDiagnosticSiteEvent {
+    std::optional<EventCause> cause{};
+    std::optional<std::string> crate{};
+    ServerDiagnosticSiteEventFamily family{};
+    std::optional<std::string> file_hash{};
+    std::string kind{};
+    std::optional<bool> lane_sync{};
+    std::optional<std::uint32_t> line{};
+    std::optional<std::string> method{};
+    friend bool operator==(const ServerDiagnosticSiteEvent&, const ServerDiagnosticSiteEvent&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -6331,6 +6450,19 @@ struct ServerStatsConnections {
     std::uint64_t peak{};
     std::uint64_t refused{};
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
+};
+
+struct ServerStatsHangRecord {
+    std::uint64_t duration_ms{};
+    std::uint64_t sequence{};
+    std::string span{};
+    friend bool operator==(const ServerStatsHangRecord&, const ServerStatsHangRecord&) = default;
+};
+
+struct ServerStatsHangs {
+    std::uint64_t over_250ms{};
+    std::vector<ServerStatsHangRecord> records{};
+    friend bool operator==(const ServerStatsHangs&, const ServerStatsHangs&) = default;
 };
 
 struct ServerStatsHistogram {
@@ -6608,6 +6740,7 @@ struct ServerStatsWritePath {
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
+    std::optional<ServerStatsHangs> hangs{};
     std::optional<ServerStatsIpc> ipc{};
     std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -6803,6 +6936,29 @@ struct SetSplitRatioRequest {
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
 };
 
+enum class SetStreamPriorityRequestPriority {
+    focused,
+    visible,
+    hidden,
+};
+
+struct SetStreamPriorityRequest {
+    SetStreamPriorityRequestPriority priority{};
+    std::uint16_t stream{};
+    friend bool operator==(const SetStreamPriorityRequest&, const SetStreamPriorityRequest&) = default;
+};
+
+enum class SetStreamPriorityResultOutcome {
+    applied,
+    ended,
+};
+
+struct SetStreamPriorityResult {
+    SetStreamPriorityResultOutcome outcome{};
+    std::uint16_t stream{};
+    friend bool operator==(const SetStreamPriorityResult&, const SetStreamPriorityResult&) = default;
+};
+
 struct SetTabPinnedRequest {
     bool pinned{};
     Id surface{};
@@ -6936,6 +7092,7 @@ struct SnapshotRequestRequest {
     Field<SnapshotRequestHave> have{};
     Field<std::string> reason{};
     Field<std::string> request_id{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     friend bool operator==(const SnapshotRequestRequest&, const SnapshotRequestRequest&) = default;
 };
@@ -6977,6 +7134,19 @@ struct StatusEvent {
     std::optional<EventCause> cause{};
     std::string message{};
     friend bool operator==(const StatusEvent&, const StatusEvent&) = default;
+};
+
+enum class StreamEndEventReason {
+    canceled,
+    detached,
+    overflow,
+    attach_failed,
+};
+
+struct StreamEndEvent {
+    StreamEndEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const StreamEndEvent&, const StreamEndEvent&) = default;
 };
 
 struct SubscribeActivityRequest {
@@ -8069,6 +8239,12 @@ struct Codec<BookmarkImportNode> {
 };
 
 template <>
+struct Codec<BridgeHelloResult> {
+    static Result<Json> encode(const BridgeHelloResult& value);
+    static Result<BridgeHelloResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
@@ -8135,6 +8311,12 @@ struct Codec<BrowserRuntimeStopResult> {
 };
 
 template <>
+struct Codec<CancelStreamResult> {
+    static Result<Json> encode(const CancelStreamResult& value);
+    static Result<CancelStreamResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CellPixelFailure> {
     static Result<Json> encode(const CellPixelFailure& value);
     static Result<CellPixelFailure> decode(const Json& value);
@@ -8150,6 +8332,24 @@ template <>
 struct Codec<CellPixelSurface> {
     static Result<Json> encode(const CellPixelSurface& value);
     static Result<CellPixelSurface> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeaturePending> {
+    static Result<Json> encode(const ClientHelloFeaturePending& value);
+    static Result<ClientHelloFeaturePending> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeatureReport> {
+    static Result<Json> encode(const ClientHelloFeatureReport& value);
+    static Result<ClientHelloFeatureReport> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeatures> {
+    static Result<Json> encode(const ClientHelloFeatures& value);
+    static Result<ClientHelloFeatures> decode(const Json& value);
 };
 
 template <>
@@ -8975,6 +9175,18 @@ struct Codec<ServerStatsConnections> {
 };
 
 template <>
+struct Codec<ServerStatsHangRecord> {
+    static Result<Json> encode(const ServerStatsHangRecord& value);
+    static Result<ServerStatsHangRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHangs> {
+    static Result<Json> encode(const ServerStatsHangs& value);
+    static Result<ServerStatsHangs> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsHistogram> {
     static Result<Json> encode(const ServerStatsHistogram& value);
     static Result<ServerStatsHistogram> decode(const Json& value);
@@ -9170,6 +9382,12 @@ template <>
 struct Codec<SetSizePolicyResult> {
     static Result<Json> encode(const SetSizePolicyResult& value);
     static Result<SetSizePolicyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetStreamPriorityResult> {
+    static Result<Json> encode(const SetStreamPriorityResult& value);
+    static Result<SetStreamPriorityResult> decode(const Json& value);
 };
 
 template <>
@@ -10037,6 +10255,12 @@ struct Codec<BindConversationTabSessionResult> {
 };
 
 template <>
+struct Codec<BridgeHelloRequest> {
+    static Result<Json> encode(const BridgeHelloRequest& value);
+    static Result<BridgeHelloRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserActivateRequest> {
     static Result<Json> encode(const BrowserActivateRequest& value);
     static Result<BrowserActivateRequest> decode(const Json& value);
@@ -10142,6 +10366,12 @@ template <>
 struct Codec<CancelRequestRequest> {
     static Result<Json> encode(const CancelRequestRequest& value);
     static Result<CancelRequestRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelStreamRequest> {
+    static Result<Json> encode(const CancelStreamRequest& value);
+    static Result<CancelStreamRequest> decode(const Json& value);
 };
 
 template <>
@@ -11207,6 +11437,18 @@ struct Codec<MarkWorkspacesProviderManagedRequest> {
 };
 
 template <>
+struct Codec<MemoryReportRequest> {
+    static Result<Json> encode(const MemoryReportRequest& value);
+    static Result<MemoryReportRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryReportResult> {
+    static Result<Json> encode(const MemoryReportResult& value);
+    static Result<MemoryReportResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MintTerminalRendererRequest> {
     static Result<Json> encode(const MintTerminalRendererRequest& value);
     static Result<MintTerminalRendererRequest> decode(const Json& value);
@@ -11891,6 +12133,12 @@ struct Codec<SetSplitRatioRequest> {
 };
 
 template <>
+struct Codec<SetStreamPriorityRequest> {
+    static Result<Json> encode(const SetStreamPriorityRequest& value);
+    static Result<SetStreamPriorityRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetTabPinnedRequest> {
     static Result<Json> encode(const SetTabPinnedRequest& value);
     static Result<SetTabPinnedRequest> decode(const Json& value);
@@ -12455,6 +12703,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<InputFailedEvent> {
+    static Result<Json> encode(const InputFailedEvent& value);
+    static Result<InputFailedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<KeybindingsChangedEvent> {
     static Result<Json> encode(const KeybindingsChangedEvent& value);
     static Result<KeybindingsChangedEvent> decode(const Json& value);
@@ -12611,6 +12865,12 @@ struct Codec<ScrollChangedEvent> {
 };
 
 template <>
+struct Codec<ServerDiagnosticSiteEvent> {
+    static Result<Json> encode(const ServerDiagnosticSiteEvent& value);
+    static Result<ServerDiagnosticSiteEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<SettingsChangedEvent> {
     static Result<Json> encode(const SettingsChangedEvent& value);
     static Result<SettingsChangedEvent> decode(const Json& value);
@@ -12626,6 +12886,12 @@ template <>
 struct Codec<StatusEvent> {
     static Result<Json> encode(const StatusEvent& value);
     static Result<StatusEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<StreamEndEvent> {
+    static Result<Json> encode(const StreamEndEvent& value);
+    static Result<StreamEndEvent> decode(const Json& value);
 };
 
 template <>
@@ -12821,6 +13087,12 @@ struct Codec<AgentCliJobResolutionPrepared> {
 };
 
 template <>
+struct Codec<CancelStreamResultOutcome> {
+    static Result<Json> encode(const CancelStreamResultOutcome& value);
+    static Result<CancelStreamResultOutcome> decode(const Json& value);
+};
+
+template <>
 struct Codec<CopyResultMode> {
     static Result<Json> encode(const CopyResultMode& value);
     static Result<CopyResultMode> decode(const Json& value);
@@ -12896,6 +13168,12 @@ template <>
 struct Codec<LayoutStack> {
     static Result<Json> encode(const LayoutStack& value);
     static Result<LayoutStack> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetStreamPriorityResultOutcome> {
+    static Result<Json> encode(const SetStreamPriorityResultOutcome& value);
+    static Result<SetStreamPriorityResultOutcome> decode(const Json& value);
 };
 
 template <>
@@ -12995,6 +13273,12 @@ struct Codec<IdsRequestKind> {
 };
 
 template <>
+struct Codec<SetStreamPriorityRequestPriority> {
+    static Result<Json> encode(const SetStreamPriorityRequestPriority& value);
+    static Result<SetStreamPriorityRequestPriority> decode(const Json& value);
+};
+
+template <>
 struct Codec<SubscribeRequestTreeEvents> {
     static Result<Json> encode(const SubscribeRequestTreeEvents& value);
     static Result<SubscribeRequestTreeEvents> decode(const Json& value);
@@ -13031,15 +13315,33 @@ struct Codec<GraphicsStatusEventKind> {
 };
 
 template <>
+struct Codec<InputFailedEventReason> {
+    static Result<Json> encode(const InputFailedEventReason& value);
+    static Result<InputFailedEventReason> decode(const Json& value);
+};
+
+template <>
 struct Codec<KeybindingsChangedEventOrigin> {
     static Result<Json> encode(const KeybindingsChangedEventOrigin& value);
     static Result<KeybindingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>
+struct Codec<ServerDiagnosticSiteEventFamily> {
+    static Result<Json> encode(const ServerDiagnosticSiteEventFamily& value);
+    static Result<ServerDiagnosticSiteEventFamily> decode(const Json& value);
+};
+
+template <>
 struct Codec<SettingsChangedEventOrigin> {
     static Result<Json> encode(const SettingsChangedEventOrigin& value);
     static Result<SettingsChangedEventOrigin> decode(const Json& value);
+};
+
+template <>
+struct Codec<StreamEndEventReason> {
+    static Result<Json> encode(const StreamEndEventReason& value);
+    static Result<StreamEndEventReason> decode(const Json& value);
 };
 
 template <>

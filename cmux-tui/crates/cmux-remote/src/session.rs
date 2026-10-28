@@ -71,6 +71,7 @@ impl Drop for CloseUncommittedLink {
     fn drop(&mut self) {
         let Some(link) = self.0.take() else { return };
         let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        // supervise-allow: Drop cannot await; one uncommitted link's close, bounded by RECONNECT_CLEANUP_TIMEOUT, and a panic loses only that close.
         runtime.spawn(async move {
             let _ = tokio::time::timeout(RECONNECT_CLEANUP_TIMEOUT, link.close()).await;
         });
@@ -148,6 +149,7 @@ impl ReliableSession {
         let scheduler = ScheduledSender::spawn(link.clone(), shared.limits);
         let ack_senders = PerLane::from_fn(|lane| {
             let (sender, receiver) = mpsc::channel(1);
+            // supervise-allow: the lane's ack sender; it ends with the session, and a panic ends it as a failed send does (no more acks on that lane; the peer's replay bound applies).
             tokio::spawn(run_ack_sender(
                 shared.clone(),
                 scheduler.clone(),
@@ -768,6 +770,7 @@ impl ScheduledSender {
             (Lane::Bulk, bulk_rx),
             (Lane::Tunnel, tunnel_rx),
         ] {
+            // supervise-allow: the lane's send loop; a panic drops its receiver and the queued completions, so every pending and later send on that lane fails.
             tokio::spawn(run_lane_sender(
                 link.clone(),
                 lane,

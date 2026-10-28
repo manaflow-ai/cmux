@@ -58,7 +58,9 @@ impl Hub {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
-            tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+            self.supervise("hub.idle-reaper", Fatal, ShutdownBehavior::Skip, async move {
+                Self::idle_reaper_loop(weak, wake).await
+            });
         }
         self.idle_wake.notify_one();
     }
@@ -173,6 +175,23 @@ impl Hub {
     /// The clock lifecycle timers run on (`set_clock`).
     pub fn lifecycle_clock(&self) -> Arc<dyn crate::clock::Clock> {
         self.clock.lock().unwrap().clone()
+    }
+
+    /// Nothing the daemon's priority serves: no live agent or background
+    /// process, and no pooled host starting (its fork inherits the daemon's
+    /// priority). The `idleHelperBackgroundPriority` idle task's question
+    /// (`ClientPresence::run_idle_priority`).
+    pub fn idle_quiet(&self) -> bool {
+        self.pool_starts_in_flight() == 0
+            && self.live_agent_count() == 0
+            && self.live_process_count() == 0
+    }
+
+    /// A session's status changed (`set_status`): the worktree care worker
+    /// and the daemon's idle priority (it asks `idle_quiet` again) hear it.
+    pub(super) fn status_changed(&self, status: SessionStatus) {
+        self.care_status(status);
+        self.clients.work_changed();
     }
 }
 

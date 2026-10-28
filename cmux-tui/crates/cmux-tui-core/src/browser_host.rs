@@ -31,6 +31,8 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use crate::backoff::Backoff;
+#[cfg(unix)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// The environment variable that names the agent socket of the daemon's
 /// browser host in every terminal the daemon creates.
@@ -55,8 +57,9 @@ const PROVIDER_SOCKET_FILE: &str = "browser-host-provider.sock";
 /// is too long for a Unix socket.
 pub fn socket_path_for(daemon_socket: &Path) -> PathBuf {
     use sha2::{Digest, Sha256};
-    let digest = format!("{:x}", Sha256::digest(daemon_socket.as_os_str().as_encoded_bytes()));
-    let leaf = format!("bh-{}", &digest[..12]);
+    let digest = Sha256::digest(daemon_socket.as_os_str().as_encoded_bytes());
+    let short: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
+    let leaf = format!("bh-{short}");
     let beside = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
     #[cfg(unix)]
     if !crate::server::unix_socket_path_fits(&beside.join(PROVIDER_SOCKET_FILE)) {
@@ -367,6 +370,9 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         }
         None => None,
     };
+    if let Some(path) = crate::diagnostics::HelperPanicLog::BrowserHost.path() {
+        command.arg("--panic-log").arg(path);
+    }
     command
         .arg("--socket")
         .arg(socket)
@@ -395,11 +401,12 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
     let written = secret_write.write_all(secret.as_bytes());
     drop(secret_write);
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
-    let reader = std::thread::Builder::new().name("browser-host-ready".into()).spawn(move || {
-        let mut line = String::new();
-        let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line == "ready\n";
-        let _ = ready_tx.send(ok);
-    });
+    let reader =
+        supervised::spawn("browser-host-ready", Fatal, ShutdownBehavior::Continue, move || {
+            let mut line = String::new();
+            let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line == "ready\n";
+            let _ = ready_tx.send(ok);
+        });
     let ready = written.is_ok()
         && reader.is_ok()
         && matches!(ready_rx.recv_timeout(READY_TIMEOUT), Ok(true));
@@ -409,9 +416,12 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         return Err(format!("the browser host did not start ({status:?})"));
     }
     if let Some((mux, daemon_end)) = link {
-        let served = std::thread::Builder::new()
-            .name("browser-host-history".into())
-            .spawn(move || crate::browser_host_history::serve(mux, daemon_end, pid));
+        let served = supervised::spawn(
+            "browser-host-history",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || crate::browser_host_history::serve(mux, daemon_end, pid),
+        );
         if let Err(error) = served {
             // No host runs without the link it was started for.
             let _ = child.kill();
@@ -421,13 +431,11 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
     }
     let started = Instant::now();
     let watcher = Arc::downgrade(inner);
-    std::thread::Builder::new()
-        .name("browser-host-watch".into())
-        .spawn(move || {
-            let idle_exit = child.wait().is_ok_and(|status| status.success());
-            Inner::host_stopped(&watcher, pid, started.elapsed(), idle_exit);
-        })
-        .map_err(|error| format!("cannot watch the browser host: {error}"))?;
+    supervised::spawn("browser-host-watch", Fatal, ShutdownBehavior::Continue, move || {
+        let idle_exit = child.wait().is_ok_and(|status| status.success());
+        Inner::host_stopped(&watcher, pid, started.elapsed(), idle_exit);
+    })
+    .map_err(|error| format!("cannot watch the browser host: {error}"))?;
     let provider = socket.with_file_name(PROVIDER_SOCKET_FILE);
     let listener_pid = if inner.activation.is_bound() { std::process::id() } else { pid };
     Ok(Running {

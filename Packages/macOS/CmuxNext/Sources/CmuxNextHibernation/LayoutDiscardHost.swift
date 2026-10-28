@@ -97,7 +97,7 @@ extension LayoutDiscardHost: ContentLifecycleOwner {
     package func releaseContent(_ key: String, token: Token) -> Bool {
         guard let content = layout(key) else { return false }
         _ = scheduler.takePrepared(key)
-        if content.release() { scheduler.noteDiscarded(key) }
+        if content.release() { scheduler.noteDiscarded(key) } else { scheduler.noteDiscardFailed(key) }
         return true
     }
 

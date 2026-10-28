@@ -156,4 +156,22 @@ import Testing
         #expect(!stripped.contains("CMUX_NEXT_MOBILE_MACHINE_ID"))
         #expect(stripped.contains("CMUX_MOBILE_MACHINE_ID"))
     }
+
+    /// `open -n -b <id> --env CMUX_DISABLE_FEATURES=...` turns features on or off for one launch: the feature lists reach
+    /// `FeatureOverrides`, which reads them after the strip (dogfood A/B, cmux-ad 2026-10-27; v1.1 dropped them).
+    @Test func featureListsSetForThisLaunchSurviveTheLaunchStrip() {
+        let environment = ["CMUX_ENABLE_FEATURES": "vsyncHub", "CMUX_DISABLE_FEATURES": "terminalHolder", "CMUX_TAG": "other"]
+        let stripped = LaunchIdentity.inheritedKeys(processEnvironment: environment.filter { $0.key != "CMUX_TAG" },
+                                                    bundledEnvironment: [:])
+        #expect(!stripped.contains("CMUX_ENABLE_FEATURES"))
+        #expect(!stripped.contains("CMUX_DISABLE_FEATURES"))
+    }
+
+    /// Inherited from a shell in another cmux, the lists are that build's choice, not this launch's: they go.
+    @Test func featureListsFromAnotherCmuxAreStripped() {
+        let environment = ["CMUX_ENABLE_FEATURES": "vsyncHub", "CMUX_DISABLE_FEATURES": "terminalHolder", "CMUX_SOCKET_PATH": "/tmp/other.sock"]
+        let stripped = LaunchIdentity.inheritedKeys(processEnvironment: environment, bundledEnvironment: [:])
+        #expect(stripped.contains("CMUX_ENABLE_FEATURES"))
+        #expect(stripped.contains("CMUX_DISABLE_FEATURES"))
+    }
 }

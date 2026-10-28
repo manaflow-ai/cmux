@@ -211,8 +211,18 @@ import Testing
             .filter { $0.contains(matching) }.count
     }
 
-    private static func waitUntil(_ done: () -> Bool) async throws {
-        for _ in 0..<250 where !done() { try await Task.sleep(for: .milliseconds(20)) }
+    /// Waits for `done`, running the rig's frames: a read's answer lands as one task posted on the rig's scheduler.
+    private static func waitUntil(_ rig: MainDeadlineRig, _ done: () -> Bool) async throws {
+        for _ in 0..<250 where !done() {
+            rig.frame()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// The store of the fake `gh`, on a rig whose wakes and frames the test runs.
+    private static func store(_ gh: String, freshness: Duration, rig: MainDeadlineRig) -> SidebarPullRequestStore {
+        SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: freshness,
+                                deadlines: rig.deadlines)
     }
 
     /// A merged pull request never changes again: once read, it is not asked again.
@@ -222,9 +232,10 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":1,"title":"Done","state":"MERGED","isDraft":false,"mergeable":"UNKNOWN",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":"2026-10-02T00:00:00Z","additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .zero)
+        let rig = MainDeadlineRig()
+        let store = Self.store(gh, freshness: .zero, rig: rig)
         store.refresh([url])
-        try await Self.waitUntil { store.answers[url] != nil }
+        try await Self.waitUntil(rig) { store.answers[url] != nil }
         #expect(store.answers[url]?.state == "merged")
         #expect(store.isSettled(url))
         store.refresh([url])
@@ -236,21 +247,23 @@ import Testing
     @Test func aFailingReadBacksOff() async throws {
         let url = "https://github.com/o/r/pull/2"
         let gh = try Self.fakeGitHub(answer: nil, status: 1)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .zero)
+        let rig = MainDeadlineRig()
+        let store = Self.store(gh, freshness: .zero, rig: rig)
         #expect(store.wait(url) == .zero)
         store.refresh([url])
-        try await Self.waitUntil { Self.calls(gh) == 1 }
+        try await Self.waitUntil(rig) { Self.calls(gh) == 1 }
         try await Task.sleep(for: .milliseconds(100))
+        rig.frame()
         #expect(store.answers[url] == nil)
-        let slow = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .seconds(300))
+        let slow = Self.store(gh, freshness: .seconds(300), rig: rig)
         slow.refresh([url])
-        try await Self.waitUntil { slow.wait(url) > .seconds(300) }
+        try await Self.waitUntil(rig) { slow.wait(url) > .seconds(300) }
         #expect(slow.wait(url) == .seconds(600))
         #expect(!slow.isSettled(url))
     }
 
     /// The five-minute recheck runs only while the tree shows a pull request still in flight: a folder
-    /// whose branch has none, or a merged one, keeps no timer (a new lane or answer passes the tree
+    /// whose branch has none, or a merged one, keeps no deadline (a new lane or answer passes the tree
     /// again anyway).
     @Test func onlyAnOpenPullRequestKeepsTheRecheck() async throws {
         let folder = "/src/app", url = "https://github.com/o/r/pull/4"
@@ -258,17 +271,22 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Going","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .seconds(300))
+        let rig = MainDeadlineRig()
+        let store = Self.store(gh, freshness: .seconds(300), rig: rig)
         store.refresh([folder])
-        try await Self.waitUntil { Self.calls(gh) == 1 }
+        try await Self.waitUntil(rig) { Self.calls(gh) == 1 }
         try await Task.sleep(for: .milliseconds(100))
+        rig.frame()
         store.refresh([folder])
         #expect(!store.rechecks)
+        #expect(!rig.hasArmedWake, "a folder with no pull request armed a recheck")
         store.refresh([folder, url])
-        try await Self.waitUntil { store.answers[url] != nil }
+        try await Self.waitUntil(rig) { store.answers[url] != nil }
         store.refresh([folder, url])
         #expect(store.rechecks)
+        #expect(rig.hasArmedWake, "the open pull request's recheck armed no wake")
         store.stop()
+        #expect(!store.rechecks)
     }
 
     /// A closed pull request can be reopened, so only a merged one is settled.
@@ -278,9 +296,10 @@ import Testing
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":3,"title":"Paused","state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .zero)
+        let rig = MainDeadlineRig()
+        let store = Self.store(gh, freshness: .zero, rig: rig)
         store.refresh([url])
-        try await Self.waitUntil { store.answers[url] != nil }
+        try await Self.waitUntil(rig) { store.answers[url] != nil }
         #expect(store.answers[url]?.state == "closed")
         #expect(!store.isSettled(url))
     }
@@ -299,38 +318,48 @@ import Testing
         #expect(read["https://github.com/o/r/pull/8"] == .some(nil))
     }
 
-    /// An open pull request is read again every `freshness` while the tree shows it, though no
-    /// lane or workspace changes (an idle session's CI can still fail), and stops when the tree does.
+    /// An open pull request is read again when its recheck deadline fires, though no lane or workspace
+    /// changes (an idle session's CI can still fail), never before it, and not after the tree stops.
     @Test func anOpenPullRequestIsReadAgainOnItsOwn() async throws {
         let url = "https://github.com/o/r/pull/4"
         let gh = try Self.fakeGitHub(answer: """
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .milliseconds(100))
+        let rig = MainDeadlineRig()
+        let store = Self.store(gh, freshness: .milliseconds(100), rig: rig)
         store.refresh([url])
-        try await Self.waitUntil { Self.calls(gh) >= 2 }
-        #expect(Self.calls(gh) >= 2)
-        store.stop()
+        try await Self.waitUntil(rig) { store.rechecks }
+        #expect(Self.calls(gh) == 1)
+        // Past `freshness` on the wall clock the answer is stale, but nothing reads it before the deadline fires.
         try await Task.sleep(for: .milliseconds(150))
-        let stopped = Self.calls(gh)
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(Self.calls(gh) == stopped)
+        for _ in 0..<5 { rig.frame() }
+        #expect(Self.calls(gh) == 1, "the pull request was read again before its recheck fired")
+        rig.fireAndRun()
+        try await Self.waitUntil(rig) { Self.calls(gh) >= 2 }
+        #expect(Self.calls(gh) == 2, "the recheck did not read the open pull request again")
+        store.stop()
+        #expect(!store.rechecks, "the stopped tree kept its recheck")
     }
 
     /// The recheck reads again only the pull requests still in flight: a folder whose branch has
-    /// none is asked when the tree passes again, never every `freshness` beside an open one.
+    /// none is asked when the tree passes again, never at each recheck beside an open one.
     @Test func theRecheckReadsOnlyOpenPullRequests() async throws {
         let folder = "/src/no-pull-request", url = "https://github.com/o/r/pull/5"
         let gh = try Self.fakeGitHub(answer: """
             {"data":{"p0":{"pullRequest":{"url":"\(url)","number":5,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
-        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), freshness: .milliseconds(100))
+        let rig = MainDeadlineRig()
+        let store = Self.store(gh, freshness: .milliseconds(100), rig: rig)
         store.refresh([folder, url])
-        try await Self.waitUntil { store.answers[url] != nil }
+        try await Self.waitUntil(rig) { store.answers[url] != nil }
         store.refresh([folder, url])
-        try await Self.waitUntil { Self.calls(gh, matching: "graphql") >= 5 }
+        for done in 2...5 {
+            try await Task.sleep(for: .milliseconds(120))
+            rig.fireAndRun()
+            try await Self.waitUntil(rig) { Self.calls(gh, matching: "graphql") >= done && store.rechecks }
+        }
         store.stop()
         #expect(Self.calls(gh, matching: "graphql") >= 5)
         #expect(Self.calls(gh) - Self.calls(gh, matching: "graphql") <= 2)

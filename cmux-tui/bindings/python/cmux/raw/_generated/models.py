@@ -823,6 +823,12 @@ class BookmarkImportNode:
 
 
 @dataclass(frozen=True)
+class BridgeHelloResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BridgeHelloResult'
+    features: List[str]
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -897,6 +903,13 @@ class BrowserRuntimeStopResult:
 
 
 @dataclass(frozen=True)
+class CancelStreamResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/CancelStreamResult'
+    outcome: Literal['applied', 'ended']
+    stream: int
+
+
+@dataclass(frozen=True)
 class CellPixelFailure:
     __cmux_schema_path__: ClassVar[str] = 'types/CellPixelFailure'
     surface: Id
@@ -921,6 +934,29 @@ class CellPixelSurface:
 
 
 @dataclass(frozen=True)
+class ClientHelloFeaturePending:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloFeaturePending'
+    app: bool
+    daemon: bool
+    name: str
+
+
+@dataclass(frozen=True)
+class ClientHelloFeatureReport:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloFeatureReport'
+    applied: List[str]
+    hash: str
+    pending: List[ClientHelloFeaturePending]
+
+
+@dataclass(frozen=True)
+class ClientHelloFeatures:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloFeatures'
+    values: Dict[str, bool]
+    hash: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ClientHelloPageOperations:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloPageOperations'
     confirm: List[str]
@@ -933,6 +969,7 @@ class ClientHelloResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloResult'
     connection_id: str
     user_origin_allowed: bool
+    features: Union[ClientHelloFeatureReport, MissingType] = field(default=MISSING)
     install_id: Union[str, MissingType] = field(default=MISSING)
     nonce: Union[str, MissingType] = field(default=MISSING)
     page: Union[str, MissingType] = field(default=MISSING)
@@ -1497,6 +1534,7 @@ class IdentifyResult:
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     cli_path: Union[str, None, MissingType] = field(default=MISSING)
     crate_version: Union[str, None, MissingType] = field(default=MISSING)
+    framed_methods: Union[List[int], None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
     install: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
@@ -1506,6 +1544,7 @@ class IdentifyResult:
     machine_name: Union[str, MissingType] = field(default=MISSING)
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    sdk_schema_digest: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     startup_marks: Union[DaemonStartupMarks, None, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
@@ -2059,6 +2098,21 @@ class ServerStatsConnections:
 
 
 @dataclass(frozen=True)
+class ServerStatsHangRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHangRecord'
+    duration_ms: int
+    sequence: int
+    span: str
+
+
+@dataclass(frozen=True)
+class ServerStatsHangs:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHangs'
+    over_250ms: int
+    records: List[ServerStatsHangRecord]
+
+
+@dataclass(frozen=True)
 class ServerStatsHistogram:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHistogram'
     count: int
@@ -2311,6 +2365,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    hangs: Union[ServerStatsHangs, MissingType] = field(default=MISSING)
     ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
     ipc_methods: Union[List[ServerStatsMethodLatency], MissingType] = field(default=MISSING)
     lock_classes: Union[ServerStatsLockClasses, MissingType] = field(default=MISSING)
@@ -2390,6 +2445,13 @@ class SetSizeCountsResult:
 class SetSizePolicyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetSizePolicyResult'
     state: Union[SizeState, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetStreamPriorityResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetStreamPriorityResult'
+    outcome: Literal['applied', 'ended']
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -3539,6 +3601,7 @@ class AttachSurfaceRequest:
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
     snapshot_local_history: Union[bool, MissingType] = field(default=MISSING)
     snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -3557,6 +3620,12 @@ class BindConversationTabSessionResult:
     surface: Id
     conversation: ConversationTabRecord
     replayed: bool
+
+
+@dataclass(frozen=True)
+class BridgeHelloRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/bridge-hello/request'
+    features: List[str]
 
 
 @dataclass(frozen=True)
@@ -3702,6 +3771,12 @@ class CancelRequestRequest:
 
 
 @dataclass(frozen=True)
+class CancelStreamRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-stream/request'
+    stream: int
+
+
+@dataclass(frozen=True)
 class ChiefInspectRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/request'
     path: str
@@ -3745,6 +3820,7 @@ class ClientFocusResult:
 @dataclass(frozen=True)
 class ClientHelloRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/client-hello/request'
+    features: Union[ClientHelloFeatures, None, MissingType] = field(default=MISSING)
     install_id: Union[str, MissingType] = field(default=MISSING)
     page: Union[str, None, MissingType] = field(default=MISSING)
     proof: Union[str, MissingType] = field(default=MISSING)
@@ -4713,6 +4789,7 @@ class DetachAttachedViewRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
     surface: Id
     lease: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4784,20 +4861,20 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
-class Fs.deleteRequest:
+class FsDeleteRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.delete/request'
     paths: List[str]
     permanent: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
-class Fs.deleteResult:
+class FsDeleteResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.delete/result'
     pass
 
 
 @dataclass(frozen=True)
-class Fs.listRequest:
+class FsListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.list/request'
     cursor: Union[str, None, MissingType] = field(default=MISSING)
     filter: Union[FsFilter, MissingType] = field(default=MISSING)
@@ -4808,14 +4885,14 @@ class Fs.listRequest:
 
 
 @dataclass(frozen=True)
-class Fs.mkdirRequest:
+class FsMkdirRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.mkdir/request'
     name: str
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.readRequest:
+class FsReadRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.read/request'
     max_bytes: int
     path: str
@@ -4823,20 +4900,20 @@ class Fs.readRequest:
 
 
 @dataclass(frozen=True)
-class Fs.renameRequest:
+class FsRenameRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.rename/request'
     name: str
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.statRequest:
+class FsStatRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.stat/request'
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.writeRequest:
+class FsWriteRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.write/request'
     mode: str
     path: str
@@ -5136,6 +5213,12 @@ class MachineUsageRequest:
 class MarkWorkspacesProviderManagedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mark-workspaces-provider-managed/request'
     authority: str
+
+
+@dataclass(frozen=True)
+class MemoryReportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/memory-report/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -5653,6 +5736,7 @@ class ReleaseAttachedViewSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
     surface: Id
     lease: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -5787,6 +5871,7 @@ class ResizeAttachedViewRequest:
     rows: int
     identity: Union[SizingIdentity, None, MissingType] = field(default=MISSING)
     lease: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -6140,6 +6225,13 @@ class SetSplitRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetStreamPriorityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-stream-priority/request'
+    priority: Literal['focused', 'visible', 'hidden']
+    stream: int
+
+
+@dataclass(frozen=True)
 class SetTabPinnedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-tab-pinned/request'
     surface: Id
@@ -6224,6 +6316,7 @@ class SnapshotRequestRequest:
     have: Union[SnapshotRequestHave, None, MissingType] = field(default=MISSING)
     reason: Union[str, None, MissingType] = field(default=MISSING)
     request_id: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -7014,6 +7107,16 @@ class HistoryChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class InputFailedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/input-failed/payload'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    event: Literal['input-failed']
+    reason: Literal['terminal_ended', 'not_a_terminal', 'write_failed', 'daemon_handoff', 'overflow', 'attach_failed']
+    stream: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class KeybindingsChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/keybindings-changed/payload'
     event: Literal['keybindings-changed']
@@ -7305,6 +7408,21 @@ class ScrollChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ServerDiagnosticSiteEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/server-diagnostic-site/payload'
+    event: Literal['server-diagnostic-site']
+    family: Literal['blocking', 'inversion', 'hang']
+    kind: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
+    crate: Union[str, MissingType] = field(default=MISSING)
+    file_hash: Union[str, MissingType] = field(default=MISSING)
+    lane_sync: Union[bool, MissingType] = field(default=MISSING)
+    line: Union[int, MissingType] = field(default=MISSING)
+    method: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class SettingsChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/settings-changed/payload'
     event: Literal['settings-changed']
@@ -7332,6 +7450,15 @@ class StatusEvent(EventBase):
     event: Literal['status']
     message: str
     cause: Union[EventCause, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class StreamEndEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/stream-end/payload'
+    event: Literal['stream-end']
+    reason: Literal['canceled', 'detached', 'overflow', 'attach_failed']
+    stream: int
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -7630,7 +7757,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScriptLogEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, InputFailedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScriptLogEvent, ScrollChangedEvent, ServerDiagnosticSiteEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, StreamEndEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -7734,6 +7861,7 @@ __all__ = [
     'Bookmark',
     'BookmarkChangeResult',
     'BookmarkImportNode',
+    'BridgeHelloResult',
     'BrowserFrame',
     'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
@@ -7743,9 +7871,13 @@ __all__ = [
     'BrowserRuntimeStartResult',
     'BrowserRuntimeStatusResult',
     'BrowserRuntimeStopResult',
+    'CancelStreamResult',
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
+    'ClientHelloFeaturePending',
+    'ClientHelloFeatureReport',
+    'ClientHelloFeatures',
     'ClientHelloPageOperations',
     'ClientHelloResult',
     'ClientInfo',
@@ -7859,6 +7991,8 @@ __all__ = [
     'Screen',
     'SendExpectAgent',
     'ServerStatsConnections',
+    'ServerStatsHangRecord',
+    'ServerStatsHangs',
     'ServerStatsHistogram',
     'ServerStatsIpc',
     'ServerStatsIpcKind',
@@ -7891,6 +8025,7 @@ __all__ = [
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
+    'SetStreamPriorityResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
     'ShownProgramStatus',
@@ -8026,6 +8161,7 @@ __all__ = [
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
     'BindConversationTabSessionResult',
+    'BridgeHelloRequest',
     'BrowserActivateRequest',
     'BrowserBackRequest',
     'BrowserForwardRequest',
@@ -8044,6 +8180,7 @@ __all__ = [
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
     'CancelRequestRequest',
+    'CancelStreamRequest',
     'ChiefInspectRequest',
     'ChiefInspectResult',
     'ClearHistoryRequest',
@@ -8174,14 +8311,14 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
-    'Fs.deleteRequest',
-    'Fs.deleteResult',
-    'Fs.listRequest',
-    'Fs.mkdirRequest',
-    'Fs.readRequest',
-    'Fs.renameRequest',
-    'Fs.statRequest',
-    'Fs.writeRequest',
+    'FsDeleteRequest',
+    'FsDeleteResult',
+    'FsListRequest',
+    'FsMkdirRequest',
+    'FsReadRequest',
+    'FsRenameRequest',
+    'FsStatRequest',
+    'FsWriteRequest',
     'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
@@ -8225,6 +8362,7 @@ __all__ = [
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
+    'MemoryReportRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',
@@ -8337,6 +8475,7 @@ __all__ = [
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
+    'SetStreamPriorityRequest',
     'SetTabPinnedRequest',
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',
@@ -8428,6 +8567,7 @@ __all__ = [
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
     'HistoryChangedEvent',
+    'InputFailedEvent',
     'KeybindingsChangedEvent',
     'LayoutChangedEvent',
     'LoopbackClosedEvent',
@@ -8454,9 +8594,11 @@ __all__ = [
     'ScreenRenamedEvent',
     'ScriptLogEvent',
     'ScrollChangedEvent',
+    'ServerDiagnosticSiteEvent',
     'SettingsChangedEvent',
     'SizeStateEvent',
     'StatusEvent',
+    'StreamEndEvent',
     'SurfaceExitedEvent',
     'SurfaceOutputEvent',
     'SurfaceResizeFailedEvent',

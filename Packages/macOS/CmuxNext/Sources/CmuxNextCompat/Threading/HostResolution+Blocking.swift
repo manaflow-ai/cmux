@@ -12,6 +12,7 @@ public import Darwin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `getaddrinfo` returns (0, or an `EAI_` error).
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingGetaddrinfo(_ host: UnsafePointer<CChar>?, _ service: UnsafePointer<CChar>?, _ hints: UnsafePointer<addrinfo>?,
                                 _ result: UnsafeMutablePointer<UnsafeMutablePointer<addrinfo>?>,

@@ -1,6 +1,13 @@
 //! The process's thread registry: one row per cmux thread, with its name,
-//! declared QoS, desired-QoS slot, effective QoS, scheduler priority and
-//! native ids.
+//! declared QoS, desired-QoS slot, effective QoS, scheduler priority, native
+//! ids and the object it works for now.
+//!
+//! A row's desired QoS is a [`DesiredQos`] that another thread sets and the
+//! row's thread applies itself with [`crate::apply_pending_qos`] at the top
+//! of its loop, so a change costs no wake and no cross-thread syscall.
+//! Chromium changes a thread's type only from the thread itself
+//! (`PlatformThread::SetCurrentThreadType`, base/threading/platform_thread.h).
+//! Threads of one owner (a terminal) can share one [`DesiredQos`].
 //!
 //! A thread's row lives in a thread-local of this crate and is removed when
 //! the thread deregisters (at the end of [`crate::spawn`], or by its
@@ -9,16 +16,17 @@
 //! [`snapshot`] sound.
 //!
 //! Lock carve-out: the row list is one std `Mutex`, held only to push or
-//! remove a row and for [`snapshot`]'s per-row reads (no I/O, no waits), as
+//! remove a row, for [`snapshot`]'s per-row reads and to start one QoS
+//! override on a row's thread ([`with_live_row`]; no I/O, no waits), as
 //! Chromium's `ThreadIdNameManager` (base/threading/thread_id_name_manager.cc)
 //! holds its lock. The per-thread fields are atomics: no QoS change or
 //! request takes the lock.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::qos::{self, LiveQos, ThreadQos};
+use crate::qos::{self, LiveQos, QosChange, ThreadQos};
 
 /// The native ids of a registered thread.
 #[derive(Clone, Copy, Debug)]
@@ -71,15 +79,49 @@ pub(crate) fn current_tid() -> Option<u64> {
 
 /// `Row::effective` before the thread's first QoS change succeeds.
 const NOT_APPLIED: u8 = u8::MAX;
+/// `Row::owner` while the thread works for no object.
+const NO_OWNER: u64 = u64::MAX;
+
+/// A QoS that one or more threads are asked to run at. The owner of the
+/// threads requests a class; each thread that follows it applies the class
+/// at its next [`crate::apply_pending_qos`].
+#[derive(Clone, Debug)]
+pub struct DesiredQos(Arc<AtomicU8>);
+
+impl DesiredQos {
+    /// A desired QoS that starts at `qos`.
+    pub fn new(qos: ThreadQos) -> Self {
+        Self(Arc::new(AtomicU8::new(qos as u8)))
+    }
+
+    /// Asks the following threads to run at `qos`. True when that changed
+    /// the request.
+    pub fn request(&self, qos: ThreadQos) -> bool {
+        self.0.swap(qos as u8, Ordering::Relaxed) != qos as u8
+    }
+
+    /// The QoS last requested.
+    pub fn get(&self) -> ThreadQos {
+        ThreadQos::from_u8(self.0.load(Ordering::Relaxed))
+    }
+}
 
 /// One registered thread.
 #[derive(Debug)]
 pub(crate) struct Row {
+    /// Unique in the process, never 0 (see [`current_id`]).
+    id: u64,
     name: String,
     declared: ThreadQos,
-    desired: AtomicU8,
+    desired: DesiredQos,
+    /// The desired QoS the thread last acted on (applied or refused), so
+    /// an unchanged request costs no syscall.
+    acted: AtomicU8,
     effective: AtomicU8,
     refused: AtomicU32,
+    /// The object the thread works for now ([`QosSlot::work_for`]), or
+    /// [`NO_OWNER`].
+    owner: AtomicU64,
     native: NativeThread,
 }
 
@@ -105,7 +147,20 @@ impl Row {
     pub(crate) fn record_refusal(&self) {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }
+
+    /// The desired QoS when it changed since the thread last acted on it,
+    /// marked as acted on.
+    pub(crate) fn take_pending(&self) -> Option<ThreadQos> {
+        let desired = self.desired.get();
+        (self.acted.swap(desired as u8, Ordering::Relaxed) != desired as u8).then_some(desired)
+    }
+
+    pub(crate) fn native(&self) -> &NativeThread {
+        &self.native
+    }
 }
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A handle to a registered thread's desired-QoS slot. Another thread stores
 /// the QoS it wants the owner to run at; the owner reads it at a point of its
@@ -114,14 +169,15 @@ impl Row {
 pub struct QosSlot(Arc<Row>);
 
 impl QosSlot {
-    /// Asks the owning thread to run at `qos`.
+    /// Asks the owning thread to run at `qos`. A thread that follows a
+    /// shared [`DesiredQos`] shares the request with the others that follow it.
     pub fn request(&self, qos: ThreadQos) {
-        self.0.desired.store(qos as u8, Ordering::Relaxed);
+        self.0.desired.request(qos);
     }
 
     /// The QoS last requested (the declared QoS until a request).
     pub fn desired(&self) -> ThreadQos {
-        ThreadQos::from_u8(self.0.desired.load(Ordering::Relaxed))
+        self.0.desired.get()
     }
 
     /// The QoS the thread was registered with: its own class, whatever it
@@ -133,6 +189,14 @@ impl QosSlot {
     /// The owning thread's name.
     pub fn name(&self) -> &str {
         &self.0.name
+    }
+
+    /// Records that the owning thread works for the object `owner` (an id
+    /// its caller chooses: a daemon connection's client id), so a snapshot
+    /// can say whose work its QoS is for, as Chromium's trace metadata
+    /// names the frame or process a thread serves. Diagnostics only.
+    pub fn work_for(&self, owner: u64) {
+        self.0.owner.store(owner, Ordering::Relaxed);
     }
 }
 
@@ -156,6 +220,9 @@ pub struct ThreadInfo {
     pub refused_changes: u32,
     /// The kernel thread id (Linux tid, macOS pthread_threadid_np).
     pub tid: Option<u64>,
+    /// The object the thread works for ([`QosSlot::work_for`]), `None` when
+    /// it was never set.
+    pub owner: Option<u64>,
 }
 
 static ROWS: Mutex<Vec<Arc<Row>>> = Mutex::new(Vec::new());
@@ -187,6 +254,21 @@ pub(crate) fn with_current<R>(f: impl FnOnce(&Row) -> R) -> Option<R> {
         .flatten()
 }
 
+/// The calling thread's row id, 0 when it is not registered (ids start at
+/// 1, so 0 stands for "no registered thread").
+pub(crate) fn current_id() -> u64 {
+    with_current(|row| row.id).unwrap_or(0)
+}
+
+/// Runs `f` on the row of the registered thread `id` with the row lock held:
+/// the thread removes its row under this lock before it exits, so it is alive
+/// while `f` runs. `f` must not wait or take another lock. `None` when no
+/// registered thread has that id (it exited or deregistered).
+pub(crate) fn with_live_row<R>(id: u64, f: impl FnOnce(&Row) -> R) -> Option<R> {
+    let rows = rows();
+    rows.iter().find(|row| row.id == id).map(|row| f(row))
+}
+
 /// The QoS the calling thread runs at: the class it last applied, else the
 /// one it declared. `None` when the thread is not registered.
 #[cfg(debug_assertions)]
@@ -200,17 +282,37 @@ pub(crate) fn current_qos() -> Option<ThreadQos> {
 /// [`deregister_current`] or when the thread exits. Returns `false`, and
 /// changes nothing, when the thread is registered already.
 pub fn register_current(name: impl Into<String>, qos: ThreadQos) -> bool {
+    register(name.into(), qos, DesiredQos::new(qos))
+}
+
+/// [`register_current`] for a thread that follows `desired`: its row's
+/// desired QoS is `desired`, which the thread applies at its next
+/// [`crate::apply_pending_qos`].
+pub fn register_current_following(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    desired: DesiredQos,
+) -> bool {
+    register(name.into(), qos, desired)
+}
+
+fn register(name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
     let registered = CURRENT.try_with(|current| {
         let mut current = current.borrow_mut();
         if current.is_some() {
             return false;
         }
         let row = Arc::new(Row {
-            name: name.into(),
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            name,
             declared: qos,
-            desired: AtomicU8::new(qos as u8),
+            desired,
+            // The declared class is applied below: a request still at it
+            // is acted on.
+            acted: AtomicU8::new(qos as u8),
             effective: AtomicU8::new(NOT_APPLIED),
             refused: AtomicU32::new(0),
+            owner: AtomicU64::new(NO_OWNER),
             native: NativeThread::current(),
         });
         rows().push(Arc::clone(&row));
@@ -240,6 +342,24 @@ pub fn current_slot() -> Option<QosSlot> {
         .flatten()
 }
 
+/// Applies the QoS another thread requested for the calling thread (its
+/// row's [`DesiredQos`]) when the request changed since the last call;
+/// `None`, with no syscall, when it did not or the thread is not registered.
+/// A thread calls it at the top of its loop, so a request takes effect at
+/// the thread's next wake and never wakes it.
+///
+/// A class the thread could not leave again is not applied: on Linux an
+/// unprivileged thread that raised its nice could never return to nice 0,
+/// so the demotion is refused and counted ([`qos::reversible`]).
+pub fn apply_pending_qos() -> Option<QosChange> {
+    let pending = with_current(Row::take_pending).flatten()?;
+    if !qos::reversible(pending) {
+        qos::record_refusal();
+        return Some(QosChange::Refused);
+    }
+    Some(qos::set_current(pending))
+}
+
 /// Every registered thread with its live QoS.
 pub fn snapshot() -> Vec<ThreadInfo> {
     // The lock stays held across the live reads: a thread removes its row
@@ -250,12 +370,20 @@ pub fn snapshot() -> Vec<ThreadInfo> {
         .map(|row| ThreadInfo {
             name: row.name.clone(),
             declared: row.declared,
-            desired: ThreadQos::from_u8(row.desired.load(Ordering::Relaxed)),
+            desired: row.desired.get(),
             effective: row.effective(),
             live: qos::live_of(&row.native),
             priority: qos::priority_of(&row.native),
             refused_changes: row.refused.load(Ordering::Relaxed),
             tid: row.native.tid(),
+            owner: match row.owner.load(Ordering::Relaxed) {
+                NO_OWNER => None,
+                owner => Some(owner),
+            },
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod tests;

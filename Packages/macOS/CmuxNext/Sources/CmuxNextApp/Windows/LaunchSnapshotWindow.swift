@@ -21,11 +21,20 @@ import Foundation
 struct LaunchSnapshotWindow {
     let manager: WindowManager
 
+    /// Opens the launch window (`WindowManager.restoreWhenLoaded`, once the snapshot's read has ended): drawn from the
+    /// snapshot, else in the connecting state, outside the registry. Nothing when a window or its picture is up.
+    func openLaunchWindow() {
+        guard manager.controllers.isEmpty, manager.launchPicture == nil, !show() else { return }
+        let id = UUID().uuidString.lowercased()
+        manager.launchWindowID = id
+        manager.makeController(for: WindowRegistry.Window(id: id))
+    }
+
     /// False when the snapshot has nothing to draw (or there is none).
     func show() -> Bool {
         let daemon = manager.services.daemon
         guard daemon.store.isProvisional else { return false }
-        if let document = daemon.launchSnapshotWindows, showSaved(document) { return true }
+        if let document = daemon.launchSnapshot.windows, showSaved(document) { return true }
         return showEveryWorkspace(daemon.store)
     }
 
@@ -113,6 +122,8 @@ struct LaunchSnapshotWindow {
         let front = shown.picture
         let shell = ShellWindow.main(frame: opening.frame)
         shell.setFrame(opening.frame, display: false)  // contentRect grows by the titlebar: the saved frame exactly
+        // Where its pages draw, before any overlay or panel of the picture reads it (as the controller sets it).
+        shell.pageSurface = services.chromiumRuntime.source.backend.pageSurface
         // Before any view reaches the window, as the controller does: its visibility node, its key family.
         _ = services.appVisibility.windowNode(shell, name: "window:\(window.id)")
         WindowMaterialView.observeKeyFamily(of: shell, through: services.appEvents)
@@ -222,6 +233,7 @@ extension ShellWindow {
         window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
+        window.isRestorable = false  // cmux restores its windows from the daemon and the window registry, not AppKit (p08-startup-087)
         window.tabbingMode = .disallowed
         return window
     }

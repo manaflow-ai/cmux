@@ -186,20 +186,18 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-inventory".into())
-        .stack_size(256 * 1024)
-        .spawn(move || {
-            let result = read(&socket, mode).map(|mut value| {
-                if let Some(machine) = owner_echo {
-                    value.insert("machine", json!(machine));
-                }
-                value
-            });
-            drop(slot);
-            reply(&worker_writer, worker_id, result);
+    // The read waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = read(&socket, mode).map(|mut value| {
+            if let Some(machine) = owner_echo {
+                value.insert("machine", json!(machine));
+            }
+            value
         });
-    if spawned.is_err() {
+        drop(slot);
+        reply(&worker_writer, worker_id, result);
+    });
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy)));
     }
     Some(true)

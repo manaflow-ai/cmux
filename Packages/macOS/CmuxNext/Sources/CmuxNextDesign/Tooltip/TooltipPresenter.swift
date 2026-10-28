@@ -27,10 +27,16 @@ public final class TooltipPresenter {
     /// How long the scrolling stays still before the row under the pointer shows its tooltip.
     static let scrollQuiet: Duration = .milliseconds(150)
 
-    private let checker: DemandTimer
-    private let quiet: DemandTimer
+    /// Where the tooltip's deadlines come from: the App's composition root sets the app's deadline scheduler
+    /// (``ComponentDeadlines/on(_:)``), so the delays wait behind the person's input; until then, and in tests,
+    /// the clock passed at init. Setting it drops what was pending.
+    public var deadlines: ComponentDeadlines {
+        didSet { makeTimers() }
+    }
+    private var checker: any ComponentDeadline
+    private var quiet: any ComponentDeadline
     /// The hover intent's one timer: the initial delay, then the warm group's cool-down.
-    private let intentTimer: DemandTimer
+    private var intentTimer: any ComponentDeadline
     private var intent = HoverIntent<ObjectIdentifier>(delay: HoverIntentTiming.standard.tooltipDelay,
                                                        warmFor: HoverIntentTiming.standard.tooltipWarm)
     /// The timing to use instead of the tunables' (tests).
@@ -59,9 +65,35 @@ public final class TooltipPresenter {
     public private(set) var shown: (text: String, shortcut: String?)?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        checker = DemandTimer(owner: "tooltip-check", clock: clock)
-        quiet = DemandTimer(owner: "tooltip-scroll", clock: clock)
-        intentTimer = DemandTimer(owner: "tooltip-intent", clock: clock)
+        let deadlines = ComponentDeadlines.clock(clock)
+        let timers = Self.timers(deadlines)
+        self.deadlines = deadlines
+        checker = timers.check
+        quiet = timers.quiet
+        intentTimer = timers.intent
+    }
+
+    /// The recheck, the scroll's quiet and the hover intent's timer: each changes what shows, so `visible`.
+    private static func timers(_ deadlines: ComponentDeadlines)
+        -> (check: any ComponentDeadline, quiet: any ComponentDeadline, intent: any ComponentDeadline) {
+        (deadlines.deadline(owner: "tooltip.check", workClass: .visible),
+         deadlines.deadline(owner: "tooltip.scroll", workClass: .visible),
+         deadlines.deadline(owner: "tooltip.intent", workClass: .visible))
+    }
+
+    /// The App's composition root, once: the inactive-app dismissal on the app's one ``AppEvents``, the delays on
+    /// the app's deadline scheduler.
+    public func follow(appEvents: AppEvents, deadlines: ComponentDeadlines) {
+        self.appEvents = appEvents
+        self.deadlines = deadlines
+    }
+
+    private func makeTimers() {
+        [checker, quiet, intentTimer].forEach { $0.cancel() }
+        let timers = Self.timers(deadlines)
+        checker = timers.check
+        quiet = timers.quiet
+        intentTimer = timers.intent
     }
 
     /// The pointer entered a tooltip's view or region.
@@ -103,7 +135,7 @@ public final class TooltipPresenter {
             scrolling = true
             watch()
         }
-        quiet.scheduleOnMain(after: Self.scrollQuiet) { [weak self] in
+        quiet.schedule(after: Self.scrollQuiet) { [weak self] in
             guard let self else { return }
             scrolling = false
             resolve()
@@ -136,7 +168,7 @@ public final class TooltipPresenter {
         for effect in effects {
             switch effect {
             case .schedule(let token, let delay):
-                intentTimer.scheduleOnMain(after: delay) { [weak self] in self?.deadline(token) }
+                intentTimer.schedule(after: delay) { [weak self] in self?.deadline(token) }
             case .cancelTimer:
                 intentTimer.cancel()
             case .show(let id):
@@ -194,7 +226,7 @@ public final class TooltipPresenter {
     /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the
     /// pointer over it; else it goes, as if the pointer left.
     private func scheduleCheck() {
-        checker.scheduleOnMain(after: Self.recheck) { [weak self] in
+        checker.schedule(after: Self.recheck) { [weak self] in
             guard let self, let tracker = current, shown != nil else { return }
             if Self.stillShows(tracker) { scheduleCheck() } else { exit(tracker) }
         }
@@ -212,6 +244,7 @@ public final class TooltipPresenter {
     }
 
     static func stillShows(_ tracker: TooltipTracker) -> Bool {
+        // visibility-walk-allow: hit test: the tooltip stays only while AppKit shows its view under the pointer
         guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
               WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect,
               let pointer = PointerHover.pointer(in: window) else { return false }

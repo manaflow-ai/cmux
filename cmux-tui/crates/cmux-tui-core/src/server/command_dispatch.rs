@@ -77,6 +77,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::TraceStatus => {
             cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
         }
+        Command::MemoryReport => cmd_server::memory_report(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify(params) => cmd_server::identify(mux, client, params),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
@@ -826,7 +827,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ResizeSurface { surface, cols, rows } => {
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
-        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )
@@ -834,12 +837,23 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReleaseSurfaceSize { surface } => {
             cmd_sizing::release_surface_size(mux, client, surface)
         }
-        Command::ReleaseAttachedViewSize { surface, lease, view } => {
+        Command::ReleaseAttachedViewSize { surface, lease, view, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
             cmd_sizing::release_attached_view_size(mux, client, surface, lease, view)
         }
-        Command::DetachAttachedView { surface, lease, view } => {
-            cmd_attach::detach_attached_view(mux, client, surface, lease, view)
+        Command::DetachAttachedView { surface, lease, view, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
+            cmd_attach::detach_attached_view(mux, client, writer, surface, lease, view)
         }
+        Command::CancelStream(terminal_io_wire::CancelStreamParams { stream }) => {
+            attach_streams::cancel_stream(mux, client, writer, stream)
+        }
+        Command::SetStreamPriority(terminal_io_wire::SetStreamPriorityParams {
+            stream,
+            priority,
+        }) => stream_priority::set_stream_priority(mux, client, writer, stream, &priority),
         Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
         Command::SelectTab(params) => cmd_tabs::select_tab(mux, actor, params),
         Command::SelectScreen { index, delta } => {
@@ -852,7 +866,9 @@ pub(super) fn handle_command_with_cancellation(
             cmd_server::report_focus(mux, client_id, pane, tab)
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
-        Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SnapshotRequest(params) => {
+            cmd_terminal_io::snapshot_request(mux, client, writer, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface(ScrollSurfaceParams { surface, delta }) => {
@@ -870,6 +886,7 @@ pub(super) fn handle_command_with_cancellation(
                 rows,
                 expected_generation,
                 expected_terminal_id,
+                stream,
                 ..
             } = params;
             // A sized attach is a size report: it starts (or renews) the
@@ -888,7 +905,46 @@ pub(super) fn handle_command_with_cancellation(
                 expected_generation,
                 expected_terminal_id,
                 snapshot,
+                stream,
             )
+        }
+    }
+}
+
+impl Command {
+    /// A person's input to one surface: text and keys, a paste, a browser
+    /// pointer, wheel or key event, a scroll. On its connection it runs before
+    /// other surfaces' queued requests (`connection_scheduler`), as Chrome's
+    /// input queue outranks the browser's other task queues
+    /// (content/browser/scheduler/browser_task_queues.h, `kUserInput`).
+    /// spec/events.md "Ordering Guarantees" lists these commands.
+    pub(super) fn is_input(&self) -> bool {
+        matches!(
+            self,
+            Self::Send(_)
+                | Self::SendKey(_)
+                | Self::PasteImage(_)
+                | Self::BrowserMouse { .. }
+                | Self::BrowserMouseGuarded { .. }
+                | Self::BrowserWheel { .. }
+                | Self::BrowserWheelGuarded { .. }
+                | Self::BrowserKey { .. }
+                | Self::BrowserKeyPress { .. }
+                | Self::BrowserInsertText { .. }
+                | Self::ScrollSurface(_)
+        )
+    }
+
+    /// A read that copies a surface's history or its VT snapshot: its cost
+    /// grows with the scrollback, so it runs on a work item off the
+    /// connection's dispatcher (`connection_scheduler`), as clear-history runs
+    /// on a worker.
+    /// spec/events.md "Ordering Guarantees" lists these commands.
+    pub(super) fn is_long_read(&self) -> bool {
+        match self {
+            Self::ReadScrollback(_) | Self::VtState(_) => true,
+            Self::Copy(CopyParams { mode, .. }) => mode == "scrollback",
+            _ => false,
         }
     }
 }

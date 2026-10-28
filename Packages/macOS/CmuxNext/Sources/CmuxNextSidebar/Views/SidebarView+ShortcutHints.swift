@@ -10,7 +10,7 @@ extension SidebarViewComponents {
     /// collapsed group, item rows, and top items (Home, the App Store) drawn in
     /// a band or in a document block among the rows. No slot is hard-coded.
     public var shortcutHintItemFrames: [SidebarItem: CGRect] {
-        guard !isHiddenOrHasHiddenAncestor, bounds.width > 1 else { return [:] }
+        guard !isHiddenOrHasHiddenAncestor, bounds.width > 1 else { return [:] } // visibility-walk-allow: the hint overlay's geometry read while the modifier is held, as a hit test
         var result: [SidebarItem: CGRect] = [:]
         let viewport = scrollViewFrameForHints
         for (key, row) in list.rowViews where row.alphaValue > 0.9 {
@@ -26,8 +26,8 @@ extension SidebarViewComponents {
             result[item] = rect
         }
         // Top items: the bands above and below the list, and document blocks drawn as list rows.
-        for region in bandRegions + list.blockRegions where !region.isHiddenOrHasHiddenAncestor && region.alphaValue > 0.5 {
-            for (id, view) in region.itemViews where !view.isHiddenOrHasHiddenAncestor && view.alphaValue > 0.5 {
+        for region in bandRegions + list.blockRegions where !region.isHiddenOrHasHiddenAncestor && region.alphaValue > 0.5 { // visibility-walk-allow: the same hint geometry read
+            for (id, view) in region.itemViews where !view.isHiddenOrHasHiddenAncestor && view.alphaValue > 0.5 { // visibility-walk-allow: the same hint geometry read
                 // Fully shown only: a tile scrolled half out of its band or the list gets no chip.
                 let visible = view.visibleRect
                 guard visible.width >= view.bounds.width - 0.5, visible.height >= view.bounds.height - 0.5, view.bounds.width > 1 else { continue }
@@ -42,7 +42,7 @@ extension SidebarViewComponents {
     /// Space-switcher slots in sidebar coordinates, in the space selection order.
     public var shortcutHintSpaceFrames: [CGRect] {
         // No hints over a strip faded out (`sidebar.spacesVisibility` hover).
-        guard !isHiddenOrHasHiddenAncestor, !profileBar.isHidden, profileBar.alphaValue > 0.5, bounds.width > 1 else { return [] }
+        guard !isHiddenOrHasHiddenAncestor, !profileBar.isHidden, profileBar.alphaValue > 0.5, bounds.width > 1 else { return [] } // visibility-walk-allow: the same hint geometry read
         return profileBar.slotRects().prefix(model.profiles.count).map { profileBar.convert($0, to: self) }
     }
 }

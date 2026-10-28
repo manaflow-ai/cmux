@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Releases and restores the GPU memory of a hidden Ghostty surface: its IOSurface swap chain,
@@ -11,6 +12,14 @@ import GhosttyNextKit
 public protocol TerminalGPUResidency: AnyObject {
     /// Makes `view`'s Ghostty surface resident (`true`) or lets its GPU memory go (`false`).
     func setResident(_ resident: Bool, of view: TerminalSurfaceView)
+
+    /// One surface's deadline for its release in an off-screen window (``TerminalOffScreenRelease``);
+    /// nil keeps a surface shown in an off-screen window resident.
+    func makeOffScreenDeadline() -> (any TerminalOffScreenDeadline)?
+}
+
+extension TerminalGPUResidency {
+    public func makeOffScreenDeadline() -> (any TerminalOffScreenDeadline)? { nil }
 }
 
 /// The libghostty switch, `ghostty_surface_set_gpu_resident`. libghostty is a static archive linked
@@ -22,12 +31,24 @@ public protocol TerminalGPUResidency: AnyObject {
 /// while the browser shows the saved frame.
 @MainActor
 public final class GhosttyGPUResidency: TerminalGPUResidency {
+    /// Where the off-screen release deadlines go.
+    private let deadlines: MainDeadlineScheduler
+
     /// Nil when the pinned GhosttyNextKit has no `ghostty_surface_set_gpu_resident`: surfaces stay
     /// resident and the warm set keeps the size it has without the release (`SubsystemBudget`).
-    public init?() {
-        #if !GHOSTTY_GPU_RESIDENT
+    ///
+    /// - Parameter deadlines: The app's one deadline scheduler, for the off-screen release deadlines.
+    public init?(deadlines: MainDeadlineScheduler) {
+        #if GHOSTTY_GPU_RESIDENT
+        self.deadlines = deadlines
+        #else
         return nil
         #endif
+    }
+
+    /// A `background` deadline: nobody sees the window it releases for.
+    public func makeOffScreenDeadline() -> (any TerminalOffScreenDeadline)? {
+        MainDeadline(owner: "TerminalSurfaceView.offScreenGPURelease", workClass: .background, scheduler: deadlines)
     }
 
     public func setResident(_ resident: Bool, of view: TerminalSurfaceView) {

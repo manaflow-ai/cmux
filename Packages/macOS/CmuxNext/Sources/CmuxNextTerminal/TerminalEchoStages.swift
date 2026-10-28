@@ -9,8 +9,9 @@ public final class TerminalEchoStages {
     /// (``GhosttyRuntime/echoStages``).
     public let contentsGate: TerminalContentsGate
     private var sink: (any TerminalEchoLatencySink)?
-    /// The Ghostty trace hook whose IOSurface handoffs mark the stages' frames (the runtime's); nil: none.
-    private let traceHook: GhosttyTraceHook?
+    /// The Ghostty trace hook whose contents reports mark the stages' frames, and where each surface registers
+    /// (the runtime's); nil: none.
+    let traceHook: GhosttyTraceHook?
 
     /// - Parameter contentsGate: The process's gate: `GhosttyRuntime.shared.echoStages.contentsGate`
     ///   for any stages but the runtime's own.

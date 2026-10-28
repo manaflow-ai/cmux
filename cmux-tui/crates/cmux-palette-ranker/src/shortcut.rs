@@ -204,7 +204,10 @@ pub(crate) fn parse_query(query: &str) -> Option<Vec<Stroke>> {
         if (token == "+" || token == "-")
             && modifiers != 0
             && at + 1 < tokens.len()
-            && tokens[..at].last().is_some_and(|last| modifier(last).is_some())
+            && at
+                .checked_sub(1)
+                .and_then(|before| tokens.get(before))
+                .is_some_and(|last| modifier(last).is_some())
         {
             continue;
         }

@@ -145,6 +145,8 @@ public final class AgentPaneRelaunchWake {
         let read = read
         // task-owner: every ask is awaited below, before the quit goes on.
         let asks = pages.map { page in
+            // main-hop-allow: each ask is the page's main-actor async state read (a page script); the quit's collect
+            // starts them all at once and awaits each below, as the history writers' quit flushes do
             (page, page.view.model.pendingWake == nil && page.view.model.hasHandshake ? Task { await read(page.view, limit) } : nil)
         }
         for (page, ask) in asks {
@@ -165,9 +167,8 @@ public final class AgentPaneRelaunchWake {
     }
 
     private nonisolated static func write(_ states: [String: AgentPaneWakeState], to file: URL, attachments folder: URL, limit: Int) {
-        let manager = FileManager.default
         // Only this save's files stay: the last save's are gone even when a tab drops out below.
-        try? manager.removeItem(at: folder)
+        try? FileManager.checked.removeItem(at: folder)
         let encoder = JSONEncoder()
         var kept: [String: Saved] = [:]
         var total = 0
@@ -185,16 +186,16 @@ public final class AgentPaneRelaunchWake {
             attachmentTotal += moved.bytes
         }
         guard !kept.isEmpty, let data = try? encoder.encode(kept) else {
-            try? manager.removeItem(at: file)
-            try? manager.removeItem(at: folder)
+            try? FileManager.checked.removeItem(at: file)
+            try? FileManager.checked.removeItem(at: folder)
             return
         }
         try? data.write(to: file, options: .atomic)
         let referenced = Set(kept.values.flatMap { $0.files?.values.map { $0 } ?? [] })
-        if referenced.isEmpty { try? manager.removeItem(at: folder) }
+        if referenced.isEmpty { try? FileManager.checked.removeItem(at: folder) }
         // A tab that did not fit wrote files nothing names: they go.
-        for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !referenced.contains(name) {
-            try? manager.removeItem(at: folder.appending(path: name))
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: folder.path)) ?? [] where !referenced.contains(name) {
+            try? FileManager.checked.removeItem(at: folder.appending(path: name))
         }
     }
 }

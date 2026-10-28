@@ -21,4 +21,5 @@ pub(crate) mod program_status_codec;
 pub(crate) mod record_mirror;
 pub(crate) mod records;
 pub(crate) mod renderer_grant;
+pub(crate) mod thread_qos;
 pub(crate) mod unadoptable;

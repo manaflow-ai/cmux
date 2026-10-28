@@ -23,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 
@@ -30,6 +31,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import driver_daemon as d  # noqa: E402
+import invariants  # noqa: E402
 
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
 # netns (unshare -rn, the default) or none on a host that refuses unprivileged user namespaces.
@@ -37,6 +39,7 @@ ISOLATION = os.environ.get("CMUX_ORACLE_ISOLATION", "netns")
 # Until normalize.py loads the default schema (SchemaTests), the live tests can name one it loads.
 SNAPSHOT_SCHEMA = os.environ.get("CMUX_ORACLE_SNAPSHOT_SCHEMA", "")
 EXAMPLE = HERE.parents[2] / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
+CORPUS = HERE.parents[2] / "tests" / "oracle" / "corpus" / "daemon-ops"
 
 
 class PathTests(unittest.TestCase):
@@ -175,6 +178,58 @@ class ExpectTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, "Crash")
 
 
+class CaseReadsTests(unittest.TestCase):
+    def test_the_case_session_name_becomes_the_fixtures_in_the_session_and_the_panic_log(self):
+        """Every case runs as oracle-<token of its root>: a facet that kept it would differ on each run."""
+        class Raw:
+            def request(self, cmd):
+                return {"ok": True, "data": {
+                    "session": {"session": {"name": "oracle-abc123"}},
+                    "panicLog": {"bytes": 0, "path": "/tmp/o/x/y/state/owner-panics-oracle-abc123.jsonl"}}}
+
+        daemon = object.__new__(d.Daemon)
+        daemon.raw = Raw()
+        data = d.CaseReads(daemon, "oracle-abc123", 1.0).command(d.ORACLE_STATE)["data"]
+        self.assertEqual(data["session"]["session"]["name"], d.SESSION_NAME)
+        self.assertEqual(data["panicLog"]["path"], f"/tmp/o/x/y/state/owner-panics-{d.SESSION_NAME}.jsonl")
+
+
+class AnyOutcomeTests(unittest.TestCase):
+    """case-v1 outcome any (a walk move, p15-oracle-098): either outcome passes and becomes the reply facet."""
+
+    def run_expect(self, outcome, op="resource.call"):
+        run = object.__new__(d.CaseRun)
+        run.state = d.CaseState()
+        run.check_expect({"id": "m01", "op": op, "expect": {"outcome": "any", "receipt": "mutation_result"}}, outcome)
+        return run
+
+    def test_ok_and_typed_error_both_pass_and_are_recorded(self):
+        receipt = {"value": {}, "generation": "g", "revision": "1", "replayed": True}
+        self.assertEqual(self.run_expect(("ok", receipt)).state.reply_facets["m01"], {"outcome": "ok", "replayed": True})
+        self.assertEqual(self.run_expect(("error", "resource.not_found")).state.reply_facets["m01"],
+                         {"outcome": "error", "error": "resource.not_found"})
+
+    def test_an_ok_reply_must_still_be_the_named_receipt(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.run_expect(("ok", {"value": {}}))
+        self.assertEqual(caught.exception.status, "Failure")
+
+    def test_only_a_resource_call_has_an_any_outcome(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.run_expect(("ok", {}), op="restart")
+        self.assertEqual(caught.exception.status, "Crash")
+
+    def test_the_reply_facet_validates_against_the_snapshot_schema(self):
+        import normalize
+
+        doc = json.loads(d.SCHEMA.read_text(encoding="utf-8"))
+        reply = doc["properties"]["facets"]["properties"][d.REPLY_FACET]["oneOf"][0]
+        for value in (d.reply_facet("ok", {"replayed": False}), d.reply_facet("error", "validation.invalid"),
+                      d.reply_facet("ok", {})):
+            self.assertEqual(normalize.validate(value, reply), [], value)
+        self.assertNotEqual(normalize.validate({"outcome": "error", "error": "Bad"}, reply), [])
+
+
 class PredicateTests(unittest.TestCase):
     def check(self, wait, value, baseline=d.MISSING):
         return d.predicate_holds(wait, value, baseline)
@@ -229,6 +284,78 @@ class CrashScopeTests(unittest.TestCase):
         entries = [{"kind": "daemon", "reason": "on purpose"}]
         exits = [d.DaemonExit("a", "daemon", "x", None), d.DaemonExit("b", "daemon", "x", None)]
         self.assertIn("allows 1", d.crash_allowed(entries, exits))
+
+
+class TerminalHolderKillTests(unittest.TestCase):
+    """The pure parts of a `process: holder` kill (p15-oracle-224); the live tests run the corpus journey."""
+
+    def test_the_kinds_of_the_processes_that_run_terminals(self):
+        self.assertEqual(d.vt_worker_kind(("cmux-tui", "__terminal-host", "--bootstrap-stdio")), "terminal-host")
+        self.assertEqual(d.vt_worker_kind(("/x/cmux-tui-host", "__terminal-host")), "terminal-host")
+        self.assertEqual(d.vt_worker_kind(("cmux-tui", "__holder", "--socket", "/tmp/h.sock")), "holder")
+        self.assertEqual(d.vt_worker_kind(("/x/cmux-tui-host", "__holder")), "holder", "__holder before the name")
+        self.assertEqual(d.vt_worker_kind(("/x/cmux-holder-3f2a", "--socket", "/tmp/h.sock")), "holder")
+        for argv in ((), ("/bin/sh",), ("/x/cmux-tui", "--headless", "--session", "oracle")):
+            self.assertIsNone(d.vt_worker_kind(argv), argv)
+
+    def test_host_records_name_each_terminal_by_its_host_pid(self):
+        with tempfile.TemporaryDirectory() as state:
+            hosts = Path(state, "terminal-hosts-0011223344556677")
+            hosts.mkdir()
+            Path(hosts, "aa.json").write_text(json.dumps({"terminal_id": "aa", "host_pid": 41}))
+            Path(hosts, "cc.json").write_text(json.dumps({"terminal_id": "cc", "host_pid": 43,
+                                                          "supports_pty_custody": True}))
+            Path(hosts, "bb.json").write_text("{not json")
+            Path(hosts, "holder.token").write_text("x")
+            self.assertEqual(d.host_terminals(Path(state)),
+                             {41: d.HostRecord("aa", False), 43: d.HostRecord("cc", True)})
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
+    def test_custody_counts_the_pty_masters_a_process_holds(self):
+        """A process that holds one PTY master, and no custody thread, reads (1, False) (Linux /proc)."""
+        master, slave = os.openpty()
+        try:
+            masters, exchanging = d.daemon_custody(os.getpid())
+        finally:
+            os.close(master)
+            os.close(slave)
+        self.assertEqual((masters, exchanging), (1, False))
+        self.assertEqual(d.daemon_custody(os.getpid()), (0, False))
+
+    def test_only_whole_lines_after_the_offset_are_read(self):
+        with tempfile.TemporaryDirectory() as root:
+            log = Path(root, d.LOSS_LOG)
+            first = json.dumps({"event": "daemon_signal"}) + "\n"
+            log.write_text(first + json.dumps({"terminal_id": "aa", "end": {}}) + "\n" + '{"terminal_id": "b')
+            self.assertEqual(d.log_lines(log, len(first)), [{"terminal_id": "aa", "end": {}}])
+            self.assertEqual(d.log_lines(Path(root, "missing"), 0), [])
+
+    def test_each_ended_host_takes_its_replacement_or_its_loss_line(self):
+        lines = [
+            {"event": "terminal_respawned", "terminal_id": "aa", "end": {"kind": "host_lost"}},
+            {"terminal_id": "cc", "end": {"kind": "host_lost"}},
+            {"event": "host_replaced", "terminal_id": "bb", "old_host_pid": 42, "new_host_pid": 50},
+            {"terminal_id": "aa", "end": {"kind": "host_lost"}},
+            {"terminal_id": "aa", "end": {"kind": "host_lost"}, "at_ms": 2},
+        ]
+        found = d.host_records(lines, {41: "aa", 42: "bb"})
+        self.assertEqual(found, {41: lines[3], 42: lines[2]}, "the first own line, and never a respawn line")
+        self.assertEqual(d.host_records(lines[:2], {41: "aa"}), {})
+
+    def test_only_an_abrt_kill_of_the_holder_arms_the_crash_seam(self):
+        def case(*steps):
+            return {"steps": [{"id": f"s{i}", "op": "kill", "target": {"process": process}, "args": args}
+                              for i, (process, args) in enumerate(steps)]}
+
+        self.assertTrue(d.arms_abort_seam(case(("holder", {"signal": "KILL"}), ("holder", {"signal": "ABRT"}))))
+        self.assertFalse(d.arms_abort_seam(case(("holder", {"signal": "KILL"}), ("holder", {}))))
+        self.assertFalse(d.arms_abort_seam(case(("daemon", {"signal": "ABRT"}))))
+        paths = d.CasePaths(Path("/tmp/o/aaaaaa/bbbbbb"))
+        armed = d.case_environment(paths, "s", d.hermetic_env.NO_ISOLATION_REQUESTED, abort_seam=True).env
+        self.assertEqual(armed[d.ABORT_SEAM_ENV], "/tmp/o/aaaaaa/bbbbbb/host-abort-once")
+        self.assertEqual(Path(armed[d.ABORT_SEAM_ENV] + ".trigger"), paths.abort_trigger)
+        plain = d.case_environment(paths, "s", d.hermetic_env.NO_ISOLATION_REQUESTED).env
+        self.assertNotIn(d.ABORT_SEAM_ENV, plain)
 
 
 class ProcessTests(unittest.TestCase):
@@ -393,8 +520,8 @@ class RunBatchTests(unittest.TestCase):
             case = oracle.Case(f"s/c{index}", "s", Path("c.json"), data)
             batches.append((oracle.Work(case, {"case_id": case.id, "state_root": str(base / f"{index:06d}")}),))
         try:
-            results, errors, _logs = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
-                                                      itertools.count())
+            results, errors, _logs, _refusals = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
+                                                                 itertools.count())
         finally:
             shutil.rmtree(base, ignore_errors=True)
         self.assertEqual(errors, [])
@@ -407,10 +534,91 @@ class SchemaTests(unittest.TestCase):
         """oracle.py passes no snapshot_schema, so `oracle.py run --product daemon` needs normalize.py to load
         its own default schema. Red while schemas/oracle/snapshot-v1.schema.json uses keywords normalize.py
         refuses (the p15-oracle-011/013 agreement)."""
-        try:
-            d.open_session({"binary": sys.executable, "run_id": "schema-test"})
-        except ValueError as error:
-            self.fail(str(error)[:3000])
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                d.open_session({"binary": str(oracle_build(Path(tmp))), "run_id": "schema-test"})
+            except ValueError as error:
+                self.fail(str(error)[:3000])
+
+
+def oracle_build(folder: Path, lock_ranks: bool = True) -> Path:
+    """An executable that passes for a cmux-tui with (or without) the lock-rank checker compiled in."""
+    binary = folder / "cmux-tui"
+    marker = invariants.LOCK_RANK_PANIC_PREFIX.encode() if lock_ranks else b""
+    binary.write_bytes(b"#!/bin/sh\nexit 0\n# " + marker + b"\n")
+    binary.chmod(0o755)
+    return binary
+
+
+def panic_line(message: str, location: str) -> str:
+    """A cmux-panic-log record (cmux-tui/crates/cmux-panic-log/src/lib.rs)."""
+    return json.dumps({"session": "oracle", "owner_pid": 1, "message": message, "location": location,
+                       "thread": "main", "at_ms": 1, "test": False, "backtrace": ""}) + "\n"
+
+
+class PanicLogTests(unittest.TestCase):
+    """Invariant I16 (p15-oracle-236): lock ranks compiled in, panic logs in the case root, a panic fails the case."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "c00001"
+        self.root.mkdir()
+        self.isolation = d.hermetic_env.Isolation("none", (), "test")
+
+    def test_a_session_refuses_a_binary_without_the_lock_rank_checker(self):
+        with self.assertRaisesRegex(ValueError, "no lock-rank checker"):
+            d.open_session({"binary": str(oracle_build(Path(self.tmp.name), lock_ranks=False)), "run_id": "i16"})
+        with self.assertRaisesRegex(ValueError, "cannot read --binary"):
+            d.require_lock_ranks(str(Path(self.tmp.name) / "missing"))
+        d.require_lock_ranks(str(oracle_build(Path(self.tmp.name))))
+
+    def test_the_hermetic_case_env_keeps_both_panic_logs_in_the_case_root(self):
+        case_env = d.case_environment(d.CasePaths(self.root), "seed", self.isolation)
+        self.assertEqual(d.panic_log_dirs(case_env), [self.root, self.root / "home" / ".acpmux"])
+        self.assertIsNone(d.panic_logs_outside(case_env, self.root))
+        shared = Path(self.tmp.name) / "shared-acpmux"
+        leaky = d.hermetic_env.daemon_case(self.root, self.isolation, extra={"ACPMUX_HOME": str(shared)})
+        self.assertIn(str(shared), d.panic_logs_outside(leaky, self.root) or "")
+
+    def test_a_panic_fails_a_passing_case_with_its_message_and_location(self):
+        result = {"status": "Pass", "message": "", "checkpoints": [], "trace": {"steps": []}}
+        d.apply_panic_log(result, self.root)
+        self.assertEqual(result["status"], "Pass")
+        self.assertEqual(result["trace"]["teardown"], {"panicLog": []})
+        (self.root / "owner-panics-oracle-abc123.jsonl").write_text(
+            panic_line("called `Option::unwrap()` on a `None` value", "crates/cmux-tui/src/main.rs:9:5"))
+        d.apply_panic_log(result, self.root)
+        self.assertEqual(result["status"], "Failure")
+        self.assertEqual(result["message"], "I16 panic at crates/cmux-tui/src/main.rs:9:5: called `Option::unwrap()` "
+                                            "on a `None` value (thread 'main', owner-panics-oracle-abc123.jsonl:1)")
+        self.assertEqual([e["location"] for e in result["trace"]["teardown"]["panicLog"]],
+                         ["crates/cmux-tui/src/main.rs:9:5"])
+
+    def test_a_crash_keeps_its_status_and_gains_the_panic_text(self):
+        (self.root / "owner-panics-oracle.jsonl").write_text(
+            panic_line("lock order violation: acquiring mux.state (MuxState) while this thread holds pty.term",
+                       "crates/cmux-tui-core/src/mux.rs:301:28"))
+        result = {"status": "Crash", "message": "the daemon exited before it was ready", "step": "setup"}
+        d.apply_panic_log(result, self.root)
+        self.assertEqual((result["status"], result["step"]), ("Crash", "setup"))
+        self.assertTrue(result["message"].startswith("the daemon exited before it was ready; I16 lock-rank panic at "
+                                                     "crates/cmux-tui-core/src/mux.rs:301:28: "), result["message"])
+
+    def test_the_session_reads_the_root_before_removing_it(self):
+        class PanickingWorker(d.DaemonSession):
+            def __init__(self):  # noqa: D107 - the worker is stubbed
+                self.scan = lambda: {}
+                self.session_ctx = {"run_id": "i16"}
+
+            def run_worker(self, case, case_ctx, scale):
+                Path(case_ctx["state_root"], "owner-panics-oracle.jsonl").write_text(panic_line("boom", "a.rs:1:1"))
+                return {"status": "Pass", "message": "", "checkpoints": [], "sockets": []}, True
+
+        result = PanickingWorker().run_case({"id": "c", "suite": "s"}, {"state_root": str(self.root / "case")})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn("I16 panic at a.rs:1:1: boom", result["message"])
+        self.assertFalse((self.root / "case").exists())
 
 
 class RestorePreviewTraceTests(unittest.TestCase):
@@ -452,27 +660,92 @@ class RestorePreviewTraceTests(unittest.TestCase):
         captures = [d.Capture("create-ws", "before", self.snapshot, reply),
                     d.Capture("create-ws", "settled", self.snapshot, reply),
                     d.Capture("read", "settled", self.snapshot, None)]
-        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"},
-                 {"id": "not-reached", "op": "settle"}]
-        trace = d.case_trace("t/i9", steps, captures)
-        self.assertEqual([s["id"] for s in trace["steps"]], ["create-ws", "read"])
+        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"}]
+        trace = traced_case("t/i9", steps, captures)
         self.assertEqual(sorted(trace["steps"][0]["restorePreviews"]), ["before", "settled"])
         self.assertNotIn("restorePreviews", trace["steps"][1])
         report = self.inv.check_trace(json.loads(json.dumps(trace)), schema=self.schema)
         self.assertEqual(report.checked.get("I9"), 2)
         self.assertEqual([v for v in report.violations if v.invariant == "I9"], [])
-        self.assertIsNone(d.case_trace("t/i9", steps, []))
 
     def test_a_trace_catches_the_skip_journal_append_mutant(self):
         """The preview a daemon gives when a step's journal record was never appended: I9 fails."""
         stale = copy.deepcopy(self.raw)
         stale["workspaces"][0]["name"] = "before the rename"
-        trace = d.case_trace("t/i9", [{"id": "rename", "op": "resource.call"}],
-                             [d.Capture("rename", "settled", self.snapshot,
-                                        self.inv._restore_reply(stale, self.head))])
+        trace = traced_case("t/i9", [{"id": "rename", "op": "resource.call"}],
+                            [d.Capture("rename", "settled", self.snapshot,
+                                       self.inv._restore_reply(stale, self.head))])
         report = self.inv.check_trace(trace, schema=self.schema)
         self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I9"],
                          [("I9", "/daemon/session/workspaces/0/name")])
+
+
+def traced_case(case_id: str, steps: list, captures: list) -> dict:
+    """The trace CaseRun.trace_doc gives for these captures: each step's record, filled by trace_capture."""
+    records = {step["id"]: dict(step, checkpoints={}) for step in steps}
+    for capture in captures:
+        d.trace_capture(records[capture.step], capture.checkpoint, capture.snapshot, capture.restore_preview)
+    return {"schema": d.invariants.TRACE_SCHEMA, "case": case_id, "steps": list(records.values())}
+
+
+def holder_crash_case(arm: str) -> dict:
+    """The terminal holder crash journey of one arm of the terminal-holder switch (p15-oracle-224)."""
+    return json.loads((CORPUS / f"terminal-holder-crash-{arm}.json").read_text(encoding="utf-8"))
+
+
+class DaemonResourcesTraceTests(unittest.TestCase):
+    """Invariant I15's input (p15-oracle-217): a traced case carries the daemon's counts after setup and at
+    teardown, each with its oracle-state liveObjects, and invariants.py compares them."""
+
+    def test_the_trace_carries_both_readings_and_i15_compares_them(self):
+        import invariants
+
+        snapshot = invariants._example()
+        reading = {"pid": 77, "fds": 12, "threads": 6, "children": 0, "source": "procfs",
+                   "liveObjects": {"workspaces": 1, "terminals": 0, "subscriptions": 1}}
+        steps = [{"id": "read", "op": "snapshot"}]
+        captures = [d.Capture("read", "settled", snapshot, None)]
+
+        def trace_doc(resources):
+            run = d.CaseRun.__new__(d.CaseRun)
+            run.case, run.case_id = {}, "t/i15"
+            run.daemon, run.paths = None, types.SimpleNamespace(session="oracle-t")
+            run.streams = d.case_connections.CaseStreams()
+            run.state = d.CaseState(resources=resources)
+            run.state.trace_steps = {step["id"]: step for step in traced_case("t/i15", steps, captures)["steps"]}
+            return run.trace_doc()
+
+        trace = trace_doc((reading, {**reading, "fds": 13}))
+        self.assertEqual(trace["setup"], {"daemonResources": reading})
+        report = invariants.check_trace(json.loads(json.dumps(trace)))
+        self.assertEqual([(v.invariant, v.where, v.pointer) for v in report.violations if v.invariant == "I15"],
+                         [("I15", "teardown", "/daemonResources/fds")])
+        self.assertIn("I6", [n.invariant for n in report.not_checked], "the trace lists no teardown processes")
+        self.assertNotIn("setup", trace_doc((None, None)))
+
+    def test_the_reading_is_of_the_daemon_after_a_round_trip(self):
+        class Raw:
+            def request(self, cmd):
+                asked.append(cmd)
+                return {"ok": True, "data": {"liveObjects": {"terminals": 2}}}
+
+        class Proc:
+            pid = os.getpid()
+
+            @staticmethod
+            def poll():
+                return None
+
+        asked = []
+        run = d.CaseRun.__new__(d.CaseRun)
+        run.scale = 1.0
+        run.daemon = d.Daemon.__new__(d.Daemon)
+        run.daemon.proc, run.daemon.raw, run.daemon.identity = Proc(), Raw(), {"pid": os.getpid()}
+        run.daemon.request = lambda method, params, key, timeout: asked.append(method)
+        reading = run.daemon_resources("teardown")
+        self.assertEqual(asked, ["session.ping", d.ORACLE_STATE])
+        self.assertEqual(reading["pid"], os.getpid())
+        self.assertEqual(reading["liveObjects"], {"terminals": 2})
 
 
 def example_case() -> dict:
@@ -570,6 +843,10 @@ class LiveTests(unittest.TestCase):
         report = invariants.check_trace(trace)
         self.assertEqual(report.checked.get("I9"), len(captured), [n for n in report.not_checked
                                                                     if n.invariant == "I9"])
+        # I15: both readings are there; the kill and restart give the teardown reading another pid.
+        setup, end = trace["setup"]["daemonResources"], trace["teardown"]["daemonResources"]
+        self.assertNotEqual(setup["pid"], end["pid"])
+        self.assertIn("a step restarted it", next(n.reason for n in report.not_checked if n.invariant == "I15"))
         steps = [step["id"] for step in trace["steps"]]
         before_kill = set(steps[:steps.index("kill-daemon")])
         others = [v for v in report.violations if v.invariant == "I9" and v.step in before_kill
@@ -591,6 +868,25 @@ class LiveTests(unittest.TestCase):
                      for key in ("workspaces", "screens", "panes", "tabs")} for cp in result["checkpoints"]]
 
         self.assertEqual(json.dumps(layouts(first), sort_keys=True), json.dumps(layouts(second), sort_keys=True))
+
+    def test_a_generated_walk_passes_and_each_move_has_its_reply_facet(self):
+        """gen_walks.py (p15-oracle-098): every call move's settled checkpoint has the reply facet, ok or a
+        typed error, and two runs of the walk give the same reply facets."""
+        import gen_walks
+
+        table = gen_walks.load_move_table(gen_walks.DEFAULT_CORPUS, gen_walks.DEFAULT_SOURCE, "daemon")
+        case = gen_walks.generate_walk(table, 0, 12)
+        moves = [s["id"] for s in case["steps"] if (s.get("expect") or {}).get("outcome") == d.ANY_OUTCOME]
+
+        def replies(result):
+            self.assertEqual(result["status"], "Pass", result["message"])
+            return {cp["step"]: cp["snapshot"]["facets"].get(d.REPLY_FACET) for cp in result["checkpoints"]
+                    if cp["checkpoint"] == "settled" and cp["step"] in moves}
+
+        first, second = replies(self.run_case(copy.deepcopy(case))), replies(self.run_case(copy.deepcopy(case)))
+        self.assertEqual(sorted(first), sorted(moves))
+        self.assertTrue(all(value["outcome"] in ("ok", "error") for value in first.values()), first)
+        self.assertEqual(first, second)
 
     def test_killed_daemon_terminals_are_ended_at_teardown(self):
         case = example_case()
@@ -661,6 +957,30 @@ class LiveTests(unittest.TestCase):
         case["allow_crashes"][0]["steps"] = ["restart"]
         result = self.run_case(case)
         self.assertEqual((result["status"], result["step"]), ("Crash", "stop"))
+        self.assertIn("I17", result["message"])
+
+    def test_the_holder_crash_journey_of_the_default_arm_replaces_each_host(self):
+        """The corpus journey of the per-terminal host arm (p15-oracle-224) with the program's stops moved out of
+        its escape sequences (inside one, the replacement fails: p15-oracle-340). Each kill waits for the daemon's
+        PTY custody; the crash seam aborts the first host and a SIGKILL ends its replacement; each gives a
+        host_replaced line, and the VT state, cwd and last screen are kept."""
+        case = holder_crash_case("old")
+        arm = next(step for step in case["steps"] if step["id"] == "arm")["args"]["params"]
+        inside = ("printf 'X\\033]2;oracle-armed\\007\\033[38;5;1'; dd bs=1 count=1 >/dev/null 2>&1; "
+                  "printf '96mRED\\033]2;oracle-second\\007\\303'; dd bs=1 count=1 >/dev/null 2>&1; printf '\\251")
+        outside = ("printf 'X\\033]2;oracle-armed\\007'; dd bs=1 count=1 >/dev/null 2>&1; "
+                   "printf '\\033[38;5;196mRED\\033]2;oracle-second\\007'; dd bs=1 count=1 >/dev/null 2>&1; "
+                   "printf '\\303\\251")
+        self.assertIn(inside, arm["text"])
+        arm["text"] = arm["text"].replace(inside, outside)
+        result = self.run_case(case)
+        self.assertEqual(result["status"], "Pass", result["message"])
+
+    def test_a_holder_kill_outside_allow_crashes_is_a_crash(self):
+        case = holder_crash_case("old")
+        case["allow_crashes"] = [entry for entry in case["allow_crashes"] if entry["steps"] != ["abort"]]
+        result = self.run_case(case)
+        self.assertEqual((result["status"], result["step"]), ("Crash", "abort"))
         self.assertIn("I17", result["message"])
 
     def test_wrong_typed_error_is_a_failure(self):

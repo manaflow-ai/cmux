@@ -20,7 +20,8 @@
 #      bundle);
 #   3. writes <out-dir>/cef-runtime-<key>.tar.xz (the folder plus
 #      cef-runtime.json) and the pin <out-dir>/cef-runtime.json:
-#      {schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, folder};
+#      {schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, folder,
+#      fork_api (the manifest's cmux_cef_api_version)};
 #   4. copies the pin to <app>/Contents/Resources/cef-runtime.json.
 # With --reuse-published, a pin already published for the key
 # (<base-url>/cef-runtime/<key>/cef-runtime.json) is used instead and no pack
@@ -95,7 +96,7 @@ archs="$( { /usr/bin/lipo -archs "$binary" 2>/dev/null || echo unknown; } | tr '
 manifest="$REPO_ROOT/scripts/cmux-next/cef-manifest.json"
 header="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
 [[ -f "$manifest" && -f "$header" ]] || die "missing $manifest or $header"
-read -r cef_version chromium_version < <(/usr/bin/python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["cef"], m["chromium"])' "$manifest")
+read -r cef_version chromium_version fork_api < <(/usr/bin/python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["cef"], m["chromium"], m.get("cmux_cef_api_version", 0))' "$manifest")
 shim_abi="$(shasum -a 256 "$header" | awk '{print $1}')"
 layout="$(sed -n 's/^LAYOUT="\(.*\)"$/\1/p' "$REPO_ROOT/scripts/cmux-next/embed-cef.sh")"
 key="$(
@@ -123,13 +124,15 @@ remove_engine() {
 }
 
 write_pin() { # <sha256> <size> <url> <file>
-  /usr/bin/python3 - "$4" "$key" "$cef_version" "$chromium_version" "$shim_abi" "$1" "$2" "$3" "$team" "$folder" <<'PY'
+  /usr/bin/python3 - "$4" "$key" "$cef_version" "$chromium_version" "$shim_abi" "$1" "$2" "$3" "$team" "$folder" "$fork_api" <<'PY'
 import json, sys
-path, key, cef, chromium, abi, sha, size, url, team, folder = sys.argv[1:]
+path, key, cef, chromium, abi, sha, size, url, team, folder, fork_api = sys.argv[1:]
 pin = {"schema": 1, "key": key, "cef": cef, "chromium": chromium, "shim_abi": abi,
        "sha256": sha, "size": int(size), "url": url, "folder": folder}
 if team:
     pin["team_id"] = team
+if int(fork_api) > 0:
+    pin["fork_api"] = int(fork_api)
 with open(path, "w") as f:
     json.dump(pin, f, indent=2, sort_keys=True)
     f.write("\n")

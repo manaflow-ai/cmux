@@ -32,11 +32,13 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteViewSessions
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
@@ -44,6 +46,7 @@ import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
@@ -56,9 +59,9 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
-    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
     private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
@@ -78,7 +81,7 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    let mainDeadlines: MainDeadlineScheduler  // the app's one `MainDeadline` placer, made in init on `mainWork`
     /// The app's one Launch Services and icon answer cache: questions run on `work`'s system lane, never on main.
     private(set) lazy var workspaceQueries = WorkspaceQueries(work: work, mainWork: mainWork)
     /// The local and peer chat upload stagers' expiry deadlines.
@@ -100,7 +103,7 @@ final class AppServices {
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
-    let machineAsks = SidebarAsks()
+    private(set) lazy var machineAsks = SidebarAsks(mainWork: mainWork)
     /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
     /// CloudService. Its first token or restore reader starts the session restore (`CloudAuth.start`); a sign-in starts Cloud.
     private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild), workspaceQueries: workspaceQueries)
@@ -127,19 +130,19 @@ final class AppServices {
     let machineHealth = MachineHealthStore()
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
+    /// What the visibility tree ran for what shows (`appearance_applies`); every root the app makes counts here.
+    let visibilityWorkCounts = VisibilityWorkCounts()
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
     /// The app's one fan-out of `NSWorkspace.shared.notificationCenter` notices; ``appearance``
     /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
     // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
-    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter, observerLedger: .shared)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
-    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
-    private(set) lazy var appVisibility = AppVisibilitySource(
-        appEvents: appEvents, workspaceEvents: workspaceEvents,
-        isAppHidden: NSApp.isHidden
-    )
+    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022). Made in init, before the
+    /// updater, whose feed checks align to its hidden wakes.
+    let appVisibility: AppVisibilitySource
     /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
     /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:
     /// the glass watch, every window and the content its panes show. The design settings own it,
@@ -177,7 +180,17 @@ final class AppServices {
         ? .afterFirstUse(overlayPageDiscards.terms(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)))
         : .ahead)
     /// The agent page WebKit warm-up.
-    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
+    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat, stability: rendererStability)
+    /// WebKit content-process ends and Chromium page hangs as stability events (p09-observability-108): one for the
+    /// app, so its rate limit sees every surface; its reports go to crash reporting on that module's own lane.
+    private(set) lazy var rendererStability: RendererStability = {
+        let sentry = RendererStabilityReporter(reporter: crashReporting.reporter)
+        return RendererStability { report in
+            sentry.send(RendererStabilityEvent(kind: report.kind.rawValue, engine: report.engine.rawValue, surface: report.surface.name,
+                                               count: report.count, unresponsiveMilliseconds: report.unresponsiveMilliseconds,
+                                               ending: report.ending?.rawValue))
+        }
+    }()
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
     /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.
     private(set) lazy var agentChromiumChat: @MainActor () -> Bool = { [features = self.features] in
@@ -186,9 +199,9 @@ final class AppServices {
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard, mainWork: mainWork, work: work,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
-    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }), mainWork: mainWork)  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); (NSApp as? CmuxApplication)?.followMainJobGate(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor? {
         didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
@@ -197,11 +210,13 @@ final class AppServices {
     let chromiumRuntime: ChromiumRuntimeService
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
     let browserStores = BrowserSharedStores.application()
+    /// The saved VNC sign-ins in memory, listed at launch: a VNC tab's connect reads them before the Keychain.
+    let vncSignIns = RemoteVNCSignIns()
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil)  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer), streamFocus: features.isEnabled(.terminalStreamPriority) ? TerminalStreamFocus() : nil)  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -249,8 +264,13 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")  // Find Work's `gh` reads; tests replace it
-    private(set) lazy var pullRequests = AgentPullRequestReads()  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
+    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
+    /// `env` finds gh on the PATH of gh's environment when it starts (the App's PATH, then gh's install folders),
+    /// so opening Find Work checks no file on the main thread.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(
+        executable: "/usr/bin/env", environment: ProcessInfo.processInfo.environment.merging(
+            ["PATH": AgentChatPullRequestReader.searchPath(ProcessInfo.processInfo.environment)]) { $1 })
+    private(set) lazy var pullRequests = AgentPullRequestReads(mainWork: mainWork)  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
@@ -259,14 +279,17 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
-    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
-    private(set) lazy var modelRouter: ModelRouterLease? = {
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
-                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
-        return ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
-    }()
+    /// The local model relay's bearer lease (Router/ModelRouterLease.swift), built at the first read once
+    /// `main`'s acpmux resolve has landed (``AppEnvironment/appAcpmux``); nil without acpmux or before then.
+    var modelRouter: ModelRouterLease? {
+        if let modelRouterIfBuilt { return modelRouterIfBuilt }
+        guard let acpmux = environment.appAcpmux?.value ?? nil else { return nil }
+        let lease = ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
+                                     logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
+        modelRouterIfBuilt = lease
+        return lease
+    }
+    private var modelRouterIfBuilt: ModelRouterLease?
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// What agent cursor tags say and where a click on one goes.
@@ -305,7 +328,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client, mainWork: mainWork) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -326,13 +349,15 @@ final class AppServices {
     /// before the daemon connects), else built the same way. Tests set their own before the services that read it are built.
     var features: FeatureList
 
-    /// Every declared feature's value for this launch: this build's channel, the launch
+    /// Every declared feature's value for this launch: this build's channel and default set (a dogfood build's
+    /// switches, ``FeatureDogfoodSet``, by the tag it ships), the launch
     /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the local choices (the Labs page's, then
     /// the Debug tunables features replace: ``FeatureLaunchLocalOverrides``) whose launch reads have ended.
     /// The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment,
+                                                buildDefaults: FeatureDogfoodSet.chromeParity.buildDefaults(forTag: environment.launch.build.tag)),
                     local: FeatureLaunchLocalOverrides(labs: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(),
                                                        tunables: environment.featureTunableOverrides?.value ?? [:]))
     }
@@ -343,10 +368,11 @@ final class AppServices {
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
     private lazy var pointerFrames: FrameInputCoalescers = (NSApp as? CmuxApplication)?.frameInput ?? FrameInputCoalescers()
-    /// Resize drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges
-    /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
-    /// is off: each drag event moves them.
-    private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// Drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges and the
+    /// DevTools divider move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame interval's
+    /// first drag event and once more at its frame (p04-input-030, 031, 032). Nil while it is off: each drag event
+    /// moves or hit-tests them. Tests set their own before the first read.
+    lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
     /// A drag's resampler, made on its start (feature `resampledDrags`, p04-input-040): a pane divider, a tab ghost or a
     /// pane-swap preview is drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without
     /// `pointerFrameDrags`, with the feature or the setting off; the layout and ``dragSession`` add Reduce Motion.
@@ -363,6 +389,8 @@ final class AppServices {
     /// reach Ghostty on a frame interval's first event and once more at its frame. Nil while it is off: each event
     /// reaches Ghostty at once.
     private(set) lazy var terminalPointerFrames: FrameInputCoalescers? = features.isEnabled(.terminalPointerFrames) ? pointerFrames : nil
+    /// Tab strip wheels (feature `tabStripScrollFrames`, p04-input-087): one layer moves per frame. Nil: each event lays out.
+    private(set) lazy var tabScrollFrameInput: FrameInputCoalescers? = features.isEnabled(.tabStripScrollFrames) ? pointerFrames : nil
     /// Remote panes (feature `pointerFrameRemoteInput`): remote desktop and remote browser tabs send moves, drags and
     /// mid-gesture scrolls to the host on a frame interval's first event and once more at its frame (p04-input-035).
     /// Nil while it is off: each event goes to the host at once.
@@ -427,20 +455,30 @@ final class AppServices {
     private(set) lazy var hiddenFrames: HiddenFrameLRU? = makeHiddenFrameLRU()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.discardKinds(
-        overlayPages: features.isEnabled(.memoryOverlayPagesOnFirstUse) || features.isEnabled(.memoryOpenPanelOnFirstUse)))
+        overlayPages: features.isEnabled(.memoryOverlayPagesOnFirstUse) || features.isEnabled(.memoryOpenPanelOnFirstUse),
+        sidebarSections: features.isEnabled(.memoryDiscardSidebarSections)))
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
-        sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
+        sample: { await AppMemoryModel.processes(webContentPIDs: $0) }, deadlines: mainDeadlines)
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
-    /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool: PageHostPool = {
-        let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                hoverFrameInput: hoverFrameInput)
-        pool.scriptFrames = pageScriptFrame
-        return pool
+    /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
+    /// `pagePreloads` both take it, so it has one park state (rendered-parked until spike 090 records its choice).
+    private(set) lazy var preloadSlot: PagePreloadSlot = {
+        let slot = PagePreloadSlot(parkState: .renderedParked, deadlines: self.mainDeadlines)
+        self.webUI.preload = slot
+        return slot
     }()
+    /// Settings, History and Cloud through the one preload slot (feature `pagePreload`), parked in the active window
+    /// at its focused pane's tab size; no Settings preload while `settingsWindow` keeps a page its next open shows.
+    private(set) lazy var pagePreloads = PagePreloads(
+        webUI: webUI, slot: preloadSlot, deadlines: mainDeadlines, input: inputTap, isEnabled: { [weak self] in self?.features.isEnabled(.pagePreload) == true },
+        target: { [weak self] in
+            guard let controller = self?.windows.active, let content = controller.window?.contentView else { return nil }
+            return (content, controller.focusedPane.map(NewTabPreload.newTabContentSize(in:)) ?? content.bounds.size)
+        },
+        keepsView: { [weak self] page in page == .settings && self?.settingsWindow.keepsPage == true })
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
@@ -451,11 +489,17 @@ final class AppServices {
                 preference: { [weak self] in
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
-                keyRouter: keyRouter, work: work, dialogs: .shared,
-                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
-            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+                keyRouter: keyRouter, work: work, mainWork: mainWork, dialogs: .shared,
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pageChannel: features.isEnabled(.pageHostChannel),
+                pushChannel: features.isEnabled(.pagePushChannel)),
+            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
+            processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
+        host.rendererStability = rendererStability
+        host.bundleReloadsOnShow = features.isEnabled(.webUpdateReloadOnShow)
+        // A page that shows with files a swap replaced reloads at the web updates' safe point.
+        host.bundleSafePoint = WebUpdates.shared
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
@@ -474,13 +518,19 @@ final class AppServices {
     private(set) lazy var overlayPageDiscards = OverlayPageDiscards(memory: memoryCoordinator) { [weak self] in
         self?.memoryHistograms.recordDiscard(kind: ContentKind.overlayPage.rawValue)
     }
+    /// The one discard path of right sidebar sections and docked Home views (`ContentKind.sidebarSection`, p07-memory-100):
+    /// feature `memoryDiscardSidebarSections` (default off) lets a hidden one go after 10 min or at critical pressure; nil keeps each.
+    private(set) lazy var sidebarSectionDiscards: SidebarSectionDiscards? = features.isEnabled(.memoryDiscardSidebarSections)
+        ? SidebarSectionDiscards(memory: memoryCoordinator) { [weak self] in self?.memoryHistograms.recordDiscard(kind: ContentKind.sidebarSection.rawValue) }
+        : nil
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
-    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
-    let notifications = NotificationCenterService()
+    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md), on
+    /// ``mainWork`` and the app's one deadline scheduler ``mainDeadlines``.
+    private(set) lazy var notifications = NotificationCenterService(work: mainWork, deadlines: mainDeadlines, background: work)
     /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
     /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
     /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
@@ -545,7 +595,7 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
-    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16), mainWork: mainWork) { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback }
@@ -592,9 +642,16 @@ final class AppServices {
     /// Stills ambient motion loops while the saver is on (`MotionEnergyLink`, p14-energy-027).
     var energyMotion: MotionEnergyLink?
     /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
-    private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// `energySaver` is a `both` feature: with a local daemon its value waits for the daemon's answer (`startEnergy`).
+    private(set) lazy var energy = EnergyServices(source: mainWork.energy,
+                                                  isEnabled: environment.daemonFeatureHello == nil ? features.isEnabled(.energySaver) : nil)
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
+    /// What the Settings page and the settings palette leave out now: Energy Saver's row while its
+    /// feature is off, its "On Battery" on a Mac with no battery. An observing reader follows the inputs.
+    var settingsAvailability: SettingsAvailability {
+        EnergySaverSetting().availability(featureEnabled: energy.driver.isEnabled, hasBattery: energyMonitor.inputs.hasBattery)
+    }
     /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
     private(set) var idleWakeups: IdleWakeupSampler?
     /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
@@ -630,7 +687,7 @@ final class AppServices {
     /// The sidebar Chief item's pet picture, one for every window: loaded once off the main thread, then a new
     /// window draws it in its first frame.
     private(set) lazy var chiefSidebarPicture = ChiefSidebarPicture(work: work, mainWork: mainWork)
-    let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
+    private(set) lazy var pages = InternalPageTabStore(mainWork: mainWork)  // internal page tabs (Settings, Debug Settings, the App Store)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
@@ -660,6 +717,8 @@ final class AppServices {
     let traceBlackBox: TraceBlackBoxFileSteps?
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The last quit's terminal frames, read off the main thread since the launch began (the panes show them, the quit saves them).
+    let terminalLaunchFrames: TerminalLaunchFrames
     /// The agent panes' launch images as one startup ref (made at the root with the launch's scheduler).
     let launchImageHold: LaunchImageHold
     /// The launch's scheduler: the right sidebar's icon build is one of its cpu-lane posts. Nil in tests with no launch.
@@ -694,43 +753,58 @@ final class AppServices {
     /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
     ///   connection readers, terminal attachments and terminal output lanes): the process's
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
-    /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
-    ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter energyMonitor: The app's power inputs: nil makes the system's on `mainWork` (nothing reads
+    ///   IOKit until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
     /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), terminalLaunchFrames: TerminalLaunchFrames? = nil,
+         relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
-         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
+         energyMonitor: EnergyMonitor? = nil, inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
-         features: FeatureList? = nil) {
+         crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
+         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
         self.appearance = appearance
+        ThemeScope.app.store.repaint(following: appearance)
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
         linkHints = LinkHintController(work: work)
         builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
-        self.energyMonitor = energyMonitor
+        self.energyMonitor = energyMonitor ?? EnergyMonitor(mainWork: mainWork)
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
-        (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        // Its crash-key page names the main thread's running task from here on (p09-observability-078).
+        if let page = traceBlackBox?.blackBox.crashKeys { mainWork.budget.board.attachCrashKeys(page); crashKeys?.page.attach(page) }
+        (self.wireStats, self.inputTap) = (wireStats, inputTap); inputTap.crashKeys = crashKeys  // its last input time names the page
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges, appEvents: appEvents, workspaceEvents: workspaceEvents)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
+        self.terminalLaunchFrames = terminalLaunchFrames ?? TerminalLaunchFrames(state: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(),
+                                                                                 reader: environment.launchCacheReader)
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
-        updater = UpdaterService(work: work)
-        chromiumRuntime = ChromiumRuntimeService.make(work: work)
-        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork),
+                                          AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents,
+                                                              isAppHidden: NSApp?.isHidden ?? false, workCounts: visibilityWorkCounts))
+        updater = UpdaterService(work: work, deadlines: mainDeadlines, checkNode: appVisibility.node)
+        let launchFeatures = features ?? Self.launchFeatures(environment)
+        // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
+        let hostSupervisor = Self.chromiumHostSupervisor(work: work, mainWork: mainWork, features: launchFeatures)
+        chromiumRuntime = ChromiumRuntimeService.make(work: work, hostSupervisor: hostSupervisor)
+        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work, mainWork: mainWork)
+        let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+        registry = ActionRegistry.standard(launch: environment.actionCatalog,
+                                           runTiming: runTiming,
                                            turnObserver: oracleTurns, mainWork: mainWork)
         #else
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+        registry = ActionRegistry.standard(launch: environment.actionCatalog,
+                                           runTiming: runTiming,
                                            mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
@@ -740,25 +814,39 @@ final class AppServices {
         inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
-                               hangWatch: hangWatch, crashKeys: crashKeys)
+                               hangWatch: hangWatch, crashKeys: crashKeys, deadlines: mainDeadlines, appEvents: appEvents)
         self.launchReveal = launchReveal
-        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
+        // Not in a crash streak's safe launch (p08-startup-089): the daemon's launch snapshot and the saved sidebars.
+        daemon.launchSnapshot.reads = { [gate = environment.launchCaches] in gate?.safeMode.readsLaunchCaches ?? true }
+        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile, saved: environment.sidebarSnapshot
+            ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work, reader: environment.launchCacheReader))
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
-        self.features = features ?? Self.launchFeatures(environment)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, runMarker: environment.runMarker, crashKeys: crashKeys, work: work, mainWork: mainWork)
+        if let launchStartup { crashRecovery.marker?.observe(launchStartup) }  // its last task and completion in run.json (p08-startup-089)
+        self.features = launchFeatures
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
-        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
+        // The fatal-hang record needs the run marker, whose folder the next launch reads (p09-observability-110).
+        let hangSinks = watchdog.map { [features = self.features, marker = crashRecovery.marker] in
+            WatchdogHangSinks(watchdog: $0, keepsFatalHangRecord: features.isEnabled(.fatalHangReports) && marker != nil,
+                              markerFolder: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID))
+        }
+        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared, daemon: environment.daemonFeatureHello).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangSinks: hangSinks, forwardersAfterStartup: self.features.isEnabled(.crashForwardersAfterStartup) ? launchStartup : nil, runMarker: crashRecovery.marker)  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
+        // The engines' Keychain calls run on the system lane; the remembered HTTP sign-ins are listed there now.
+        browserStores.loadRememberedSignIns(on: work)
+        vncSignIns.loadRememberedVNCSignIns(on: work)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
+        cache.webKit.rendererStability = rendererStability
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
+        pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
@@ -834,6 +922,10 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        popups.textInputStage = inputLatency.textInput
+        #if DEBUG || CMUX_BENCH_HOOKS
+        cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
+        #endif
         (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
@@ -892,9 +984,13 @@ final class AppServices {
             linkHints.cancel()
             windowHints.cancel()
             keyRouter.cancelChord()
+            keyRouter.creationInputCoordinator.personActed(in: event.window, event: event) // a click: the person's next intent
         }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+        if let access = environment.actionCatalog.mainAccess {  // the registry's catalog read above (p08-startup-092)
+            launchValues.recordActionCatalogMainAccess(waitMicroseconds: access.waitMicroseconds, readMicroseconds: access.microseconds)
+        }
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
     /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).
@@ -906,6 +1002,13 @@ final class AppServices {
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
+        // The session's `energySaver`: the daemon's value when it kept another one (p12-perf-process-150).
+        environment.daemonFeatureHello?.whenSessionValueKnown(of: Feature.energySaver.name,
+                                                              launchValue: features.isEnabled(.energySaver)) { [weak self, mainWork] value in
+            mainWork.postFromAnyThread(.visible, owner: "AppServices.energySaverFeature") { [weak self] in
+                self?.energy.driver.resolveFeature(isEnabled: value)
+            }
+        }
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
         // The video wallpaper's release and coverage deadlines, and the session notices every video holds for.
         videos.follow(deadlines: mainDeadlines, session: workspaceEvents)
@@ -959,13 +1062,9 @@ final class AppServices {
         return daemon.store.tab(surface: surface)
     }
 
-    func workspace(id: String) -> WorkspaceModel? {
-        machines.workspace(id: id)?.0
-    }
+    func workspace(id: String) -> WorkspaceModel? { machines.workspace(id: id)?.0 }
     /// The daemon that owns `pane`.
-    func daemon(for pane: PaneModel) -> DaemonService {
-        machines.daemon(forPane: pane)
-    }
+    func daemon(for pane: PaneModel) -> DaemonService { machines.daemon(forPane: pane) }
 
     /// The workspace key of `pane`, for `SpawnOptions.workspace`: a new
     /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.

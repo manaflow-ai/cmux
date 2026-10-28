@@ -104,7 +104,7 @@ public actor CmxIrohCustomRelayCredentialStore {
         try await acquire(account)
         defer { release(account) }
         let credentials = try await storedCredentials(account: account)
-        let definitions = Dictionary(uniqueKeysWithValues: relays.map { ($0.id, $0) })
+        let definitions = Dictionary(relays.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let retained = credentials.filter { id, credential in
             guard let relay = definitions[id] else { return false }
             return relay.authMode == .staticToken && relay.url == credential.relayURL

@@ -34,6 +34,18 @@ enum ScreenshotHandlers {
     static let unavailableCode = "screenshot.unavailable"
     /// The PNG could not be written where `out` names.
     static let writeFailedCode = "screenshot.write_failed"
+    /// A hibernated page was not woken for the capture: memory is low, so retry later. Its data's
+    /// `deferral` is the ``WakeAdmission/Deferral``.
+    static let deferredCode = "screenshot.deferred"
+
+    /// Why an off-screen page did not wake for a capture: ``deferredCode`` with the deferral when the wake
+    /// admission held it back, else ``unavailableCode``.
+    static func wakeFailure(_ key: String, cache: TabContentCache) -> ActionWorkFailure {
+        guard let deferral = cache.hibernation?.deferral(of: key) else {
+            return ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.wakeFailed)
+        }
+        return ActionWorkFailure(code: deferredCode, reason: BrowserPageStrings.wakeDeferred, details: ["deferral": deferral.rawValue])
+    }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("window.screenshot", run: { invocation in
@@ -133,7 +145,7 @@ enum ScreenshotHandlers {
         guard let made else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.pageFailed("no page")) }
         services.cache.hibernation?.noteAgentUse(tab.id)
         guard let page = await AppBrowserPage.awakePage(tab.id, page: made, cache: services.cache, within: AppBrowserPage.actionWait) else {
-            throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.wakeFailed)
+            throw wakeFailure(tab.id, cache: services.cache)
         }
         do {
             try await AppBrowserPage.ensureBrowser(page)

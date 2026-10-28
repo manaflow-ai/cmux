@@ -314,24 +314,14 @@ impl Terminal {
 
     /// Page memory of both screens.
     pub fn page_memory(&self) -> Result<PageMemory> {
-        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
-        // the plain C struct; `size` is then set to the size the getter
-        // requires, and the out-pointer is valid for the call.
-        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
-        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
-        check(unsafe {
-            sys::ghostty_terminal_get(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
-                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
-            )
-        })?;
+        let usage = self.memory_usage()?;
+        let (primary, alternate) = (usage.primary, usage.alternate);
         Ok(PageMemory {
-            resident_bytes: usage.primary_resident_bytes + usage.alternate_resident_bytes,
-            compressed_bytes: usage.primary_compressed_bytes + usage.alternate_compressed_bytes,
-            pages: usage.primary_pages + usage.alternate_pages,
-            compressed_pages: usage.primary_compressed_pages + usage.alternate_compressed_pages,
-            image_bytes: (usage.primary_image_bytes, usage.alternate_image_bytes),
+            resident_bytes: primary.resident_bytes + alternate.resident_bytes,
+            compressed_bytes: primary.compressed_bytes + alternate.compressed_bytes,
+            pages: primary.pages + alternate.pages,
+            compressed_pages: primary.compressed_pages + alternate.compressed_pages,
+            image_bytes: (primary.image_bytes, alternate.image_bytes),
         })
     }
 
@@ -452,6 +442,8 @@ unsafe extern "C" fn deflate_write(userdata: *mut c_void, data: *const u8, len: 
     if len == 0 {
         return true;
     }
+    // SAFETY: `len` is non-zero, and libghostty passes `len` readable bytes at
+    // `data` for the duration of the callback.
     let bytes = unsafe { std::slice::from_raw_parts(data, len) };
     sink.len += len as u64;
     sink.encoder.write_all(bytes).is_ok()
@@ -483,9 +475,12 @@ unsafe extern "C" fn inflate_read(
     // until it frees the decoder; `buffer` has `capacity` writable bytes and
     // `out_read` is valid for the duration of the callback (GhosttyReaderFn).
     let source = unsafe { &mut *(userdata as *mut ZlibDecoder<&[u8]>) };
+    // SAFETY: libghostty passes `capacity` writable bytes at `buffer` for the
+    // duration of the callback (GhosttyReaderFn).
     let buffer = unsafe { std::slice::from_raw_parts_mut(buffer, capacity) };
     match source.read(buffer) {
         Ok(read) => {
+            // SAFETY: libghostty passes a writable `out_read` for the callback.
             unsafe { *out_read = read };
             true
         }
@@ -518,6 +513,8 @@ fn inflate_terminal(compressed: &[u8]) -> Result<sys::GhosttyTerminal> {
         )
     })
     .and_then(|()| {
+        // SAFETY: `decoder` is live; RETAIN_CONTINUATION reads a bool from the live
+        // `retain`.
         check(unsafe {
             sys::ghostty_snapshot_decoder_set(
                 decoder,
@@ -526,7 +523,10 @@ fn inflate_terminal(compressed: &[u8]) -> Result<sys::GhosttyTerminal> {
             )
         })
     })
+    // SAFETY: `decoder` is live and `raw` a writable local.
     .and_then(|()| check(unsafe { sys::ghostty_snapshot_decoder_decode(decoder, &mut raw) }));
+    // SAFETY: `decoder` came from decoder_new above and is freed once here,
+    // after its last use; `source` outlives it.
     unsafe { sys::ghostty_snapshot_decoder_free(decoder) };
     result.map(|()| raw)
 }

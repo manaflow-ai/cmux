@@ -178,10 +178,17 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
       )}
     </div>
   );
-  if (snap.layout !== "split") return <div className="apps-scroll">{listing}</div>;
+  if (snap.layout !== "split")
+    return (
+      <div className="apps-scroll" data-page-scroll="listing">
+        {listing}
+      </div>
+    );
   return (
     <div className="apps-split">
-      <div className="apps-split-list">{listing}</div>
+      <div className="apps-split-list" data-page-scroll="listing">
+        {listing}
+      </div>
       <div className="apps-split-detail">
         {selected ? (
           <AppDetailView snap={snap} store={store} strings={strings} />

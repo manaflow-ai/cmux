@@ -61,16 +61,11 @@ public nonisolated struct WindowFrame: Sendable {
 
     init?(_ image: CGImage, scale: Double, at milliseconds: Double) {
         let width = max(1, Int(Double(image.width) * scale)), height = max(1, Int(Double(image.height) * scale))
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { context in
             context.interpolationQuality = .low
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return nil }
+        })?.bytes else { return nil }
         self.milliseconds = milliseconds
         self.width = width
         self.height = height
@@ -126,9 +121,11 @@ public nonisolated struct WindowFrame: Sendable {
     var image: CGImage? {
         let data = Data(pixels) as CFData
         guard let provider = CGDataProvider(data: data) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        // SAFETY: the decode-array pointer is nil (the default decode), so Core Graphics reads no memory through it;
+        // the pixels come from `provider`, which the image retains.
+        return unsafe CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                              provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     public func write(to path: String) {
@@ -143,9 +140,10 @@ public nonisolated struct WindowFrame: Sendable {
         let gap = 4, full = frames.count * (first.width + gap) - gap
         let factor = min(1, 16_384 / Double(max(1, full)))
         let cell = Double(first.width + gap) * factor
-        guard let context = CGContext(data: nil, width: Int((Double(full) * factor).rounded(.up)), height: max(1, Int((Double(first.height) * factor).rounded(.up))),
-                                      bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext.pixelOwningBitmap(width: Int((Double(full) * factor).rounded(.up)),
+                                                        height: max(1, Int((Double(first.height) * factor).rounded(.up))),
+                                                        space: CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return }
         context.interpolationQuality = .medium
         for (index, frame) in frames.enumerated() {
@@ -156,10 +154,10 @@ public nonisolated struct WindowFrame: Sendable {
     }
 
     static func writePNG(_ image: CGImage, to path: String) {
-        guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil)
+        guard let destination = blockingImageDestination(url: URL(fileURLWithPath: path) as CFURL, type: UTType.png.identifier as CFString, count: 1)
         else { return }
         CGImageDestinationAddImage(destination, image, nil)
-        CGImageDestinationFinalize(destination)
+        _ = blockingImageDestinationFinalize(destination)
     }
 }
 #endif

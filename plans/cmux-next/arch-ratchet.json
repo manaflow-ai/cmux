@@ -509,6 +509,18 @@
   },
   "exceptions": [
     {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "Not a new static: cp/p08-startup-007's fixer gives DebugTimings.launchMarks back the base's own declaration (origin/feat-cmux-next's Mutex<[(name: String, ms: Double)]> line, then p08-startup-004's Mutex<LaunchMarks> from origin/perf/chrome-parity). The task's first head 11288c7c9ac had re-declared it over five lines, which the counter did not read as a static, so the push range over that head reads the restored line as +1; over origin/feat-cmux-next and over origin/perf/chrome-parity the row does not rise (prepush-gate.py --base origin/perf/chrome-parity: no new violations)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextApp DebugTimings.launchCounters (p08-startup-007): the launch counter record (page-ins and main CPU at the first frame; the temperature stays LaunchSlices' in launchMarks) beside the process-wide launch mark record DebugTimings.launchMarks already is. Marks arrive from main() before AppDelegate or AppServices exist and from the daemon's threads, so no composition root can inject it; Chrome keeps the same one process-wide recorder (components/startup_metric_utils/browser/startup_metric_utils.cc, GetBrowser()). The log itself is injected (LaunchCounterLog(reader:sink:); tests pass fixed counters). It folds into the LaunchMarks record behind launchMarks (p08-startup-004; 002 rebuilds its marks on it) once 002 lands, which takes this +1 back."
+    },
+    {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
@@ -725,10 +737,58 @@
       "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
     },
     {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p04-input-076: CmuxNextWakeups MainJobGateRoute.installed, the address of the one installed MainJobGate. The Swift runtime's swift_task_enqueueMainExecutor_hook is itself one process-wide variable holding a thin function with no context argument, so the hook reaches its gate only through a process-wide word; the gate is made in the composition root (CmuxNextApp.main, MainJobGateSwitch) and injected into MainJobGateHook.install, which claims the word once and refuses a second gate. Like p02-threads-130's BlockingCallHookSlot.process for the same reason (a context-free entry point), and Chrome's base::TaskAnnotator observer hook (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p04-input-080: MainNotificationObserver (CmuxNextWakeups) is the classed notification wrapper the task asks for: one MainActorObservation registration whose handler runs in a declared MainWorkClass through MainWorkScheduler.callbackClass. It has no caller yet, so its body counts once; batches p04-input-081 and 082 move existing MainActorObservation sites onto it, each a swap of one registration for one, and the count then drops by this one."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 3,
+      "why": "p01-process-229 (fixer): ChromiumHostExclusiveAccess.follow ends a hosted page's pointer lock when its window resigns key or the app resigns active, and its HTML fullscreen when the window leaves macOS fullscreen, as Chrome's RenderWidgetHostViewMac::SetActive(false) unlocks the pointer and FullscreenController follows its window's fullscreen. The three sites subscribe through the window's shared WindowEvents fan-out (the one the page view's visibility already uses) and the app's injected AppEvents, so they add no NotificationCenter observer: AppKit's resign-key and fullscreen notices are already observed once per window and didResignActive once per app (KeyRouter, FocusEffectApplier). Only page views that CEFHostLocks serves (feature chromiumHostLocks, default off) subscribe, and the tokens go when the view leaves its window. Without them a lock outlives a Cmd-Tab and the cursor stays hidden and stuck in another app."
+    },
+    {
       "date": "2026-10-27",
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p14-energy-055b (fixer): chrome hover tracking areas now hear the pointer only in the active app (.activeInActiveApp), so no exit arrives once cmux resigns active and a lit hover (a toast's hold, a tab or reveal) stayed. PointerHover's KeyWindowObserver, the one app-wide hover adapter that already took the key notices, subscribes once per app to NSApplication didResignActive and didBecomeActive through AppEvents (recipe R-notif), the two sites counted. It refreshes only the windows with a hovering target and calls only the hover owners that hold a deactivation watch while their hover shows (ChromeHover, HoverReveal, the tab strip, the saved groups bar), instead of each owner observing the notice. The fan-out already observes both names for TooltipPresenter, HoverCardCoordinator and the others, so the app gains no NotificationCenter observer."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextCompat), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and the app's posting seams (MainDelivery(), MainRunLoopBlock, a DemandTimer fire) have no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, mode, size, mtime, ctime of the item and of every entry of a bundle, which kSecCSCheckNestedCode validates). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach, the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app resolves its acpmux once on its system lane from main (AppEnvironment.appAcpmux) and its main-thread users take that answer. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 4,
+      "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
     }
   ],
   "observer_wrappers": [

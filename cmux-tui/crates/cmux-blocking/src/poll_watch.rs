@@ -487,7 +487,8 @@ mod tests {
     /// cmux-blocking's runtime: a wrapper call in one of its tasks runs
     /// inside `block_in_place`.
     fn compensating_multi_thread(watch: &PollWatch) -> tokio::runtime::Runtime {
-        let mut builder = crate::runtime::multi_thread();
+        let mut builder =
+            crate::runtime::multi_thread("cmux-blocking-test", cmux_threads::ThreadQos::Utility);
         builder.worker_threads(2);
         watch.instrument(&mut builder);
         builder.build().expect("build a multi_thread runtime")

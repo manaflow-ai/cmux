@@ -152,9 +152,6 @@ pub fn check_name(name: &str) -> Result<(), FsError> {
 pub(crate) fn temporary_name(name: &str) -> String {
     let random = sys::random_hex(8);
     let fixed = ".".len() + ".cmux-".len() + random.len() + ".tmp".len();
-    let mut keep = name.len().min(MAX_NAME_BYTES - fixed);
-    while !name.is_char_boundary(keep) {
-        keep -= 1;
-    }
-    format!(".{}.cmux-{random}.tmp", &name[..keep])
+    let kept = crate::panic_free::utf8_prefix(name, MAX_NAME_BYTES - fixed);
+    format!(".{kept}.cmux-{random}.tmp")
 }

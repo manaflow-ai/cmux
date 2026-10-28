@@ -931,6 +931,16 @@ def handle_prompt(rid, params):
             time.sleep(ms / 1000)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "stream:N:BYTES" streams N message chunks of BYTES characters each, in bursts of 16, as
+    # fast as the pipe takes them: a model writing a long answer (acpmux-overhead.sh bench=agents).
+    if text.startswith("stream:"):
+        n, size = (int(v) for v in text[len("stream:"):].split(":"))
+        chunk = {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "w" * size}}
+        for start in range(0, n, 16):
+            send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": chunk}}
+                      for _ in range(min(16, n - start))])
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:

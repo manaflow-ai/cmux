@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextWakeups
 
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
@@ -280,22 +281,21 @@ public nonisolated struct AgentPaneTunables {
 
     /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
     /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
-    /// does for ``chatWidth``). The first theme push starts it
-    /// (``AgentPaneTheme/values(_:motion:surface:)``).
-    @MainActor static func followCodexToolRuns() {
+    /// does for ``chatWidth``). The first agent pane starts it on the app's scheduler, for the app's
+    /// lifetime: a service observation, since the repaint reaches every window's scope, shown or hidden.
+    @MainActor static func followCodexToolRuns(on work: MainWorkScheduler) {
         guard codexToolRunsFollow == nil else { return }
-        // task-owner: lives as long as the app; event-driven (Observation)
-        codexToolRunsFollow = Task {
-            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
-            where on != last {
-                last = on
-                ThemeScope.app.store.repaintAll()
-            }
+        var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
+        codexToolRunsFollow = ServiceObservation(.visible, owner: "AgentPaneTunables.codexToolRuns", on: work) {
+            ObservationTrigger((codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value))
+        } apply: { look in
+            guard look.value != last else { return }
+            last = look.value
+            ThemeScope.app.store.repaintAll()
         }
     }
 
-    @MainActor private static var codexToolRunsFollow: Task<Void, Never>?
+    @MainActor private static var codexToolRunsFollow: AnyObject?
 
     /// The page's `<html>` `data-*` attributes from these tunables and the Needs you App Store item.
     @MainActor static var documentAttributes: [String: String] {

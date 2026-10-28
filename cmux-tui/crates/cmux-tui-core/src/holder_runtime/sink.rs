@@ -166,9 +166,15 @@ impl SinkState {
         }
     }
 
-    /// An acknowledgement is due for what the parser confirmed.
+    /// An acknowledgement is due for what the parser confirmed: every
+    /// `ACK_EVERY` bytes, and once the stream went idle with
+    /// [`IDLE_ACK_BYTES`] unacknowledged, so a cold terminal's holder can
+    /// release its ring up to the end of a burst (p07-memory-094).
     fn due_ack(&mut self, can_ack: bool) -> Option<u64> {
-        (can_ack && self.confirmed >= self.acked + ACK_EVERY).then(|| {
+        let unacked = self.confirmed.saturating_sub(self.acked);
+        let idle = self.bytes.is_empty();
+        let due = unacked >= ACK_EVERY || (idle && unacked >= IDLE_ACK_BYTES);
+        (can_ack && due).then(|| {
             self.acked = self.confirmed;
             self.confirmed
         })
@@ -211,7 +217,7 @@ impl SinkState {
         Pending {
             confirmed: self.confirmed,
             received: self.received,
-            head: all[..head_len.min(all.len())].to_vec(),
+            head: all.iter().take(head_len).copied().collect(),
             all,
         }
     }
@@ -436,11 +442,7 @@ impl HolderSink {
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
-        let n = buf.len().min(state.bytes.len());
-        let (head, tail) = state.bytes.as_slices();
-        let from_head = n.min(head.len());
-        buf[..from_head].copy_from_slice(&head[..from_head]);
-        buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
+        let n = copy_queued(buf, &state.bytes);
         state.in_flight = n;
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
@@ -460,6 +462,11 @@ impl HolderSink {
         }
     }
 }
+
+/// Unacknowledged parsed output that gets an ACK as soon as the stream goes
+/// idle: a keystroke echo never costs one, the tail of a burst does, so a
+/// cold terminal's holder ring keeps at most this much it could release.
+pub(super) const IDLE_ACK_BYTES: u64 = 16 * 1024;
 
 /// CAN: ends an escape sequence the parser is inside, so output after a
 /// gap does not continue a sequence (or a UTF-8 character) cut by it.
@@ -488,7 +495,8 @@ impl TerminalSink for HolderSink {
         }
         let skip = state.received.saturating_sub(offset) as usize;
         let mut from = offset.max(state.received);
-        let mut rest = &bytes[skip.min(bytes.len())..];
+        // Bytes wholly before `received` were already taken: nothing is left.
+        let mut rest = bytes.get(skip..).unwrap_or_default();
         loop {
             let inside = state.cuts.iter().copied().find(|cut| *cut > from && *cut < end);
             let Some(cut) = inside else { break };
@@ -605,6 +613,21 @@ pub(super) struct SnapshottingReader {
     pub(super) terminal_id: String,
 }
 
+/// Copies the front of `queued` into `buf` (memcpy of its two halves); the
+/// count copied.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: n <= both lengths; head and tail together hold queued.len() >= n bytes"
+)]
+fn copy_queued(buf: &mut [u8], queued: &VecDeque<u8>) -> usize {
+    let n = buf.len().min(queued.len());
+    let (head, tail) = queued.as_slices();
+    let from_head = n.min(head.len());
+    buf[..from_head].copy_from_slice(&head[..from_head]);
+    buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
+    n
+}
+
 impl Read for SnapshottingReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(base) = self.sink.snapshot_due() {
@@ -613,7 +636,9 @@ impl Read for SnapshottingReader {
         }
         let (n, unnumbered) = self.sink.read(buf);
         if n > unnumbered {
-            crate::debug_spans::output_marks(&self.terminal_id, &buf[unnumbered..n]);
+            if let Some(numbered) = buf.get(unnumbered..n) {
+                crate::debug_spans::output_marks(&self.terminal_id, numbered);
+            }
             // The holder's output after the daemon wrote a key on the custody master is its echo.
             let flow = self.sink.input_flow.take();
             cmux_flow_trace::hop("daemon.output.holder", flow, &self.terminal_id);
@@ -683,6 +708,40 @@ mod tests {
         // holder's bytes is acknowledged, every ACK_EVERY bytes.
         assert!(acks.len() >= 2, "{acks:?}");
         assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
+    }
+
+    /// p07-memory-094: the tail of a burst under `ACK_EVERY` is acknowledged
+    /// once the stream goes idle, so the holder may release its ring up to
+    /// the burst's end; an echo after it costs no acknowledgement.
+    #[test]
+    fn an_idle_stream_acknowledges_the_tail_of_a_burst_but_not_an_echo() {
+        let (acked, acks) = std::sync::mpsc::channel();
+        let sink = HolderSink::new(0);
+        sink.set_acker(Box::new(move |offset| {
+            let _ = acked.send(offset);
+        }));
+        let wait = std::time::Duration::from_secs(10);
+        assert_eq!(acks.recv_timeout(wait), Ok(0));
+        // Under ACK_EVERY: before p07-memory-094 it was never acknowledged.
+        let burst = (2 * IDLE_ACK_BYTES) as usize;
+        assert!((burst as u64) < ACK_EVERY);
+        sink.data(0, &vec![b'a'; burst]);
+        let reader = std::thread::spawn({
+            let sink = sink.clone();
+            move || {
+                let mut out = Vec::new();
+                SinkReader(sink).read_to_end(&mut out).unwrap();
+                out.len()
+            }
+        });
+        // The reader's next read confirms the burst, finds the stream idle
+        // and acknowledges all of it before it waits.
+        assert_eq!(acks.recv_timeout(wait), Ok(burst as u64));
+        // An echo: under IDLE_ACK_BYTES, no acknowledgement.
+        sink.data(burst as u64, b"y");
+        sink.exit(ExitStatus::Exited(0), burst as u64 + 1);
+        assert_eq!(reader.join().unwrap(), burst + 1);
+        assert!(acks.try_recv().is_err(), "an echo was acknowledged");
     }
 
     #[test]

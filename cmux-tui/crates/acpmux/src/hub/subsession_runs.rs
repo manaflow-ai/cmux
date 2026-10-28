@@ -141,7 +141,7 @@ impl Runs {
             let bytes = serde_json::to_vec_pretty(&*map)?;
             let path = crate::config::home().join(WORKSPACES_FILE);
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+                cmux_blocking::fs::create_dir_all(dir)?;
             }
             crate::config::write_atomic(&path, &bytes)?;
         }
@@ -153,7 +153,7 @@ impl Runs {
 /// The workspace limits on disk; none when the file is missing or unreadable (logged).
 fn load_workspaces() -> BTreeMap<String, u32> {
     let path = crate::config::home().join(WORKSPACES_FILE);
-    match std::fs::read(&path) {
+    match cmux_blocking::fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
             tracing::warn!("{}: not read: {e}", path.display());
             BTreeMap::new()

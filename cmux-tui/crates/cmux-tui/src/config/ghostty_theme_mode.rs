@@ -350,6 +350,9 @@ pub(super) fn macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
 
     let key = CString::new("AppleInterfaceStyle").ok()?;
     let dark = CString::new("Dark").ok()?;
+    // SAFETY: the C strings outlive the calls that read them, the kCFPreferences constants are
+    // static CF strings, and every CF object this block creates or copies is checked for null and
+    // released exactly once.
     unsafe {
         let key_ref =
             CFStringCreateWithCString(ptr::null(), key.as_ptr(), K_CF_STRING_ENCODING_UTF8);

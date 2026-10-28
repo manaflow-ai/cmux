@@ -12,6 +12,11 @@
 //! telemetry choice. The line format and hook live in `cmux-panic-log`,
 //! which the acpmux daemon uses too.
 //!
+//! A terminal host's panic goes to the same log: the host writes a `.crash`
+//! sidecar, and the owner appends it as one line with `"source":
+//! "cmux-tui-host"` before it removes the sidecar ([`host_panic_log`],
+//! cmux-tui-core `host_crash.rs`).
+//!
 //! The owner's hang log (cmux-panic-log `hang`) is beside it,
 //! `owner-hangs-<session>.jsonl` with the same fields: the request watchdog
 //! writes one line per watched scope (a request, a journal commit, a
@@ -39,6 +44,33 @@ pub(super) fn install(session: &str) {
     install_hang_log(session);
     #[cfg(debug_assertions)]
     panic_for_test();
+}
+
+/// The owner's supervisor. A headless owner (`session`) records a fatal
+/// worker failure in its panic log; either kind then exits through
+/// `client_log::exit`, which drains the client log first.
+pub(super) fn supervisor(session: Option<&str>) -> cmux_panic_log::Supervisor {
+    let (log, fields) = match session {
+        Some(session) => (log_path(session), fields(session)),
+        None => (None, cmux_panic_log::Fields::new()),
+    };
+    let sink = cmux_panic_log::ExitProcess::new(log, fields, exit_supervised);
+    cmux_panic_log::Supervisor::new(std::sync::Arc::new(sink))
+}
+
+fn exit_supervised(code: i32) {
+    crate::client_log::exit(code)
+}
+
+/// Where the owner of `session` appends its terminal hosts' panics: its own
+/// panic log, with the owner's fields (the host runs the same build).
+pub(super) fn host_panic_log(
+    session: &str,
+) -> Option<cmux_tui_core::terminal_host_runtime::HostPanicLog> {
+    Some(cmux_tui_core::terminal_host_runtime::HostPanicLog {
+        path: log_path(session)?,
+        fields: fields(session),
+    })
 }
 
 /// Every line's fields: the session and the build that wrote it.
@@ -93,6 +125,7 @@ fn panic_for_test() {
     if std::env::var(TEST_PANIC_ENV).as_deref() != Ok("thread") {
         return;
     }
+    // supervise-allow: debug-only test trigger; the test asks for exactly this thread's panic line.
     let _ = std::thread::Builder::new()
         .name(TEST_PANIC_THREAD.into())
         // crash-allow: debug-only test trigger for the owner panic log

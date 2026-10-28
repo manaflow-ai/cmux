@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 // Model sync: diffs `TabStripModel` into tab cells and spring targets.
 extension TabStripView {
@@ -11,13 +12,14 @@ extension TabStripView {
     /// updates the two cells whose selection changed; geometry never moves
     /// (`TabLayoutEngine` lays tabs out without reading the selection).
     ///
-    /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
-    /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
-    /// background workspaces costs it no work until it shows, then one sync to the final state
-    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
+    /// A strip in a window but out of sight (a parked workspace's, a suspended pane's, a hidden
+    /// screen bar) lays nothing out and animates nothing: a script that reorders, renames or moves
+    /// tabs in background workspaces costs it no work until its node shows, then one sync to the
+    /// final state, with no motion: nobody saw it move (recipe R-hide; CLAUDE.md "Go past Chrome
+    /// where cmux is scripted").
     public func syncFromModel() {
-        if window != nil, !isShownInWindow {
-            modelChangedWhileHidden = true
+        if window != nil, !visibilityNode.isVisible {
+            visibilityNode.deferUntilVisible(key: Self.modelSyncKey) { [weak self] in self?.sync(fromModel: true, animating: false) }
             return
         }
         let input = ModelSnapshot(model)

@@ -45,16 +45,15 @@ class GuardTests(unittest.TestCase):
             def wait(self, timeout=None):
                 return 0
 
-        self.saved = (bp.time, bp.subprocess.Popen, bp.bm.owned, bp.counters, bp.powermetrics)
+        self.saved = (bp.time, bp.subprocess.Popen, bp.bm.owned, bp.counters)
         bp.time = clock
         bp.subprocess.Popen = FakeSample
         bp.bm.owned = lambda pid, bundle: {pid: ("app", "cmux")}
         # (energy nJ, CPU ns, wakeups, footprint bytes); energy grows by the window's mW.
         bp.counters = lambda pid: (int(test.app_energy_nj * clock.now), 0, 0, 0)
-        bp.powermetrics = lambda seconds: None
 
     def tearDown(self):
-        bp.time, bp.subprocess.Popen, bp.bm.owned, bp.counters, bp.powermetrics = self.saved
+        bp.time, bp.subprocess.Popen, bp.bm.owned, bp.counters = self.saved
         os.chdir(self.cwd)
 
     def measure(self, mw: float):

@@ -54,6 +54,7 @@ public struct SessionJournalRead: Sendable {
             return try JSONEncoder().encode(envelope)
         }
         let opened = try? WireCoding.decoder(response.recorder).decode(OpenResponse.self, from: response.line)
+        // timer-class-allow: off main: the read's bound only finishes its stream (thread-safe); no main-thread job
         let timer = DemandTimer(owner: "SessionJournalRead.shared.deadline")
         timer.schedule(after: deadline) { endContinuation.finish() }
         for await _ in ended {}

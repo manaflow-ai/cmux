@@ -22,7 +22,7 @@ struct AgentPaneSelfFocusTests {
     /// An agent page inside `host`, as a pane's content host holds it.
     private func page(in host: NSView) throws -> AgentPaneView {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         host.addSubview(view)
         return view
     }

@@ -210,7 +210,13 @@ Launch path (`Packages/macOS/CmuxNext/Sources`):
 - No cmux window sets `isRestorable = false` except `BrowserPopupWindow`; AppKit state restoration runs.
 
 Chromium:
-- ChromiumWarmup: launchPreloadDelay 3 s, idleInput 750 ms, maxWait 60 s. Chromium is the default engine,
+- ChromiumWarmup (p06-scheduler-050, task 018): the launch check, `CefInitialize` and the spare window are
+  idle tasks of the main-thread scheduler, posted once startup settled (`ChromiumWarmupIdle`); the
+  preload's framework read waits behind the startup fence (p08-startup-045). inputQuiet 750 ms, counted from
+  the app's last input, with one deadline (`ChromiumWarmup.quiet`) only after input while a step waits;
+  maxDelay 5 s (500 ms for a spare), then background work. No launch timer. `CefInitialize` runs in its idle
+  task's own turn (`CEFEngine.initializeLoaded` after `libraryLoadEnded`, `CEFLoadedStart`), not in a later
+  continuation; the Chromium Host's launch start (`startWithoutIdleWait`) awaits it. Chromium is the default engine,
   and cmux pages (Home, New Tab, agent pages) are hosted in Chromium (`PageWebView.chromiumHosting`,
   perf-lead F3). `CEFEngine.makeTab` -> `CEFRuntime.shared.start` runs at once for a restored visible
   Chromium tab. 11 `CEFRuntime.shared.start(` sites (9 are user features: passwords, passkeys).
@@ -319,7 +325,8 @@ need it.
 
 - Milestones: `process_start`, `main_start`, `run_loop_start`, `first_idle`, `window_display`,
   `launch_picture_shown`, `first_window_frame_committed`, `first_live_content_frame`, `startup_complete`,
-  plus `launch.temperature` (at `run_loop_start`), `launch.pageins_first_frame`, `launch.interrupted`.
+  plus the values (not times) `launch.temperature` and `launch.pageins_run_loop_start` (at the run loop's start,
+  `did_finish_launching_end`), `launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`.
 - Always-on launch os_signposts (Release too).
 - `CMUX_TRACE_STARTUP=<s>[,file]`: Chrome Trace Event JSON from a preallocated ring, flushed in 64 KiB
   chunks on the `.files` lane (survives a crash), plus the daemon's track (`startup_marks`) and CEF's own
@@ -441,7 +448,7 @@ Every hit of a queue is one task with the named template. Each queue is regenera
 - Q2 launch calls. `awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/' .../AppDelegate.swift | grep -o -E '[A-Za-z.?]+\.(start|follow|wire|load|install|prewarm|register[A-Za-z]*|activate|attach|keepCurrent|startCloud|startChromiumRuntime|observe[A-Za-z]*|warmWhenIdle|bindRegistryActions|startDaemonSync|watchScope|writeManagedStatus|applyManagedFeaturesNow)\(' | sort -u`
   = 81 today. After 014: `python3 scripts/cmux-next/startup-lint.py` (104) over `CmuxNextApp/Startup/*.swift`
   and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
-- Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce\.schedule|LaunchImageHold\.shared\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
+- Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce(\(\))?\.schedule|(LaunchImageHold\.shared|imageHold)\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
 - Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold` and
   `blocking-probe.sh --until-mark startup_complete` (with the 084 kinds). Template 038.
@@ -516,7 +523,7 @@ Size: S <= 150 lines, M <= 400, L = 400 split into commits. "Q" = machine queue.
 | 004 | StartupTrace (CMUX_TRACE_STARTUP), chunked | M | 003, 073 | |
 | 005 | trace.py launch-warm / launch-cold | M | 004 | |
 | 006 | bench-startup percentiles, true cold, optimized-only | M | - (flag: 007) | |
-| 007 | Startup temperature from page-ins | S | 073 | |
+| 007 | Startup temperature from page-ins | S | 073, 002 | |
 | 008 | debug.startup command | S | 010, 007 | |
 | 009 | Field launch histograms by temperature | M | 007 | |
 | 010 | StartupScheduler with destinations | L | - | |
@@ -672,7 +679,9 @@ StartupTrace, daemon and CEF files (099); summary prints milestones, top 10 main
 `Tests/CmuxNextLaunchTests/StartupTemperatureTests.swift`. Change: at `run_loop_start` read `ri_pageins`
 (`proc_pid_rusage` V4) through a seam and classify with Chrome's constants from `startup_metric_utils` at the pinned
 revision as the first thresholds (tuned later on the fleet); at first frame read page-ins and main thread CPU as separate
-values. Marks `launch.temperature`, `launch.pageins_first_frame`, `launch.main_cpu_ms`. Acceptance: pure classifier
+values. Values, never time marks (a `launch.value` signpost, not `launch.mark`, and a `<name> <value>` pipe line that
+VALUE_MARKS in startup-queue.py and bench-startup.py lists): `launch.pageins_first_frame`, `launch.main_cpu_ms`
+(`CmuxNextLaunch/StartupCounterReader.swift`, `LaunchCounterLog.swift`; `debug.timings` `launch_counters`). Acceptance: pure classifier
 tested; syscalls through the seam; nothing after the reads. Test: warm reads warm, purge reads cold.
 Since p09-observability-034 the classifier exists: `LaunchClock.Temperature` (CmuxNextTrace), decided once at
 `did_finish_launching_end` and sent as `launch.temperature.<name>` and `launch.pageins_run_loop_start`. 007 adds no
@@ -1002,6 +1011,11 @@ focused then visible. Acceptance: `views_built` == visible panes; 60-workspace t
 **067 Sparkle.** Files: `Packages/macOS/CmuxNext/Package.swift`, `CmuxNextUpdater/UpdaterService.swift`. Change: measure the
 Sparkle image and initializers; close with the number unless >= 3 ms; if so (risk:high), a protocol whose implementation
 dlopens Sparkle off main at afterStartup. Acceptance: number recorded, or otool no longer lists Sparkle and updater tests pass.
+Measure: `scripts/measure/sparkle-image-cost.sh` (fleet entry) runs `scripts/cmux-next/sparkle-image-cost.py`: per
+fresh process, `dlopen(Sparkle, RTLD_NOW)` after its system dependencies, minus a control dlopen; p50/p95/p99/max and
+the verdict (`keep-linked` under 3 ms p50, else `dlopen-off-main`); `--app` also lists the executable's non-system
+dylibs. Number: not yet run (the entry needs the hq measureScripts allowlist); Package.swift and UpdaterService.swift
+stay unchanged until the number says `dlopen-off-main`.
 
 **068 FFI and libghostty.** Files: `AppServices.swift`, `CmuxNextTerminal/GhosttyRuntime.swift`. Change: signpost first FFI
 calls and `ghostty_init`; tokio or relay starts reachable before completion move to afterStartup owners; check GhosttyNextKit
@@ -1053,6 +1067,12 @@ consistency test.
 `OwnerPanicForwarder.swift`, `Startup/Startup+Platform.swift`. Change: forwarder starts and the DiagnosticReports listing
 become `.bestEffort` lane posts behind the fence; handlers and LayoutPassGuard stay. Acceptance: no forwarder file calls
 before completion; previous-run report still sent in the same launch.
+As built (cp/p08-startup-078): feature `crashForwardersAfterStartup` (default off). `CmuxNextCrashReporting/CrashForwarders`
+holds the three forwarders; `CrashForwarders.post(on:)` posts their first pass and watches as one
+`.afterStartup` post `CrashReporting.forwarders` on `.lane(.files, .bestEffort)`, so it waits for completion and the fence.
+Finding acpmux (`AcpmuxEnvironment.resolve`: executable checks and the signature check) moves into that post too.
+`Startup/Startup+Platform.swift` does not exist on this branch; the wiring is the one `AppServices.init` line.
+Off, the forwarders start at once as before. Sentry's handlers, the invariant sink and LayoutPassGuard install at launch.
 
 **079 Q2 remainder.** Files: `Startup/Startup+{Control,Terminal,Settings,Platform,Core}.swift`. Change: priorities for
 hangReports.start, settings.start, keybindingsFile.start, mouseSideButtons, DaemonPrompts, TerminalHooks, themes.start and

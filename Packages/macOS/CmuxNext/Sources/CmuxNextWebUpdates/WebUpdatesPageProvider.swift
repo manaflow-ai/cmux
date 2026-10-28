@@ -1,6 +1,7 @@
 public import CmuxNextPages
 public import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 
 /// Settings > Updates' Web UI card (plans/cmux-next/web-ota.md): its two buttons,
@@ -23,8 +24,7 @@ public final class WebUpdatesPageProvider: PageProvider {
         }
         if op == Self.prefix + "check" {
             // A check that downloads outlasts the call: the card follows its phase in the host lists.
-            // task-owner: one check; it ends by itself
-            Task { await updater.check() }
+            updater.startCheck(.userVisible)
             return .object([:])
         }
         guard updater.state.active != nil else {

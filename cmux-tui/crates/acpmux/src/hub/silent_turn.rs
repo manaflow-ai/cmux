@@ -22,7 +22,7 @@ impl Hub {
         let hub = self.clone();
         let session = session.clone();
         let turn_id = turn_id.to_owned();
-        tokio::spawn(async move {
+        self.supervise("hub.silent-turn", Fatal, ShutdownBehavior::Skip, async move {
             tokio::time::sleep(after).await;
             // Held while it logs, so a sign the tap counts meanwhile finds the silence to end.
             let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());

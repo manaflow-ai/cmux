@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Imports a password CSV the user chose into one cmux browser profile's
 /// Chromium password store, through the same destination as the browser
@@ -50,14 +51,13 @@ public struct PasswordCSVImporter: Sendable {
     /// The whole file when it is at most `limit` bytes (an export archive's limit is larger).
     static func read(_ file: URL, limit: Int) throws(Failure) -> SecretBytes {
         // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; open only reads it.
-        let descriptor = unsafe open(file.path, O_RDONLY | O_CLOEXEC)
+        let descriptor = unsafe blockingOpen(file.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw .unreadable }
         defer { close(descriptor) }
         var info = stat()
         // SAFETY: fstat writes one `stat` into the local `info`, which outlives the call.
         guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw .unreadable }
-        let size = Int(info.st_size)
-        guard size <= limit else { throw .unreadable }
+        guard let size = Int(exactly: info.st_size), (0...limit).contains(size) else { throw .unreadable }
         var failed = false
         let bytes = SecretBytes(capacity: size) { out in
             // SAFETY: reads the base address of the buffer SecretBytes lends for this closure.
@@ -67,7 +67,7 @@ public struct PasswordCSVImporter: Sendable {
             for _ in 0...size where done < size && !failed {
                 // SAFETY: `out` holds max(size, 1) bytes (the capacity asked for) and 0 <= done < size,
                 // so read writes at most size - done bytes from base + done, inside the buffer.
-                let count = unsafe Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
+                let count = unsafe blockingRead(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done

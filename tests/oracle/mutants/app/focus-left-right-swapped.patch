@@ -1,6 +1,6 @@
 Mutant: app/focus-left-right-swapped
 Suite: actions
-Exercises: focusPaneLeft, focusPaneRight
+Exercises: focusLeft, focusRight
 Fault: FocusNavigation takes candidates past the source's right edge for left and past its left edge for right, so Focus Pane Left moves right.
 
 diff --git a/Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/FocusNavigation.swift b/Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/FocusNavigation.swift

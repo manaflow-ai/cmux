@@ -45,7 +45,7 @@ public struct PasswordCSVHeader: Equatable, Sendable {
         // A website column in the data, whose header field is a name (checked above), not a website.
         // Checked on the bytes in place: a data field (maybe a password) never becomes a String.
         let websiteColumn = names.indices.contains { column in
-            rows.contains { row in column < row.count && (bytes.view(row[column].range).map { looksLikeWebsite($0) } ?? false) }
+            rows.contains { row in row[checked: column].flatMap { bytes.view($0.range) }.map { looksLikeWebsite($0) } ?? false }
         }
         guard websiteColumn else { return nil }
         return PasswordCSVHeader(names: names, rows: rows.count)
@@ -60,18 +60,18 @@ public struct PasswordCSVHeader: Equatable, Sendable {
         looksLikeWebsite(Array(text.trimmingCharacters(in: .whitespaces).utf8))
     }
 
-    private static func looksLikeWebsite<Bytes: RandomAccessCollection<UInt8>>(_ field: Bytes) -> Bool where Bytes.Index == Int {
+    /// Reads the field in place (no copy: it may be a password), from the front, with no index.
+    private static func looksLikeWebsite<Bytes: BidirectionalCollection<UInt8>>(_ field: Bytes) -> Bool {
         let dot = UInt8(ascii: "."), space = UInt8(ascii: " "), colon = UInt8(ascii: ":"), slash = UInt8(ascii: "/")
-        var start = field.startIndex, end = field.endIndex
-        while start < end, field[start] == space { start += 1 }
-        while end > start, field[end - 1] == space { end -= 1 }
-        let value = field[start..<end]
+        let leading = field.drop(while: { $0 == space })
+        guard let last = leading.lastIndex(where: { $0 != space }) else { return false }
+        let value = leading.prefix(through: last)
         var hasDot = false, hasSpace = false
-        for index in value.indices {
-            switch value[index] {
+        for (offset, byte) in value.enumerated() {
+            switch byte {
             case dot: hasDot = true
             case space: hasSpace = true
-            case colon where index + 2 < value.endIndex && value[index + 1] == slash && value[index + 2] == slash: return true
+            case colon where value.dropFirst(offset + 1).starts(with: [slash, slash]): return true
             default: break
             }
         }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
+import CmuxNextInputModel
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextControl
 import CmuxNextOracle

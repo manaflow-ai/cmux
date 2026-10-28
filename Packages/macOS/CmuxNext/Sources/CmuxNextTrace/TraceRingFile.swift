@@ -33,6 +33,31 @@ public final class TraceRingFile: Sendable {
         "\(role.fileStem).spare.cmxtrace"
     }
 
+    /// The recording ring file of `role` in process `pid` (the Rust crate's `recording_file_name`).
+    public static func recordingName(role: TraceRing.Role, pid: UInt32) -> String {
+        "\(role.fileStem)-\(pid).recording.cmxtrace"
+    }
+
+    /// Creates the recording ring file at `path` (`byteCount` bytes, blocks allocated) and maps it
+    /// `MAP_SHARED`, for the process's life. An old file there (a reused pid's) is removed first, and the
+    /// create is exclusive and follows no symlink, as Rust's `map::map_file`: a recording never lands in a
+    /// file another process prepared. Blocking file work.
+    ///
+    /// - Returns: The mapping, or nil after removing whatever the call created.
+    static func mapRecording(path: String, byteCount: Int) -> UnsafeMutableRawPointer? {
+        blockingCall(.fileIO) {
+            if unlink(path) != 0, errno != ENOENT { return nil }
+            let descriptor = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { return nil }
+            defer { close(descriptor) }
+            guard allocate(descriptor, byteCount: byteCount), let mapping = mapShared(descriptor, byteCount: byteCount) else {
+                unlink(path)
+                return nil
+            }
+            return mapping
+        }
+    }
+
     /// Moves `ring` from the heap into its black-box file in `directory` (trace.md "Heap, then file"). It
     /// copies first and swaps last, so no writer claims a file chunk before the copy is done:
     ///
@@ -59,7 +84,7 @@ public final class TraceRingFile: Sendable {
             ring.countAdoptFailure()
             return nil
         }
-        guard let heap = ring.activeRing?.pointee.storage else {
+        guard let heap = ring.blackBoxRing?.pointee.storage else {
             ring.endAdoption(adopted: false)
             return nil
         }
