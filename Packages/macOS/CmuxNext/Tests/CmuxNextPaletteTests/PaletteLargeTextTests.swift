@@ -145,9 +145,15 @@ struct PaletteLargeTextTests {
         bar.layoutSubtreeIfNeeded()
         let field = bar.field
         let placeholder = try #require(field.placeholderAttributedString, "\(label)")
+        let full = (PaletteStrings.searchEverythingPlaceholder as NSString).size(withAttributes: [.font: Typography.search]).width
         if label.contains("20 pt") {
-            #expect(placeholder.size().width > field.bounds.width,
-                    "\(label): placeholder \(placeholder.size().width) pt in a \(field.bounds.width) pt field")
+            #expect(full > field.bounds.width, "\(label): placeholder \(full) pt in a \(field.bounds.width) pt field")
+        }
+        if full > field.bounds.width {
+            // A scrolling cell clips mid-glyph instead of truncating, so the shown text must fit itself.
+            #expect(placeholder.string.hasSuffix("…"), "\(label): \"\(placeholder.string)\" ends in an ellipsis")
+            #expect(placeholder.size().width <= field.bounds.width,
+                    "\(label): the shown placeholder is \(placeholder.size().width) pt in a \(field.bounds.width) pt field")
         }
         let style = placeholder.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
         #expect(style?.lineBreakMode == .byTruncatingTail, "\(label): the Search placeholder truncates with an ellipsis, on one line")
