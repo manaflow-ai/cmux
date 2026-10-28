@@ -3,6 +3,7 @@ import { createExecutionContext, runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { PlatformMachines } from "../src/platform-machines.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 import { bindBody, bindFile, cloudStub, frame, reply, SIZE } from "./cloud-bind-support.ts"
 import { ALLOWED_USERS, cloudTestUser, SHARED_TEAM } from "./setup/cloud-teams.ts"
 
@@ -96,6 +97,35 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const warm = await rpc.boot(c, nameOf(), s.value.id)
     expect(warm).toMatchObject({ ok: true })
     expect(warm.value.id).not.toBe(machine)
+  })
+
+  it("a delete that failed for good is started again by the next destroy, until the machine is gone", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    // Every delete attempt fails until the provider recovers.
+    await stub.fakeControl({ fail_next: 100 } as never)
+    const first = await rpc.destroy(c, machine)
+    expect(first).toMatchObject({ ok: false, retryable: true })
+    // Run CloudDO's retries out (the alarm's backoff, moved forward), so the delete fails for good.
+    for (let i = 0; i < 8; i++) {
+      await stub.fakeControl({ advance_ms: 6 * 60_000 })
+      await fireAlarm(stub)
+    }
+    const owner = { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }
+    expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine })).value).toMatchObject({ status: "failed" })
+    expect(await rpc.destroy(c, machine)).toMatchObject({ ok: false, retryable: true })
+    await stub.fakeControl({ fail_next: 0 } as never)
+    await stub.fakeControl({ advance_ms: 6 * 60_000 })
+    await fireAlarm(stub)
+    // The provider is back: a new delete runs, and the machine is gone.
+    let r = await rpc.destroy(c, machine)
+    for (let i = 0; i < 3 && !r.ok; i++) {
+      await stub.fakeControl({ advance_ms: 6 * 60_000 })
+      await fireAlarm(stub)
+      r = await rpc.destroy(c, machine)
+    }
+    expect(r).toEqual({ ok: true, value: { deleted: true } })
+    expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine })).ok).toBe(false)
   })
 
   it("a user who left the team can no longer boot, exec or snapshot, but its cleanup still deletes the builder", async () => {

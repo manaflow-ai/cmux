@@ -130,9 +130,15 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (!m) return ok({ deleted: true })
       const mine = own(call.machine)
       if ("ok" in mine) return mine
-      const r = await submit("cloud.machine.delete", { machine: m.id }, key("destroy", m.id))
-      if (r?.t === "reject" && r.code === "cloud.machine.not_found") return ok({ deleted: true })
-      return r?.t === "result" ? ok({ deleted: true }) : fromReject(r)
+      // Deleted only once the machine is gone (its tombstone): a delete still running is asked again.
+      const deleting = refused("mutation.indeterminate", "the machine is still being deleted; retry", true)
+      if (m.status === "deleting") return deleting
+      // One intent per machine revision: a delete that failed for good changed the row, so the next call
+      // starts a new delete instead of replaying the failed one (the builder must not keep running).
+      const r = await submit("cloud.machine.delete", { machine: m.id }, key("destroy", `${m.id}:${m.revision}`))
+      if (host.tombstoned(m.id) || !host.machine(m.id)) return ok({ deleted: true })
+      if (r?.t === "result") return deleting
+      return r?.t === "reject" ? refused(r.code, r.message, true) : fromReject(r)
     }
   }
 }
