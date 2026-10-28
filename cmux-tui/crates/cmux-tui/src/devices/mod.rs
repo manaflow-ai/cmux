@@ -11,6 +11,7 @@ mod removal;
 #[cfg(test)]
 mod tests;
 
+use crate::json_fields::JsonFields;
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
 
@@ -41,7 +42,7 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
     }
     match raw_args.get(1).map(String::as_str) {
         Some(verb) if VERBS.contains(&verb) => true,
-        Some("add") => raw_args[2..].iter().any(|a| a == "--yes" || a == "-y"),
+        Some("add") => raw_args.iter().skip(2).any(|a| a == "--yes" || a == "-y"),
         None => true,
         _ => false,
     }
@@ -50,7 +51,7 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
 /// Runs `cmux device <rest>`; returns the exit code (0 ok, 1 failed, 2 usage).
 pub(crate) fn run(rest: &[String]) -> i32 {
     let verb = rest.first().map(String::as_str).unwrap_or("help");
-    let args = &rest[1.min(rest.len())..];
+    let args = crate::panic_free::rest_after(rest, 1);
     let result = match verb {
         "list" | "ls" => list(args),
         "add" => add(args),
@@ -215,7 +216,7 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     let listing = current(&flags, &mut notes)?;
     if flags.has("json") {
         let mut v = serde_json::to_value(&listing)?;
-        v["notes"] = json!(notes);
+        v.insert("notes", json!(notes));
         println!("{v}");
         return Ok(());
     }
@@ -321,21 +322,21 @@ fn add(args: &[String]) -> anyhow::Result<()> {
         let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
         if flags.has("json") {
             println!("{line}");
-        } else if let Some(step) = v["step"].as_str() {
-            let state = v["state"].as_str().unwrap_or_default();
-            let detail = v["detail"].as_str().unwrap_or_default();
+        } else if let Some(step) = v.field("step").as_str() {
+            let state = v.field("state").as_str().unwrap_or_default();
+            let detail = v.field("detail").as_str().unwrap_or_default();
             println!("  {step:<10} {state:<6} {detail}");
-            if let Some(fix) = v["fix"].as_str() {
+            if let Some(fix) = v.field("fix").as_str() {
                 println!("  {:<10} fix: {fix}", "");
             }
         }
         if v.get("report").is_some() {
-            report = v["report"].clone();
+            report = v.field("report").clone();
         }
     }
     let status = child.wait()?;
-    let ok = status.success() && report["ok"].as_bool() == Some(true);
-    let name = report["name"].as_str().unwrap_or(host);
+    let ok = status.success() && report.field("ok").as_bool() == Some(true);
+    let name = report.field("name").as_str().unwrap_or(host);
     record(
         if ok { "device.added" } else { "device.add_failed" },
         json!({"device": format!("peer:{name}"), "host": host, "method": "enroll"}),
@@ -371,19 +372,19 @@ fn invite(args: &[String]) -> anyhow::Result<()> {
     let v = run_json(&cmd)?;
     record(
         "device.invited",
-        json!({"invite": v["id"], "role": role, "label": v["label"], "expires_at": v["expires_at"]}),
+        json!({"invite": v.field("id"), "role": role, "label": v.field("label"), "expires_at": v.field("expires_at")}),
     );
     if flags.has("json") {
         println!("{v}");
     } else {
         println!(
             "On the new computer, run:\n\n  {}\n",
-            v["install_command"].as_str().unwrap_or_default()
+            v.field("install_command").as_str().unwrap_or_default()
         );
         println!(
             "It works once, until {}. Cancel it: cmux device remove {}",
-            v["expires_at"].as_str().unwrap_or_default(),
-            v["id"].as_str().unwrap_or_default()
+            v.field("expires_at").as_str().unwrap_or_default(),
+            v.field("id").as_str().unwrap_or_default()
         );
     }
     Ok(())
@@ -485,8 +486,7 @@ fn show_audit(args: &[String]) -> anyhow::Result<()> {
     let path = audit_path()?;
     let text = cmux_blocking::fs::read_to_string(&path).unwrap_or_default();
     let entries: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
-    let start = entries.len().saturating_sub(limit);
-    let recent: Vec<Value> = entries[start..].iter().rev().cloned().collect();
+    let recent: Vec<Value> = entries.iter().rev().take(limit).cloned().collect();
     if flags.has("json") {
         println!("{}", json!({"path": path.display().to_string(), "entries": recent}));
         return Ok(());

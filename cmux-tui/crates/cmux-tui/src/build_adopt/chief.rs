@@ -176,7 +176,7 @@ fn clone_home(
         cmux_blocking::fs::create_dir_all(&tui)?;
         let to = tui.join(storage_component(&to_session));
         let session_skip =
-            |rel: &[String]| rel.len() == 1 && SESSION_RUNTIME.contains(&rel[0].as_str());
+            |rel: &[String]| matches!(rel, [only] if SESSION_RUNTIME.contains(&only.as_str()));
         let session = copy::clone_tree(&session_dir, &to, &session_skip)?;
         skipped.extend(session.skipped.into_iter().map(|s| format!("tui/<session>/{s}")));
         raw.extend(session.raw);
