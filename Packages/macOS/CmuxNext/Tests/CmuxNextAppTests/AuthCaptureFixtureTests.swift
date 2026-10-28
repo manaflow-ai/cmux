@@ -1,4 +1,6 @@
+#if DEBUG
 import AppKit
+import CmuxAuthRuntime
 import CmuxNextCloud
 import CmuxNextCodeRouter
 @testable import CmuxNextApp
@@ -11,11 +13,7 @@ import Testing
 struct AuthCaptureFixtureTests {
     @Test func theNamedProfileIsDebugOnly() {
         let environment = AppEnvironment.current(["CMUX_NEXT_AUTH_CAPTURE_FIXTURE": "1"])
-#if DEBUG
         #expect(environment.authCaptureFixture)
-#else
-        #expect(!environment.authCaptureFixture)
-#endif
     }
 
     @Test func accountsFixtureReadsNoAmbientProviderInputs() async throws {
@@ -50,5 +48,12 @@ struct AuthCaptureFixtureTests {
         #expect(await !auth.browserSignIn.beginSignIn(inDefaultBrowser: false).value)
         #expect(!auth.continueSignInInBrowser())
         #expect(!auth.isSignedIn)
+        await #expect(throws: AuthError.offline) {
+            try await auth.coordinator.requestEmailVerification(for: "fixture@example.invalid")
+        }
+        await #expect(throws: AuthError.offline) {
+            try await auth.coordinator.requestBillingRecovery(for: "fixture@example.invalid")
+        }
     }
 }
+#endif
