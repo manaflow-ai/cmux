@@ -436,6 +436,17 @@ test("Sources keep transcript encounter order across fetched URLs and PR mention
   ]);
 });
 
+test("Sources keep tool order within one activity row", () => {
+  const rows = toolsRows(
+    shell("gh pr view 41 -R acme/app"),
+    tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }),
+  );
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { url: "https://github.com/acme/app/pull/41", label: "acme/app #41", kind: "pullRequest" },
+    { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
+  ]);
+});
+
 test("update-branch is a Change and JSON titles preserve apostrophes", () => {
   const rows = toolsRows(
     shell("gh pr update-branch 41 -R acme/uploader"),
@@ -514,6 +525,7 @@ test("shell substitutions and conditions retain executed mutations", () => {
     "if false; then true; elif gh pr merge 42 -R acme/app --squash; fi",
     "if ! gh pr merge 43 -R acme/app --squash; then echo merged; fi",
     "timeout 60 gh pr merge 44 -R acme/app --squash",
+    "timeout -k 5 60 gh pr merge 47 -R acme/app --squash",
   ]) {
     const rows = toolsRows(shell(command, "https://github.com/acme/app/pull/41"));
     expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
@@ -521,6 +533,13 @@ test("shell substitutions and conditions retain executed mutations", () => {
   expect(transcriptPullRequests(toolsRows(shell("if false; then gh pr merge 45 -R acme/app --squash; fi")))).toEqual([]);
   expect(transcriptPullRequests(toolsRows(shell("( gh pr merge 46 -R acme/app --squash )")))).toMatchObject([
     { number: 46, changed: true, state: "merged" },
+  ]);
+});
+
+test("issue commands do not hide unrelated references on the same shell line", () => {
+  expect(transcriptPullRequests(toolsRows(shell("gh issue view 7 -R acme/app && echo acme/other#8")))).toMatchObject([
+    { repo: "acme/app", number: 7, kind: "issue" },
+    { repo: "acme/other", number: 8, mentioned: true },
   ]);
 });
 
