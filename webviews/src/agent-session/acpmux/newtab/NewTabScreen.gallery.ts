@@ -660,6 +660,48 @@ export default agentPaneEntry({
       },
     },
     "attachment-menu": {
+      native: {
+        "action.composerList": {
+          actions: [
+            {
+              id: "openBrowser",
+              section: "tools",
+              name: "New Browser Tab",
+              description: "Open a browser tab",
+              icon: "globe",
+            },
+            {
+              id: "newSurface",
+              section: "tools",
+              name: "New Terminal",
+              description: "Open a terminal tab",
+              icon: "terminal",
+            },
+            {
+              id: "app.command.run",
+              section: "apps",
+              name: "Run App Command",
+              description: "Choose an app command",
+              icon: "square.grid.2x2",
+            },
+            {
+              id: "search.chats",
+              section: "sessions",
+              name: "Search Chats",
+              description: "Find a recent conversation",
+              icon: "bubble.left",
+            },
+            {
+              id: "tab.search",
+              section: "tabs",
+              name: "Search Tabs",
+              description: "Find an open tab",
+              icon: "square.on.square",
+            },
+          ],
+        },
+      },
+
       note: "The New Tab composer keeps the chat composer's leading + attachment control: opening it exposes the same Attach option without moving the field.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
@@ -668,7 +710,7 @@ export default agentPaneEntry({
           () => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button") !== null,
         );
         await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab-plus .acpmux-palette-menu") !== null);
         const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
       },

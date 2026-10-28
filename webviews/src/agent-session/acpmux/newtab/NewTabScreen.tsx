@@ -31,7 +31,9 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
-import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon } from "../ComposerPickers";
+import { ArrowUpIcon, PaperclipIcon, PlusIcon } from "../ComposerPickers";
+import { PaletteMenu, paletteSections } from "../PaletteMenu";
+import { composerPlusRegistry, type ComposerPlusExtension } from "../composerPlusRegistry";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -128,6 +130,9 @@ export type NewTabScreenActions = {
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
   onInputReady?(token: string): void;
+  onPaletteAction?(id: string): Promise<void> | void;
+  plusExtensions?: readonly ComposerPlusExtension[];
+  onPlusOpen?(): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
   /// The machine the page runs on and its chat starts on (the host's name for it), for the
@@ -288,6 +293,7 @@ export function NewTabScreen(props: Props) {
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
   const [text, setText] = useState(location ?? "");
+  const [paletteError, setPaletteError] = useState<string>();
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
@@ -1128,7 +1134,8 @@ export function NewTabScreen(props: Props) {
           void attach(files, true);
         }}
       />
-      <Picker
+      <PaletteMenu
+        onOpen={props.onPlusOpen}
         label={t("composer.add")}
         tooltip={t("composer.addTooltip")}
         className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
@@ -1137,11 +1144,29 @@ export function NewTabScreen(props: Props) {
         returnFocus={false}
         sections={[
           {
-            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
+            title: t("composer.add"),
+            choices: composerPlusRegistry({ translate: t, canCapture: false })
+              .filter((entry) => entry.id === "add.files")
+              .map((entry) => ({
+                id: entry.id,
+                name: entry.name,
+                description: entry.description,
+                icon: <PaperclipIcon />,
+              })),
             onPick: (id) => {
-              if (id === "attach") chooser.current?.click();
+              if (id === "add.files") chooser.current?.click();
             },
           },
+          ...paletteSections(
+            (id) => {
+              setPaletteError(undefined);
+              void Promise.resolve(props.onPaletteAction?.(id)).catch((error: unknown) => {
+                setPaletteError(error instanceof Error ? error.message : String(error));
+              });
+            },
+            t,
+            props.plusExtensions,
+          ),
         ]}
       />
     </>
@@ -1325,6 +1350,14 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {paletteError && (
+          <output className="acpmux-switch-notice acpmux-folder-choice">
+            <span role="alert">{paletteError}</span>{" "}
+            <button type="button" className="acpmux-folder-choice-button" onClick={() => setPaletteError(undefined)}>
+              {t("worktree.dismiss")}
+            </button>
+          </output>
+        )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>

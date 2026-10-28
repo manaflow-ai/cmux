@@ -6,6 +6,11 @@ extension AgentPaneModel {
     /// current, or a new Cloud VM), and a started chat's Move to Cloud and Bring Back Local (the tab
     /// menu's same actions, on this tab). webviews environments.ts CONNECT_ACTIONS names the same
     /// seven.
+    /// The composer's + menu has only these existing palette actions. This narrow list is the
+    /// page-to-native boundary; the app registry remains the sole executor of each action.
+    static let composerPaletteActions: Set<String> = [
+        "openBrowser", "computerUseFocus", "newSurface", "openSettings", "search.chats", "tab.search", "app.command.run",
+    ]
     static let connectActions: Set<String> = [
         "remote.connect", "newCloudMachine", "palette.openCloudPane", "palette.mobileConnect", "device.add", "cloudMove",
         "cloudBringBack",
@@ -25,11 +30,11 @@ extension AgentPaneModel {
     /// no fallback that ran, is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
     func runAction(_ id: String) -> [String: Any] {
-        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id),
+        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id) || Self.composerPaletteActions.contains(id),
               let onRunAction else {
             return Self.unsupported("action.run")
         }
-        if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+        if (Self.connectActions.contains(id) || Self.composerPaletteActions.contains(id)), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         if onRunAction(id, Self.connectArguments[id] ?? [:]) { return AgentPaneReply.success() }
         if let fallback = Self.connectFallbacks[id], onRunAction(fallback, [:]) { return AgentPaneReply.success() }
         return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")

@@ -21,6 +21,11 @@ import Observation
 /// (`TabModel.id`): the page views, a new chat's seed, the new tab page, link and turn requests.
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
+    static func composerActionInvocation(_ id: String, tab: String, arguments: [String: String]) -> ActionInvocation {
+        let target = id == "tab.search" ? nil : ActionTargetRef(kind: .tab, id: tab)
+        return ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)
+    }
+
     let host: any AgentPaneHostProviding
     /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
     private let openPanel: MadeAheadOpenPanel?
@@ -456,11 +461,27 @@ final class AgentTabStore {
         model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.onListComposerActions = { [weak self] in
+            guard let registry = self?.actionRegistry else { return [] }
+            let rows: [(String, String)] = [
+                ("openBrowser", "tools"), ("computerUseFocus", "tools"),
+                ("palette.openCloudPane", "tools"), ("newSurface", "tools"),
+                ("app.command.run", "apps"), ("openSettings", "apps"),
+                ("search.chats", "sessions"), ("tab.search", "tabs"),
+            ]
+            return rows.compactMap { id, section in
+                let action = ActionID(rawValue: id)
+                guard registry.canPerform(action), let descriptor = registry.descriptor(for: action) else { return nil }
+                return ["id": id, "section": section, "name": descriptor.title,
+                        "description": descriptor.description ?? descriptor.title, "icon": descriptor.symbol]
+            }
+        }
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
-            // On this tab's pane: the New Tab page opens beside the tab that asked.
-            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
+            // Search Tabs treats a tab target as a request to reveal that tab; the + menu asks
+            // for the search page instead. Creation actions retain this chat's placement.
+            let invocation = Self.composerActionInvocation(id, tab: resolve(provisional), arguments: arguments)
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: invocation) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in

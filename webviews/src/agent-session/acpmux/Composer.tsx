@@ -22,7 +22,6 @@ import {
   BuildIcon,
   ContextRing,
   PaperclipIcon,
-  Picker,
   PlusIcon,
   SearchIcon,
   PlanIcon,
@@ -40,6 +39,7 @@ import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type Ment
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
+import { PaletteMenu } from "./PaletteMenu";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { cliOnlyCommand } from "./cliOnlyCommands";
@@ -276,6 +276,7 @@ type Props = {
   searchFiles?: FileSearchSource;
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
+  onPlusOpen?(): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
@@ -372,6 +373,7 @@ export function Composer({
   capture,
   plusExtensions,
   onPlusCommand,
+  onPlusOpen,
   upload,
   localPaths,
   onProject,
@@ -1877,7 +1879,8 @@ export function Composer({
             {leading !== undefined ? (
               leading
             ) : (
-              <Picker
+              <PaletteMenu
+                onOpen={onPlusOpen}
                 label={t(COMPOSER_LABELS.add)}
                 // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
                 tooltip={t("composer.addTooltip")}
@@ -1917,11 +1920,13 @@ export function Composer({
                               ? t(COMPOSER_LABELS.add)
                               : section === "tools"
                                 ? t("summary.tools.search")
-                                : section === "sessions"
-                                  ? t("sidebar.sessions")
-                                  : section === "tabs"
-                                    ? (t as unknown as (key: string) => string)("newTab.openTabs")
-                                    : t("files.search"),
+                                : section === "apps"
+                                  ? t("plus.apps")
+                                  : section === "sessions"
+                                    ? t("sidebar.sessions")
+                                    : section === "tabs"
+                                      ? (t as unknown as (key: string) => string)("newTab.openTabs")
+                                      : t("files.search"),
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,
