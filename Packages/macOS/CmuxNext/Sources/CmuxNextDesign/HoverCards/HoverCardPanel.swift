@@ -24,7 +24,8 @@ public enum HoverCardPlacement: Sendable {
 /// card view, each reused) into it.
 ///
 /// Motion (Lawrence 2026-10-18: "the card needs proper fade in and translation animation (when
-/// hover to different consecutive cards)"): a first show fades in while the card moves the last
+/// hover to different consecutive cards)"): a sidebar row's first show is immediate after its
+/// dwell (Leo 2026-10-28, ask-067e9aa217). Other cards fade in while the card moves the last
 /// `entryOffset` points away from its target; a retarget (the next row or tab while a card
 /// shows) puts the window at the new place at once, as R131 asked (a window-frame slide trailed
 /// the pointer), and slides the card itself there inside the window (a layer translation on the
@@ -153,8 +154,8 @@ final class HoverCardPanel: NSPanel {
 
     /// Shows `body` at `anchor` (screen) as a child of `parent`. `themeAnchor`
     /// is the view the card describes; the card draws in its theme scope.
-    /// `sliding` (a retarget of a visible card) moves it in the same frame
-    /// like any other placement; every show is at full strength on the first frame.
+    /// `sliding` retargets a visible card. A sidebar row's first show is at full strength
+    /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
@@ -238,6 +239,15 @@ final class HoverCardPanel: NSPanel {
             // fades back in from the alpha it reached).
             if !morph(from: previous) { slide(from: offset(of: previous, to: cardFrame)) }
             if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
+        } else if placement == .besideRow {
+            // Leo: "We can just have it instantly come in on the first load; the delay
+            // that we have is fine, maybe." Clear any slide left from the previous card.
+            Motion.hoverCards.transaction(nil) {
+                slideLayer?.removeAnimation(forKey: "sublayerTransform")
+                slideLayer?.sublayerTransform = CATransform3DIdentity
+            }
+            Motion.hoverCards.withoutAnimation { animator().alphaValue = 1 }
+            orderFront(nil)
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
             // away from its target (`HoverCardMotion`, shared with the update card).
