@@ -14,7 +14,7 @@ nonisolated extension CloudHomeSource {
             guard !Task.isCancelled else { break }
             let runs = (try? await commands.runs(conversation.rawValue, agent: identity.toCloud(agent),
                 oldestStartedAt: oldest.timeIntervalSince1970 * 1000,
-                expectedTurns: Set(window.turnsByAuthor[identity.toHome(agent), default: []].map(\.rawValue)))) ?? []
+                expectedTurns: Set(window.turnsByAuthor[ParticipantID(identity.toHome(agent)), default: []].map(\.rawValue)))) ?? []
             for run in runs where window.contains(turn: run.turn, answers: run.answers ?? []) {
                 guard !Task.isCancelled else { break }
                 if let rows = try? await commands.runRows(conversation.rawValue, agent: identity.toCloud(agent), run: run.id) {
