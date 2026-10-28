@@ -579,8 +579,14 @@ public final class ConversationViewController: UIViewController {
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
-                guard let self else { return }
-                if let end, end.height > 0 { self.dockedKeyboardHeight = end.height }
+                guard let self, let end else { return }
+                // In this app's points (an iPhone app on an iPad gets the iPad's
+                // keyboard in iPad points; see `MobileKeyboardDock`).
+                let frame = self.keyboardDock.keyboardFrame(notified: end, showing: true)
+                if frame.height > 0 { self.dockedKeyboardHeight = frame.height }
+                if let window = self.view.window, frame.height > 0 {
+                    self.keyboardEndTop = self.view.convert(frame, from: window.screen.coordinateSpace).minY
+                }
             }
         }
         center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
@@ -588,7 +594,7 @@ public final class ConversationViewController: UIViewController {
             MainActor.assumeIsolated {
                 guard let self, let end, let window = self.view.window else { return }
                 let screen = window.screen.coordinateSpace
-                let frame = self.view.convert(end, from: screen)
+                let frame = self.view.convert(self.keyboardDock.keyboardFrame(notified: end), from: screen)
                 self.keyboardEndTop = frame.height > 0 ? frame.minY : self.view.bounds.maxY
                 // UIKit posts this inside the keyboard's animation. Ending an
                 // interactive dismissal moves the guide there but lays out

@@ -33,8 +33,9 @@ public final class MobileKeyboardDock: NSObject {
     /// ``guide``'s `identifier`, for tools that look for it in a view.
     public static let guideIdentifier = "MobileKeyboardDock"
 
-    /// The keyboard's latest notified end frame, screen coordinates, shared
-    /// by every dock so a dock made while the keyboard is up starts on it.
+    /// The keyboard's latest notified end frame as UIKit posted it, shared by
+    /// every dock so a dock made while the keyboard is up starts on it; each
+    /// dock reads it through `keyboardFrame(notified:)` in its own window.
     private static var lastEndFrame: CGRect?
     /// The last will-show / will-hide: whether the keyboard is on screen.
     private static var keyboardShown = false
@@ -108,11 +109,18 @@ public final class MobileKeyboardDock: NSObject {
     /// overlap of the view's bottom edge, at least the resting line's.
     private var notifiedConstant: CGFloat {
         guard let view else { return 0 }
-        let rest = usesBottomSafeArea ? view.safeAreaInsets.bottom : 0
-        return -max(Self.lastEndFrame.map(overlap(of:)) ?? 0, rest)
+        let keyboard = Self.lastEndFrame.map { overlap(of: keyboardFrame(notified: $0)) } ?? 0
+        return -max(keyboard, restInset)
     }
 
-    /// How far a keyboard at `screenFrame` covers the view from its bottom edge.
+    /// The resting line's distance above the view's bottom edge.
+    private var restInset: CGFloat {
+        guard let view, usesBottomSafeArea else { return 0 }
+        return view.safeAreaInsets.bottom
+    }
+
+    /// How far a keyboard at `screenFrame` (this app's screen coordinates)
+    /// covers the view from its bottom edge.
     private func overlap(of screenFrame: CGRect) -> CGFloat {
         guard let view, let window = view.window else { return 0 }
         return MobileKeyboardReservation(
@@ -127,14 +135,16 @@ public final class MobileKeyboardDock: NSObject {
 
     @objc private func keyboardWillShowOrHide(_ note: Notification) {
         Self.keyboardShown = note.name == UIResponder.keyboardWillShowNotification
-        // Only a frame that needs the show / hide state (see `screenFrame`)
-        // moves the dock here; will-change already placed every other one.
+        // Only a frame that needs the show / hide state (see
+        // `keyboardFrame(notified:)`) moves the dock here; will-change already
+        // placed every other one.
         guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let screen = view?.window?.screen.bounds, end.width > screen.width + 1 else { return }
+              keyboardFrame(notified: end) != end else { return }
         follow(note)
     }
 
-    /// The notified frame in this app's screen coordinates.
+    /// A keyboard notification's frame in this app's screen coordinates, for
+    /// anything in this dock's window that reads keyboard notifications.
     ///
     /// An iPhone app on an iPad (iOS 27.0 simulator) sees a 375 x 667 screen
     /// while the iPad's own keyboard spans the iPad's screen, and the
@@ -143,26 +153,33 @@ public final class MobileKeyboardDock: NSObject {
     /// app's window fills the iPad's height (scaled 1180 / 667), so the
     /// keyboard's top in the app is 881 x 667 / 1180 = 498 pt, where the
     /// system guide and the screen put it. A frame wider than the app's
-    /// screen is scaled that way; whether it is on screen comes from the
-    /// last will-show / will-hide (a hidden frame starts at the iPad's bottom).
-    private func screenFrame(_ end: CGRect) -> CGRect {
-        guard let screen = view?.window?.screen.bounds, end.width > screen.width + 1, end.maxY > 0 else { return end }
-        let height = end.height * screen.height / end.maxY
-        let top = Self.keyboardShown ? screen.maxY - height : screen.maxY
-        return CGRect(x: screen.minX, y: top, width: screen.width, height: height)
+    /// screen is scaled that way, shown or hidden as `showing` says (default:
+    /// the last will-show / will-hide; a hidden frame starts at the iPad's
+    /// bottom). A shown frame in iPad points that is not full width (a
+    /// floating or split iPad keyboard) docks nothing: `.zero`.
+    public func keyboardFrame(notified end: CGRect, showing: Bool? = nil) -> CGRect {
+        guard let screen = view?.window?.screen.bounds, end.maxY > 0 else { return end }
+        if end.width > screen.width + 1 {
+            let height = end.height * screen.height / end.maxY
+            let top = showing ?? Self.keyboardShown ? screen.maxY - height : screen.maxY
+            return CGRect(x: screen.minX, y: top, width: screen.width, height: height)
+        }
+        // On screen, yet reaching below this screen's bottom: iPad points.
+        if end.minY < screen.maxY - 0.5, end.maxY > screen.maxY + 1 { return .zero }
+        return end
     }
 
     private func follow(_ note: Notification) {
         guard let raw = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        Self.lastEndFrame = screenFrame(raw)
+        Self.lastEndFrame = raw
         // UIKit has decided where the keyboard goes: any drag hand-off ends,
         // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
         fingerDrag = false
-        followNotifications()
+        let handedBack = followNotifications()
         guard let view, view.window != nil else { return }
         let constant = notifiedConstant
-        guard notifiedTop.constant != constant else { return }
+        guard handedBack || notifiedTop.constant != constant else { return }
         notifiedTop.constant = constant
         view.setNeedsLayout()
         // UIKit posts these inside the keyboard's animation; a nested animation
@@ -208,7 +225,7 @@ public final class MobileKeyboardDock: NSObject {
             guard fingerDrag else { return }
             let docked = notifiedConstant
             let finger = pan.location(in: view).y + max(0, view.keyboardLayoutGuide.keyboardDismissPadding)
-            let constant = min(0, max(docked, finger - view.bounds.maxY))
+            let constant = min(-restInset, max(docked, finger - view.bounds.maxY))
             guard abs(notifiedTop.constant - constant) > 0.01 else { return }
             notifiedTop.constant = constant
             UIView.performWithoutAnimation { view.layoutIfNeeded() }
@@ -221,7 +238,7 @@ public final class MobileKeyboardDock: NSObject {
             // a keyboard the drag moved holds there until that notification.
             let top = guide.layoutFrame.minY
             fingerDrag = false
-            followNotifications()
+            _ = followNotifications()
             let notified = notifiedConstant
             let dragged = top - view.bounds.maxY
             if abs(dragged - notified) > 0.5 {
@@ -233,10 +250,13 @@ public final class MobileKeyboardDock: NSObject {
         }
     }
 
-    private func followNotifications() {
-        guard systemTop.isActive else { return }
+    /// Back on the notified keyboard from a drag's system guide; whether it
+    /// was on the system guide.
+    private func followNotifications() -> Bool {
+        guard systemTop.isActive else { return false }
         systemTop.isActive = false
         notifiedTop.isActive = true
+        return true
     }
 }
 #endif
