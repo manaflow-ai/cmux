@@ -659,11 +659,19 @@ impl Controller {
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.generation = inner.generation.wrapping_add(1);
+            // Closing wakes the watcher. Retain ownership but stop accepting
+            // listener failures before the node can report its intentional end.
+            if let LifecycleState::Running(node) = &inner.state {
+                inner.state = LifecycleState::Retiring {
+                    node: Some(Arc::clone(node)),
+                    phase: RetirementPhase::Closing,
+                };
+            }
+            inner.snapshot.node_gone("stopped");
+            self.publish_locked(&inner.snapshot);
         }
         if let Some(node) = self.state_node() {
-            let result = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
-                .await
-                .map_err(|error| error.to_string())?;
+            let result = self.close_node(node).await?;
             if let Err(error) = result {
                 self.clear_node("error");
                 self.update(|snapshot| snapshot.error = Some(error.clone()));
@@ -1108,6 +1116,60 @@ mod tests {
         assert!(!controller.retirement_pending());
         assert_eq!(controller.snapshot().state, "stopped");
         assert!(controller.snapshot().error.is_none());
+    }
+
+    #[tokio::test]
+    async fn shutdown_of_a_watched_node_does_not_report_listener_failure() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "test");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "test");
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state = LifecycleState::Running(Arc::clone(&node));
+            inner.snapshot.state = "running";
+        }
+        let (closing, release) = block_close(&controller);
+        let shutdown = {
+            let controller = controller.clone();
+            tokio::spawn(async move { controller.shutdown().await })
+        };
+        closing.await.unwrap();
+        // Force the watch's terminal callback while shutdown still owns both
+        // gates, before it can clear the node after close returns.
+        let closing_node = Arc::clone(&node);
+        tokio::task::spawn_blocking(move || closing_node.close().unwrap()).await.unwrap();
+        let mut watch_ended = {
+            let controller = controller.clone();
+            let node = Arc::clone(&node);
+            tokio::spawn(async move {
+                controller.listener_failed(&node).await;
+                release_node(node);
+            })
+        };
+        let returned =
+            tokio::time::timeout(std::time::Duration::from_secs(1), &mut watch_ended).await;
+        let before_finish = controller.snapshot();
+        let retained =
+            controller.state_node().expect("shutdown owns the node until close finishes");
+        assert!(Arc::ptr_eq(&retained, &node));
+        release_node(retained);
+        release.send(()).unwrap();
+        shutdown.await.unwrap().unwrap();
+        let immediate = returned.is_ok();
+        match returned {
+            Ok(result) => result.unwrap(),
+            Err(_) => watch_ended.await.unwrap(),
+        }
+        assert!(immediate, "intentional watch termination must not queue retirement cleanup");
+        assert_eq!(before_finish.state, "stopped");
+        assert_eq!(controller.snapshot().state, "stopped");
+        assert!(controller.snapshot().error.is_none());
+        assert!(controller.state_node().is_none());
+        assert!(!controller.retirement_pending());
+        release_node(node);
     }
 
     #[test]
