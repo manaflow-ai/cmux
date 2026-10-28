@@ -11,6 +11,15 @@ final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
     var removeGeneratedAnchor = false
     var deletedGroupIDs: [UUID] = []
     var deleteResult = 2
+    var pinResolution: ControlWorkspaceGroupPinResolution = .applied
+
+    func controlSetWorkspaceGroupPinned(
+        routing: ControlRoutingSelectors,
+        groupID: UUID,
+        isPinned: Bool
+    ) -> ControlWorkspaceGroupPinResolution {
+        pinResolution
+    }
 
     func controlCreateWorkspaceGroup(
         routing: ControlRoutingSelectors,

@@ -2463,9 +2463,21 @@ class TabManager: ObservableObject {
         workspaceGrouping.toggleWorkspaceGroupPinned(groupId: groupId)
     }
 
-    func setWorkspaceGroupPinned(groupId: UUID, isPinned: Bool) {
-        guard isPinned || workspaceGroupAnchor(for: groupId)?.isChiefHome != true else { return }
+    /// Pins or unpins a group. Returns false when the change was refused:
+    /// Chief Home's group stays pinned while `chief.enabled` is on.
+    @discardableResult
+    func setWorkspaceGroupPinned(groupId: UUID, isPinned: Bool) -> Bool {
+        guard isPinned || workspaceGroupAnchor(for: groupId)?.isChiefHome != true else { return false }
         workspaceGrouping.setWorkspaceGroupPinned(groupId: groupId, isPinned: isPinned)
+        return true
+    }
+
+    /// Why an unpin of Chief Home's group was refused, for socket callers.
+    static var chiefHomeCannotUnpinMessage: String {
+        String(
+            localized: "workspaceGroup.error.chiefHomeCannotUnpin",
+            defaultValue: "The Home group stays pinned while Chief is enabled"
+        )
     }
 
     func setWorkspaceGroupColor(groupId: UUID, hex: String?) {

@@ -194,6 +194,8 @@ final class ChiefService {
         workingWatch = nil
         workingConversations = []
         turnStarts = [:]
+        previewLines = [:]
+        previewReads = []
         if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
         settingsObserver = nil
         if let quitObserver { NotificationCenter.default.removeObserver(quitObserver) }

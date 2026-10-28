@@ -108,7 +108,7 @@ struct ChiefHomeNavigation {
         for home in manager.tabs where home.holdsChiefHomePane {
             if home.panels.values.allSatisfy({ $0 is ChiefPanel }) {
                 if manager.tabs.count == 1 {
-                    guard manager.addWorkspaceIfActive(select: true) != nil else { return }
+                    guard manager.addWorkspaceIfActive(select: true) != nil else { continue }
                 }
                 manager.closeWorkspace(home, recordHistory: false)
             } else {
