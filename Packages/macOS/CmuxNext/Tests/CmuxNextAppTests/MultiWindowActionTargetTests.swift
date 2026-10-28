@@ -160,6 +160,8 @@ import Testing
         let world = try Self.world()
         defer { world.close() }
         var inFirst: Set<ActionID> = [], inNew: Set<ActionID> = [], wrong: [String] = []
+        // Each key its own timestamp, as real keys have: the router never decides one key-down twice (DecidedKeyEvents).
+        var stamp = 1000.0
         for descriptor in ActionCatalog.all {
             guard let shortcut = descriptor.defaultShortcut else { continue }
             for (index, controller) in [world.w1, world.w2].enumerated() {
@@ -168,7 +170,8 @@ import Testing
                 world.personMoves(to: controller)
                 if index == 1 { world.services.keyWindowSource = { [shell3 = world.w3.window] in shell3 } }
                 let press = DebugKey.keyPress(shortcut.key, modifiers: Self.modifierNames(shortcut.modifiers))
-                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: press.flags, timestamp: 1,
+                stamp += 1
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: press.flags, timestamp: stamp,
                                                    windowNumber: shell.windowNumber, context: nil, characters: press.characters,
                                                    charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode) else { continue }
                 world.services.windows.dispatching(eventFrom: shell) {
