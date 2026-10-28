@@ -291,9 +291,13 @@ async fn a_decline_before_the_restored_task_claims_it_stays_the_answer() {
 
     let hub = durable(&dir);
     let mut c = Client::open(&hub);
-    c.call("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
-    // Its task starts now and finds the restored prompt gone.
+    // Reading the chat's log restores its queue (a stale approval changes nothing).
+    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(9))).await;
+    assert_eq!(reason(&stale), "queue.stale", "{stale}");
+    // Its restored task is spawned, and before it runs (nothing is awaited in between on this
+    // test's one thread) the owner declines the prompt: the task then finds it gone.
     hub.resume_queues();
+    hub.decline_queued(&hub.resolve(&session).unwrap(), "g-1").unwrap();
     c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let mut resend = held(&session, "g-1", "guest words");
