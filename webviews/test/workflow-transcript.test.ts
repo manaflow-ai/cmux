@@ -178,6 +178,7 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
   const read = async () =>
     ++calls <= 2 ? { ...page(0, 1, 1, [text(`read ${calls}`)]), truncated: calls === 1 } : pending.promise;
   // Keep the component type stable across renders: changing a parent snapshot does not remount it.
+  const notices: { text?: string; version: number }[] = [];
   let progress = 1;
   let id = workflowPaneId(request);
   function Probe() {
@@ -190,6 +191,8 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
       read,
       "connected",
     );
+    const notice = result.rows?.find((row) => row.kind === "notice");
+    if (notice) notices.push(notice);
     return createElement("div", null, result.rows?.map((row) => row.text).join("|"));
   }
   const show = () => root.render(createElement(StrictMode, null, createElement(Probe)));
@@ -198,6 +201,11 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
     expect(calls).toBe(1);
     expect(dom.window.document.body.textContent).toContain("Only recent transcript history is available.");
     expect(dom.window.document.body.textContent).not.toContain("{count}");
+    const loadingNotice = notices.find((notice) => notice.text?.includes("Loading"));
+    const limitedNotice = notices.find((notice) => notice.text?.includes("Only recent"));
+    expect(loadingNotice).toBeDefined();
+    expect(limitedNotice).toBeDefined();
+    expect(limitedNotice!.version).not.toBe(loadingNotice!.version);
     await act(async () => show());
     expect(calls).toBe(1);
     progress = 2;
