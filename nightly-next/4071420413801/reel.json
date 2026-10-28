@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4071420413801",
+  "notes": "notes/4071420413801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26446,
+      "title": "acpmux: a runner for background tasks that outlive the agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25241,
+      "title": "feat(vm): add client-session create, list and revoke commands",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26881,
+      "title": "acpmux: a peer's _acpmux/resolve error names none of this host's peers",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
