@@ -8,8 +8,13 @@
  * back to whole graphemes of the original. Offsets are code points, as in the hit's snippet ranges.
  */
 
-/** Combining diacritical marks (the accents NFKD splits off Latin, Greek and Cyrillic letters). */
-const DIACRITICS = /[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/gu
+/**
+ * Combining marks the collation ignores at the base-letter level: Latin, Greek and Cyrillic accents
+ * (the ones NFKD splits off), Hebrew points and Arabic harakat. Kana voicing marks are kept, so `か`
+ * still does not match `が`, and Indic vowel signs are kept because they are letters there.
+ */
+const DIACRITICS =
+  /[\u0300-\u036f\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e4\u06e7\u06e8\u06ea-\u06ed\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]/gu
 /**
  * Letters with no Unicode decomposition that the collation still weighs as a base letter (or two)
  * plus an accent-level difference: expansions, the stroke and bar letters, and final sigma.
@@ -36,35 +41,54 @@ export const foldText = (s: string): string =>
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
-const foldGraphemes = (s: string) => Array.from(graphemes.segment(s), ({ segment }) => foldText(segment)).join("")
+/** One grapheme folded; a single ASCII character (most text) skips normalization. */
+const foldGrapheme = (g: string) => (g.length === 1 && g.charCodeAt(0) < 0x80 ? g.toLowerCase() : foldText(g))
+
+const foldGraphemes = (s: string) => Array.from(graphemes.segment(s), ({ segment }) => foldGrapheme(segment)).join("")
+
+/** The number of entries of the ascending `xs` that are at most `v`. */
+const countAtMost = (xs: ReadonlyArray<number>, v: number) => {
+  let lo = 0
+  let hi = xs.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (xs[mid]! <= v) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
 
 /**
  * The first match of `query` in `text` under folding, as a code-point range of `text` covering
  * whole graphemes (a match that starts or ends inside one grapheme's fold, such as `s` in `ß`,
- * covers that grapheme). Null when the query folds to nothing or does not occur.
+ * covers that grapheme). Null when the query folds to nothing or does not occur. One pass folds the
+ * text and records where each grapheme starts, one indexOf finds the match, and two binary searches
+ * map its ends back.
  */
 export const foldedMatch = (text: string, query: string): { readonly start: number; readonly length: number } | null => {
   const needle = foldGraphemes(query)
   if (needle.length === 0) return null
-  let folded = ""
-  // Per grapheme so far: where its fold starts in `folded` (UTF-16) and where it starts in `text` (code points).
+  const parts: Array<string> = []
+  // Per grapheme, plus one past the end: where it starts in the folded text (UTF-16) and in `text` (code points).
   const foldAt: Array<number> = []
   const codeAt: Array<number> = []
+  let folded = 0
   let code = 0
   for (const { segment } of graphemes.segment(text)) {
-    const before = folded.length
-    foldAt.push(before)
+    const f = foldGrapheme(segment)
+    foldAt.push(folded)
     codeAt.push(code)
-    folded += foldText(segment)
-    code += [...segment].length
-    // A match ending in this grapheme's fold starts after `before - needle.length`; earlier ones were checked.
-    const at = folded.indexOf(needle, Math.max(0, before - needle.length + 1))
-    if (at < 0) continue
-    // The match ends in this grapheme; it starts in the last grapheme whose fold starts at or before
-    // `at` (that skips graphemes folding to nothing, which share the next one's start).
-    let first = foldAt.length - 1
-    while (first > 0 && foldAt[first]! > at) first--
-    return { start: codeAt[first]!, length: code - codeAt[first]! }
+    parts.push(f)
+    folded += f.length
+    code += segment.length === 1 ? 1 : [...segment].length
   }
-  return null
+  foldAt.push(folded)
+  codeAt.push(code)
+  const at = parts.join("").indexOf(needle)
+  if (at < 0) return null
+  // First grapheme: the last one whose fold starts at or before `at` (graphemes folding to nothing
+  // share the next one's start, so they are passed over). End: the first grapheme start at or past the match end.
+  const first = countAtMost(foldAt, at) - 1
+  const last = countAtMost(foldAt, at + needle.length - 1)
+  return { start: codeAt[first]!, length: codeAt[last]! - codeAt[first]! }
 }

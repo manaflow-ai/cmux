@@ -64,6 +64,18 @@ describe("home.search highlight under folding", () => {
     expect(shown(hitOf(row("Vel ðu Øresund Łódź Ħamrun"), "du oresund"))).toBe("ðu Øresund")
   })
 
+  it("drops Arabic harakat and Hebrew points, as the collation does", () => {
+    expect(shown(hitOf(row("قرأت كِتاب اليوم"), "كتاب"))).toBe("كِتاب")
+    expect(shown(hitOf(row("זה שָׁלוֹם לך"), "שלום"))).toBe("שָׁלוֹם")
+  })
+
+  it("finds a folded match late in a long body", () => {
+    const body = `${"plain words ".repeat(5000)}Ünïcödé`
+    const h = hitOf(row(body), "unicode")
+    expect(shown(h)).toBe("Ünïcödé")
+    expect(h.snippet.endsWith("Ünïcödé")).toBe(true)
+  })
+
   it("returns no range when nothing matches, with the snippet unchanged", () => {
     const h = hitOf(row("plan B"), "zzz")
     expect(h.ranges).toEqual([])
