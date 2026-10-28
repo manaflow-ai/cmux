@@ -266,7 +266,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || github.ref == 'refs/heads/nightly-next' && vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -274,7 +274,8 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # A reused helper leaves this job on Linux; a fresh one builds on owned
-  # macOS 26 (Zig 0.16.0, SDK 26), then Blacksmith macOS 26; never macOS 15
+  # macOS 26 (Zig 0.16.0, SDK 26; on nightly-next the owned pick of the picker,
+  # never the dedicated builder), then Blacksmith macOS 26; never macOS 15
   # or a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
@@ -1445,7 +1446,7 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"; do
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
@@ -1459,7 +1460,7 @@ for expected in \
 done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do

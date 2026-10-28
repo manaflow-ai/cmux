@@ -611,8 +611,9 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
 ### 5.1 Launch screen
 
 - `UILaunchScreen` in Info.plist: `UIColorName` = `LaunchBackground` (#000000 dark /
-  #FFFFFF light), `UIImageName` = `LaunchMark` (the cmux mark, template, 72 x 72 pt, tinted
-  `label`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
+  #FFFFFF light), `UIImageName` = `LaunchMark` (the app icon's chevron layer from
+  `AppIcon.icon`, glow included: a 70 x 86 pt image with the chevron 72 pt tall at its center;
+  `scripts/generate-launch-mark.swift`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
   on their background.)
 - `LaunchHandoff` (first SwiftUI frame): the same mark at the same position. When auth resolves
   (Keychain read, < 300 ms typical) to a signed-in destination, the mark scales 1.0 → 0.92 and
@@ -626,9 +627,8 @@ No carousel and no feature copy. The structure follows Claude's welcome
 (`verify/login-claude-reference.md`): a small brand lockup at the top, one illustration and one
 serif line in the middle, the sign-in stack at the bottom. Layout on `bg`:
 
-- Lockup, centered under the status bar (6 pt): the cmux chevron, 22 pt, filled with the app
-  icon's gradient (`#06CDFE` → `#2AA0F9` → `#5170F3`, leading to trailing, sampled from
-  `AppIcon.icon`), 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
+- Lockup, centered under the status bar (6 pt): the cmux chevron (the launch mark's image,
+  the app icon's chevron layer), 22 pt tall, 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
 - Hero, centered in the space between the lockup and the buttons: the illustration (a Mac and an
   iPhone drawn as one 3.3 pt round-capped `label` line, 291 x 233 pt), a gradient `>_` prompt on
   the Mac's screen and the gradient chevron (30 pt, soft `#2AA0F9` glow) on the phone's screen.

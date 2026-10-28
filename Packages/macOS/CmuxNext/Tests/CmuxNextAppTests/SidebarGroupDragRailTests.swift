@@ -116,6 +116,18 @@ import Testing
         }
     }
 
+    /// Runs `body` with `ui.animations.newWorkspace` off, its default, then puts the set back. With it on, a group that
+    /// opens fades its new rail in from 0 with the members it shows (`foldGroup`, `SidebarGroupLineViews.update`), so
+    /// "after Work opens" read the rail mid-fade (alpha 0.0). The setting is process-wide: a suite running in parallel
+    /// (`SidebarRowsMoveOnRenderServerTests`, `SidebarInsertWhileDisplayAsleepTests`) can leave it on across an await.
+    /// Synchronous, so no other test changes it while `body` runs.
+    static func withNewWorkspaceMotionOff<T>(_ body: () throws -> T) rethrows -> T {
+        let kinds = DesignSettings.shared.enabledAnimations
+        DesignSettings.shared.enabledAnimations.remove(.newWorkspace)
+        defer { DesignSettings.shared.enabledAnimations = kinds }
+        return try body()
+    }
+
     /// After the drop shows: the rails, then after another group folds and opens (a fold splices its rows and keeps
     /// the other lines as they are), then after a reload with nothing new (a theme or config change).
     static func expectRailsAfterTheDrop(_ list: SidebarListView) {
@@ -132,14 +144,16 @@ import Testing
 
     /// The card lands before the daemon's echo (the usual order: the move takes a round trip).
     @Test func theRailShowsAfterAGroupDropsPastAnEmptyGroup() throws {
-        let drops = Drops()
-        let (list, window) = Self.list(drops)
-        defer { window.close() }
-        Self.expectRails(list, "at rest")
-        try Self.dragInfraPastEmpty(list)
-        #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "g_\(Self.empty.rawValue)")], "drops: \(drops.targets)")
-        Self.echo(list)
-        Self.expectRailsAfterTheDrop(list)
+        try Self.withNewWorkspaceMotionOff {
+            let drops = Drops()
+            let (list, window) = Self.list(drops)
+            defer { window.close() }
+            Self.expectRails(list, "at rest")
+            try Self.dragInfraPastEmpty(list)
+            #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "g_\(Self.empty.rawValue)")], "drops: \(drops.targets)")
+            Self.echo(list)
+            Self.expectRailsAfterTheDrop(list)
+        }
     }
 
     /// The app's order: the drop goes to the document store, the list keeps the drop's look (the settle) until the
@@ -155,10 +169,12 @@ import Testing
         let drops = Drops()
         let (list, window) = Self.list(drops) { items, target in store.move(items, to: target, title: "Move") }
         defer { window.close() }
-        try Self.dragInfraPastEmpty(list)
-        try #require(list.settling != nil, "the drop did not settle on the document's move: \(Self.describe(list))")
-        Self.echo(list)
-        Self.expectRailsAfterTheDrop(list)
+        try Self.withNewWorkspaceMotionOff {
+            try Self.dragInfraPastEmpty(list)
+            try #require(list.settling != nil, "the drop did not settle on the document's move: \(Self.describe(list))")
+            Self.echo(list)
+            Self.expectRailsAfterTheDrop(list)
+        }
     }
 
     /// The home daemon's document for `sections([work, infra, empty])`; its moves never answer (the echo is the test's).

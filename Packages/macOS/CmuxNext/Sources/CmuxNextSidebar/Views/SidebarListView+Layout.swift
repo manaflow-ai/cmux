@@ -293,9 +293,9 @@ extension SidebarListViewComponents {
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
-        case let (.tab(_, tabID), view as SidebarTabRowView):
+        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
-            view.configure(tab, row: row)
+            view.configure(tab, row: row, focused: workspaces[workspaceID]?.focusedTab == tabID)
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }

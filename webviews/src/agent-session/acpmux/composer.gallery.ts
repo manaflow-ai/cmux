@@ -43,8 +43,9 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
 // mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
 const SEND_ARRIVES = {
   layoutShiftMax: {
-    value: 0.001,
-    reason: "Send comes in after the mic with the draft's first letter, moving the mic one slot left (0.0002).",
+    value: 0.003,
+    reason:
+      "Send comes in after the mic with the draft's first letter, moving the mic one slot left. Clean Linux Chromium runs measure 0.0026 for this intentional one-slot move; 0.003 leaves only rounding headroom.",
   },
 };
 

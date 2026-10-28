@@ -47,6 +47,12 @@ export interface ModelEntry {
   readonly routes: ReadonlyArray<ProviderRoute>
   /** The free tier may use this model (S3). */
   readonly free?: true
+  /**
+   * Providers a free device may reach this model through. Unset: every live route. Set: free
+   * devices get only these (DeepSeek V4 Flash: our own Vercel AI Gateway route, the public
+   * free fallback). Paid callers are never narrowed.
+   */
+  readonly freeProviders?: ReadonlyArray<ProviderId>
 }
 
 export const MODELS: ReadonlyArray<ModelEntry> = [
@@ -104,6 +110,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
+    // Free fallback for signed-out Macs (user, 2026-10-27): our own Vercel AI Gateway route only.
+    free: true,
+    freeProviders: ["vercel"],
     routes: [
       { provider: "vercel", id: "deepseek/deepseek-v4-flash", list: { input: 0.13, output: 0.26 } },
       { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Flash", list: { input: 0.09, output: 0.18 } },

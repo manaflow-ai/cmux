@@ -21,8 +21,12 @@ nonisolated struct CloudMoveCLI: Sendable {
         var side: String?
         /// `link machine update`: whether the machine's cmux-tui changed.
         var updated = false
-        /// `link machine update`: the build the machine runs after it.
+        /// `link machine update`: the build the machine runs after it; with
+        /// `machine_update_unsupported`, the build it was judged on (it still runs it).
         var build: String?
+        /// `link machine update --if-older`: the machine runs another build that is not older than
+        /// this app's (a newer one, or the same source tree), so it was left alone.
+        var notOlder = false
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -47,18 +51,24 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at
     /// `from` to the machine daemon at `to`, where it runs in `cwd`. A rerun
     /// resolves a move an earlier run left unresolved. `askFirst` has the source narrow the chat
-    /// to an asking policy and mode before it moves (`--ask-first`).
-    func agentMove(from: String, surface: UInt64, to: String, cwd: String, askFirst: Bool = false) async throws -> Answer {
-        let flags = askFirst ? ["--ask-first"] : []
+    /// to an asking policy and mode before it moves (`--ask-first`). `vmKind` (`--vm-kind`): for a
+    /// move onto a Cloud machine, the Cloud API's answer for this app on the link in use, which that
+    /// machine's daemon takes the chat on (only `owner`), never its own record.
+    func agentMove(from: String, surface: UInt64, to: String, cwd: String, askFirst: Bool = false,
+                   vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+        let flags = (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
+            + (toPID.map { ["--to-pid", String($0)] } ?? [])
         return try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd] + flags)
     }
 
     /// `cmux link machine update`: updates the cmux-tui of the machine whose daemon `socket`
     /// reaches to this app's own pinned build, when that machine is outdated (cx-rppd.13).
-    /// `toBundled` (`--to-bundled`, the automatic update): whenever it runs another build than
-    /// this app's. Either way the build is the one pinned beside this binary; nothing here picks it.
-    func machineUpdate(socket: String, toBundled: Bool = false) async throws -> Answer {
-        let flags = toBundled ? ["--to-bundled"] : []
+    /// `toBundled` (`--to-bundled`): whenever it runs another build than this app's; with
+    /// `ifOlder` (`--if-older`, the automatic update) only when that build is older than this
+    /// app's, by the source commit time both report, so a machine on a newer build is never moved
+    /// back. Either way the build is the one pinned beside this binary; nothing here picks it.
+    func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
+        let flags = toBundled ? ["--to-bundled"] + (ifOlder ? ["--if-older"] : []) : []
         let run = try await parsed(["link", "machine", "update", "--socket", socket] + flags, timeout: max(timeout, Self.machineUpdateTimeout))
         return Self.machineUpdateAnswer(run.answer, object: run.object, status: run.status)
     }
@@ -96,7 +106,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         let answer = Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                             sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
-                            updated: object["updated"] as? Bool ?? false, build: object["build"] as? String)
+                            updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
+                            notOlder: object["not_older"] as? Bool ?? false)
         return (answer, object, result.status)
     }
 }
