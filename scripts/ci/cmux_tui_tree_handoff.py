@@ -32,6 +32,9 @@ import subprocess
 import sys
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_pages  # noqa: E402
+
 # A deferred run's last attempt the hand-off may start: two re-runs at most.
 MAX_ATTEMPT = 3
 # publish to R2's actions/attest-build-provenance steps: "Attest raw binary subjects",
@@ -89,11 +92,17 @@ def _gh(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _list(path: str, key: str) -> list[dict]:
-    """Every item of a paginated list endpoint (gh --paginate, one JSON item per line)."""
-    result = _gh("api", "--paginate", path, "--jq", f".{key}[]")
-    if result.returncode != 0:
-        raise RuntimeError(f"gh api {path} failed: {result.stderr.strip()}")
-    return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    """Every item of the `key` list of a paginated endpoint, one bounded `gh api` call per page
+    (scripts/ci/gh_pages.py; the gh quota wrapper refuses an unbounded paginating call)."""
+    def fetch(url: str) -> Any:
+        result = _gh("api", url)
+        if result.returncode != 0:
+            raise RuntimeError(f"gh api {url} failed: {result.stderr.strip()}")
+        return {key: json.loads(result.stdout)[key]}
+    try:
+        return gh_pages.items(fetch, path)
+    except gh_pages.PageCapError as error:
+        raise RuntimeError(str(error)) from None
 
 
 def handoff(repo: str, run_id: int, key: str) -> None:
