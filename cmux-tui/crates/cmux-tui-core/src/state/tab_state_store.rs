@@ -160,6 +160,9 @@ pub(crate) struct TabStateUpdate {
     /// the tab keeps it; the agent's clear, a browser tab's navigation to
     /// another page, or the tab's close clears it.
     pub(crate) attention: Option<Option<String>>,
+    /// When clearing, only clear the request with this `at_ms`. This prevents
+    /// a delayed read from erasing a newer request that arrived meanwhile.
+    pub(crate) attention_clear_at_ms: Option<u64>,
     /// The page a browser tab shows when a new attention mark is set, stored
     /// with it. Filled by `state_update_tab` from the tab's surface, never
     /// from the request.
@@ -196,6 +199,10 @@ impl TabStateUpdate {
                 "bad request: an attention reason is one line of text"
             );
         }
+        anyhow::ensure!(
+            self.attention_clear_at_ms.is_none() || self.attention == Some(None),
+            "bad request: attention_clear_at_ms only applies when clearing attention"
+        );
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
                 list.len() <= MAX_HISTORY_URLS,
@@ -246,14 +253,34 @@ pub(crate) fn update_tab_state(
         )?;
     }
     if let Some(attention) = &update.attention {
-        let stored = attention.as_deref().map(|reason| {
-            attention_value(reason.trim(), crate::mux::now_ms(), update.attention_page.as_deref())
+        if attention.is_none() {
+            if let Some(at_ms) = update.attention_clear_at_ms {
+                transaction.execute(
+                    "UPDATE tab_state SET attention_json = NULL
+                     WHERE tab_id = ?1
+                       AND CAST(json_extract(attention_json, '$.at_ms') AS INTEGER) = ?2",
+                    params![tab_id, at_ms as i64],
+                )?;
+            } else {
+                transaction.execute(
+                    "UPDATE tab_state SET attention_json = NULL WHERE tab_id = ?1",
+                    params![tab_id],
+                )?;
+            }
+        } else {
+            let stored = attention.as_deref().map(|reason| {
+                attention_value(
+                    reason.trim(),
+                    crate::mux::now_ms(),
+                    update.attention_page.as_deref(),
+                )
                 .to_string()
-        });
-        transaction.execute(
-            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
-            params![tab_id, stored],
-        )?;
+            });
+            transaction.execute(
+                "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
+                params![tab_id, stored],
+            )?;
+        }
     }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
         if let Some(list) = list {
@@ -627,6 +654,47 @@ mod attention_tests {
         assert!(!tab_has_attention(&connection, "tab_a").unwrap());
         assert!(!tab_has_attention(&connection, "tab_b").unwrap());
         assert_eq!(rows(&connection), 0);
+    }
+
+    #[test]
+    fn a_delayed_attention_clear_keeps_a_newer_request() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
+                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
+                   marked_unread INTEGER, attention_json TEXT);",
+            )
+            .unwrap();
+        let mark = TabStateUpdate {
+            attention: Some(Some("Confirm GitHub access".into())),
+            ..Default::default()
+        };
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(&transaction, "tab_a", &mark).unwrap();
+        transaction.commit().unwrap();
+        let old_at: u64 = connection
+            .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
+            .unwrap();
+        let newer = attention_value("Approve the scopes", old_at + 1, None).to_string();
+        connection
+            .execute(
+                "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
+                params!["tab_a", newer],
+            )
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        let stale_clear = TabStateUpdate {
+            attention: Some(None),
+            attention_clear_at_ms: Some(old_at),
+            ..Default::default()
+        };
+        update_tab_state(&transaction, "tab_a", &stale_clear).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(
+            connection.query_row("SELECT json_extract(attention_json, '$.reason') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get::<_, String>(0)).unwrap(),
+            "Approve the scopes"
+        );
     }
 
     #[test]

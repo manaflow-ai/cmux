@@ -396,8 +396,8 @@ final class NotificationCenterService {
     /// The person went into a tab an agent marked (a click or a key): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
-        guard let attention = tab.attention, trigger == .click || trigger == .keystroke else { return }
-        tab.attentionRingHiddenThrough = attention.atMs
+        guard tab.attention != nil, trigger == .click || trigger == .keystroke else { return }
+        tab.attentionRingHiddenThrough = tab.attentionGeneration
     }
 
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread

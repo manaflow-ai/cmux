@@ -58,7 +58,7 @@ enum TabUnreadMark {
         guard daemon.supports(DaemonCapability.tabAttention.rawValue), daemon.store.servesStateResources,
               let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
-            try await $0.state.updateTabRecord(resource, clearsAttention: true)
+            try await $0.state.updateTabRecord(resource, clearsAttentionAtMs: request.atMs)
         }
     }
 
