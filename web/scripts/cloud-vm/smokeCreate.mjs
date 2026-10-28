@@ -11,19 +11,24 @@ export async function readResponseText(response, { signal, timeoutMs = CREATE_VM
   body.catch(() => {});
   let timer;
   let abort;
+  let cancellation;
+  const cancelBody = (reason) => {
+    try {
+      cancellation = Promise.resolve(reader ? reader.cancel?.(reason) : response.body?.cancel?.(reason));
+      cancellation.catch(() => {});
+    } catch {
+      cancellation = undefined;
+    }
+  };
   const stopped = new Promise((_, reject) => {
     abort = () => {
-      const cancellation = reader
-        ? reader.cancel?.(signal?.reason)
-        : response.body?.cancel?.(signal?.reason);
-      cancellation?.catch?.(() => {});
+      cancelBody(signal?.reason);
       reject(signal?.reason instanceof Error ? signal.reason : new Error("Cloud VM response read aborted"));
     };
     if (signal?.aborted) abort();
     else signal?.addEventListener("abort", abort, { once: true });
     timer = setTimeout(() => {
-      const cancellation = reader ? reader.cancel?.() : response.body?.cancel?.();
-      cancellation?.catch?.(() => {});
+      cancelBody();
       reject(new Error(`Cloud VM response body exceeded ${timeoutMs} ms`));
     }, timeoutMs);
   });
@@ -32,6 +37,7 @@ export async function readResponseText(response, { signal, timeoutMs = CREATE_VM
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
+    await cancellation;
     reader?.releaseLock?.();
   }
 }
