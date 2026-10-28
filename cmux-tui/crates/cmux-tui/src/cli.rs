@@ -81,6 +81,8 @@ mod screen_help;
 mod script;
 #[cfg(unix)]
 mod setup;
+#[cfg(unix)]
+mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
@@ -487,6 +489,9 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_action_globals(args).ok()?;
     if let Some((name, action_args)) = agent_view::action(&command_args) {
+        return app::run_cli_action(&global, &name, &action_args);
+    }
+    if let Some((name, action_args)) = share_cli::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
     }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
