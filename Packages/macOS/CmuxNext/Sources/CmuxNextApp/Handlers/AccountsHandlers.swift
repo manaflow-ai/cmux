@@ -12,9 +12,9 @@ enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
-        registry.bind("accounts.githubConnect", run: { _ in
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { _ in
             try services.settingsWindow.show(section: .accounts)
-            registry.track(result: Task { @MainActor in
+            return .applied(result: {
                 let github = services.accounts.github
                 await github.connect()
                 let state = github.pageState
