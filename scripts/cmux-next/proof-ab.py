@@ -208,12 +208,14 @@ def run_one(opts, inner_args, arm, index):
         cmd = [sys.executable, os.path.join(HERE, "split-spring-terminal.py"), "--tag", opts.tag, "--app", opts.app,
                "--out", run_dir, "--json", run_json, f"--suite={opts.inner}"] + inner_args
     start = time.monotonic()
-    print(f"PROOF-AB run {index} arm {arm}: {' '.join(cmd)}", flush=True)
+    load_start = os.getloadavg()
+    print(f"PROOF-AB run {index} arm {arm}: load {load_start[0]:.1f}: {' '.join(cmd)}", flush=True)
     try:
         code = subprocess.call(cmd, env=env, timeout=opts.run_timeout)
     except subprocess.TimeoutExpired:
         code = 124
     seconds = round(time.monotonic() - start, 1)
+    load_end = os.getloadavg()
     raw = None
     try:
         with open(run_json) as handle:
@@ -251,6 +253,7 @@ def run_one(opts, inner_args, arm, index):
     valid = raw is not None and not invalid and verified is not False and not invalid_scenario
     row = {"arm": arm, "index": index, "exit": code, "seconds": seconds, "valid": valid, "arm_verified": verified,
            "probes": probes, "scenario_ran": scenario_ok, "invalid_scenario": invalid_scenario,
+           "load_start": [round(x, 2) for x in load_start], "load_end": [round(x, 2) for x in load_end],
            "features_seen": checks[:3], "invalid": invalid, "raw": raw if opts.keep_raw else None}
     print(f"PROOF-AB run {index} arm {arm}: exit {code} in {seconds} s valid={valid} arm_verified={verified} "
           f"scenario_ran={scenario_ok} "
@@ -324,7 +327,8 @@ def main():
               "host": socket.gethostname().split(".")[0],
               "macos": subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
               if sys.platform == "darwin" else None,
-              "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "runs": []}
+              "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "load_start": [round(x, 2) for x in os.getloadavg()], "runs": []}
     for index, arm in enumerate(plan):
         row, _ = run_one(opts, inner_args, arm, index)
         report["runs"].append(row)
@@ -332,6 +336,7 @@ def main():
         with open(opts.json, "w") as handle:
             json.dump(report, handle)
     report["finished"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    report["load_end"] = [round(x, 2) for x in os.getloadavg()]
     with open(opts.json, "w") as handle:
         json.dump(report, handle)
     print("PROOF-AB " + json.dumps({"row": opts.row, "toggle": opts.toggle, "host": report["host"],
