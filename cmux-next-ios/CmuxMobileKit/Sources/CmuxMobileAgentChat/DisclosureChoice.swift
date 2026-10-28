@@ -25,12 +25,21 @@ struct DisclosureChoice: Equatable {
 @MainActor
 @Observable
 final class ChatDisclosures {
-    private var open: [String: Bool] = [:]
+    @ObservationIgnored private var open: [String: Bool] = [:]
+    /// Bumps on every change (the transcript swaps native and SwiftUI rows on it).
+    private(set) var revision = 0
 
     /// The person's choice; nil when they never touched it.
-    func isOpen(_ key: String) -> Bool? { open[key] }
+    func isOpen(_ key: String) -> Bool? {
+        access(keyPath: \.revision)
+        return open[key]
+    }
 
-    func set(_ key: String, _ value: Bool?) { open[key] = value }
+    func set(_ key: String, _ value: Bool?) {
+        guard open[key] != value else { return }
+        open[key] = value
+        revision &+= 1
+    }
 }
 
 extension EnvironmentValues {
