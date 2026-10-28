@@ -15,7 +15,7 @@ fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
         // connection open. Restart must reject the malformed response
         // without depending on the peer's EOF or treating it as silence.
         let bytes = (16 * 1024 * 1024 + 2) as u64;
-        let sent = std::io::copy(&mut std::io::repeat(b'x').take(bytes), &mut server);
+        let sent = io::copy(&mut io::repeat(b'x').take(bytes), &mut server);
         let _ = wait.recv();
         sent
     });
@@ -27,14 +27,18 @@ fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
 
 #[test]
 fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
+    use std::sync::mpsc;
+
     let (client, mut server) = UnixStream::pair().unwrap();
+    let (finished, wait) = mpsc::channel();
+    server.write_all(b"{").unwrap();
     let sent = std::thread::spawn(move || {
-        server.write_all(b"{").unwrap();
-        std::thread::park();
+        let _ = wait.recv();
+        drop(server);
     });
     let result = probe(Box::new(client), Instant::now() + Duration::from_millis(100));
-    sent.thread().unpark();
-    let _ = sent.join();
+    finished.send(()).unwrap();
+    sent.join().unwrap();
     assert!(
         matches!(result, Probe::Answered),
         "partial protocol data must not authorize replacement"

@@ -227,7 +227,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Probe::Silent;
+            return if line.is_empty() { Probe::Silent } else { Probe::Answered };
         }
         if let Err(error) = connection.get_ref().set_read_timeout(Some(remaining)) {
             return closed(&mut connection, &error);
