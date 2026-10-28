@@ -35,7 +35,11 @@ pub(super) fn tools() -> Vec<Value> {
 }
 
 pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
-    let mut params = args.clone();
+    let mut params = match args {
+        Value::Object(_) => args.clone(),
+        Value::Null => json!({}),
+        _ => return error_result("arguments must be an object".to_owned()),
+    };
     params["sessionId"] = json!(session);
     let m = match name {
         "bg_start" => method::MUX_BG_START,

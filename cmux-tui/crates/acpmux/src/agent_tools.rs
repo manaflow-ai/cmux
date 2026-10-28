@@ -812,9 +812,15 @@ impl AgentTools {
     }
 
     /// Claude Code flags: the servers as `--mcp-config <config_file>` (the
-    /// file is written here), the skills as a session-only plugin.
+    /// file is written here), the skills as a session-only plugin. Without
+    /// servers an earlier launch's file goes: the plugin's background-shell
+    /// hook reads it (`bg_hook.rs`) and must not send the agent to a server
+    /// this launch does not have.
     pub fn claude_args(&self, config_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
+        if self.servers.is_empty() {
+            let _ = std::fs::remove_file(config_file);
+        }
         if let Some(config) = self.mcp_config() {
             match write_private(config_file, config.to_string().as_bytes()) {
                 Ok(()) => {

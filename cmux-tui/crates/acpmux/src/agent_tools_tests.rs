@@ -170,3 +170,24 @@ fn own_servers_run_under_the_daemon_prefix() {
     assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A launch without servers removes the last launch's MCP config, so the background-shell hook
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has.
+#[test]
+fn a_launch_without_servers_removes_the_last_mcp_config() {
+    let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
+    let file = root.join("s.json");
+    let mut with = super::AgentTools::default();
+    with.servers.push(super::McpServer {
+        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        command: "acpmux".into(),
+        args: vec![],
+        env: vec![],
+    });
+    assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
+    assert!(file.is_file());
+    let args = super::AgentTools::default().claude_args(&file);
+    assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
+    assert!(!file.exists(), "the last launch's config stayed for the hook to read");
+    let _ = std::fs::remove_dir_all(&root);
+}

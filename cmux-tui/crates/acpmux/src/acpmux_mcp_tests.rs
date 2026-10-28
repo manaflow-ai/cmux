@@ -155,3 +155,14 @@ async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() 
     let r = call(&client, &tool("nope", json!({}))).await;
     assert_eq!(text(&r), "unknown tool: nope", "{r}");
 }
+
+/// Arguments that are not an object are an error the agent reads, never a panic.
+#[tokio::test]
+async fn bg_tools_refuse_arguments_that_are_not_an_object() {
+    let (_hub, client, _dir) = daemon().await;
+    for name in bg::TOOLS {
+        let r = bg::call(&client, "any", name, &json!([])).await;
+        assert_eq!(r["isError"], true, "{name}: {r}");
+        assert_eq!(text(&r), "arguments must be an object", "{name}: {r}");
+    }
+}
