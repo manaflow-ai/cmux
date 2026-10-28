@@ -286,16 +286,12 @@ async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u
     kept
 }
 
-/// Run the fixed `gh` command for a checked request on this machine.
+/// Run the fixed `gh` command for a checked request on this machine, with its own login.
 async fn execute(r: &GithubActionParams) -> Result<String, RpcError> {
-    let mut child = Command::new("gh")
-        .args(gh_args(r))
-        .env(SHIM_REFUSAL_ENV, "1")
-        .env("GH_PROMPT_DISABLED", "1")
-        .env("GH_NO_UPDATE_NOTIFIER", "1")
-        // `gh` prints its HTTP traffic with these set; it has no business doing so here.
-        .env_remove("GH_DEBUG")
-        .env_remove("DEBUG")
+    let mut gh = Command::new("gh");
+    gh.args(gh_args(r));
+    login_env(gh.as_std_mut(), None);
+    let mut child = gh
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -322,6 +318,26 @@ async fn execute(r: &GithubActionParams) -> Result<String, RpcError> {
         .with_data(json!({"reason": "github.command_failed"})));
     }
     Ok(redact_github_tokens(&clean_output(&stdout)))
+}
+
+/// The env every `gh` the broker runs gets: only the Mac's keyring login (`token` None: every
+/// GitHub token in this daemon's env removed, so `keyring` means the keyring), or only `token`;
+/// github.com whatever `GH_HOST` the daemon has.
+pub(crate) fn login_env(gh: &mut std::process::Command, token: Option<&str>) {
+    gh.env(SHIM_REFUSAL_ENV, "1")
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1")
+        .env("GH_HOST", "github.com")
+        // `gh` prints its HTTP traffic with these set; it has no business doing so here.
+        .env_remove("GH_DEBUG")
+        .env_remove("DEBUG")
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_ENTERPRISE_TOKEN")
+        .env_remove("GITHUB_ENTERPRISE_TOKEN");
+    if let Some(token) = token {
+        gh.env("GH_TOKEN", token);
+    }
 }
 
 /// The Mac's gate for `peer`'s request, before anything is spawned: `enabled` is that peer's
