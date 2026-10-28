@@ -13,20 +13,24 @@ public struct DiffChangesScreen: View {
     }
 
     public var body: some View {
+        // The viewed marks once per body (a set lookup per file), for the rows, the filter and the summary.
+        let viewed = state.viewed
+        let files = state.showViewed ? state.changeSet.files : state.changeSet.files.filter { !viewed.contains($0.id) }
         List {
             Section {
-                summary
+                summary(viewedCount: viewed.count)
                     .listRowSeparator(.hidden, edges: .top)
-                ForEach(visibleFiles) { file in
+                ForEach(files) { file in
                     // A destination link, not a value link: the chat that pushes this
                     // screen may sit in a stack with a typed path (Home), where a
                     // DiffFileRoute value has nowhere to go and the tap did nothing.
                     NavigationLink {
                         DiffFileScreen(state: state, fileID: file.id)
                     } label: {
-                        DiffFileRow(file: file, isViewed: state.viewed.contains(file.id)) {
+                        DiffFileRow(file: file, isViewed: viewed.contains(file.id)) {
                             withAnimation(.cmuxMobileSnap) { state.toggleViewed(file) }
                         }
+                        .equatable()
                     }
                 }
             }
@@ -46,18 +50,14 @@ public struct DiffChangesScreen: View {
         }
     }
 
-    private var visibleFiles: [DiffFile] {
-        state.showViewed ? state.changeSet.files : state.changeSet.files.filter { !state.viewed.contains($0.id) }
-    }
-
-    private var summary: some View {
+    private func summary(viewedCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("\(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files") changed").font(.headline)
             HStack(spacing: 8) {
                 DiffCounts(additions: state.changeSet.additions, deletions: state.changeSet.deletions)
                 DiffStatBar(additions: state.changeSet.additions, deletions: state.changeSet.deletions)
                 Spacer()
-                Text("\(state.viewed.count) of \(state.changeSet.files.count) viewed").font(.footnote).foregroundStyle(.secondary)
+                Text("\(viewedCount) of \(state.changeSet.files.count) viewed").font(.footnote).foregroundStyle(.secondary)
                     .contentTransition(.numericText())
             }
         }
@@ -144,11 +144,18 @@ struct StatusBadge: View {
     }
 }
 
-struct DiffFileRow: View {
+/// Equatable on its content (the file's path and fingerprint, and the mark), so a body
+/// of the list skips rows that did not change; the toggle closure is new every body.
+struct DiffFileRow: View, Equatable {
     let file: DiffFile
     let isViewed: Bool
     let toggleViewed: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.isViewed == rhs.isViewed && lhs.file.path == rhs.file.path && lhs.file.contentHash == rhs.file.contentHash
+            && lhs.file.status == rhs.file.status
+    }
 
     var body: some View {
         if dynamicTypeSize.isAccessibilitySize {
