@@ -131,10 +131,7 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
 
 /// Read-only PR/issue references, tool sources and settled reply URLs in transcript encounter
 /// order; each appears once.
-function sources(
-  rows: readonly AcpmuxRow[],
-  pullRequests: readonly SummaryPullRequest[],
-): SummarySource[] {
+function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullRequest[]): SummarySource[] {
   const seen = new Map<string, { source: SummarySource; order: number; sequence: number }>();
   let sequence = 0;
   const add = (source: SummarySource, order: number) => {
@@ -146,12 +143,15 @@ function sources(
   for (const pr of pullRequests)
     if (!pr.changed && !pr.opened) {
       const ambiguous = pr.mentioned && !pr.kind;
-      add({
-        // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
-        url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
-        label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
-        kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
-      }, pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER);
+      add(
+        {
+          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
+          url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+          label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+          kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+        },
+        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
+      );
     }
   const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
   const addUrls = (text: string, order: number) => {
@@ -168,11 +168,14 @@ function sources(
           knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
         if (known?.changed || known?.opened) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
-        add({
-          url: pr ? (known?.url ?? canonical) : canonical,
-          label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
-          kind: pr ? "pullRequest" : "issue",
-        }, order);
+        add(
+          {
+            url: pr ? (known?.url ?? canonical) : canonical,
+            label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
+            kind: pr ? "pullRequest" : "issue",
+          },
+          order,
+        );
       } else add({ url, label, kind: "url" }, order);
     }
   };
@@ -191,10 +194,9 @@ function sources(
     }
   }
   // Producer revisions keep streamed replies out of this settled scan.
-  for (const [rowIndex, row] of rows.entries()) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "", rowIndex);
-  return [...seen.values()]
-    .sort((a, b) => a.order - b.order || a.sequence - b.sequence)
-    .map(({ source }) => source);
+  for (const [rowIndex, row] of rows.entries())
+    if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "", rowIndex);
+  return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
 }
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).

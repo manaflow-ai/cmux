@@ -440,11 +440,7 @@ export function transcriptPullRequests(
     // GitHub issues and PRs share a number space; /issues/N may redirect to a proven PR. Once a
     // record has been proven as a PR, later issue evidence (including comment fragments) reuses it.
     const prior = found.get(identity);
-    if (
-      (!kind && how !== "mentioned") ||
-      prior?.kind === "pullRequest"
-    )
-      kind = "pullRequest";
+    if ((!kind && how !== "mentioned") || prior?.kind === "pullRequest") kind = "pullRequest";
     if (!kind && prior?.kind) kind = prior.kind;
     const url = kind === "issue" ? issueUrl : prUrl;
     const pr = prior;
