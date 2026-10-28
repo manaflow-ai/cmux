@@ -165,7 +165,7 @@ test("the omnibar's editing keys stay the field's", async () => {
     expect({ key, modifiers, taken: event.defaultPrevented }).toEqual({
       key,
       modifiers,
-      taken: modifiers.ctrlKey === true,
+      taken: modifiers.ctrlKey === true && key !== "k",
     });
   }
   expect(selected()).toBe(0);
