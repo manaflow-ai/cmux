@@ -39,6 +39,32 @@ struct CMUXCLIMissingWorkingDirectoryTests {
         #expect(result.methods == ["surface.resume.get"])
     }
 
+    @Test(arguments: ["restore", "fork"], ["missing", "file", "directory", "relative-directory"])
+    func legacyLaunchUsesSavedDirectoryOnce(verb: String, pathKind: String) throws {
+        let fixture = try Fixture(pathIsFile: pathKind == "file")
+        defer { fixture.remove() }
+        let exists = pathKind == "directory" || pathKind == "relative-directory"
+        if exists {
+            try FileManager.default.createDirectory(at: fixture.savedDirectory, withIntermediateDirectories: true)
+        }
+        var record = fixture.record(kind: "custom-agent")
+        record["legacy_command"] = "'\(fixture.executable.path)' --fork '\(fixture.checkpoint)'"
+        if pathKind == "relative-directory" {
+            record["working_directory"] = fixture.savedDirectory.lastPathComponent
+        }
+        let result = try fixture.run(verb: verb, record: record)
+        if exists {
+            #expect(!result.process.timedOut && result.process.status == 0,
+                    Comment(rawValue: result.process.diagnostics))
+            let output = try String(contentsOf: fixture.marker, encoding: .utf8)
+            #expect(URL(fileURLWithPath: output.trimmingCharacters(in: .whitespacesAndNewlines))
+                .resolvingSymlinksInPath().path == fixture.savedDirectory.resolvingSymlinksInPath().path)
+        } else {
+            fixture.expectRefusal(result.process, verb: verb)
+        }
+        #expect(result.methods == ["surface.resume.get"])
+    }
+
     @Test(arguments: ["missing", "file", "directory", "relative-directory"], [false, true])
     func legacyCodexForkChecksDirectoryBeforeClearingBinding(pathKind: String, plannerFallback: Bool) throws {
         let fixture = try Fixture(pathIsFile: pathKind == "file")
