@@ -40,9 +40,11 @@ struct AgentChatFontSizeShortcutTests {
             }, report: { "focused content: \(String(describing: services.windows.active?.focusedPane?.currentContent))" })
 
             #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))
-            try await PasswordManagerRouteTests.until({ settings.fileRoot.value(at: key) == .number(15) })
+            #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))
+            try await PasswordManagerRouteTests.until({ settings.fileRoot.value(at: key) == .number(16) },
+                                                       report: { "two quick increases saved \(String(describing: settings.fileRoot.value(at: key)))" })
             #expect(services.registry.perform("decreaseWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))
-            try await PasswordManagerRouteTests.until({ settings.fileRoot.value(at: key) == .number(14) })
+            try await PasswordManagerRouteTests.until({ settings.fileRoot.value(at: key) == .number(15) })
 
             try await settings.set(.number(28), at: key)
             #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))

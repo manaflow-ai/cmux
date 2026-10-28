@@ -156,6 +156,11 @@ extension PaneHandlers {
         }
     }
 
+    // Key repeats must read after the preceding write, or two quick Cmd-Plus presses
+    // both read 14 and save 15. Keep the chain only until its last write settles.
+    @MainActor private static var chatFontWrite: Task<ActionWorkFailure?, Never>?
+    @MainActor private static var chatFontWriteGeneration = 0
+
     /// One point per key press, within the Settings row's range. An absent value is its 14 pt
     /// default; reset removes the override so later default changes still apply.
     private static func changeChatFontSize(_ id: ActionID, _ ctx: AppActionContext) {
@@ -164,16 +169,36 @@ extension PaneHandlers {
         if let managed = settings.managedKey(forPath: path) {
             return ctx.refuse(RefusalStrings.settingManaged(managed.key))
         }
-        if id == "resetWorkspaceTerminalFontSize" {
-            ctx.writeSetting("reset chat font size", path, nil, reloadOnFailure: true)
-            return
+        let writer = SettingWriter.currentRun()
+        let previous = chatFontWrite
+        chatFontWriteGeneration += 1
+        let generation = chatFontWriteGeneration
+        let task: Task<ActionWorkFailure?, Never> = Task { @MainActor in
+            _ = await previous?.value
+            defer {
+                if chatFontWriteGeneration == generation { chatFontWrite = nil }
+            }
+            let value: JSONValue?
+            if id == "resetWorkspaceTerminalFontSize" {
+                value = nil
+            } else {
+                let current = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
+                    .values[path.joined(separator: ".")]?.doubleValue ?? AgentPaneDisplaySetting.fontSizeFallback
+                let delta = id == "increaseWorkspaceTerminalFontSize" ? 1.0 : -1.0
+                let range = AgentPaneDisplaySetting.fontSizeRange
+                let next = min(max(current + delta, range.lowerBound), range.upperBound)
+                guard next != current else { return nil }
+                value = .number(next)
+            }
+            do {
+                try await settings.setSetting(at: path, to: value, by: writer)
+                return nil
+            } catch {
+                await settings.reload()
+                return ActionWorkFailure(String(describing: error))
+            }
         }
-        let current = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
-            .values[path.joined(separator: ".")]?.doubleValue ?? AgentPaneDisplaySetting.fontSizeFallback
-        let delta = id == "increaseWorkspaceTerminalFontSize" ? 1.0 : -1.0
-        let range = AgentPaneDisplaySetting.fontSizeRange
-        let next = min(max(current + delta, range.lowerBound), range.upperBound)
-        guard next != current else { return }
-        ctx.writeSetting("change chat font size", path, .number(next), reloadOnFailure: true)
+        chatFontWrite = task
+        ctx.registry.track(task)
     }
 }
