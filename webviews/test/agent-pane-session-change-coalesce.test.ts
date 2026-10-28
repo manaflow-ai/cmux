@@ -133,9 +133,10 @@ class FakeAcpmux {
   }
 }
 
-async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectClient; snapshots: () => number }> {
+async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectClient; snapshots: () => number; latest: () => any }> {
   const socket = new FakeAcpmux();
   let count = 0;
+  let latest: any;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -145,7 +146,10 @@ async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectCli
       sessionId: SELECTED,
     },
     (message: any) => {
-      if (message?.type === "snapshot") count += 1;
+      if (message?.type === "snapshot") {
+        count += 1;
+        latest = message;
+      }
     },
     undefined,
     () => socket as unknown as WebSocket,
@@ -155,7 +159,7 @@ async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectCli
     await new Promise((resolve) => setTimeout(resolve, 0));
     flushFrames();
   }
-  return { socket, client, snapshots: () => count };
+  return { socket, client, snapshots: () => count, latest: () => latest };
 }
 
 /// One change of each of `chats` other running chats, as acpmux sends them.
@@ -240,6 +244,44 @@ test("bench: client time for 30 running chats changing 20 times (600 changes)", 
     console.log(`session-change bench: 600 changes, ${drawn} snapshots, ${elapsed.toFixed(1)} ms in the client`);
     // One snapshot per frame at most: 20 frames.
     expect(drawn).toBeLessThanOrEqual(20);
+  } finally {
+    client.close();
+  }
+});
+
+
+test("cached chat selection reuses the unchanged sidebar list", async () => {
+  const { client, latest } = await openPane();
+  try {
+    const sessions = latest().sessions;
+    await client.select(SELECTED);
+    flushFrames();
+    expect(latest().sessions).toBe(sessions);
+  } finally {
+    client.close();
+  }
+});
+
+test("coalesced changes keep fresh ordering without mutating earlier snapshots", async () => {
+  const { socket, client, latest } = await openPane();
+  try {
+    const before = latest().sessions;
+    const beforeIds = before.map((session: any) => session.sessionId);
+    for (const n of [2, 3, 2]) socket.notify("_acpmux/session_changed", {
+      session: { ...summary(n, "running"), title: `Changed ${n}` },
+      kind: "renamed",
+    });
+    flushFrames();
+    const after = latest().sessions;
+    expect(after).not.toBe(before);
+    expect(after).toHaveLength(SESSIONS);
+    expect(after.slice(-2).map((session: any) => session.sessionId)).toEqual([id(3), id(2)]);
+    expect(after.at(-1).title).toBe("Changed 2");
+    expect(before.map((session: any) => session.sessionId)).toEqual(beforeIds);
+    expect(before.find((session: any) => session.sessionId === id(2)).title).toBe("Chat 2");
+    socket.notify("_acpmux/session_changed", { session: { sessionId: id(2) }, kind: "purged" });
+    expect(latest().sessions.some((session: any) => session.sessionId === id(2))).toBe(false);
+    expect(after.some((session: any) => session.sessionId === id(2))).toBe(true);
   } finally {
     client.close();
   }
