@@ -137,6 +137,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { nativeComposerExtensions, type ComposerPlusExtension } from "./composerPlusRegistry";
 import {
   linkAttachment,
   linkItems,
@@ -4486,6 +4487,15 @@ function AcpmuxPane() {
   const [statusCardOpen, setStatusCardOpen] = useState(false);
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
+  const [plusExtensions, setPlusExtensions] = useState<ComposerPlusExtension[]>([]);
+  const refreshPlusActions = useCallback(() => {
+    void callNative<{ actions?: unknown }>("action.composerList")
+      .then((reply) => setPlusExtensions(nativeComposerExtensions(reply?.actions)))
+      .catch(() => setPlusExtensions([]));
+  }, []);
+  useEffect(() => {
+    if (handshaken) refreshPlusActions();
+  }, [handshaken, refreshPlusActions]);
   const handshakenRef = useRef(false);
   /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
   /// first frame (its rows, title and modes) is in, or the open's hold has passed.
@@ -9515,6 +9525,13 @@ function AcpmuxPane() {
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
+            plusExtensions={plusExtensions}
+            onPlusOpen={refreshPlusActions}
+            onPlusCommand={(id) =>
+              void callNative("action.run", { id }).catch((error: unknown) => {
+                directClient.current?.notice(errorMessage(error) || String(error));
+              })
+            }
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
@@ -10108,6 +10125,9 @@ function AcpmuxPane() {
                 : {})}
               onConnect={connectMachine}
               onRefreshMachines={() => void directClient.current?.refreshPeers()}
+              plusExtensions={plusExtensions}
+              onPlusOpen={refreshPlusActions}
+              onPaletteAction={(id) => callNative("action.run", { id })}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {
