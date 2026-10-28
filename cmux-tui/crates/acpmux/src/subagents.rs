@@ -145,11 +145,16 @@ impl SubagentTree {
             }
             if event.get("tokens").is_none() {
                 if let Some(tokens) = preview.tokens {
-                    event.insert("tokens".into(), json!(tokens));
+                    if let Some(object) = event.as_object_mut() {
+                        object.insert("tokens".into(), json!(tokens));
+                    }
                 }
             }
             if event.get("lastMessage").is_none() && !preview.text.is_empty() {
-                event["lastMessage"] = json!(truncate_last_message(&preview.text));
+                if let Some(object) = event.as_object_mut() {
+                    object
+                        .insert("lastMessage".into(), json!(truncate_last_message(&preview.text)));
+                }
             }
         }
         let mut fields = Map::new();
