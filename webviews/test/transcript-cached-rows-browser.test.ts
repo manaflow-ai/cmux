@@ -59,8 +59,14 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
       await showOlder(true);
       const prefetched = page.locator('[data-row-id="prefetched-older"]');
       expect(await prefetched.count()).toBe(1);
-      // Keep the prefetched row above the view: first render happened, first intersection did not.
-      expect(await prefetched.getAttribute("data-older-shown")).toBeNull();
+      // First render happened outside the view. Its fade starts now, never on a later intersection.
+      expect(
+        await prefetched.evaluate(
+          (row) =>
+            row.getBoundingClientRect().bottom <= document.querySelector(".acpmux-scroll")!.getBoundingClientRect().top,
+        ),
+      ).toBe(true);
+      expect(await prefetched.getAttribute("data-older-shown")).toBe("true");
       await showOlder(false);
       expect(await prefetched.count()).toBe(0);
       await showOlder(true);

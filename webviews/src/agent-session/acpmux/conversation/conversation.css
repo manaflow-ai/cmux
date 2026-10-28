@@ -2860,10 +2860,10 @@ a.cv-sha:focus-visible {
   }
 }
 
-/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
- * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
- * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
- * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+/* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx), including
+ * a warm copy outside the view. Its layout effect starts the fade before paint, so intersection
+ * never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
+ * height, so the anchoring that holds the reader's place is untouched. Reduce
  * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
 @keyframes acpmux-older-in {
   from {
