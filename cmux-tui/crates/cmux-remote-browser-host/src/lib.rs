@@ -16,6 +16,7 @@ pub mod meter;
 pub mod page;
 pub mod probe;
 pub mod pump;
+pub mod sandbox_status;
 pub mod shim_ui;
 pub mod tab;
 

@@ -4,9 +4,12 @@
 //! - `frames.jsonl` (counter, size, update rect, phase) and the first frames
 //!   as `frame-NNN.png` (straight from the IOSurface, damage not drawn);
 //! - `result.json`: frames while idle (must be 0), the process tree's CPU
-//!   seconds over the idle window, and key-to-capture latencies (a key sent
+//!   seconds over the idle window, key-to-capture latencies (a key sent
 //!   with cmux_rp_send_key to the first frame whose update rect covers the
-//!   box the key toggles; host side only: no encode, network or decode).
+//!   box the key toggles; host side only: no encode, network or decode), and
+//!   the sandbox state of every child process (`sandbox_status`): the smoke
+//!   fails (exit 1) when a renderer or the GPU process is not sandboxed or
+//!   may read a file outside the profile.
 //! macOS only.
 
 use std::ffi::{CString, c_char, c_int, c_void};
@@ -47,6 +50,9 @@ struct Smoke {
     key_sent_at: Option<Instant>,
     keys_sent: usize,
     latencies_ms: Vec<f64>,
+    /// The file outside the profile the sandbox check asks about.
+    outside: PathBuf,
+    sandbox: Vec<crate::sandbox_status::Child>,
     error: Option<String>,
 }
 
@@ -65,16 +71,18 @@ unsafe extern "C" {
 }
 const LOCK_READ_ONLY: u32 = 1;
 
-/// CPU seconds of this process and its helper processes (ps, read only).
-fn tree_cpu_seconds() -> f64 {
+/// This process and its helper processes (ps, read only): pid, CPU seconds
+/// and command line, this process first.
+fn process_tree() -> Vec<(u32, f64, String)> {
     let me = std::process::id();
-    let Ok(out) =
-        std::process::Command::new("/bin/ps").args(["-A", "-o", "pid=,ppid=,time="]).output()
+    let Ok(out) = std::process::Command::new("/bin/ps")
+        .args(["-A", "-o", "pid=,ppid=,time=,command="])
+        .output()
     else {
-        return f64::NAN;
+        return Vec::new();
     };
     let text = String::from_utf8_lossy(&out.stdout);
-    let rows: Vec<(u32, u32, f64)> = text
+    let rows: Vec<(u32, u32, f64, String)> = text
         .lines()
         .filter_map(|l| {
             let mut it = l.split_whitespace();
@@ -89,21 +97,36 @@ fn tree_cpu_seconds() -> f64 {
                 .zip([1.0, 60.0, 3600.0, 86400.0])
                 .map(|(v, m)| v * m)
                 .sum();
-            Some((pid, ppid, secs))
+            Some((pid, ppid, secs, it.collect::<Vec<_>>().join(" ")))
         })
         .collect();
     let mut tree = vec![me];
     let mut grew = true;
     while grew {
         grew = false;
-        for (pid, ppid, _) in &rows {
+        for (pid, ppid, _, _) in &rows {
             if tree.contains(ppid) && !tree.contains(pid) {
                 tree.push(*pid);
                 grew = true;
             }
         }
     }
-    rows.iter().filter(|(pid, _, _)| tree.contains(pid)).map(|(_, _, s)| s).sum()
+    let mut out: Vec<(u32, f64, String)> = rows
+        .into_iter()
+        .filter(|(pid, _, _, _)| tree.contains(pid))
+        .map(|(pid, _, secs, command)| (pid, secs, command))
+        .collect();
+    out.sort_by_key(|(pid, _, _)| *pid != me);
+    out
+}
+
+/// CPU seconds of this process and its helper processes.
+fn tree_cpu_seconds() -> f64 {
+    let tree = process_tree();
+    if tree.is_empty() {
+        return f64::NAN;
+    }
+    tree.iter().map(|(_, secs, _)| secs).sum()
 }
 
 fn write_png(
@@ -239,10 +262,24 @@ unsafe extern "C" fn start_idle(_: *mut c_void) {
 }
 
 unsafe extern "C" fn end_idle(_: *mut c_void) {
-    let cpu = tree_cpu_seconds();
+    let tree = process_tree();
+    let cpu = if tree.is_empty() { f64::NAN } else { tree.iter().map(|(_, secs, _)| secs).sum() };
+    // The page has rendered by now, so its renderer and the GPU process run.
+    let me = std::process::id();
+    let children: Vec<(u32, String)> = tree
+        .into_iter()
+        .filter(|(pid, _, _)| *pid != me)
+        .map(|(pid, _, command)| (pid, command))
+        .collect();
+    let outside = with(|s| s.outside.clone()).unwrap_or_default();
+    let children = crate::sandbox_status::probe::children(&children, &outside);
     with(|s| {
         s.idle_frames = Some(s.frames - s.idle_start_frames);
         s.idle_cpu_s = Some(cpu - s.idle_start_cpu);
+        if let Err(e) = crate::sandbox_status::verdict(&children) {
+            s.error.get_or_insert(e);
+        }
+        s.sandbox = children;
     });
     // SAFETY: plain values.
     unsafe { rb_shim_post_delayed(send_key, std::ptr::null_mut(), 0) }
@@ -313,7 +350,7 @@ unsafe extern "C" fn finish(_: *mut c_void) {
         l.sort_by(f64::total_cmp);
         let result = format!(
             "{{\"frames\":{},\"idle_window_ms\":{IDLE_WINDOW_MS},\"idle_frames\":{},\"idle_cpu_seconds\":{},\
-\"keys\":{},\"key_to_capture_ms\":{{\"count\":{},\"p50\":{},\"p95\":{},\"max\":{}}},\"error\":{}}}\n",
+\"keys\":{},\"key_to_capture_ms\":{{\"count\":{},\"p50\":{},\"p95\":{},\"max\":{}}},\"sandbox\":{},\"error\":{}}}\n",
             s.frames,
             s.idle_frames.map_or("null".to_string(), |v| v.to_string()),
             s.idle_cpu_s
@@ -324,6 +361,7 @@ unsafe extern "C" fn finish(_: *mut c_void) {
             num(percentile(&l, 0.5)),
             num(percentile(&l, 0.95)),
             num(l.last().copied()),
+            crate::sandbox_status::json(&s.sandbox),
             s.error.as_ref().map_or("null".to_string(), |e| format!("{e:?}")),
         );
         let _ = std::fs::write(s.out.join("result.json"), &result);
@@ -333,12 +371,17 @@ unsafe extern "C" fn finish(_: *mut c_void) {
     unsafe { rb_shim_quit() }
 }
 
-/// Runs the smoke into `out` and returns the process exit code.
+/// Runs the smoke into `out` and returns the process exit code: the shim's
+/// when it fails, else 1 when the smoke found an error (`result.json`).
 pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
     let _ = std::fs::create_dir_all(&out);
     let jsonl = std::fs::File::create(out.join("frames.jsonl")).ok();
+    // A file beside the profile (`out/cache`), not in it: no child process
+    // may read it.
+    let outside = out.join("outside-profile.txt");
+    let _ = std::fs::write(&outside, "the sandbox check reads this file\n");
     if let Ok(mut guard) = SMOKE.lock() {
-        *guard = Some(Smoke { out: out.clone(), jsonl, ..Smoke::default() });
+        *guard = Some(Smoke { out: out.clone(), jsonl, outside, ..Smoke::default() });
     }
     let cache = CString::new(out.join("cache").to_string_lossy().as_bytes()).unwrap_or_default();
     let callbacks = RbCallbacks {
@@ -364,7 +407,7 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
         on_text_input: None,
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
-    unsafe {
+    let code = unsafe {
         rb_shim_run(
             c_int::try_from(argv.len()).unwrap_or(0),
             argv.as_mut_ptr(),
@@ -372,5 +415,10 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
             0,
             &callbacks,
         )
+    };
+    if code != 0 {
+        return code;
     }
+    let failed = with(|s| s.error.is_some() || !s.finished).unwrap_or(true);
+    i32::from(failed)
 }
