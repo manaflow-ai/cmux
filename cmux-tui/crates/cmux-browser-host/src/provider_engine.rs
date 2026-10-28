@@ -11,6 +11,7 @@
 
 use crate::driver::{Driver, EventSink, Reply};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
 use crate::tab_source::{TabCall, TabSource};
@@ -355,7 +356,7 @@ impl ProviderEngine {
                 let mut close = json!({"targetId": target_id, "reason": SESSION_END_REASON,
                     "timeoutMs": SESSION_END_CLOSE_MS});
                 if let Some(timeout) = params.get("timeoutMs") {
-                    close["timeoutMs"] = timeout.clone();
+                    close.insert("timeoutMs", timeout.clone());
                 }
                 return self.provider.call("tabs.close", &close).map(Reply::Value);
             }

@@ -301,10 +301,10 @@ pub fn fresh_token() -> String {
     if bytes == [0u8; 16] {
         // RandomState's keys come from the OS's randomness too.
         use std::hash::{BuildHasher, Hasher};
-        for half in 0..2 {
+        for (half, chunk) in bytes.chunks_exact_mut(8).enumerate() {
             let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
             hasher.write_usize(half);
-            bytes[half * 8..half * 8 + 8].copy_from_slice(&hasher.finish().to_le_bytes());
+            chunk.copy_from_slice(&hasher.finish().to_le_bytes());
         }
     }
     bytes.iter().map(|b| format!("{b:02x}")).collect()

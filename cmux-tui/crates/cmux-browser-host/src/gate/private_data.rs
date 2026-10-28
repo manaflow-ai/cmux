@@ -5,6 +5,7 @@
 //! Entries carry the op, site, counts and restore id; never a cookie value.
 
 use super::{Gate, now_ms, push_log};
+use crate::panic_free::JsonFields;
 use crate::private_data_log::{EVENT, PrivateDataLog};
 use crate::protocol::DriverEvent;
 use serde_json::{Value, json};
@@ -39,7 +40,7 @@ impl Gate {
         };
         let target = params.get("targetId").and_then(Value::as_str);
         if let Some(target) = target {
-            entry["targetId"] = json!(target);
+            entry.insert("targetId", json!(target));
         }
         self.record_private_data(entry, target);
     }
@@ -48,12 +49,12 @@ impl Gate {
     /// value) to the session's policy log, the host log and the session's
     /// event path (`browser.privateData`).
     pub(super) fn record_private_data(&self, mut entry: Value, target: Option<&str>) {
-        entry["at"] = json!(now_ms());
+        entry.insert("at", json!(now_ms()));
         let entry = self.mask_for_target(target, &entry);
         push_log(&self.log, entry.clone());
         let session = self.inputs.as_ref().map(|inputs| inputs.session_id().to_owned());
         let mut host_entry = entry.clone();
-        host_entry["session"] = json!(session);
+        host_entry.insert("session", json!(session));
         self.private_data.push(host_entry);
         // Agent activity: the session's event path, like automation.input.
         let mut payload = json!({"v": 1, "session_id": session});

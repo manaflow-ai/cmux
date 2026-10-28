@@ -15,6 +15,7 @@
 
 use super::driver::Inner;
 use super::state::World;
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -160,12 +161,12 @@ impl Inner {
             return Ok(Value::Null);
         }
         if kind == "paste" {
-            if let Some(text) = result["insert"].as_str() {
+            if let Some(text) = result.field("insert").as_str() {
                 self.send_until(&session, "Input.insertText", json!({"text": text}), deadline)?;
             }
             return Ok(Value::Null);
         }
-        let items: Vec<Value> = result["entries"]
+        let items: Vec<Value> = result.field("entries")
             .as_array()
             .into_iter()
             .flatten()
@@ -203,7 +204,7 @@ impl Inner {
         if let Some(details) = reply.get("exceptionDetails") {
             return Err(super::evaluate::evaluation_error(details));
         }
-        Ok(reply["result"].get("value").cloned().unwrap_or(Value::Null))
+        Ok(reply.field("result").get("value").cloned().unwrap_or(Value::Null))
     }
 }
 
@@ -255,7 +256,7 @@ pub(super) fn deny_clipboard_permissions(
     ] {
         let mut params = json!({"permission": permission, "setting": "denied"});
         if let Some(context) = context {
-            params["browserContextId"] = json!(context);
+            params.insert("browserContextId", json!(context));
         }
         conn.call(None, "Browser.setPermission", params, super::driver::INTERNAL_TIMEOUT)?;
     }

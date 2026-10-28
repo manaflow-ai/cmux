@@ -11,6 +11,7 @@
 use super::driver::{INTERNAL_TIMEOUT, Inner, Session};
 use super::evaluate::{Context, evaluation_error, handle_group};
 use super::state::{Applied, FollowUp, State, World};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, DriverEvent, ErrorCode, required_str, timeout_of};
 use serde_json::{Map, Value, json};
 use std::time::{Duration, Instant};
@@ -254,7 +255,7 @@ impl Inner {
                 deadline,
             )
             .and_then(|resolved| {
-                let object = resolved["object"]["objectId"].as_str().ok_or_else(|| {
+                let object = resolved.field("object").field("objectId").as_str().ok_or_else(|| {
                     DriverError::new(ErrorCode::Stale, "The file chooser's input is gone")
                 })?;
                 f(&agent, object)
@@ -282,7 +283,7 @@ impl Inner {
         if let Some(details) = reply.get("exceptionDetails") {
             return Err(evaluation_error(details));
         }
-        Ok(reply["result"].get("value").cloned().unwrap_or(Value::Null))
+        Ok(reply.field("result").get("value").cloned().unwrap_or(Value::Null))
     }
 }
 

@@ -14,6 +14,7 @@
 //! sensitive field's value: a password, one-time code, or card field reads as
 //! [`FIELD_MARKER`] (browser-host.md, frame.observe).
 
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode};
 use serde_json::{Value, json};
 
@@ -67,12 +68,13 @@ fn tests_a_value(selector: &str) -> bool {
     if text.contains("@value") {
         return true; // XPath: //input[@value="a"], starts-with(@value, "a")
     }
-    text.match_indices("value").any(|(at, _)| {
-        // `[value^=`, `[*|value^=`, `[ns|value=`: the name ends the word.
-        let before = text[..at].chars().next_back();
-        let name_start = matches!(before, Some('[' | '|' | ' ' | '\t'));
-        let rest = text[at + "value".len()..].trim_start();
-        name_start && matches!(rest.chars().next(), Some('=' | '^' | '$' | '*' | '~' | '|'))
+    // Each pair of neighbouring pieces is the text before and after one
+    // `value`: `[value^=`, `[*|value^=`, `[ns|value=`: the name ends the word.
+    let pieces = text.split("value");
+    pieces.clone().zip(pieces.skip(1)).any(|(before, after)| {
+        let name_start = matches!(before.chars().next_back(), Some('[' | '|' | ' ' | '\t'));
+        name_start
+            && matches!(after.trim_start().chars().next(), Some('=' | '^' | '$' | '*' | '~' | '|'))
     })
 }
 
@@ -328,7 +330,7 @@ pub fn evaluate_params(params: &Value) -> Result<Value, DriverError> {
     });
     for key in ["targetId", "frameId", "timeoutMs"] {
         if let Some(value) = params.get(key) {
-            evaluate[key] = value.clone();
+            evaluate.insert(key, value.clone());
         }
     }
     Ok(evaluate)
@@ -380,9 +382,17 @@ mod tests {
             assert_eq!(error.error_name.as_deref(), Some(NOT_ALLOWED), "{selector}");
         }
         assert!(evaluate_params(&json!({"method": "queryAll", "args": ["input#pw"]})).is_ok());
-        for allowed in
-            ["[data-x]", "[data-value=a]", "internal:role=button[name=\"Go\"i]", "input[value]"]
-        {
+        assert!(tests_a_value("[value=a][x=valuevalue] [value ~= b]"));
+        assert!(tests_a_value("[ é|value=a]"));
+        for allowed in [
+            "[data-x]",
+            "[data-value=a]",
+            "internal:role=button[name=\"Go\"i]",
+            "input[value]",
+            "[valuevalue=a]",
+            "[x=value",
+            "value",
+        ] {
             assert!(
                 evaluate_params(&json!({"method": "queryAll", "args": [allowed]})).is_ok(),
                 "{allowed}"

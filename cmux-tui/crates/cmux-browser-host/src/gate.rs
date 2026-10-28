@@ -8,6 +8,7 @@
 //! the page either.
 
 use crate::driver::{Driver, Reply};
+use crate::panic_free::JsonFields;
 use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
@@ -468,7 +469,7 @@ impl Gate {
                 self.tab_secrets.record_totp(target, &name, key);
             }
         }
-        params[field] = Value::String(text);
+        params.insert(field, Value::String(text));
         Ok(())
     }
 
@@ -550,7 +551,7 @@ impl Gate {
             let mut call =
                 json!({"targetId": params["targetId"], "method": method, "args": [handle]});
             if let Some(frame) = params.get("frameId").filter(|f| !f.is_null()) {
-                call["frameId"] = frame.clone();
+                call.insert("frameId", frame.clone());
             }
             self.driver.call("frame.observe", &call)
         };
@@ -586,7 +587,7 @@ impl Gate {
                 "input.insertText: give a secret or a text, not both",
             ));
         }
-        params["text"] = json!({"__secret": name});
+        params.insert("text", json!({"__secret": name}));
         Ok(())
     }
 }
@@ -696,8 +697,8 @@ impl VmHost for Gate {
     }
 
     fn native(&self, name: &str, call: Value) -> Result<Value, String> {
-        let op = call["op"].as_str().unwrap_or("");
-        let args = &call["args"];
+        let op = call.field("op").as_str().unwrap_or("");
+        let args = call.field("args");
         match name {
             "secrets" => self.secrets_op(op, args),
             "policy" => self.policy_op(op, args),
@@ -865,7 +866,7 @@ fn clip_log_text(entry: &mut Value) {
             let length = text.chars().count();
             if length > MAX_LOG_TEXT {
                 let cut: String = text.chars().take(MAX_LOG_TEXT).collect();
-                entry[key] = json!(format!("{cut}… ({length} characters)"));
+                entry.insert(key, json!(format!("{cut}… ({length} characters)")));
             }
         }
     }
@@ -901,8 +902,8 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
         && same(last)
     {
         let count = last.get("count").and_then(Value::as_u64).unwrap_or(1) + 1;
-        last["count"] = json!(count);
-        last["lastAt"] = entry.get("at").cloned().unwrap_or(Value::Null);
+        last.insert("count", json!(count));
+        last.insert("lastAt", entry.get("at").cloned().unwrap_or(Value::Null));
         return;
     }
     log.push(entry);
@@ -911,8 +912,10 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
     if log.len() > MAX_LOG + usize::from(dropped_row) {
         if dropped_row {
             log.remove(1);
-            let count = log[0].get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
-            log[0]["count"] = json!(count);
+            if let Some(first) = log.first_mut() {
+                let count = first.get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
+                first.insert("count", json!(count));
+            }
         } else {
             log.remove(0);
             log.insert(

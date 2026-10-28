@@ -243,12 +243,17 @@ pub fn site_of(host: &str) -> String {
         return h;
     }
     let labels: Vec<&str> = h.split('.').collect();
-    for i in 1..labels.len() {
-        if MULTI_SUFFIXES.contains(&labels[i..].join(".").as_str()) {
-            return labels[i - 1..].join(".");
+    // `site` is one label before `suffix`: the site when the suffix is public.
+    let mut site = labels.as_slice();
+    while let Some((_, suffix)) = site.split_first()
+        && !suffix.is_empty()
+    {
+        if MULTI_SUFFIXES.contains(&suffix.join(".").as_str()) {
+            return site.join(".");
         }
+        site = suffix;
     }
-    labels[labels.len() - 2..].join(".")
+    labels.rchunks(2).next().unwrap_or(&labels).join(".")
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {

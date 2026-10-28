@@ -147,6 +147,10 @@ fn procargs2_parses_args_and_env() {
     assert_eq!(args, ["node", "--inspect=9333"]);
     assert_eq!(env, ["PATH=/usr/bin", "NODE_OPTIONS=--x"]);
     assert!(parse_procargs2(&[1, 0]).is_none());
+    // An answer cut after argc, or inside the exec path, is unreadable.
+    assert!(parse_procargs2(&[1, 0, 0, 0]).is_none());
+    assert!(parse_procargs2(&[1, 0, 0, 0, b'/', b'x']).is_none());
+    assert!(parse_procargs2(&[1, 0, 0, 0, b'/', b'x', 0]).is_none());
 }
 
 /// Node reads NODE_OPTIONS with double quotes, and option names with `_`

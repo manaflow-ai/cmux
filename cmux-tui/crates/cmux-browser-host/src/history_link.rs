@@ -11,6 +11,7 @@
 //! The descriptor is made close-on-exec when the host takes it, so the
 //! browser and every other child never inherit the link.
 
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode};
 use serde_json::{Value, json};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -104,8 +105,8 @@ impl HistoryLink {
                 format!("{operation}: not a history operation the host may send"),
             ));
         }
-        fields["machine"] = json!("current");
-        fields["session"] = json!("current");
+        fields.insert("machine", json!("current"));
+        fields.insert("session", json!("current"));
         let id = format!("bh-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let mut request = json!({
             "protocol": "cmux.protocol/2",
@@ -116,7 +117,7 @@ impl HistoryLink {
         });
         let mutation = operation != "history.entries.list";
         if mutation {
-            request["idempotency_key"] = json!(format!("bh-{}", random_hex()?));
+            request.insert("idempotency_key", json!(format!("bh-{}", random_hex()?)));
         }
         let line = json!({"on_behalf_of": on_behalf_of, "request": request}).to_string();
         let reply = {
@@ -131,16 +132,17 @@ impl HistoryLink {
             }
         };
         let reply: Value = serde_json::from_str(&reply).map_err(closed)?;
-        if reply["ok"] == true {
-            let result = &reply["result"];
+        if reply.field("ok") == true {
+            let result = reply.field("result");
             return Ok(if mutation { result["value"].clone() } else { result.clone() });
         }
-        let code = match reply["error"]["code"].as_str().unwrap_or("") {
+        let code = match reply.field("error").field("code").as_str().unwrap_or("") {
             "origin.forbidden" => ErrorCode::Forbidden,
             "validation.invalid" | "idempotency.conflict" => ErrorCode::Invalid,
             _ => ErrorCode::Unsupported,
         };
-        let message = reply["error"]["message"].as_str().unwrap_or("the daemon refused it");
+        let message =
+            reply.field("error").field("message").as_str().unwrap_or("the daemon refused it");
         Err(DriverError::new(code, format!("{operation}: {message}")))
     }
 }

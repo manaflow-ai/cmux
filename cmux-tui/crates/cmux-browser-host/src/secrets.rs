@@ -282,28 +282,35 @@ fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// `text` with every whole-number occurrence of `code` replaced by `mask`.
+/// `text` with every whole-number occurrence of `code` (ASCII digits)
+/// replaced by `mask`. Occurrences that overlap sit inside a longer digit
+/// run, so none of them is a whole number and skipping them changes nothing.
 fn replace_number(text: &str, code: &str, mask: &str) -> Option<String> {
-    let bytes = text.as_bytes();
+    if code.is_empty() {
+        return None;
+    }
+    let ends_in_digit = |piece: &str| piece.as_bytes().last().is_some_and(u8::is_ascii_digit);
     let mut out = String::with_capacity(text.len());
-    let mut last = 0;
     let mut changed = false;
-    let mut from = 0;
-    while let Some(found) = text[from..].find(code) {
-        let at = from + found;
-        let end = at + code.len();
-        let digit_before = at > 0 && bytes[at - 1].is_ascii_digit();
-        let digit_after = end < bytes.len() && bytes[end].is_ascii_digit();
-        if !digit_before && !digit_after {
-            out.push_str(&text[last..at]);
+    // Whether the byte before `rest` is a digit (the end of a kept code).
+    let mut digit_before_rest = false;
+    let mut rest = text;
+    while let Some((before, after)) = rest.split_once(code) {
+        let digit_before =
+            if before.is_empty() { digit_before_rest } else { ends_in_digit(before) };
+        let digit_after = after.as_bytes().first().is_some_and(u8::is_ascii_digit);
+        out.push_str(before);
+        if digit_before || digit_after {
+            out.push_str(code);
+        } else {
             out.push_str(mask);
-            last = end;
             changed = true;
         }
-        from = at + 1;
+        digit_before_rest = ends_in_digit(code);
+        rest = after;
     }
     changed.then(|| {
-        out.push_str(&text[last..]);
+        out.push_str(rest);
         out
     })
 }
@@ -383,14 +390,14 @@ impl Masker {
                 continue;
             }
             let mut next = Vec::with_capacity(out.len());
-            let mut i = 0;
-            while i < out.len() {
-                if out[i..].starts_with(needle) {
+            let mut rest = out.as_slice();
+            while let Some((&byte, tail)) = rest.split_first() {
+                if let Some(after) = rest.strip_prefix(needle) {
                     next.extend_from_slice(mask.as_bytes());
-                    i += needle.len();
+                    rest = after;
                 } else {
-                    next.push(out[i]);
-                    i += 1;
+                    next.push(byte);
+                    rest = tail;
                 }
             }
             out = next;
@@ -406,32 +413,31 @@ impl Masker {
         if self.is_empty() {
             return json.to_owned();
         }
-        let bytes = json.as_bytes();
         let mut out = String::with_capacity(json.len());
-        let (mut copied, mut at) = (0, 0);
-        while at < bytes.len() {
-            if bytes[at] != b'"' {
-                at += 1;
-                continue;
-            }
-            // A string literal: up to the next unescaped quote. Quotes and
-            // backslashes are ASCII, so the slice bounds are char bounds.
-            let start = at;
-            at += 1;
-            while at < bytes.len() && bytes[at] != b'"' {
-                at += if bytes[at] == b'\\' { 2 } else { 1 };
-            }
-            let end = (at + 1).min(bytes.len());
-            at = end;
-            let literal = &json[start..end];
-            let Ok(text) = serde_json::from_str::<String>(literal) else { continue };
-            if let Cow::Owned(masked) = self.mask(&text) {
-                out.push_str(&json[copied..start]);
-                out.push_str(&Value::String(masked).to_string());
-                copied = end;
+        let mut rest = json;
+        while let Some((before, opened)) = rest.split_once('"') {
+            out.push_str(before);
+            // A string literal: up to the next unescaped quote; one left
+            // open runs to the end and is kept as it is.
+            let mut escaped = false;
+            let closing = |c: char| {
+                let close = !escaped && c == '"';
+                escaped = !escaped && c == '\\';
+                close
+            };
+            let Some((body, after)) = opened.split_once(closing) else {
+                out.push('"');
+                out.push_str(opened);
+                return out;
+            };
+            rest = after;
+            let literal = format!("\"{body}\"");
+            match serde_json::from_str::<String>(&literal).as_deref().map(|text| self.mask(text)) {
+                Ok(Cow::Owned(masked)) => out.push_str(&Value::String(masked).to_string()),
+                Ok(Cow::Borrowed(_)) | Err(_) => out.push_str(&literal),
             }
         }
-        out.push_str(&json[copied..]);
+        out.push_str(rest);
         out
     }
 
@@ -483,18 +489,21 @@ impl StreamMasker {
             }
             return String::new();
         }
-        let mut cut = masked.len() - keep;
-        while !masked.is_char_boundary(cut) {
-            cut -= 1;
-        }
+        let mut cut = masked.floor_char_boundary(masked.len() - keep);
         // Never split inside a mask that was just inserted.
-        if let Some(open) = masked[..cut].rfind("<secret:")
-            && !masked[open..cut].contains('>')
+        if let Some((before, opened)) =
+            masked.get(..cut).and_then(|head| head.rsplit_once("<secret:"))
+            && !opened.contains('>')
         {
-            cut = open;
+            cut = before.len();
         }
-        let emit = masked[..cut].to_owned();
-        self.pending = masked[cut..].to_owned();
+        // `cut` is a char boundary (floor_char_boundary, or where a mask
+        // starts); were it not, the text would stay pending, never unmasked.
+        let Some((emit, held)) = masked.split_at_checked(cut) else {
+            return String::new();
+        };
+        let emit = emit.to_owned();
+        self.pending = held.to_owned();
         emit
     }
 
@@ -553,15 +562,20 @@ pub fn base32_decode(text: &str) -> Option<Vec<u8>> {
 pub fn totp(key: &[u8], unix_ms: u64, digits: u32, period_s: u64) -> String {
     use hmac::{Hmac, Mac};
     let counter = (unix_ms / 1000) / period_s;
+    #[allow(clippy::expect_used, reason = "INVARIANT: HMAC takes a key of any length (RFC 2104)")]
     let mut mac =
         <Hmac<sha1::Sha1> as Mac>::new_from_slice(key).expect("HMAC takes any key length");
     mac.update(&counter.to_be_bytes());
-    let hash = mac.finalize().into_bytes();
-    let offset = (hash[hash.len() - 1] & 0x0f) as usize;
-    let code = (u32::from(hash[offset] & 0x7f) << 24)
-        | (u32::from(hash[offset + 1]) << 16)
-        | (u32::from(hash[offset + 2]) << 8)
-        | u32::from(hash[offset + 3]);
+    let hash: [u8; 20] = mac.finalize().into_bytes().into();
+    // RFC 4226 dynamic truncation: the low nibble of the last byte picks
+    // four bytes (offset <= 15, so all four are inside the 20-byte hash).
+    let [.., last] = hash;
+    let code = hash
+        .iter()
+        .skip(usize::from(last & 0x0f))
+        .take(4)
+        .fold(0u32, |code, byte| (code << 8) | u32::from(*byte))
+        & 0x7fff_ffff;
     let modulus = 10u32.pow(digits);
     format!("{:0width$}", code % modulus, width = digits as usize)
 }

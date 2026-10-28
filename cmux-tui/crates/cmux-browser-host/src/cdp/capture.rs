@@ -1,6 +1,7 @@
 //! Screenshots (`Page.captureScreenshot`).
 
 use super::driver::Inner;
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
 use std::time::Instant;
@@ -59,7 +60,7 @@ impl Inner {
         if format != "png"
             && let Some(quality) = params.get("quality").and_then(Value::as_f64)
         {
-            args["quality"] = json!(quality.clamp(0.0, 100.0) as i64);
+            args.insert("quality", json!(quality.clamp(0.0, 100.0) as i64));
         }
         let mut size: Option<(f64, f64)> = None;
         if let Some(clip) = params.get("clip").filter(|clip| clip.is_object()) {
@@ -71,18 +72,21 @@ impl Inner {
             // CDP clips are in document coordinates; the protocol's are viewport ones.
             let metrics =
                 self.send_until(&session, "Page.getLayoutMetrics", json!({}), deadline)?;
-            let page_x = metrics["cssVisualViewport"]["pageX"].as_f64().unwrap_or(0.0);
-            let page_y = metrics["cssVisualViewport"]["pageY"].as_f64().unwrap_or(0.0);
-            args["clip"] = json!({"x": read("x") + page_x, "y": read("y") + page_y, "width": width, "height": height, "scale": 1});
+            let page_x = metrics.field("cssVisualViewport").field("pageX").as_f64().unwrap_or(0.0);
+            let page_y = metrics.field("cssVisualViewport").field("pageY").as_f64().unwrap_or(0.0);
+            args.insert("clip", json!({"x": read("x") + page_x, "y": read("y") + page_y, "width": width, "height": height, "scale": 1}));
             size = Some((width, height));
         } else if params.get("fullPage").and_then(Value::as_bool) == Some(true) {
             let metrics =
                 self.send_until(&session, "Page.getLayoutMetrics", json!({}), deadline)?;
-            let content = &metrics["cssContentSize"];
+            let content = metrics.field("cssContentSize");
             let width = content["width"].as_f64().unwrap_or(0.0).ceil();
             let height = content["height"].as_f64().unwrap_or(0.0).ceil();
-            args["clip"] = json!({"x": 0, "y": 0, "width": width, "height": height, "scale": 1});
-            args["captureBeyondViewport"] = json!(true);
+            args.insert(
+                "clip",
+                json!({"x": 0, "y": 0, "width": width, "height": height, "scale": 1}),
+            );
+            args.insert("captureBeyondViewport", json!(true));
             size = Some((width, height));
         }
         let shot = self.send_until(&session, "Page.captureScreenshot", args, deadline)?;
@@ -125,8 +129,8 @@ pub(super) fn png_size(base64: &str) -> Option<(u32, u32)> {
         bytes.extend_from_slice(&[(acc >> 16) as u8, (acc >> 8) as u8, acc as u8]);
     }
     if bytes.len() < 24
-        || bytes[..8] != [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]
-        || &bytes[12..16] != b"IHDR"
+        || !bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
+        || bytes.get(12..16) != Some(b"IHDR".as_slice())
     {
         return None;
     }

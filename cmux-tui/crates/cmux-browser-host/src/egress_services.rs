@@ -269,8 +269,10 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<(crate::egress_holders::Holder,
         let mut holds = false;
         for fd in fds.flatten() {
             let Ok(link) = std::fs::read_link(fd.path()) else { continue };
-            if let Some(at) = wanted.iter().position(|w| link.as_os_str() == w.as_str()) {
-                held[at] = true;
+            if let Some((_, held)) =
+                wanted.iter().zip(held.iter_mut()).find(|(w, _)| link.as_os_str() == w.as_str())
+            {
+                *held = true;
                 holds = true;
             }
         }
