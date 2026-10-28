@@ -273,6 +273,22 @@ test("a key that changes nothing, then the daemon's draft for this chat, is not 
   }
 });
 
+for (const clear of ["", null]) {
+  test(`an explicit ${JSON.stringify(clear)} clear does not replace text edited while hydration waits`, async () => {
+    let answer: (result: { draft: string | null }) => void = () => {};
+    page().cmuxAcpmuxActions = { "chat.readDraft": () => new Promise((resolve) => (answer = resolve)) };
+    try {
+      await render(`typed-before-clear-${JSON.stringify(clear)}`, []);
+      await key({ key: "a" });
+      await browserEdit("typed while draft read waited");
+      await act(async () => answer({ draft: clear }));
+      expect(prompt()).toBe("typed while draft read waited");
+    } finally {
+      delete page().cmuxAcpmuxActions;
+    }
+  });
+}
+
 test("macOS's Control editing keys are typing; the same letter with Cmd is not", async () => {
   for (const [name, init] of [
     ["typing-ctrl-h", { key: "h", ctrlKey: true }],

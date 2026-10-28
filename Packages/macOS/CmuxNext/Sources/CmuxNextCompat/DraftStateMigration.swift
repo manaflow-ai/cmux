@@ -140,6 +140,66 @@ public enum DraftStateMigration {
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
     }
 
+    /// Current destination keys win. Daemon recovery runs before legacy mirrors are imported;
+    /// its clears also block stale legacy text. Quick's old scalar is recovered after the copy.
+    public static func adopt(from roots: [URL], composerHomes: [URL], to destination: URL) {
+        guard adoptComposerDrafts(from: composerHomes, to: destination) else { return }
+        adopt(from: roots, to: destination)
+        adoptComposerDrafts(from: [], to: destination)
+    }
+
+    /// Reads draft fields only; daemon state is never moved or rewritten.
+    @discardableResult
+    public static func adoptComposerDrafts(from homes: [URL], to destination: URL,
+                                           fileManager: CheckedFileManager = FileManager.checked) -> Bool {
+        let file = destination.appending(path: "agent-composer-drafts.json")
+        var drafts: [String: String] = [:]
+        if fileManager.fileExists(atPath: file.path) {
+            guard let data = try? Data(blockingContentsOf: file),
+                  let existing = try? JSONDecoder().decode([String: String].self, from: data) else { return false }
+            drafts = existing
+        }
+        var changed = false
+        if drafts["quick-composer-v1"] == nil,
+           let data = try? Data(blockingContentsOf: destination.appending(path: "quick-composer-draft.json")),
+           let text = try? JSONDecoder().decode(String.self, from: data) {
+            drafts["quick-composer-v1"] = text
+            changed = true
+        }
+        var latest: [String: (date: Date, text: String?)] = [:]
+        for home in homes {
+            guard let sessions = try? fileManager.contentsOfDirectory(
+                at: home.appending(path: "sessions"), includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
+            for session in sessions {
+                let id = session.lastPathComponent, metadata = session.appending(path: "session.json")
+                let date = (try? fileManager.attributesOfItem(atPath: metadata.path)[.modificationDate] as? Date) ?? .distantFuture
+                if let previous = latest[id], previous.date > date { continue }
+                // Retain unreadable candidates so an older readable file cannot replace them.
+                var text: String?
+                if let data = try? Data(blockingContentsOf: metadata),
+                   let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   object["id"] as? String == id {
+                    text = object["composerDraft"] as? String ?? ""
+                }
+                if let previous = latest[id], previous.date == date, previous.text?.isEmpty != false { continue }
+                latest[id] = (date, text)
+            }
+        }
+        for (id, (_, text)) in latest where drafts[id] == nil {
+            guard let text else { return false }
+            drafts[id] = text
+            changed = true
+        }
+        guard changed else { return true }
+        do {
+            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(drafts).blockingWrite(to: file, options: [.atomic])
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            return true
+        } catch { return false }
+    }
+
     private enum MigrationError: Error { case invalidDraftDictionary, invalidOwnedName }
 
     /// Unsent drafts were strings before attachment records. Keep pure legacy files in that

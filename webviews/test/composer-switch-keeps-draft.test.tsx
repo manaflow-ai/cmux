@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { draftTextActions } from "../src/agent-session/acpmux/draftTextActions";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -72,7 +73,7 @@ function Chips() {
   return null;
 }
 
-async function render(sessionId: string, props: { draft?: string; switching?: boolean } = {}) {
+async function render(sessionId: string | undefined, props: { draft?: string; switching?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const snapshot = noChat(
@@ -124,6 +125,15 @@ test("a switch that ends in the same render as its session change still keeps th
   expect(prompt()).toBe("compare these cars");
 });
 
+test("the handshake draft survives the first session assignment but not a later chat switch", async () => {
+  await render(undefined);
+  await render(undefined, { draft: "from the relaunch handshake" });
+  await render("handshake-a", { draft: "from the relaunch handshake" });
+  expect(prompt()).toBe("from the relaunch handshake");
+  await render("handshake-b");
+  expect(prompt()).toBe("");
+});
+
 test("moving to a chat with its own draft mid-switch keeps that chat's draft", async () => {
   const { writePersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
   writePersistedDraft("chat-d", "my other draft");
@@ -138,3 +148,42 @@ test("moving to another chat shows that chat's draft, not the typed prompt", asy
   await render("chat-c");
   expect(prompt()).toBe("");
 });
+
+for (const source of ["initial cache", "carried prompt"]) {
+  for (const mode of ["daemon null", "daemon empty", "native empty"]) {
+    test(`an authoritative ${mode} clears a stale ${source} through hydration`, async () => {
+      const sessionId = `clear-${source}-${mode}`;
+      const writes: { sessionId: string; text: string }[] = [];
+      const page = dom.window as unknown as { cmuxAcpmuxActions?: ReturnType<typeof draftTextActions> };
+      const { readPersistedDraft, settlePendingDraftWrites } =
+        await import("../src/agent-session/acpmux/composerDraft");
+      if (source === "carried prompt") {
+        await render(`source-${sessionId}`, { draft: "stale carried text" });
+        await render(undefined, { switching: true });
+      } else {
+        dom.window.localStorage.setItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`, "stale cache");
+      }
+      page.cmuxAcpmuxActions = draftTextActions(
+        {
+          readDraft: async () =>
+            mode === "native empty" ? undefined : { sessionId, draft: mode === "daemon null" ? null : "" },
+          writeDraft: async (id, text) => {
+            writes.push({ sessionId: id, text });
+          },
+        },
+        async (method) => (method === "chat.draftText.get" ? "" : undefined),
+      );
+      try {
+        await render(sessionId, source === "initial cache" ? { draft: "stale handshake" } : { switching: true });
+        await settlePendingDraftWrites();
+        expect(prompt()).toBe("");
+        expect(readPersistedDraft(sessionId)).toBeUndefined();
+        expect(writes.filter((write) => write.sessionId === sessionId).every((write) => write.text === "")).toBe(true);
+      } finally {
+        await settlePendingDraftWrites();
+        delete page.cmuxAcpmuxActions;
+        dom.window.localStorage.clear();
+      }
+    });
+  }
+}

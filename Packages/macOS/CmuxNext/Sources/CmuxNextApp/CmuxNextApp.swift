@@ -61,7 +61,10 @@ public struct CmuxNextApp {
         let work = BackgroundWork(), launch = environment.launch
         let draftState = SidebarSnapshotFile.draftDirectory(launch: launch)
         let migration = LaunchRead(on: work, shutdown: .blockShutdown) {
-            DraftStateMigration.adopt(from: SidebarSnapshotFile.legacyDraftDirectories(launch: launch), to: draftState)
+            DraftStateMigration.adopt(
+                from: SidebarSnapshotFile.legacyDraftDirectories(launch: launch),
+                composerHomes: launch.build.legacyAcpmuxDraftHomes(userHome: FileManager.default.homeDirectoryForCurrentUser),
+                to: draftState)
         }
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
