@@ -3,6 +3,7 @@ import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+import type { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -308,6 +309,10 @@ export interface Env {
   readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
   /** "1": a Chief's owner may pick the opencode brain (`brain_impl`); MuxDO sends that Chief's wakes there only. */
   readonly CHIEF_OPENCODE_ENABLED?: string
+  /** One ChiefDurableDO per Chief conversation: Cloud Chief D (chief-durable/, pi-durable). Absent: D is off. */
+  readonly CHIEF_DURABLE_DO?: DurableObjectNamespace<ChiefDurableDO>
+  /** "1": a Chief may pick brain_impl "durable" and its wakes go to D (with CHIEF_DURABLE_DO bound). */
+  readonly CHIEF_DURABLE_ENABLED?: string
   /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
   readonly CHIEF_OPENCODE_CONTAINER?: string
   /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
@@ -478,6 +483,6 @@ export interface Env {
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
 }

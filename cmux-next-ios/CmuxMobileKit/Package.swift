@@ -64,7 +64,7 @@ let package = Package(
         ),
         .target(name: "CmuxMobileTransport", dependencies: [.target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
         // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
-        .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign"], resources: [.copy("Resources/web")]),
+        .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign", "CmuxMobileModel"], resources: [.copy("Resources/web")]),
         // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
         .target(name: "CmuxMobileDiff", dependencies: ["CmuxMobileDesign"]),
         // Session artifacts: the reference model and extractor, sources (mock, inline, the Mac's `file`
