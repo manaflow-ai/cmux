@@ -22,7 +22,8 @@ struct LaunchStartWiringTests {
         let s = StartupTestScheduler(phase: StartupPhase(clock: ManualClock(), ledger: WakeupLedger()))
         let services = AppServices(environment: AppEnvironment.current([:]), launchStartup: s.startup)
         services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
-                                        overrides: FeatureOverrides(environmentEnabled: deferring ? ["launchStartDeferral"] : []))
+                                        overrides: deferring ? FeatureOverrides(environmentEnabled: ["launchStartDeferral"])
+                                            : FeatureOverrides(environmentDisabled: ["launchStartDeferral"]))
         return (services, s)
     }
 
