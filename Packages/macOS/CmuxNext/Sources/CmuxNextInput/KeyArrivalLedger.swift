@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextInputCore
 
 /// A view that knows when it was made: a late key's log says how new the terminal that took it was
 /// (`TerminalSurfaceView`).
@@ -23,7 +24,7 @@ public protocol InputCreationStamped: AnyObject {
 @MainActor
 public final class KeyArrivalLedger {
     /// The cmux path that held a key before dispatching it.
-    public enum HoldPath: UInt8, Sendable, CustomStringConvertible {
+    public nonisolated enum HoldPath: UInt8, Sendable, CustomStringConvertible {
         case none
         /// `CreationInputCoordinator`: keys typed after a split or a new terminal tab, until the new terminal has
         /// the keyboard.
@@ -44,7 +45,7 @@ public final class KeyArrivalLedger {
     }
 
     /// One key-down whose dispatch started more than ``lateNanos`` after its OS event time.
-    public struct LateKey: Sendable, Equatable {
+    public nonisolated struct LateKey: Sendable, Equatable {
         public var keyCode: UInt16
         /// The OS event time (`NSEvent.timestamp`), `CLOCK_UPTIME_RAW` nanoseconds.
         public var generatedNanos: UInt64
@@ -156,7 +157,7 @@ public final class KeyArrivalLedger {
 
     /// Logs `event` when its dispatch at `dispatchStart` began more than ``lateNanos`` after its OS time, with its first
     /// arrival `arrived`, the path that held it, `keyWindow`'s responder chain and the age of the view that took it.
-    public func logIfLate(_ event: NSEvent, arrived: UInt64, dispatchStart: UInt64, target: String?, keyWindow: NSWindow?) {
+    public func logIfLate(_ event: NSEvent, arrived: UInt64, dispatchStart: UInt64, target: InputTarget?, keyWindow: NSWindow?) {
         let generated = InputLatencyTracker.eventNanos(event.timestamp)
         guard generated > 0, dispatchStart > generated, dispatchStart - generated > Self.lateNanos else { return }
         var chain: [String] = []
@@ -172,7 +173,7 @@ public final class KeyArrivalLedger {
         let entry = index(of: event).map { entries[$0] }
         logLate(LateKey(keyCode: event.keyCode, generatedNanos: generated, arrivedMainNanos: arrived,
                         heldNanos: entry?.held ?? 0, dispatchStartNanos: dispatchStart,
-                        deliveries: entry?.deliveries ?? 1, heldBy: entry?.heldBy ?? .none, target: target,
+                        deliveries: entry?.deliveries ?? 1, heldBy: entry?.heldBy ?? .none, target: target.map { String(describing: $0) },
                         responderChain: chain, responderAgeNanos: age))
     }
 

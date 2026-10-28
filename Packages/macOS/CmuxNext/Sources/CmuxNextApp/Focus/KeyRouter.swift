@@ -216,7 +216,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// process, before any window or responder. `window` is where the key
     /// goes (the key window). Returns whether the key was consumed.
     /// `path` took `event` to run it later (`debug.input late_keys` names it); true.
-    private func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) -> Bool { services?.inputLatency.arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos()); return true }
+    private func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) -> Bool { services?.inputLatency.held(event, by: path); return true }
 
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
