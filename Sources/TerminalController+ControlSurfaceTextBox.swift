@@ -61,7 +61,7 @@ extension TerminalController {
             }
             return .noFocusedSurface
         }
-        return applied(
+        let resolution = applied(
             action,
             to: target.panel,
             focus: focus,
@@ -69,6 +69,19 @@ extension TerminalController {
             workspaceID: ws.id,
             surfaceID: target.surfaceID
         )
+        // A granted --focus reveals the terminal like surface.focus, so the
+        // TextBox takes focus now instead of whenever its workspace is next
+        // shown.
+        if focus, target.panel.isTextBoxActive, ws.panels[target.surfaceID] != nil {
+            v2MaybeFocusWindow(for: tabManager)
+            tabManager.focusTab(
+                ws.id,
+                surfaceId: target.surfaceID,
+                suppressFlash: true,
+                focusIntent: .terminal(.textBoxInput)
+            )
+        }
+        return resolution
     }
 
     private func applied(
