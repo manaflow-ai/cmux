@@ -38,6 +38,12 @@ struct AcpmuxPendingQuestionsTests {
         return ledger
     }
 
+    func read(_ ledger: AcpmuxPendingQuestions, _ frame: [String: Any],
+              method: String = "_acpmux/attach", token: Int = 90) {
+        ledger.request(method: method, session: "s", watchEnabled: nil, token: token, connection: 1)
+        ledger.observe(frame, replyTo: method, connection: 1, snapshotRequestToken: token)
+    }
+
     @Test func livePendingOwnsExactRequestAndSession() throws {
         let ledger = ledger()
         ledger.observe(Self.live(), replyTo: nil, connection: 1)
@@ -71,7 +77,7 @@ struct AcpmuxPendingQuestionsTests {
         ledger.observe(Self.event("permission_decision", seq: 11), replyTo: nil, connection: 1)
         #expect(!ledger.isCurrent(first))
         ledger.observe(Self.live(seq: 10), replyTo: nil, connection: 1)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 10), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 10), method: "_acpmux/attach")
         ledger.observe(["result": ["events": [Self.record("permission_request", seq: 10, msg: Self.prompt())]]],
                        replyTo: "_acpmux/events", connection: 1)
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
@@ -81,15 +87,15 @@ struct AcpmuxPendingQuestionsTests {
         let ledger = ledger()
         ledger.observe(Self.live(seq: 20), replyTo: nil, connection: 1)
         let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
-        ledger.observe(Self.snapshot([], seq: 19), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([], seq: 19), method: "_acpmux/attach")
         #expect(ledger.isCurrent(first))
-        ledger.observe(Self.snapshot([], seq: 21), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([], seq: 21), method: "_acpmux/attach")
         #expect(!ledger.isCurrent(first))
         ledger.observe(Self.live(seq: 20), replyTo: nil, connection: 1)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 19), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 19), method: "_acpmux/attach")
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
-        // Current snapshots, including a remote wire's watch, restore pending asks.
-        ledger.observe(Self.snapshot([Self.prompt("new")], seq: 22, watch: true), replyTo: "_acpmux/watch", connection: 1)
+        // A remote wire's watch contains attach detail; normal local watch summaries do not.
+        read(ledger, Self.snapshot([Self.prompt("new")], seq: 22, watch: true), method: "_acpmux/watch")
         #expect(ledger.question(session: "s", permission: "new", connection: 1) != nil)
     }
 
@@ -98,7 +104,7 @@ struct AcpmuxPendingQuestionsTests {
         ledger.observe(Self.live(), replyTo: nil, connection: 1)
         let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
         ledger.observe(Self.live(), replyTo: nil, connection: 1)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 11), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 11), method: "_acpmux/attach")
         #expect(ledger.isCurrent(first))
         let reissued = Self.prompt(nonce: String(repeating: "de", count: 32), label: "New question?", option: "new")
         ledger.observe(Self.event("permission_reissued", seq: 12, msg: reissued), replyTo: nil, connection: 1)
@@ -164,6 +170,105 @@ struct AcpmuxPendingQuestionsTests {
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
     }
 
+    @Test(arguments: ["permission_decision", "turn_end", "turn_result"])
+    func watcherSettlementRetiresUntilFreshPendingRead(kind: String) throws {
+        let ledger = ledger()
+        ledger.observe(Self.live(), replyTo: nil, connection: 1)
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        let summary: [String: Any] = ["sessionId": "s", "pendingPermissions": 0, "status": "waiting"]
+        ledger.observe(["method": "_acpmux/session_changed",
+                        "params": ["sessionId": "s", "kind": kind, "recordKind": kind,
+                                   "seq": 11, "session": summary]],
+                       replyTo: nil, connection: 1)
+        #expect(!ledger.isCurrent(first))
+        ledger.observe(Self.live(seq: 10), replyTo: nil, connection: 1)
+        #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
+        let replacement = Self.prompt(nonce: String(repeating: "d", count: 64))
+        read(ledger, Self.snapshot([replacement], seq: 12), method: "_acpmux/attach")
+        let next = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        #expect(next.decisionNonce == String(repeating: "d", count: 64))
+    }
+
+    @Test func realWatchSummaryCanRetireButCannotOpenAnAsk() throws {
+        let ledger = ledger()
+        read(ledger, ["result": ["sessions": [["sessionId": "s", "lastSeq": 10,
+                                                "pendingPermissions": 1]]]], method: "_acpmux/watch")
+        #expect(ledger.questions(connection: 1).isEmpty)
+        ledger.observe(Self.live(seq: 11), replyTo: nil, connection: 1)
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        read(ledger, ["result": ["sessions": [["sessionId": "s", "lastSeq": 12,
+                                                "pendingPermissions": 0]]]], method: "_acpmux/watch")
+        #expect(!ledger.isCurrent(first))
+        ledger.observe(Self.live(seq: 11), replyTo: nil, connection: 1)
+        #expect(ledger.questions(connection: 1).isEmpty)
+    }
+
+    @Test(arguments: ["_acpmux/detach", "_acpmux/watch"])
+    func detachOrWatchOffInvalidatesInFlightReads(method: String) throws {
+        let ledger = ledger()
+        ledger.observe(Self.live(), replyTo: nil, connection: 1)
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 1, connection: 1)
+        ledger.request(method: method, session: "s", watchEnabled: false, token: 2, connection: 1)
+        #expect(!ledger.isCurrent(first))
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach",
+                       connection: 1, snapshotRequestToken: 1)
+        #expect(ledger.questions(connection: 1).isEmpty)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 13))
+        #expect(ledger.question(session: "s", permission: "p", connection: 1) != nil)
+    }
+
+    @Test func snapshotTokenIsNativeCorrelatedSingleUseAndCancelledReadsCannotRecover() throws {
+        let ledger = ledger()
+        let ids = AcpmuxRequestIds()
+        let token = try #require(ids.begin(pageID: "7", method: "_acpmux/attach"))
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: token, connection: 1)
+        let daemon = #"{"id":TOKEN,"result":{"session":{"sessionId":"s","lastSeq":10,"pending":[]}}}"#
+            .replacingOccurrences(of: "TOKEN", with: String(token))
+        if case .page(_, let object, let method, let nativeToken) = ids.toPage(daemon) {
+            #expect(nativeToken == token)
+            ledger.observe(object, replyTo: method, connection: 1, snapshotRequestToken: nativeToken)
+        } else { Issue.record("matched daemon reply must retain the native relay token") }
+        // No request owns this repeated token; the new request body cannot reopen a card.
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 11), replyTo: "_acpmux/attach",
+                       connection: 1, snapshotRequestToken: token)
+        #expect(ledger.questions(connection: 1).isEmpty)
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 9, connection: 1)
+        ledger.snapshotRequestCancelled(token: 9, connection: 1)
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach",
+                       connection: 1, snapshotRequestToken: 9)
+        #expect(ledger.questions(connection: 1).isEmpty)
+    }
+
+    @Test func lagKeepsSequenceFloorAndRejectsPreGapSnapshot() throws {
+        let ledger = ledger()
+        ledger.observe(Self.live(seq: 10), replyTo: nil, connection: 1)
+        ledger.observe(Self.live(seq: 20), replyTo: nil, connection: 1)
+        ledger.observe(["method": "_acpmux/event", "params":
+            ["sessionId": "s", "dir": "in", "kind": "session/update", "seq": 22, "msg": [:]]],
+                       replyTo: nil, connection: 1)
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 1, connection: 1)
+        ledger.observe(["method": "_acpmux/lagged", "params": ["sessionIds": ["s"]]],
+                       replyTo: nil, connection: 1)
+        // An in-flight request from before the gap is discarded, even if its body claims a
+        // sequence newer than the last live frame; the response has no post-gap native token.
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 25), replyTo: "_acpmux/attach",
+                       connection: 1, snapshotRequestToken: 1)
+        #expect(ledger.questions(connection: 1).isEmpty)
+        read(ledger, Self.snapshot([Self.prompt(nonce: String(repeating: "d", count: 64))], seq: 15))
+        #expect(ledger.questions(connection: 1).isEmpty)
+        // A post-gap watch is only a summary. Its positive count cannot restore identity.
+        read(ledger, ["result": ["sessions": [["sessionId": "s", "lastSeq": 21,
+                                                "pendingPermissions": 1]]]], method: "_acpmux/watch")
+        #expect(ledger.questions(connection: 1).isEmpty)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 21))
+        #expect(ledger.questions(connection: 1).isEmpty) // the non-mux event's floor survived too
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 2, connection: 1)
+        ledger.observe(Self.snapshot([Self.prompt(nonce: String(repeating: "d", count: 64))], seq: 24),
+                       replyTo: "_acpmux/attach", connection: 1, snapshotRequestToken: 2)
+        #expect(ledger.question(session: "s", permission: "p", connection: 1) != nil)
+    }
+
     @Test func lagRequiresCurrentSnapshotAndReconnectRetiresEveryProof() throws {
         let ledger = ledger()
         ledger.observe(Self.live(), replyTo: nil, connection: 1)
@@ -172,7 +277,9 @@ struct AcpmuxPendingQuestionsTests {
         ledger.observe(Self.live(seq: 11), replyTo: nil, connection: 1)
         #expect(!ledger.isCurrent(first))
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach", connection: 1)
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 9, connection: 1)
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach",
+                       connection: 1, snapshotRequestToken: 9)
         let resumed = try #require(ledger.question(session: "s", permission: "p", connection: 1))
         ledger.reset(connection: 2)
         #expect(!ledger.isCurrent(resumed))
@@ -189,10 +296,10 @@ struct AcpmuxPendingQuestionsTests {
         let ledger = ledger()
         ledger.observe(Self.event("permission_decision", seq: 11), replyTo: nil, connection: 1)
         ledger.observe(Self.live(seq: 10), replyTo: nil, connection: 1)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 11), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 11), method: "_acpmux/attach")
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
-        ledger.observe(Self.snapshot([], seq: 12), replyTo: "_acpmux/attach", connection: 1)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([], seq: 12), method: "_acpmux/attach")
+        read(ledger, Self.snapshot([Self.prompt()], seq: 12), method: "_acpmux/attach")
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
     }
 
@@ -203,7 +310,7 @@ struct AcpmuxPendingQuestionsTests {
         ledger.observe(["method": "_acpmux/session_changed",
                         "params": ["kind": "purged", "seq": 11, "session": ["sessionId": "s"]]],
                        replyTo: nil, connection: 1)
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 10), replyTo: "_acpmux/attach", connection: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 10), method: "_acpmux/attach")
         #expect(!ledger.isCurrent(first))
         ledger.reset(connection: 2)
         ledger.observe(Self.live(), replyTo: nil, connection: 2)
@@ -219,8 +326,7 @@ struct AcpmuxPendingQuestionsTests {
         var missingNonce = Self.prompt()
         missingNonce.removeValue(forKey: "decisionNonce")
         ledger.observe(Self.live(missingNonce), replyTo: nil, connection: 1)
-        ledger.observe(["result": ["session": ["sessionId": "s", "pending": [Self.prompt()]]]],
-                       replyTo: "_acpmux/attach", connection: 1) // no lastSeq
+        read(ledger, ["result": ["session": ["sessionId": "s", "pending": [Self.prompt()]]]]) // no lastSeq
         ledger.observe(["result": ["session": ["sessionId": "s", "lastSeq": 10, "pending": [Self.prompt()]]]],
                        replyTo: "session/prompt", connection: 1) // model's own JSON
         #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
