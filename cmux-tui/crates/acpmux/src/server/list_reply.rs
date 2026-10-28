@@ -3,8 +3,9 @@
 //! pace, then reads the shared snapshot. The reply is queued here, already serialized,
 //! without a copy of the list as a JSON tree, and only if no `session_changed` notice
 //! was queued on the connection since the list was read (checked under its outbound
-//! lock): such a list may lack the change the notice told, so it is read once more, and
-//! a list stale again goes with `_acpmux/lagged {watch: true}`, to read again. A peer reads
+//! lock): such a list may lack the change the notice told, so it is read once more. A
+//! list sent after a notice anyway (stale again, or one that waited for room in a full
+//! queue) is followed by `_acpmux/lagged {watch: true}`, to read again. A peer reads
 //! summaries masked (`peer_text.rs`), made once per build too. `remote_guard::after`
 //! changes nothing in a list reply.
 
@@ -63,17 +64,8 @@ async fn reply(
         let Ok(id) = REPLY.try_with(|r| r.borrow().0.clone()) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        let (last, mut stale) = (reads == REBUILDS, false);
-        let still = || {
-            stale = notices() != seen;
-            last || !stale
-        };
-        if conn.send_serialized(&id, &text, still) {
+        if conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
             REPLY.with(|r| r.borrow_mut().1 = true);
-            if stale {
-                let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
-                conn.send(&Message::notification("_acpmux/lagged", lag));
-            }
             break;
         }
     }

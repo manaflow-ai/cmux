@@ -73,7 +73,7 @@ pub struct Conn {
     list_pace: StdMutex<crate::hub::list_guard::Pacer>,
     /// `session_changed` notices queued for it, counted before each is queued
     /// (`list_reply.rs`: a list sent after one must show its change).
-    notices: AtomicU64,
+    notices: Arc<AtomicU64>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -325,17 +325,45 @@ impl Conn {
         }
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
-    /// already for a peer, queued only if `still` holds under the outbound lock: false
-    /// when it did not. One larger than a frame goes as its error, as in [`Self::send`].
-    fn send_serialized(&self, id: &Value, result: &str, still: impl FnOnce() -> bool) -> bool {
+    /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
+    /// if a notice was queued since, it is not sent (false) unless `anyway`. A reply that
+    /// goes out after such a notice (`anyway`, or one that waited for room in a full queue)
+    /// is followed by `_acpmux/lagged {watch: true}`, so the client reads the list again.
+    /// One larger than a frame goes as its error, as in [`Self::send`].
+    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> bool {
         let mut line = list_reply::reply_line(id, result);
         if line.len() > crate::rpc::MAX_MESSAGE_BYTES {
             line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
         }
+        let lag = || {
+            let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
+            Message::notification("_acpmux/lagged", lag).to_line()
+        };
         let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-        if !still() {
+        let stale = self.notices.load(Ordering::SeqCst) != seen;
+        if stale && !anyway {
             return false;
         }
+        match self.out.try_send(line) {
+            Ok(()) if stale => self.enqueue_control_locked(lag()),
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
+            // No room: it waits for some, and a notice may go first; then the lag follows it.
+            Err(mpsc::error::TrySendError::Full(line)) => {
+                let (out, notices) = (self.out.clone(), self.notices.clone());
+                let pending = self.outbound_pending_controls.clone();
+                pending.fetch_add(1, Ordering::AcqRel);
+                tokio::spawn(async move {
+                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
+                        let _ = out.send(lag()).await;
+                    }
+                    pending.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+        }
+        true
+    }
+
+    fn enqueue_control_locked(&self, line: String) {
         enqueue_outbound_locked(
             &self.out,
             line,
@@ -345,7 +373,6 @@ impl Conn {
             &self.outbound_lock,
             &self.outbound_pending_controls,
         );
-        true
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
@@ -1179,7 +1206,7 @@ async fn serve_connection_from(
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         list_pace: Default::default(),
-        notices: AtomicU64::new(0),
+        notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
