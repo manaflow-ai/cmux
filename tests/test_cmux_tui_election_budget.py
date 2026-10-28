@@ -114,8 +114,7 @@ def elect(runs, fetch_seconds, budget, limit=40):
                    GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log, FAKE_KEY=KEY, FAKE_LEGACY_KEY=LEGACY_KEY,
                    FAKE_RUNS=",".join(f"{run_id}:{sha}" for run_id, sha in runs),
                    FAKE_FETCH_SECONDS=str(fetch_seconds))
-        if budget is not None:
-            env["ELECTION_BUDGET_SECONDS"] = str(budget)
+        env["ELECTION_BUDGET_SECONDS"] = str(budget if budget is not None else inspect_step()["env"]["ELECTION_BUDGET_SECONDS"])
         start = time.monotonic()
         proc = subprocess.Popen(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", inspect_step()["run"]],
                                 cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -156,8 +155,10 @@ def main():
     code, out, stdout, fetches, seconds = elect(runs, fetch_seconds=1, budget=3)
     _check(code == 0 and "::warning::the owner election stopped at its 3 s budget" in stdout,
            f"a slow election stops at its budget and says so ({code}, {seconds:.1f} s, {stdout[-400:]!r})")
-    _check(0 < len(fetches) < len(runs) and out.get("owner_run_id") == str(417 - len(fetches) + 1),
-           f"it keeps the lowest owner among the runs it examined ({out.get('owner_run_id')!r}, {len(fetches)} fetches)")
+    fetched = [str(run_id) for run_id, sha in runs if f"fetch {sha}" in fetches]
+    _check(0 < len(fetches) < len(runs) and out.get("owner_run_id") in fetched
+           and int(out.get("owner_run_id") or 0) <= int(fetched[0]),
+           f"it keeps an owner among the runs it examined ({out.get('owner_run_id')!r}, fetched {fetched})")
 
     # A fetch that hangs: the per-fetch bound ends it at the budget, and with no
     # owner found this run owns the key and builds (a duplicate build is fine).

@@ -277,6 +277,9 @@ jobs:
           # job's runs-on (Blacksmith Linux), so a job still queued on the
           # retired Mac pools is not waited for.
           DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+          # The run-list election's time budget, well inside the 6 minute job
+          # timeout after the claim authority's 50 s (see the election below).
+          ELECTION_BUDGET_SECONDS: "150"
         run: |
           set -euo pipefail
           superseded=false
@@ -429,14 +432,42 @@ jobs:
               "$API_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&per_page=100" \
               2>/dev/null || true)"
             if [[ -n "$runs_json" ]]; then
+              # The election has a time budget, and each fetch and key read is
+              # bounded by what is left of it. 2026-10-28: the authority answered
+              # HTTP 000 and this loop fetched one run's commit after another
+              # until the job timeout killed it (run 40650195591, commit
+              # a09b77c1). GitHub calls that cancelled and nothing re-runs it, so
+              # the commit never built its tree and nightly-next could not
+              # promote it. At the budget the election keeps the lowest owner it
+              # found, and with none this run owns the key and builds: a
+              # duplicate build is acceptable, a lost one is not.
+              election_start=$SECONDS
+              examined=0
+              election_limit() {
+                local left=$(( ELECTION_BUDGET_SECONDS - (SECONDS - election_start) ))
+                (( left > 30 )) && left=30
+                # timeout 0 would mean no limit.
+                (( left < 1 )) && left=1
+                echo "$left"
+              }
               while IFS=$'\t' read -r candidate_id candidate_sha; do
                 [[ -n "$candidate_id" && -n "$candidate_sha" ]] || continue
                 [[ "$candidate_id" == "$RUN_ID" ]] && continue
                 # This commit's own runs are the same-SHA election's below.
                 [[ "$candidate_sha" == "$SHA" ]] && continue
-                if git -c "http.extraHeader=Authorization: Basic $authorization" \
+                if (( SECONDS - election_start >= ELECTION_BUDGET_SECONDS )); then
+                  if [[ "$owner_run_id" == "$RUN_ID" ]]; then
+                    elected="no owner found, so this run owns the key and builds it"
+                  else
+                    elected="keeping the lowest owner found, run $owner_run_id"
+                  fi
+                  echo "::warning::the owner election stopped at its ${ELECTION_BUDGET_SECONDS} s budget after $examined candidate runs; $elected"
+                  break
+                fi
+                examined=$(( examined + 1 ))
+                if timeout "$(election_limit)" git -c "http.extraHeader=Authorization: Basic $authorization" \
                     fetch --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate_sha" >/dev/null 2>&1 \
-                  && candidate_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
+                  && candidate_key="$(timeout "$(election_limit)" python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
                   && [[ "$candidate_key" == "$key" ]] \
                   && [[ "$candidate_id" =~ ^[0-9]+$ ]] \
                   && (( candidate_id < owner_run_id )); then
