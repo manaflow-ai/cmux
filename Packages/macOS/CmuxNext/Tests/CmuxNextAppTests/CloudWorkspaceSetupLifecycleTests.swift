@@ -66,26 +66,21 @@ struct CloudWorkspaceSetupLifecycleTests {
 }
 
 @MainActor
-private final class CloudSignInTestSignal {
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async { await withCheckedContinuation { continuation = $0 } }
-    func fire() { continuation?.resume(); continuation = nil }
-}
-
-@MainActor
 private final class CloudSignInTestGate {
     private var result: CheckedContinuation<Bool, Never>?
     private var requested: CheckedContinuation<Void, Never>?
 
     func waitUntilRequested() async {
+        if result != nil { return }
         await withCheckedContinuation { requested = $0 }
     }
 
     func wait() async -> Bool {
-        requested?.resume()
-        requested = nil
-        return await withCheckedContinuation { result = $0 }
+        await withCheckedContinuation {
+            result = $0
+            requested?.resume()
+            requested = nil
+        }
     }
 
     func resolve(_ value: Bool) {
@@ -94,47 +89,72 @@ private final class CloudSignInTestGate {
     }
 }
 
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.timeLimit(.minutes(1)))
 struct CloudSignedOutCreationContinuationTests {
-    @Test func resumesExactlyOnceAfterSignIn() async {
+    @Test func resumesTheCapturedIntentOnce() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
-        let resumed = CloudSignInTestSignal()
-        var resumes = 0
-        handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1; resumed.fire() })
+        var intent = "original"
+        var resumed: [String] = []
+        let pending = handoff.replace(signIn: { await gate.wait() }, resume: { [intent] in resumed.append(intent) })
         await gate.waitUntilRequested()
+        intent = "later"
         gate.resolve(true)
-        await resumed.wait()
-        #expect(resumes == 1)
+        await pending.value
+        #expect(resumed == ["original"])
+        #expect(intent == "later")
+        #expect(!handoff.isPending)
     }
 
     @Test func replacementIgnoresLateResultFromTheOriginalIntent() async {
         let handoff = CloudSignedOutCreationContinuation()
         let first = CloudSignInTestGate()
         let second = CloudSignInTestGate()
-        let resumed = CloudSignInTestSignal()
-        var resumes = 0
-        handoff.replace(signIn: { await first.wait() }, resume: { resumes += 1; resumed.fire() })
+        var resumed: [String] = []
+        let old = handoff.replace(signIn: { await first.wait() }, resume: { resumed.append("old") })
         await first.waitUntilRequested()
-        handoff.replace(signIn: { await second.wait() }, resume: { resumes += 1; resumed.fire() })
+        let latest = handoff.replace(signIn: { await second.wait() }, resume: { resumed.append("latest") })
         await second.waitUntilRequested()
         first.resolve(true)
-        await Task.yield()
-        #expect(resumes == 0)
+        await old.value
+        #expect(resumed.isEmpty)
+        #expect(handoff.isPending)
         second.resolve(true)
-        await resumed.wait()
-        #expect(resumes == 1)
+        await latest.value
+        #expect(resumed == ["latest"])
+        #expect(!handoff.isPending)
     }
 
-    @Test func cancellationIgnoresLateSignInResult() async {
+    @Test func signOutInvalidationIgnoresLateSignInResult() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
         var resumes = 0
-        handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        let pending = handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
         await gate.waitUntilRequested()
         handoff.cancel()
         gate.resolve(true)
-        await Task.yield()
+        await pending.value
+        #expect(resumes == 0)
+        #expect(!handoff.isPending)
+    }
+
+    @Test func dismissedSignInNeverResumesAndClearsPendingIntent() async {
+        let handoff = CloudSignedOutCreationContinuation()
+        var resumes = 0
+        await handoff.replace(signIn: { false }, resume: { resumes += 1 }).value
+        #expect(resumes == 0)
+        #expect(!handoff.isPending)
+    }
+
+    @Test func cancelledWaiterCannotResumeEvenIfAuthSucceeded() async {
+        let handoff = CloudSignedOutCreationContinuation()
+        let gate = CloudSignInTestGate()
+        var resumes = 0
+        let pending = handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        await gate.waitUntilRequested()
+        pending.cancel()
+        gate.resolve(true)
+        await pending.value
         #expect(resumes == 0)
         #expect(!handoff.isPending)
     }

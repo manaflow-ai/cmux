@@ -107,6 +107,7 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
     /// When the loaded list landed (``hasCurrentList(within:)``).
     @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
@@ -304,6 +305,9 @@ final class CloudService {
             guard let self else { return }
             var last = account
             for await account in ObservationStream({ self.account }) where account != last {
+                // The initial sign-in completes the pending intent. Later scope
+                // changes invalidate it, including sign-out before auth returns.
+                if last[0] != nil || account[0] == nil { signedOutCreation.cancel() }
                 last = account
                 await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
@@ -326,6 +330,7 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
@@ -680,6 +685,7 @@ final class CloudService {
     var willSignOut: [@MainActor () -> Void] = []
 
     func signOut() async {
+        signedOutCreation.cancel()
         // Start-session asks and runs end now, not after the link and install cleanup below.
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()

@@ -1,26 +1,30 @@
-import Foundation
-
-/// Owns one person-initiated creation handoff while hosted Cloud sign-in is pending.
-/// A replacement click or cancellation invalidates the previous generation, so a
-/// late auth callback cannot create a second machine or replay an old request.
+/// Owns one person-initiated creation while hosted Cloud sign-in is pending.
+/// Replacement, sign-out, and policy changes invalidate the previous generation.
 @MainActor
 final class CloudSignedOutCreationContinuation {
     private var generation = 0
     private var task: Task<Void, Never>?
 
+    /// The auth attempt has its own bounded lifetime. Cancelling this waiter
+    /// leaves that shared attempt alone, but never resumes its creation.
+    @discardableResult
     func replace(
         signIn: @escaping @MainActor () async -> Bool,
         resume: @escaping @MainActor () -> Void
-    ) {
-        generation += 1
+    ) -> Task<Void, Never> {
+        cancel()
         let expected = generation
-        task?.cancel()
-        task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard await signIn(), !Task.isCancelled, self.generation == expected else { return }
+        let pending = Task { @MainActor [weak self] in
+            let succeeded = await signIn()
+            guard let self, self.generation == expected else { return }
+            self.task = nil
+            guard succeeded, !Task.isCancelled else { return }
+            // Consume before calling out; replay may itself start another intent.
+            self.generation += 1
             resume()
-            if self.generation == expected { self.task = nil }
         }
+        task = pending
+        return pending
     }
 
     func cancel() {
