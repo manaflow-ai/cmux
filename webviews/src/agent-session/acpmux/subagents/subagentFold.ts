@@ -605,6 +605,7 @@ export class SubagentFold {
       const summaries = this.viewToolSummaries.get(id) ?? new Map<string, string>();
       const summaryKey = JSON.stringify({
         title: update.title,
+        name: update.name,
         description: update.description ?? update.rawInput?.description,
         command: update.command ?? update.rawInput?.command,
         inputSummary: update.inputSummary,
