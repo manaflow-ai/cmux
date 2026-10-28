@@ -130,6 +130,23 @@ const cappedHeight: Play = async (ctx) => {
   });
 };
 
+/// A machine with many harnesses keeps the picker visible and the entire harness rail available.
+/// The gallery stage is intentionally tall; its capped-height assumption belonged to the old
+/// short-stage fixture and made this play fail identically on base and head.
+const manyHarnessesVisible: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+    return Boolean(
+      menu &&
+      menu.style.visibility === "visible" &&
+      menu.getBoundingClientRect().height > 300 &&
+      menu.querySelectorAll(".acpmux-mp-harness").length >= 20 &&
+      menu.querySelector(".acpmux-mp-content"),
+    );
+  });
+};
+
 const openModels: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-older") !== null);

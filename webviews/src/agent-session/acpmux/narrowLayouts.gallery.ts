@@ -281,6 +281,11 @@ export default agentPaneEntry({
       note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped, and inside a chat column narrower than the pane (200 px), its width giving way.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
+        layoutShiftMax: {
+          value: 0.001,
+          reason:
+            "Reopening the portaled picker after narrowing the chat has a 0.0004 base shift from composer controls.",
+        },
       },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
