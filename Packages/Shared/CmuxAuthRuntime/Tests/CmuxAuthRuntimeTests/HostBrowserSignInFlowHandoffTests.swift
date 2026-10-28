@@ -63,12 +63,15 @@ import Testing
 
     @Test func browserCancellationDuringExternalCallbackValidationKeepsSignIn() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user)
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
         await harness.client.closeUserGate()
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         let session = harness.factory.sessions[0]
         let callbackState = harness.callbackState(session)
+        // Exercise a real popup cancellation, not the instant-cancel browser fallback.
+        clock.advance(by: .seconds(5))
 
         // Safari opens the callback through LaunchServices, and the hosted
         // session reports cancellation while that callback is still
@@ -89,12 +92,15 @@ import Testing
 
     @Test func browserCancellationWhileExternalCallbackSeedsTokensKeepsSignIn() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user)
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
         await harness.tokenStore.armSetTokensGate()
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         let session = harness.factory.sessions[0]
         let callbackState = harness.callbackState(session)
+        // Exercise a real popup cancellation, not the instant-cancel browser fallback.
+        clock.advance(by: .seconds(5))
 
         // A cancellation that lands while the callback writes its tokens must
         // not make the callback clear them as raced, which left the app
