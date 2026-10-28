@@ -43,7 +43,12 @@ extension DebugKey {
             return .object(["error": .string("no event timestamp to start the sequence from")])
         }
         let stamp = DebugKeySequence.Stamp(base: probe.timestamp, ticksPerSecond: Double(probe.timestamp) / baseSeconds)
-        player.play(sequence, stamp: stamp, source: source, clock: ContinuousClock()) { cgEvent in
+        player.play(sequence, stamp: stamp, source: source, clock: ContinuousClock()) { [weak player] cgEvent in
+            // A dialog only the person answers opened while it played: the rest of it never lands.
+            if DebugDialog.userOnlyInputRefusal != nil {
+                player?.stop()
+                return
+            }
             if let event = NSEvent(cgEvent: cgEvent) { NSApp.postEvent(event, atStart: false) }
         }
         return .object(["scheduled": .number(Double(sequence.steps.count)), "base_s": .number(baseSeconds),

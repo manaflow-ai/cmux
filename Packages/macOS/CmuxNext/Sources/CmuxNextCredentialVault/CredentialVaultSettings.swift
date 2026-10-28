@@ -78,11 +78,15 @@ public final class CredentialVaultPageRoute: PageProvider {
     private let window: @MainActor () -> NSWindow?
     /// The gesture the last call used (``PageCallContext/gestureEvent``).
     private var spentGesture: TimeInterval?
+    /// The person's approval of a scope change that lets agents use a secret (nil: the approval sheet).
+    private let approve: (@MainActor (CredentialVault.Approval) async -> Bool)?
 
-    /// `window`: the window Settings shows in, for the sheets.
-    public init(board: CredentialVaultBoard, window: @escaping @MainActor () -> NSWindow?) {
+    /// `window`: the window Settings shows in, for the sheets. `approve`: tests answer the approval.
+    public init(board: CredentialVaultBoard, window: @escaping @MainActor () -> NSWindow?,
+                approve: (@MainActor (CredentialVault.Approval) async -> Bool)? = nil) {
         self.board = board
         self.window = window
+        self.approve = approve
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -116,6 +120,24 @@ public final class CredentialVaultPageRoute: PageProvider {
             guard case .array(let items)? = params["scope"] else { throw PageError.invalidParams(CredentialVaultStrings.badScope) }
             let scope = items.compactMap { $0.stringValue.flatMap(CredentialVault.Consumer.init(rawValue:)) }
             guard scope.count == items.count, !scope.isEmpty else { throw PageError.invalidParams(CredentialVaultStrings.badScope) }
+            // Letting agents use a secret kept for the person releases it without a sheet from then
+            // on, and the switch's gesture may be synthetic (a DEV build's debug input): the person
+            // approves it on the vault's own sheet, which no synthetic input answers.
+            if scope.contains(.agents), board.entries[name]?.scope.contains(.agents) != true {
+                let approval = CredentialVault.Approval.scope(name: name, scope: scope)
+                let allowed: Bool
+                if let approve {
+                    allowed = await approve(approval)
+                } else if let window = window() {
+                    allowed = await CredentialVault.askApproval(approval, in: window)
+                } else {
+                    throw PageError.unavailable("Settings has no window")
+                }
+                guard allowed else {
+                    await board.reload().value
+                    return ["done": false]
+                }
+            }
             try await Self.off { try vault.setScope(name, scope: scope, by: person) }
             done = true
         }

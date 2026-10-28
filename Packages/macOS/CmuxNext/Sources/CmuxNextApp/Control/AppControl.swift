@@ -324,7 +324,8 @@ final class AppControl {
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
                 // A dialog only the person answers takes no synthetic key, typed or in a sequence.
-                if call.params["last"]?.boolValue != true, let refusal = DebugDialog.userOnlyInputRefusal { return .value(refusal) }
+                let query = call.params["last"]?.boolValue == true && call.params["sequence"] == nil
+                if !query, let refusal = DebugDialog.userOnlyInputRefusal { return .value(refusal) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return .value(DebugKey.send(call.params, services: services))
             }.injectingInput(),

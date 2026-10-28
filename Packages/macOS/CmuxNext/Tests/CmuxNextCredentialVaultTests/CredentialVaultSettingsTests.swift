@@ -83,6 +83,32 @@ import Testing
         }
     }
 
+    /// Sixth review: in a DEV build a synthetic key or click in Settings counts as a gesture, so the
+    /// Agents switch could hand a secret kept for the person to agents. Widening a scope to agents
+    /// waits for the person's approval sheet; narrowing it does not.
+    @Test func lettingAgentsUseASecretWaitsForThePersonsApproval() async throws {
+        let vault = vault()
+        try vault.set("PROD_DB", value: Self.secret, scope: [.user], note: nil, by: Self.person)
+        let board = CredentialVaultBoard(vault: vault)
+        await board.reload().value
+        let answer = Mutex(false)
+        let asked = Mutex([CredentialVault.Approval]())
+        let route = CredentialVaultPageRoute(board: board, window: { nil }, approve: { approval in
+            asked.withLock { $0.append(approval) }
+            return answer.withLock { $0 }
+        })
+        let op = CredentialVaultPageRoute.prefix + "scope"
+        let widen: JSONValue = ["name": "PROD_DB", "scope": ["user", "agents"]]
+        #expect(try await route.call(op, params: widen, context: Self.settings) == ["done": false])
+        #expect(try vault.list()["PROD_DB"]?.scope == [.user], "declined: agents still may not use it")
+        answer.withLock { $0 = true }
+        #expect(try await route.call(op, params: widen, context: Self.settings) == ["done": true])
+        #expect(try vault.list()["PROD_DB"]?.scope == [.user, .agents])
+        #expect(asked.withLock { $0 } == [.scope(name: "PROD_DB", scope: [.user, .agents]), .scope(name: "PROD_DB", scope: [.user, .agents])])
+        #expect(try await route.call(op, params: ["name": "PROD_DB", "scope": ["user"]], context: Self.settings) == ["done": true])
+        #expect(asked.withLock { $0.count } == 2, "taking agents off asks nothing")
+    }
+
     @Test func addAsksForTheNameAndReplaceKeepsTheSecretsScope() throws {
         let add = CredentialVault.EntryRequest(name: "", reason: nil, requester: "", replaces: false)
         let spec = CredentialVault.entrySheet(add)
