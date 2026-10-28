@@ -18,7 +18,7 @@ await requireBrowserLane("harnesses-hover.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.harnesses", { browser, params: { variant: "this-mac" } });
+    await warmGalleryFrame(vite, "agent-pane.harnesses", { browser, params: { variant: "hover" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -38,7 +38,7 @@ await requireBrowserLane("harnesses-hover.test.ts", async () => {
           const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
           try {
             const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
-            await page.goto(`${base}${galleryFrame("agent-pane.harnesses", { variant: "this-mac", theme, accent })}`);
+            await page.goto(`${base}${galleryFrame("agent-pane.harnesses", { variant: "hover", theme, accent })}`);
             const row = page.locator(`[data-harness-status="${status}"]`).first();
             const button = row.locator(".acpmux-harness-action");
             await button.waitFor();
