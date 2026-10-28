@@ -62,9 +62,9 @@ struct HomeAgentMessages {
             }
         }
         return items.enumerated().flatMap { index, item in
-            let messages = (after[index] ?? []).sorted {
-                ($0.createdAt, $0.key.rawValue) < ($1.createdAt, $1.key.rawValue)
-            }
+            // Stable sorting keeps the run's numeric step sequence when fragments
+            // share a timestamp; their opaque IDs are not a chronological key.
+            let messages = (after[index] ?? []).sorted { $0.createdAt < $1.createdAt }
             return [item] + messages
         }
     }
