@@ -502,16 +502,17 @@ struct LaunchPictureInputTests {
     }
 
     /// Keys the window could still not decide when its picture left (it closed before its controller was built) are
-    /// refused visibly and kept, never dropped; each wait is recorded as a measured stage with its reason.
+    /// refused visibly and kept, never dropped; the waits are measured stages, one total per reason (the sum of the
+    /// waits and their key count), recorded once when the picture phase ends.
     @Test func undecidedKeysTheWindowNeverDecidesAreRefusedAndKept() throws {
         let start = ContinuousClock.now
         var elapsed = Duration.zero
         var refusals: [Refusal] = []
-        var waits: [(reason: String, keys: Int, waited: Duration)] = []
+        var totals: [[LaunchPictureKeys.WaitTotal]] = []
         let keys = LaunchPictureKeys(now: { start + elapsed }) { _, _ in false }
         keys.replay = { _, _ in false }
         keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
-        keys.onWaited = { waits.append(($0, $1, $2)) }
+        keys.onWaitTotals = { totals.append($0) }
         keys.begin(window: "w", shell: nil) { _ in }
         for letter in ["c", "d"] { keys.holdUndecided(try Self.key(letter, keyCode: 0), window: "w") }
         elapsed = .milliseconds(30)
@@ -521,8 +522,39 @@ struct LaunchPictureInputTests {
         keys.end(window: "w")
         #expect(refusals == [Refusal(window: "w", text: "cd", reason: nil)])
         #expect(!keys.isActive && keys.refused == 2)
-        #expect(waits.count == 1 && waits.first?.reason == LaunchPictureKeys.WaitReason.undecided.rawValue
-                    && waits.first?.keys == 2 && waits.first?.waited == .milliseconds(80), "recorded \(waits)")
+        #expect(totals.count == 1, "the totals were recorded \(totals.count) times, not once at the end")
+        let undecided = totals.first?.first { $0.reason == .undecided }
+        #expect(undecided?.keys == 2 && undecided?.waited == .milliseconds(80), "recorded \(totals)")
+        #expect(totals.first?.map(\.reason) == LaunchPictureKeys.WaitReason.allCases, "one total per reason, zeros too")
+
+        // A later phase records nothing more: each value is sent once.
+        keys.begin(window: "w", shell: nil) { _ in }
+        keys.end(window: "w")
+        #expect(totals.count == 1)
+    }
+
+    /// A send whose reply missed its deadline may not have arrived: its keys are never sent again (they may have
+    /// arrived), and the notice shows with their text kept, as for every key behind them.
+    @Test func aSendThatMayNotHaveArrivedIsNotSentAgainAndKeepsItsText() throws {
+        var refusals: [Refusal] = []
+        var sends = 0
+        var answer: LaunchPictureKeys.Answered?
+        let keys = LaunchPictureKeys { _, _ in false }
+        keys.forward = { _, _, answered in
+            sends += 1
+            answer = answered
+        }
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        keys.begin(window: "w", shell: nil) { _ in }
+        for letter in ["a", "b"] { keys.hold(try Self.key(letter, keyCode: 0), for: Self.a) }
+        let first = try #require(answer)
+        first(.taken)
+        keys.hold(try Self.key("c", keyCode: 8), for: Self.a)
+        let second = try #require(answer)
+        second(.mayNotHaveArrived(taken: 0, reason: "no reply within 5 seconds"))
+        #expect(sends == 2, "a key that may have arrived was sent again")
+        #expect(refusals == [Refusal(window: "w", text: "bc", reason: "no reply within 5 seconds")], "refused \(refusals)")
+        #expect(!keys.isHolding(Self.a) && keys.refused == 2)
     }
 
     /// Kept text grows with each refusal of a window until the person is done with it (closed the notice, or
@@ -545,33 +577,46 @@ struct LaunchPictureInputTests {
     }
 
     /// A key sent by id is what the live view would send for it: text a key commits is that text; a key Ghostty
-    /// encodes from the key itself goes by its `send-key` name (a Control chord by its key code's ANSI key, as
-    /// Ghostty reads it), for the daemon to encode with the program's modes; Option is Alt when
-    /// `macos-option-as-alt` says so for that side. Nil keeps the key for the live view: a Command chord, a key
-    /// that commits nothing, an Option key while the config is not read.
+    /// encodes from the key itself goes by its `send-key` name, for the daemon to encode with the program's modes.
+    /// A chord is named by the layout's unshifted character, as Ghostty names it (Dvorak's Control+keycode 8 is
+    /// ctrl+j, AZERTY's Control+keycode 0 ctrl+q), and by the ANSI key only for Control alone when that character is
+    /// not one ASCII byte. Option is Alt when `macos-option-as-alt` says so for that side. Nil keeps the key for the
+    /// live view: a Command chord, a key that commits nothing, an Option key while that config is unknown, an Alt
+    /// chord whose character is not ASCII.
     @Test func aKeySentByIdIsWhatTheLiveViewWouldSend() throws {
-        func input(_ event: NSEvent, _ optionAsAlt: TypedTerminalInput.OptionAsAlt? = .off) -> TypedTerminalInput? {
-            TypedTerminalInput(event, optionAsAlt: optionAsAlt)
+        /// A layout's unshifted character per key code (tests never read the Mac's own layout).
+        func layout(_ characters: [UInt16: String]) -> TypedTerminalInput.Layout { { event, _ in characters[event.keyCode] } }
+        let us = layout([0: "a", 3: "f", 8: "c", 14: "e", 18: "1", 40: "k"])
+        func input(_ event: NSEvent, _ optionAsAlt: TypedTerminalInput.OptionAsAlt? = .off,
+                   _ characters: TypedTerminalInput.Layout? = nil) -> TypedTerminalInput? {
+            TypedTerminalInput(event, optionAsAlt: optionAsAlt, layout: characters ?? us)
         }
-        #expect(input(try Self.key("a", keyCode: 0)) == .text("a"))
+        let a = try Self.key("a", keyCode: 0), ret = try Self.key("\r", keyCode: 36)
+        let option = try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f")
+        #expect(input(a) == .text("a"))
         #expect(input(try Self.key("A", keyCode: 0, modifiers: .shift, ignoringModifiers: "a")) == .text("A"))
         #expect(input(try Self.key("!", keyCode: 18, modifiers: .shift, ignoringModifiers: "1")) == .text("!"))
-        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f")) == .text("ƒ"))
-        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f"), .both) == .key("alt+f"))
-        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f"), .right) == .text("ƒ"),
-                "left Option is not Alt when only the right one is")
-        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f"), nil) == nil,
-                "an Option key went by id before the config said what Option is")
-        #expect(input(try Self.key("\r", keyCode: 36)) == .key("enter"))
+        #expect(input(option) == .text("ƒ"))
+        #expect(input(option, .both) == .key("alt+f"))
+        #expect(input(option, .right) == .text("ƒ"), "left Option is not Alt when only the right one is")
+        #expect(input(option, nil) == nil, "an Option key went by id while macos-option-as-alt is unknown")
+        #expect(input(ret) == .key("enter"))
         #expect(input(try Self.key("\u{7f}", keyCode: 51)) == .key("backspace"))
         #expect(input(try Self.key("\t", keyCode: 48, modifiers: .shift)) == .key("shift+tab"))
         #expect(input(try Self.key(Shortcut.upArrowKey, keyCode: 126)) == .key("up"))
         #expect(input(try Self.key("\u{03}", keyCode: 8, modifiers: .control, ignoringModifiers: "c")) == .key("ctrl+c"))
-        #expect(input(try Self.key("\u{0a}", keyCode: 8, modifiers: .control, ignoringModifiers: "j")) == .key("ctrl+c"),
-                "a Control chord named by its layout's character, not its key")
+        let dvorak = try Self.key("\u{0a}", keyCode: 8, modifiers: .control, ignoringModifiers: "j")
+        #expect(input(dvorak, .off, layout([8: "j"])) == .key("ctrl+j"), "Dvorak's Control+keycode 8 is ctrl+j, as the live view sends it")
+        let azerty = try Self.key("\u{11}", keyCode: 0, modifiers: .control, ignoringModifiers: "q")
+        #expect(input(azerty, .off, layout([0: "q"])) == .key("ctrl+q"), "AZERTY's Control+keycode 0 is ctrl+q")
+        let russian = try Self.key("\u{03}", keyCode: 8, modifiers: .control, ignoringModifiers: "с")
+        #expect(input(russian, .off, layout([8: "с"])) == .key("ctrl+c"), "Control alone on a non-ASCII key takes its ANSI key")
+        let russianAlt = try Self.key("ç", keyCode: 8, modifiers: .option, ignoringModifiers: "с")
+        #expect(input(russianAlt, .both, layout([8: "с"])) == nil, "an Alt chord on a non-ASCII key went by id")
         #expect(input(try Self.key("", keyCode: 14, modifiers: .option, ignoringModifiers: "e")) == nil, "a dead key went by id")
         #expect(input(try Self.key("k", keyCode: 40, modifiers: .command)) == nil)
-        #expect(input(try Self.key("\r", keyCode: 36))?.text == nil && input(try Self.key("a", keyCode: 0))?.text == "a")
+        #expect(input(ret)?.text == nil)
+        #expect(input(a)?.text == "a")
     }
 
     // MARK: Keys through the real wiring, to a scripted daemon
@@ -581,8 +626,14 @@ struct LaunchPictureInputTests {
     private static let typingDaemon = #"""
     import json, sys
     mode = sys.argv[1]
+    log = sys.argv[2] if len(sys.argv) > 2 else None
     print('{"ok":true}', file=sys.stderr, flush=True)
     got = []
+    def record(entry):
+        got.append(entry)
+        if log:
+            with open(log, 'a') as f:
+                f.write(json.dumps(entry) + '\n')
     def reply(frame, data):
         print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
     for line in sys.stdin:
@@ -592,14 +643,14 @@ struct LaunchPictureInputTests {
             reply(frame, {'app': 'cmux-tui', 'protocol': 12, 'generation': 'typing-test',
                           'capabilities': ['terminal-input-while-creating-v1']})
         elif command == 'send':
-            got.append({'cmd': 'send', 'terminal_id': frame.get('terminal_id'), 'surface': frame.get('surface'),
-                        'bytes': frame.get('bytes')})
+            record({'cmd': 'send', 'terminal_id': frame.get('terminal_id'), 'surface': frame.get('surface'),
+                    'bytes': frame.get('bytes')})
             reply(frame, {})
         elif command == 'send-key':
             if mode == 'refuse-keys':
                 print(json.dumps({'id': frame.get('id'), 'ok': False, 'error': 'surface does not support key input'}), flush=True)
                 continue
-            got.append({'cmd': 'send-key', 'surface': frame.get('surface'), 'keys': frame.get('keys')})
+            record({'cmd': 'send-key', 'surface': frame.get('surface'), 'keys': frame.get('keys')})
             reply(frame, {})
         elif command == 'test-typed':
             reply(frame, {'got': got})
@@ -633,6 +684,10 @@ struct LaunchPictureInputTests {
         ]))
         let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
         let tab = try #require(model.tabs.first)
+        // The fleet Mac's own input source and Ghostty config never decide what the test sends.
+        let keys = services.keyRouter.launchPictureKeys
+        keys.optionAsAlt = { .off }
+        keys.selectsInputMethod = { false }
         return (services, connection, LaunchPictureKeys.Target(window: "typing-window", pane: model.id, tab: tab.id))
     }
 
@@ -677,6 +732,102 @@ struct LaunchPictureInputTests {
         #expect(got.map { $0["cmd"]?.stringValue } == ["send", "send"], "the daemon got \(got)")
         #expect(keys.refused == 2, "refused \(keys.refused) keys, not Return and x")
         #expect(keys.kept(window: rig.target.window) == "x")
+    }
+
+    /// While an input method is selected, keys wait for the terminal's live view (only its text input composes
+    /// them): nothing goes by id, and none is refused while the picture shows.
+    @Test func keysTypedWithAnInputMethodSelectedWaitForTheLiveView() async throws {
+        let rig = try await Self.typingRig("take")
+        defer { for controller in rig.services.windows.controllers { controller.window?.close() } }
+        let keys = rig.services.keyRouter.launchPictureKeys
+        keys.selectsInputMethod = { true }
+        keys.begin(window: rig.target.window, shell: nil) { _ in }
+        for (letter, code) in [("n", UInt16(45)), ("i", 34)] { keys.hold(try Self.key(letter, keyCode: code), for: rig.target) }
+        await drainMainTurns()
+        let got = try #require(try await rig.connection.request(Typed())["got"]?.arrayValue)
+        await rig.connection.close()
+        #expect(got.isEmpty, "keys went by id while an input method was selected: \(got)")
+        #expect(keys.isHolding(rig.target) && keys.refused == 0)
+    }
+
+    /// The app's own wiring with no daemon connection yet: the service starts connecting (to the scripted daemon,
+    /// or to a socket that is not there), and nothing else is set up.
+    private static func unconnectedRig(_ endpoint: DaemonEndpoint, deadline: Duration = .seconds(30))
+        -> (services: AppServices, target: LaunchPictureKeys.Target) {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [
+            TabSnapshot(surface: SurfaceID(rawValue: 9), terminalID: TerminalID(rawValue: "0123456789abcdef0123456789abcdef"), title: "~"),
+        ])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
+        services.daemon.store.apply(snapshot: DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "typing-ws"), name: "typing", screens: [screen]),
+        ]))
+        let keys = services.keyRouter.launchPictureKeys
+        keys.optionAsAlt = { .off }
+        keys.selectsInputMethod = { false }
+        services.daemon.startupDeadline = deadline
+        services.daemon.start {
+            DaemonConnection(endpoint: endpoint,
+                             configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(5), spawnTimeout: .seconds(5),
+                                                  terminalEnvironment: nil))
+        }
+        let model = services.daemon.store.workspaces.first?.screens.first?.panes.first
+        let target = LaunchPictureKeys.Target(window: "typing-window", pane: model?.id ?? "", tab: model?.tabs.first?.id ?? "")
+        return (services, target)
+    }
+
+    /// Keys typed before the daemon's first connection wait in that daemon's own queue (a measured stage,
+    /// `daemon_not_connected`), and go to it in typing order once it connects.
+    @Test func keysBeforeTheFirstConnectionWaitInTheDaemonsQueueAndGoInOrder() async throws {
+        let log = FileManager.default.temporaryDirectory.appending(path: "cmux-launch-typing-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: log) }
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.typingDaemon, "take", log.path])
+        let rig = Self.unconnectedRig(DaemonEndpoint(socketPath: "/tmp/cmux-launch-typing-\(UUID().uuidString.prefix(8)).sock", bridge: bridge))
+        defer {
+            rig.services.daemon.shutdownConnection()
+            for controller in rig.services.windows.controllers { controller.window?.close() }
+        }
+        let keys = rig.services.keyRouter.launchPictureKeys
+        var totals: [[LaunchPictureKeys.WaitTotal]] = []
+        keys.onWaitTotals = { totals.append($0) }
+        try #require(rig.services.daemon.awaitsFirstConnection, "the daemon connected before the test typed")
+        keys.begin(window: rig.target.window, shell: nil) { _ in }
+        // In this turn: the connection's handshake reaches main only after it.
+        for (letter, code) in [("l", UInt16(37)), ("s", 1), ("\r", 36)] { keys.hold(try Self.key(letter, keyCode: code), for: rig.target) }
+        #expect(keys.isHolding(rig.target))
+
+        await Self.settle(keys, rig.target)
+        let lines = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        let got = lines.split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        #expect(got.map { $0["cmd"] as? String } == ["send", "send", "send-key"], "the daemon got \(lines)")
+        #expect(got.prefix(2).map { $0["bytes"] as? String } == [Data("l".utf8).base64EncodedString(), Data("s".utf8).base64EncodedString()])
+        #expect(keys.refused == 0)
+        keys.end(window: rig.target.window)
+        let waited = totals.first?.first { $0.reason == .daemonNotConnected }
+        #expect(waited?.keys == 3, "the first connection's wait was not recorded: \(totals)")
+    }
+
+    /// Keys waiting for a first connection that never comes (startup gives up at its deadline) are refused with
+    /// their text kept, never dropped.
+    @Test func keysWaitingForAConnectionThatNeverComesAreRefusedAndKept() async throws {
+        let rig = Self.unconnectedRig(DaemonEndpoint(socketPath: "/tmp/cmux-launch-typing-absent-\(UUID().uuidString.prefix(8)).sock"),
+                                      deadline: .milliseconds(200))
+        defer {
+            rig.services.daemon.shutdownConnection()
+            for controller in rig.services.windows.controllers { controller.window?.close() }
+        }
+        let keys = rig.services.keyRouter.launchPictureKeys
+        try #require(rig.services.daemon.awaitsFirstConnection, "startup gave up before the test typed")
+        keys.begin(window: rig.target.window, shell: nil) { _ in }
+        for (letter, code) in [("l", UInt16(37)), ("s", 1), ("\r", 36)] { keys.hold(try Self.key(letter, keyCode: code), for: rig.target) }
+        #expect(keys.isHolding(rig.target) && keys.refused == 0)
+        await Self.settle(keys, rig.target)
+        #expect(rig.services.daemon.startup.isUnavailable, "startup did not give up")
+        #expect(keys.refused == 3, "refused \(keys.refused) keys")
+        #expect(keys.kept(window: rig.target.window) == "ls")
     }
 
     // MARK: Keys typed before the window decides, to its restored focus
