@@ -23,6 +23,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/remote-shim-abi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
+# shellcheck source=../lib/host-wire.sh
+source "$root/scripts/cmux-next/lib/host-wire.sh"
+host_wire_headers "$root" "$work/wire"
 fail() {
   echo "remote-shim-abi: $*" >&2
   exit 1
@@ -49,7 +52,7 @@ fi
 
 sources=("$host"/client/*.mm)
 flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$(dirname "$header")" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"
-  -I"$host/src" -I"$host/client")
+  -I"$host/src" -I"$host/client" -I"$work/wire")
 if [[ "$(uname)" == Darwin ]]; then
   lib="$work/libcmux_cef_shim_remote.dylib"
   "${cxx[@]}" "${flags[@]}" -fvisibility=hidden -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \

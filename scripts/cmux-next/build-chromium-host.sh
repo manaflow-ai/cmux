@@ -27,6 +27,9 @@
 # ChromiumHost/src/generated/host_dispatch.inc and client/generated/remote_shim.inc
 # come from scripts/cmux-next/gen-chromium-host-wire.py and are committed
 # (its --check fails when one is stale); a checkout with a stale one builds no host.
+# The frame codec (chromium_host_wire.generated.h) is built here from
+# cmux-tui/spec/chromium-host-wire.json (lib/host-wire.sh, task p05-ipc-181) and is
+# never in git; the key hashes the schema and its generator.
 #
 # Usage: build-chromium-host.sh <cef_dir> <shim_dir> <cache_dir>
 #   cef_dir:  the CEF artifact shim_dir was built from (one architecture).
@@ -53,6 +56,10 @@ SHIM_SRC="$SHIM_DIR/src"
 SHIM_HEADER_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
 SHIM_HEADER="$SHIM_HEADER_DIR/cmux_cef_shim.h"
 REMOTE_INC="$HOST_DIR/client/generated/remote_shim.inc"
+CODEGEN_DIR="$REPO_ROOT/cmux-tui/bindings/codegen"
+WIRE_SCHEMA="$REPO_ROOT/cmux-tui/spec/chromium-host-wire.json"
+# shellcheck source=lib/host-wire.sh
+source "$SCRIPT_DIR/lib/host-wire.sh"
 ABI_ID="$(shasum -a 256 "$SHIM_HEADER" | awk '{print $1}')"
 
 ARCH="${CMUX_CEF_ARCH:-arm64}"
@@ -84,6 +91,8 @@ key="$(
     echo "$ARCH $MIN_OS"
     (cd "$HOST_DIR" && find src client -type f \( -name '*.h' -o -name '*.mm' -o -name '*.cc' -o -name '*.inc' \) -print0 |
       sort -z | xargs -0 shasum -a 256)
+    shasum -a 256 "$WIRE_SCHEMA" "$CODEGEN_DIR/host_wire.py" "$CODEGEN_DIR/host_wire_cpp.py" \
+      "$SCRIPT_DIR/lib/host-wire.sh" | awk '{print $1}'
     shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}'
   } | shasum -a 256 | awk '{print $1}'
 )"
@@ -111,6 +120,8 @@ common=(
   -Wno-deprecated-declarations -Wno-undefined-var-template -Werror=unguarded-availability-new
 )
 mkdir -p "$OUT_DIR/obj"
+# The system Python: an Xcode build phase's PATH has no other.
+PYTHON=/usr/bin/python3 host_wire_headers "$REPO_ROOT" "$OUT_DIR/wire"
 objects=()
 # The real shim, as build-cef-shim.sh compiles it (helper_main.mm is the helpers' own executable).
 for src in "$SHIM_SRC"/shim_*.mm; do
@@ -123,7 +134,7 @@ for src in "$HOST_DIR"/src/*.mm "$HOST_DIR"/src/*.cc; do
   [[ -f "$src" ]] || continue
   obj="$OUT_DIR/obj/host_$(basename "$src").o"
   "$CXX" "${common[@]}" -Werror -Wno-unused-command-line-argument -I"$HOST_DIR/src" -I"$SHIM_SRC" \
-    -I"$SHIM_HEADER_DIR" -c "$src" -o "$obj"
+    -I"$SHIM_HEADER_DIR" -I"$OUT_DIR/wire" -c "$src" -o "$obj"
   objects+=("$obj")
 done
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
@@ -133,7 +144,7 @@ done
 # tests/remote-shim-abi.test.sh, not the wrapper's `common`.
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 -gline-tables-only \
   -std=c++20 -fno-exceptions -fvisibility=hidden -fvisibility-inlines-hidden -Wall -Wextra -Werror \
-  -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
+  -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" -I"$OUT_DIR/wire" \
   -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
   -o "$OUT_DIR/libcmux_cef_shim_remote.dylib" \
   "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc" -lobjc
@@ -143,7 +154,7 @@ for binary in cmux-chromium-host libcmux_cef_shim_remote.dylib; do
   [[ -d "$OUT_DIR/$binary.dSYM" ]] || xcrun dsymutil "$OUT_DIR/$binary" -o "$OUT_DIR/$binary.dSYM" >&2 ||
     { echo "warning: no dSYM for $binary" >&2; rm -rf "$OUT_DIR/$binary.dSYM"; }
 done
-rm -rf "$OUT_DIR/obj"
+rm -rf "$OUT_DIR/obj" "$OUT_DIR/wire"
 printf '%s' "$key" > "$OUT_DIR/.build-key"
 if ! /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$OUT_DIR" "$FINAL_DIR" 2>/dev/null; then
   complete "$FINAL_DIR" || { echo "error: $FINAL_DIR exists but is incomplete" >&2; exit 1; }

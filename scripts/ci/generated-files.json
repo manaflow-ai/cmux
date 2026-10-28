@@ -34,6 +34,20 @@
       "status": "build"
     },
     {
+      "id": "chromium-host-wire-cpp",
+      "generator": "cmux-tui/bindings/codegen/host_wire_cpp.py",
+      "outputs": ["**/chromium_host_wire.generated.h", "**/chromium_host_wire_golden.generated.h"],
+      "inputs": ["cmux-tui/spec/chromium-host-wire.json", "cmux-tui/bindings/codegen/host_wire.py", "scripts/cmux-next/lib/host-wire.sh"],
+      "status": "build"
+    },
+    {
+      "id": "chromium-host-wire-swift",
+      "generator": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/HostWireEmitter.swift",
+      "outputs": ["Packages/macOS/CmuxNext/.build/plugins/outputs/**/CmuxNextWireGenPlugin/**/ChromiumHostFrame+Wire.swift"],
+      "inputs": ["cmux-tui/spec/chromium-host-wire.json", "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/HostWireSchema.swift", "Packages/macOS/CmuxNext/Plugins/CmuxNextWireGenPlugin/**"],
+      "status": "build"
+    },
+    {
       "id": "ipc-wire-swift",
       "generator": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/main.swift",
       "outputs": ["Packages/macOS/CmuxNext/.build/plugins/outputs/**/CmuxNextWireGenPlugin/**"],

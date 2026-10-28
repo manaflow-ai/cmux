@@ -14,9 +14,12 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-client-ids.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
+# shellcheck source=../lib/host-wire.sh
+source "$root/scripts/cmux-next/lib/host-wire.sh"
+host_wire_headers "$root" "$work/wire"
 host="$root/Packages/macOS/CmuxNext/ChromiumHost"
 shim_header="$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
-flags=(-std=c++20 -Wall -Wextra -Wshadow -Werror -O1)
+flags=(-std=c++20 -Wall -Wextra -Wshadow -Werror -O1 -I"$work/wire")
 
 "${cxx[@]}" "${flags[@]}" -I"$host/src" -I"$shim_header" \
   -o "$work/test" "$host/tests/host_client_ids_test.cpp" "$host/src/host_client_ids.cc"

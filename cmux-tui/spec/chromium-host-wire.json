@@ -1,0 +1,151 @@
+{
+  "$comment": [
+    "The frames of the wire between cmux and the Chromium host app (behind browserHost.helper; plans/cmux-next/cef-helper-app-DESIGN.md, plans/cmux-next/chrome-parity/p05-ipc.md task p05-ipc-181).",
+    "Both codecs are built from this file at build time and are never in git (scripts/ci/generated-files.json): the Swift side by CmuxNextWireGen's HostWireEmitter through CmuxNextWireGenPlugin (ChromiumHostFrame, CmuxNextBrowser), the C++ side by cmux-tui/bindings/codegen/host_wire_cpp.py (chromium_host_wire.generated.h, which ChromiumHost/src/chromium_host_wire.h includes), as Chromium builds both ends of a mojom from one .mojom file.",
+    "header: the fixed little-endian header every frame starts with; fields are laid out in order, each at its natural alignment, and fill `size` bytes exactly. `role` kind is the frame's kind, `role` payload_length the byte count of the payload after the header. `count` makes a field an array.",
+    "max_payload: longer payloads end the connection (no kind carries more than a URL). constants: values both sides read off a frame's fields. kinds: every frame kind, with what its fields carry; `to_host` frames go from cmux to the host, `to_cmux` back.",
+    "golden: frames both sides encode and decode to the same bytes (ChromiumHostFrameTests, ChromiumHost/tests/chromium_host_wire_test.cpp). `hex` is the header; `payload` the UTF-8 text after it. A value over 2^53 is a \"0x\" string. The C++ generator checks each hex against the header fields before it writes anything.",
+    "Integer types: u8 u16 u32 u64 i8 i16 i32 i64. Names are lowerCamelCase: the Swift name as written, the C++ constant and kind names with a k prefix (wheelDeltaScale is kWheelDeltaScale)."
+  ],
+  "version": 1,
+  "byte_order": "little",
+  "swift": {
+    "type": "ChromiumHostFrame",
+    "condition": "DEBUG || CMUX_BENCH_HOOKS"
+  },
+  "cpp": {
+    "namespace": "cmux_host"
+  },
+  "header": {
+    "size": 64,
+    "fields": [
+      {"name": "kind", "type": "u32", "role": "kind", "doc": ["The frame's kind (Kind); a kind this side does not know still decodes."]},
+      {"name": "payload", "type": "u32", "role": "payload_length", "doc": ["The payload's length in bytes."]},
+      {"name": "v", "type": "i32", "count": 6, "doc": ["Six values whose meaning depends on the kind."]},
+      {"name": "flags", "type": "u64", "doc": ["NSEvent.ModifierFlags for input kinds, more bits by kind."]},
+      {"name": "t0", "type": "u64", "doc": ["A time by kind: an input's event time (CLOCK_UPTIME_RAW nanoseconds, one clock for both processes)."]},
+      {"name": "t1", "type": "u64", "doc": ["A time or id by kind: an input ring frame's control seq (high 32 bits) and page (low 32 bits)."]},
+      {"name": "ch", "type": "u16", "doc": ["A key's character (UTF-16)."]},
+      {"name": "unmod", "type": "u16", "doc": ["A key's character without modifiers (UTF-16)."]},
+      {"name": "seq", "type": "u32", "doc": ["The input seq of an ordered input frame, or a request id (stats)."]}
+    ]
+  },
+  "max_payload": 65536,
+  "constants": [
+    {"name": "quitLimitSeconds", "type": "i32", "value": 15, "doc": [
+      "Seconds a host may take to end after quit or EOF before it is ended by force: the host _exits itself, cmux",
+      "SIGKILLs it. CEF's 3 s browser close plus Chromium's 10 s shutdown watchdog, with room for a loaded machine."]},
+    {"name": "wheelDeltaScale", "type": "i32", "value": 100, "doc": [
+      "A wheel's v2 and v3 are NSEvent scrollingDeltaX/Y times this, rounded: hundredths."]},
+    {"name": "wheelPrecise", "type": "u64", "value": "0x8000000000000000", "doc": [
+      "A wheel's flags bit for hasPreciseScrollingDeltas. NSEvent.ModifierFlags never use it."]},
+    {"name": "readyReportsInputPresented", "type": "i32", "value": 1, "doc": [
+      "In a ready frame's v2: the host sends an inputPresented frame for each input (its fork has the presentation",
+      "feedback callback)."]},
+    {"name": "presentationVSync", "type": "u32", "value": 1, "doc": ["gfx::PresentationFeedback::kVSync (ui/gfx/presentation_feedback.h)."]},
+    {"name": "presentationFailed", "type": "u32", "value": 2, "doc": ["gfx::PresentationFeedback::kFailure: the frame never reached the display."]},
+    {"name": "presentationHWClock", "type": "u32", "value": 4, "doc": ["gfx::PresentationFeedback::kHWClock."]},
+    {"name": "presentationHWCompletion", "type": "u32", "value": 8, "doc": ["gfx::PresentationFeedback::kHWCompletion."]}
+  ],
+  "kinds": [
+    {"name": "navigate", "value": 1, "direction": "to_host", "doc": ["payload the URL."]},
+    {"name": "geometry", "value": 2, "direction": "to_host", "doc": [
+      "v0 width, v1 height (points), v2 screen x, v3 screen y (bottom left), v4 scale x 1000 (informational: the",
+      "host's window takes the scale of the screen it is placed on; cmux sends the geometry again when the window",
+      "moves or changes screen or scale)."]},
+    {"name": "mouse", "value": 3, "direction": "to_host", "doc": [
+      "v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button (0 left, 1 middle,",
+      "2 right; ClickButtonOf), v4 click count, v5 pressed buttons (bits 1 left, 2 right, 4 middle, 8 back,",
+      "16 forward: NSEvent.pressedMouseButtons and the DOM's MouseEvent.buttons), flags NSEvent.ModifierFlags,",
+      "t0 event time. The back and forward buttons (NSEvent buttonNumber 3 and 4, Chrome's",
+      "WebPointerProperties::Button::kBack and kForward) are not sent until the host can click them",
+      "(p01-process-054b): CEF's SendMouseClickEvent has only left, middle, right."]},
+    {"name": "wheel", "value": 4, "direction": "to_host", "doc": [
+      "v0 x, v1 y (points, top left), v2 v3 scrollingDeltaX/Y x wheelDeltaScale, v4 phase, v5 momentum phase",
+      "(NSEvent.Phase bits), flags NSEvent.ModifierFlags | wheelPrecise, t0 event time (p04-input-063)."]},
+    {"name": "key", "value": 5, "direction": "to_host", "doc": [
+      "v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0; the host sends it",
+      "with cmux_shim::SendHostKeyEvent and the frame's input seq, which KEY_UNHANDLED carries back for a chord",
+      "the page leaves unhandled (p01-process-030). v3 (ChromiumHostTextInput.KeyMark, p01-process-043): on a",
+      "down, 0 the key and ch, 1 an input method took it (VKEY_PROCESSKEY down, skip_if_unhandled, no char), 2 the",
+      "char ch only; on an up, 1 the up of that process key (skip_if_unhandled)."]},
+    {"name": "focus", "value": 6, "direction": "to_host", "doc": ["v0 1 focused, 0 not."]},
+    {"name": "ping", "value": 7, "direction": "to_host", "doc": ["t0 cmux's send time; the host answers pong."]},
+    {"name": "stats", "value": 8, "direction": "to_host", "doc": [
+      "seq a request id (never an input seq: not an ordered input kind); the host answers statsReply with the",
+      "same seq."]},
+    {"name": "quit", "value": 9, "direction": "to_host", "doc": ["The host ends within quitLimitSeconds."]},
+    {"name": "edit", "value": 10, "direction": "to_host", "doc": ["v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo."]},
+    {"name": "ime", "value": 11, "direction": "to_host", "doc": [
+      "One text input op of the page view's NSTextInputClient (ChromiumHostTextInputOp, p01-process-043), in",
+      "order with the key frames around it: v0 op (0 set composition, 1 commit text, 2 finish composing, 3 cancel",
+      "composition, 4 edit commands for the next key down, 5 an edit command with no key), v1 v2 the selection in",
+      "the text (op 0), v3 v4 the field range the text replaces (ops 0 and 1; -1 -1 none), v5 clause count (op 0);",
+      "payload the text as UTF-16LE (ops 4 and 5: the command names joined by '\\n'), then per clause i32 start,",
+      "i32 end, u32 color 0xAARRGGBB, u32 thick (0 or 1). It has a payload, so it never rides the input ring."]},
+    {"name": "textInputWatch", "value": 12, "direction": "to_host", "doc": [
+      "v0 1: push textInputState after each change; 0: stop (p01-process-044)."]},
+    {"name": "gesture", "value": 13, "direction": "to_host", "doc": [
+      "A trackpad gesture of the page view (p01-process-054), the input that RenderWidgetHostNSViewHost takes as",
+      "PinchEvent and SmartMagnifyEvent (content/common/render_widget_host_ns_view.mojom;",
+      "render_widget_host_view_cocoa.mm -magnifyWithEvent:, -smartMagnifyWithEvent:) and the Force Touch pressure",
+      "that -pressureChangeWithEvent: sends as a mouse event with force: v0 x, v1 y (points, top left), v2 type:",
+      "0 pinch begin, 1 pinch update (v3 the scale step x 1e6, 1 + NSEvent magnification), 2 pinch end (also a",
+      "cancelled pinch): PinchEvent's kGesturePinchBegin, Update and End; 3 smart magnify (a two-finger double",
+      "tap): SmartMagnifyEvent; 4 pressure (v3 NSEvent pressure x 1e6, 0 to 1e6, v4 stage 0 none, 1 click,",
+      "2 force click; Blink's WebPointerProperties::force); v5 pressed buttons as mouse's, flags",
+      "NSEvent.ModifierFlags, t0 event time. The host drops it until the fork can send it to the page",
+      "(p01-process-054b)."]},
+    {"name": "ready", "value": 101, "direction": "to_cmux", "doc": [
+      "v0 fork API version, v1 host pid, v2 what the host reports (readyReportsInputPresented)."]},
+    {"name": "context", "value": 102, "direction": "to_cmux", "doc": ["v0 the CAContext id (bits of a uint32)."]},
+    {"name": "address", "value": 103, "direction": "to_cmux", "doc": ["payload the main frame's URL."]},
+    {"name": "title", "value": 104, "direction": "to_cmux", "doc": ["payload the title."]},
+    {"name": "pong", "value": 105, "direction": "to_cmux", "doc": ["t0 echoed, t1 the host's receive time."]},
+    {"name": "statsReply", "value": 106, "direction": "to_cmux", "doc": [
+      "seq of the request; v0 input events, v1 p50, v2 p95, v3 p99, v4 max (us from cmux's event time to the host's",
+      "Send*Event on its UI thread, over the last kHopWindow events), v5 frames refused (unknown kind), t1 input",
+      "frames coalesced into a waiting one (FrameQueue), t0 high 32 bits: times the host became active, low 32",
+      "bits: times one of its windows became key (each undone at once)."]},
+    {"name": "error", "value": 107, "direction": "to_cmux", "doc": ["payload the message."]},
+    {"name": "rendererGone", "value": 108, "direction": "to_cmux", "doc": ["v0 cef_termination_status_t."]},
+    {"name": "textInputState", "value": 109, "direction": "to_cmux", "doc": [
+      "The focused field's text input state while watched (host_text_input.h's TextInputState, p01-process-044):",
+      "v0 ui::TextInputType, v1 flags, v2 v3 selection (-1 -1 unknown), v4 v5 composition (-1 -1 none); payload",
+      "i32 caret x, y, width, height, i32 text offset, i32 rect count, per composition character i32 x, y, width,",
+      "height (page-view points, top left), then the text around the selection as UTF-16LE."]},
+    {"name": "inputPresented", "value": 110, "direction": "to_cmux", "doc": [
+      "t0 the input frame's t0 (its event time), t1 when the frame that shows it reached the display, v0",
+      "gfx::PresentationFeedback flags (p04-input-066)."]}
+  ],
+  "golden": [
+    {
+      "name": "key",
+      "doc": "A key frame with every header field set, signed values at both ends and a three-byte payload.",
+      "header": {"kind": 5, "payload": 3, "v": [10, -2, 2147483647, 3, 4, -1], "flags": "0x100000",
+                 "t0": "0x0102030405060708", "t1": 1, "ch": 97, "unmod": 65, "seq": "0xdeadbeef"},
+      "payload": "abc",
+      "hex": "05000000030000000a000000feffffffffffff7f0300000004000000ffffffff00001000000000000807060504030201010000000000000061004100efbeadde"
+    },
+    {
+      "name": "wheel-gesture",
+      "doc": "A trackpad scroll's change (p04-input-063): precise, shift held, deltas -1.5 and 12.34.",
+      "header": {"kind": 4, "v": [120, 45, -150, 1234, 4, 0], "flags": "0x8000000000020000",
+                 "t0": "0x1122334455", "t1": 7, "seq": 42},
+      "hex": "0400000000000000780000002d0000006affffffd20400000400000000000000000002000000008055443322110000000700000000000000000000002a000000"
+    },
+    {
+      "name": "wheel-momentum",
+      "doc": "The same scroll's momentum start after the fingers lift: no gesture phase, a began momentum phase.",
+      "header": {"kind": 4, "v": [120, 45, 0, -2550, 0, 1], "flags": "0x8000000000000000",
+                 "t0": "0x1122334456", "t1": 7, "seq": 43},
+      "hex": "0400000000000000780000002d000000000000000af6ffff0000000001000000000000000000008056443322110000000700000000000000000000002b000000"
+    },
+    {
+      "name": "input-presented",
+      "doc": "The input of event time 0x1122334455 showed in a vsync frame at 0x1122a0b0c0 (p04-input-066).",
+      "header": {"kind": 110, "v": [1, 0, 0, 0, 0, 0], "t0": "0x1122334455", "t1": "0x1122a0b0c0"},
+      "hex": "6e0000000000000001000000000000000000000000000000000000000000000000000000000000005544332211000000c0b0a022110000000000000000000000"
+    }
+  ]
+}

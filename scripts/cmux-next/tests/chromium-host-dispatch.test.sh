@@ -38,6 +38,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
+# shellcheck source=../lib/host-wire.sh
+source "$root/scripts/cmux-next/lib/host-wire.sh"
+host_wire_headers "$root" "$work/wire"
 host="$root/Packages/macOS/CmuxNext/ChromiumHost"
 header="$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
 ops="$root/plans/cmux-next/chromium-host-ops.json"
@@ -65,7 +68,7 @@ mkdir -p "$work/src/generated"
 cp "$host"/src/*.h "$host"/src/*.mm "$host"/src/*.cc "$work/src/"
 cp "$gen/Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc" "$work/src/generated/"
 
-flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header")
+flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header" -I"$work/wire")
 for src in host_dispatch.mm host_mirror.mm host_text_input.mm; do
   "${cxx[@]}" "${flags[@]}" -fsyntax-only -x c++ "$work/src/$src"
 done
@@ -100,7 +103,7 @@ sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host
 
 # The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
 client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"
-  -I"$host/src" -I"$host/client")
+  -I"$host/src" -I"$host/client" -I"$work/wire")
 test_libs=()
 if [[ "$(uname)" == Darwin ]]; then
   client="$work/libcmux_cef_shim_remote.dylib"

@@ -153,7 +153,7 @@ Commands:
   ... --check-view-parity [--list-unmapped] every method of the vendored remote_cocoa mojoms
       [--list-pending]                      (plans/cmux-next/remote_cocoa_mojom/) maps to one of:
                                             op (a header or optional export), event (a header or
-                                            optional event kind), wire (a Kind of chromium_host_wire.h)
+                                            optional event kind), wire (a kind of chromium-host-wire.json)
                                             or not_needed (the reason) in
                                             plans/cmux-next/chromium-host-view-parity.json. A pending
                                             row (the design task that builds its carrier, with a note
@@ -202,7 +202,9 @@ CLIENT_INC = HOST + "/client/generated/remote_shim.inc"
 SWIFT_OUT = CEFS + "/ChromiumHost/Generated/ChromiumHostOps.swift"
 HOST_SRC = HOST + "/src"
 CLIENT_SRC = HOST + "/client"
-HOST_WIRE = HOST_SRC + "/chromium_host_wire.h"  # the page view's input and push frames (enum Kind)
+# The page view's input and push frames: the schema both sides' frame codecs are built from (task
+# p05-ipc-181). A row names a kind by its C++ name, k and the schema's name (kFocus for focus).
+HOST_WIRE = "cmux-tui/spec/chromium-host-wire.json"
 
 CLASSES = ("post", "mirror", "async", "mint", "policy", "view", "local", "preinit")
 GENERATED_CLIENT = {"post", "mirror", "async", "mint", "policy", "view", "preinit"}
@@ -2418,7 +2420,7 @@ TASK_ID = re.compile(r"p\d{2}-[a-z][a-z0-9-]*-\d{3}[a-z]?")
 
 class ParityCarriers:
     """What a parity row may name: exports and event kinds of the header and the ops JSON's
-    optional lists, the Kinds of chromium_host_wire.h, and the design's task ids (for pending)."""
+    optional lists, the frame kinds of chromium-host-wire.json, and the design's task ids (for pending)."""
 
     def __init__(self, root: Path, header: Header) -> None:
         self.exports = {e.name for e in header.exports}
@@ -2431,10 +2433,8 @@ class ParityCarriers:
         self.wire: set[str] | None = None
         wire = root / HOST_WIRE
         if wire.exists():
-            code = blank_out(wire.read_text(encoding="utf-8"))
-            m = re.search(r"\benum\s+Kind\b[^{;]*\{", code)
-            body = code[m.end():matching_close(code, m.end() - 1, "{", "}")] if m else ""
-            self.wire = set(re.findall(r"\b(k\w+)\s*=", body))
+            kinds = json.loads(wire.read_text(encoding="utf-8")).get("kinds", [])
+            self.wire = {"k" + k["name"][:1].upper() + k["name"][1:] for k in kinds if k.get("name")}
         self.tasks: set[str] | None = None
         design = root / DESIGN_RESULT
         if design.exists():

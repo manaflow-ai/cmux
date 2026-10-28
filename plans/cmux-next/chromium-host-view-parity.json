@@ -4,7 +4,7 @@
   "targets": {
     "op": "a cmux_shim_* export of cmux_cef_shim.h or an optional export of chromium-host-ops.json",
     "event": "a CMUX_SHIM_* event kind of cmux_cef_shim.h or an optional event of chromium-host-ops.json",
-    "wire": "a Kind of Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h (page view input and pushed state)",
+    "wire": "a frame kind of cmux-tui/spec/chromium-host-wire.json by its C++ name, kFocus for focus (page view input and pushed state)",
     "not_needed": "why cmux needs no carrier",
     "pending": "not a mapping: the design task that builds the carrier, and a note naming it; --check-view-parity counts the method unmapped until the row names its carrier",
     "note": "how the method maps, when the carrier alone does not say it"

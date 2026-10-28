@@ -33,7 +33,10 @@ back="$(awk '/case kOpGoBack: \{/ { on = 1 } on { print } on && /^    }$/ { exit
 
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
+# shellcheck source=../lib/host-wire.sh
+source "$root/scripts/cmux-next/lib/host-wire.sh"
+host_wire_headers "$root" "$work/wire"
 "${cxx[@]}" -std=c++20 -Wall -Wextra -Werror -O1 -pthread \
-  -I"$root/$(dirname "$shimh")" -I"$host/src" -I"$host/client" -I"$work/tree/$(dirname "$client_inc")" \
+  -I"$root/$(dirname "$shimh")" -I"$host/src" -I"$host/client" -I"$work/tree/$(dirname "$client_inc")" -I"$work/wire" \
   -o "$work/test" "$host/tests/remote_shim_mirror_test.cpp" "$host/src/chromium_host_control.cc"
 "$work/test"

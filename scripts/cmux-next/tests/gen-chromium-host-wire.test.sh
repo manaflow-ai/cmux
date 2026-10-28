@@ -889,14 +889,13 @@ expect 1 "pins 155.0.1.2: vendor them again" "mojoms the fork pin moved past" --
 echo '{"chromium": "154.0.8037.98"}' >"$parity/scripts/cmux-next/cef-manifest.json"
 expect 0 "" "mojoms at the fork pin" -- --root "$parity" --check-view-parity
 # Each target is checked against what can carry it (task p01-process-055).
-mkdir -p "$parity/Packages/macOS/CmuxNext/ChromiumHost/src" "$parity/plans/cmux-next/chrome-parity"
-cat >"$parity/Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h" <<'EOF'
-// Fixture wire. kNotAKind = 9 in a comment is not a Kind.
-enum Kind : uint32_t {
-  kGeometry = 2,  // v0 width
-  kFocus = 6,
-};
-inline constexpr int kElsewhere = 7;
+# The frame kinds come from the host wire schema (task p05-ipc-181); a row names one by its C++ name.
+mkdir -p "$parity/cmux-tui/spec" "$parity/plans/cmux-next/chrome-parity"
+cat >"$parity/cmux-tui/spec/chromium-host-wire.json" <<'EOF'
+{"$comment": ["Fixture wire. kNotAKind in a comment is not a kind."],
+ "constants": [{"name": "elsewhere", "type": "i32", "value": 7}],
+ "kinds": [{"name": "geometry", "value": 2, "direction": "to_host", "doc": ["v0 width"]},
+           {"name": "focus", "value": 6, "direction": "to_host"}]}
 EOF
 echo '{"programs": {"p01-process": {"tasks": [{"id": "p01-process-054"}]}}}' \
   >"$parity/plans/cmux-next/chrome-parity/design-result.json"
@@ -914,7 +913,7 @@ EOF
 show_row '{"wire": "kFocus"}'
 expect 0 "" "a wire Kind" -- --root "$parity" --check-view-parity
 show_row '{"wire": "kElsewhere"}'
-expect 1 "wire 'kElsewhere' is not a Kind" "a constant outside enum Kind" -- --root "$parity" --check-view-parity
+expect 1 "wire 'kElsewhere' is not a Kind" "a constant, not a kind" -- --root "$parity" --check-view-parity
 show_row '{"wire": "kNotAKind"}'
 expect 1 "wire 'kNotAKind' is not a Kind" "a Kind named only in a comment" -- --root "$parity" --check-view-parity
 show_row '{"op": "cmux_shim_no_such_export"}'
@@ -963,9 +962,9 @@ expect 1 "RenderWidgetHostNSViewHost.GestureBegin: mapped, but the mojom has no 
   -- --root "$parity" --check-view-parity
 stale_row drop
 expect 0 "" "the stale row gone" -- --root "$parity" --check-view-parity
-rm "$parity/Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h"
+rm "$parity/cmux-tui/spec/chromium-host-wire.json"
 show_row '{"wire": "kFocus"}'
-expect 1 "chromium_host_wire.h is missing" "a wire row without the wire header" -- --root "$parity" --check-view-parity
+expect 1 "chromium-host-wire.json is missing" "a wire row without the wire schema" -- --root "$parity" --check-view-parity
 show_row '{"event": "CMUX_SHIM_ADDRESS"}'
 echo "// drift" >>"$parity/plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom"
 expect 1 "changed since it was mapped" "mojom drift" -- --root "$parity" --check-view-parity

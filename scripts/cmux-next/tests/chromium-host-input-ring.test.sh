@@ -14,8 +14,11 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-input-ring.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
-"${cxx[@]}" -std=c++20 -fno-exceptions -Wall -Wextra -Werror -O2 \
+# shellcheck source=../lib/host-wire.sh
+source "$root/scripts/cmux-next/lib/host-wire.sh"
+host_wire_headers "$root" "$work/wire"
+"${cxx[@]}" -std=c++20 -fno-exceptions -Wall -Wextra -Werror -O2 -I"$work/wire" \
   -o "$work/test" "$root/Packages/macOS/CmuxNext/ChromiumHost/tests/chromium_host_input_ring_test.cpp"
-"${cxx[@]}" -std=c++20 -fno-exceptions -Wall -Wextra -Werror -O2 \
+"${cxx[@]}" -std=c++20 -fno-exceptions -Wall -Wextra -Werror -O2 -I"$work/wire" \
   -o "$work/reader" "$root/Packages/macOS/CmuxNext/ChromiumHost/tests/chromium_host_input_ring_reader.cpp"
 "$work/test"

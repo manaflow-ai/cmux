@@ -20,6 +20,12 @@
 //     --resource-operations cmux-tui/spec/fixtures/ipc-method-tables/resource-operations-v2.json \
 //     --event-output <plugin work dir>/DaemonWireEvent+Fixture.swift --event-import CmuxNextIPC
 //
+// For CmuxNextBrowser it writes only the Chromium host wire's frame codec (task p05-ipc-181,
+// HostWireEmitter), from its own schema; the two schemas above are not read:
+//
+//   CmuxNextWireGen --host-wire cmux-tui/spec/chromium-host-wire.json \
+//     --host-wire-output <plugin work dir>/ChromiumHostFrame+Wire.swift
+//
 // A run writes only the outputs it is given. Its outputs live only in the plugin work
 // directory; nothing it writes is in git (scripts/ci/generated-files.json, `ipc-wire-swift`,
 // status "build"). The Rust side is cmux-tui/crates/cmux-ipc/build.rs; both write the same
@@ -31,8 +37,19 @@ import Foundation
 
 func run(_ argv: [String]) throws(WireGenError) {
     let arguments = try WireGenArguments(argv)
-    let sdk = try SchemaInput(arguments.sdkSchema)
-    let resource = try SchemaInput(arguments.resourceOperations)
+    if let schema = arguments.hostWire, let output = arguments.hostWireOutput {
+        let input = try SchemaInput(schema)
+        let emitter: HostWireEmitter
+        do throws(HostWireSchemaError) {
+            emitter = try HostWireEmitter(schema: input.bytes)
+        } catch {
+            throw WireGenError.hostWire(error)
+        }
+        try GeneratedFile(url: output).write(emitter.source())
+    }
+    guard let schemas = arguments.schemas else { return }
+    let sdk = try SchemaInput(schemas.sdk)
+    let resource = try SchemaInput(schemas.resourceOperations)
     if let output = arguments.identityOutput {
         let emitter = try IdentityEmitter(
             sdk: SchemaFile<SDKSchemaHeader>(sdk),
