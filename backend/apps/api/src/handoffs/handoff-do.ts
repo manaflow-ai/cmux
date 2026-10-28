@@ -89,8 +89,9 @@ const view = (r: Row): HandoffView => ({
 /**
  * HandoffDO: one per hand-off (name = the hand-off id). Its one row is the hand-off; this object is
  * its only writer. Tables exist only once `init` ran, so a read of an unknown id writes nothing.
- * After each change it wakes its waits and writes the owner's HandoffIndexDO row (by version; an
- * alarm retries a failed write). A wait ends on the next change or at its deadline (at most
+ * After each change it wakes its waits and writes the owner's HandoffIndexDO row (by version); the
+ * change arms an alarm in the same write, cleared once the index has it, so no write is lost.
+ * A wait ends on the next change or at its deadline (at most
  * MAX_WAIT_MS); no timer outlives its request.
  */
 export class HandoffDO extends DurableObject<Env> {
@@ -105,19 +106,32 @@ export class HandoffDO extends DurableObject<Env> {
     return r && r.owner === owner ? r : undefined
   }
 
+  /**
+   * After every change. The change itself armed the index retry (`commit`), so a reset before the
+   * index write still reaches the index; the alarm is cleared only once the newest version is there.
+   */
   private async changed(): Promise<void> {
     for (const wake of [...this.waiters]) wake()
     const r = this.row()!
-    if (r.indexed_version < r.version) {
-      try {
-        const ns = this.env.HANDOFF_INDEX_DO!
-        await ns.get(ns.idFromName(r.owner)).put({ id: r.id, sessionId: r.session_id, status: r.status as HandoffStatus, summary: r.summary, createdAt: r.created_at, updatedAt: r.updated_at, version: r.version })
-        this.ctx.storage.sql.exec(`UPDATE handoff SET indexed_version = max(indexed_version, ?) WHERE k = 1`, r.version)
-      } catch (e) {
-        console.warn(JSON.stringify({ msg: "handoffs.index_put_failed", error: String(e).slice(0, 200) }))
-        await this.ctx.storage.setAlarm(Date.now() + INDEX_RETRY_MS)
-      }
+    if (r.indexed_version >= r.version) return
+    try {
+      const ns = this.env.HANDOFF_INDEX_DO!
+      await ns.get(ns.idFromName(r.owner)).put({ id: r.id, sessionId: r.session_id, status: r.status as HandoffStatus, summary: r.summary, createdAt: r.created_at, updatedAt: r.updated_at, version: r.version })
+      this.ctx.storage.sql.exec(`UPDATE handoff SET indexed_version = max(indexed_version, ?) WHERE k = 1`, r.version)
+      const now = this.row()!
+      if (now.indexed_version >= now.version) await this.ctx.storage.deleteAlarm()
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: "handoffs.index_put_failed", error: String(e).slice(0, 200) }))
+      await this.ctx.storage.setAlarm(Date.now() + INDEX_RETRY_MS)
     }
+  }
+
+  /** One change: its rows and the index retry alarm in the same write (no await between them), then the index. */
+  private async commit(change: () => void): Promise<void> {
+    this.ctx.storage.transactionSync(change)
+    // Called before any await, so the alarm commits with the change's rows.
+    await this.ctx.storage.setAlarm(Date.now() + INDEX_RETRY_MS)
+    await this.changed()
   }
 
   override async alarm(): Promise<void> {
@@ -142,14 +156,13 @@ export class HandoffDO extends DurableObject<Env> {
     }
     const now = Date.now()
     const token = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("")
-    this.ctx.storage.transactionSync(() => {
+    await this.commit(() => {
       this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS handoff (k INTEGER PRIMARY KEY CHECK (k = 1), id TEXT NOT NULL, owner TEXT NOT NULL, request_digest TEXT NOT NULL, session_id TEXT NOT NULL, machine TEXT NOT NULL, vcpus REAL, memory_gb REAL, size_pick TEXT, size_reason TEXT, machine_token TEXT NOT NULL, status TEXT NOT NULL, summary TEXT, version INTEGER NOT NULL, indexed_version INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, status_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER)`)
       this.ctx.storage.sql.exec(
         `INSERT INTO handoff (k, id, owner, request_digest, session_id, machine, vcpus, memory_gb, size_pick, size_reason, machine_token, status, version, created_at, updated_at, status_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', 1, ?, ?, ?)`,
         input.id, input.owner, input.requestDigest, input.sessionId, input.machine, input.size.vcpus, input.size.memoryGb, input.size.pick, input.size.reason, token, now, now, now
       )
     })
-    await this.changed()
     return ok({ handoff: view(this.row()!), machineToken: token })
   }
 
@@ -178,8 +191,7 @@ export class HandoffDO extends DurableObject<Env> {
     const r = this.owned(owner)
     if (!r) return notFound
     if (FINISHED.has(r.status)) return ok(view(r))
-    this.set(Date.now(), "cancelled", null)
-    await this.changed()
+    await this.commit(() => this.set(Date.now(), "cancelled", null))
     return ok(view(this.row()!))
   }
 
@@ -199,8 +211,7 @@ export class HandoffDO extends DurableObject<Env> {
     // Anyone but its machine learns nothing, not even that it exists.
     if (!r || !this.machineMay(r, cred)) return notFound
     if (FINISHED.has(r.status)) return { ok: false, code: "handoff.finished", message: `the hand-off is already ${r.status}`, handoff: view(r) }
-    this.set(Date.now(), status as HandoffStatus, summary === null ? null : summary.slice(0, SUMMARY_MAX_CHARS))
-    await this.changed()
+    await this.commit(() => this.set(Date.now(), status as HandoffStatus, summary === null ? null : summary.slice(0, SUMMARY_MAX_CHARS)))
     return ok(view(this.row()!))
   }
 }

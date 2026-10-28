@@ -108,7 +108,7 @@ const machineCredential = async (request: Request, env: Env): Promise<MachineCre
   if (!p || p.kind !== "install" || p.install_kind !== "vm") return fail(401, "auth.unauthenticated", "the hand-off's machine token or its machine's VM install is required")
   const granted = await withGrantClasses(env, p).catch(() => null)
   if (granted === null) return fail(503, "owner.unreachable", "the install could not be checked; retry")
-  if (!granted?.user || !granted.bound_machine) return fail(401, "auth.unauthenticated", "install revoked or not bound to a machine")
+  if (!granted?.user || granted.install_kind !== "vm" || !granted.bound_machine) return fail(401, "auth.unauthenticated", "install revoked or not bound to a machine")
   return { owner: granted.user, machine: granted.bound_machine }
 }
 

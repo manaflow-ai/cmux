@@ -108,19 +108,29 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect(two.body.nextCursor).toBeNull()
   })
 
-  it("a lost index write is retried by the hand-off's alarm", async () => {
+  it("a change cut off before its index write still reaches the owner's list: the change armed the retry itself", async () => {
     const t = await sessionToken("handoff-index-retry")
     const { body } = await handOff(t)
     const id = body.handoff.id as string
     const stub = testEnv.HANDOFF_DO.get(testEnv.HANDOFF_DO.idFromName(id))
-    // As if the index write after a change failed: the hand-off is ahead of its indexed version.
-    await runIn(stub, async (_i, state) => {
-      state.storage.sql.exec(`UPDATE handoff SET status = 'running', version = version + 1`)
-      await state.storage.setAlarm(Date.now())
+    // Once indexed, no retry is left armed.
+    expect(await runIn(stub, async (_i, state) => state.storage.getAlarm())).toBeNull()
+    // The index write never answers (as if the object were reset right after the change committed).
+    let release!: (e: Error) => void
+    await runIn(stub, async (instance, state) => {
+      const real = instance.env
+      instance.env = { ...real, HANDOFF_INDEX_DO: { idFromName: () => "x", get: () => ({ put: () => new Promise((_r, reject) => (release = reject)) }) } }
+      const report = instance.report({ token: body.machineToken }, "done", "finished while the index was away").catch(() => null)
+      await new Promise((r) => setTimeout(r, 50))
+      expect(await state.storage.getAlarm()).not.toBeNull()
+      instance.env = real
+      release(new Error("reset"))
+      await report
     })
     expect((await call("GET", "/v1/handoffs", as(t))).body.handoffs[0].status).toBe("starting")
     await runDurableObjectAlarm(stub as never)
-    expect((await call("GET", "/v1/handoffs", as(t))).body.handoffs[0].status).toBe("running")
+    expect((await call("GET", "/v1/handoffs", as(t))).body.handoffs[0]).toMatchObject({ status: "done", summary: "finished while the index was away" })
+    expect(await runIn(stub, async (_i, state) => state.storage.getAlarm())).toBeNull()
   })
 
   it("the VM install bound to the hand-off's machine may report; one bound to another machine may not", async () => {
