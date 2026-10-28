@@ -324,7 +324,24 @@ impl Hub {
     /// power loss logs no end).
     fn read_processes(&self, session: &Session) -> ProcessTable {
         let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // The log's last whole record, read from its end: a head alone could be a line a crash
+        // cut short, which a whole-record read skips. Read first, so a record logged meanwhile
+        // that the scan below does not fold is never counted as folded.
+        let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
+            table.through = e.seq;
+            false
+        });
+        // Only the kinds folded here are parsed (`Store::scan_heads`): an adoption after a
+        // restart reads this from the whole log.
+        let _ = self.store.scan_heads(&session.id, &mut |head| {
+            if !matches!(
+                (head.dir, head.kind),
+                ("in", "background_task_update")
+                    | ("mux", "process_update" | "stopped" | "exited" | "host_started")
+            ) {
+                return true;
+            }
+            let Some(e) = head.record() else { return true };
             table.through = table.through.max(e.seq);
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("in", "background_task_update") => {

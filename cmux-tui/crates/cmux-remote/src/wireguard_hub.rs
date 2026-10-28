@@ -8,9 +8,15 @@
 //! owner-only Unix socket; each sidecar dials VPC addresses through the hub
 //! with [`crate::provider::SocksDialer`].
 //!
-//! The hub is deliberately narrow: no authentication method other than "none"
-//! (the Unix socket is `0600` and the peer's uid is checked), CONNECT only,
-//! literal IP targets only, and only targets inside the tunnel's routes. It
+//! The hub is deliberately narrow: the Unix socket is `0600` and the peer's
+//! uid is checked; with a [`HubClientToken`] a client must also present that
+//! per-launch token (SOCKS5 username/password), so another program of the
+//! same user that finds the socket still cannot reach the VMs' services. The
+//! one exception is ssh ([`OPEN_PORTS`]): `cmux wg dial` (an ssh
+//! `ProxyCommand`) reaches port 22 without the token, since ssh authenticates
+//! both ends itself (the user's key, the host key pinned at enrollment).
+//! CONNECT only, literal IP targets only, and only targets inside the
+//! tunnel's routes. It
 //! is a carrier, not an authority: the cmux Noise handshake still runs end to
 //! end inside every tunneled connection.
 
@@ -27,6 +33,7 @@ use tokio::sync::{Semaphore, oneshot};
 use tokio::task::JoinSet;
 
 use crate::admin::verify_unix_peer_owner;
+pub use crate::provider::HubClientToken;
 use crate::provider::socks::{
     self, COMMAND_CONNECT, REPLY_ADDRESS_TYPE_NOT_SUPPORTED, REPLY_COMMAND_NOT_SUPPORTED,
     REPLY_CONNECTION_REFUSED, REPLY_GENERAL_FAILURE, REPLY_NETWORK_UNREACHABLE, REPLY_NOT_ALLOWED,
@@ -129,7 +136,8 @@ impl Drop for WireGuardHub {
     }
 }
 
-/// Serve SOCKS5 CONNECT for `net` on the Unix socket at `path`.
+/// Serve SOCKS5 CONNECT for `net` on the Unix socket at `path`. With a
+/// `token`, only clients presenting it are served.
 ///
 /// The parent directory is created `0700` if missing and must be owned by
 /// this user and not writable by others without the sticky bit; the socket is
@@ -137,6 +145,7 @@ impl Drop for WireGuardHub {
 pub async fn serve_wireguard_hub(
     net: Arc<WgNet>,
     path: impl Into<PathBuf>,
+    token: Option<HubClientToken>,
 ) -> Result<WireGuardHub, HubError> {
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone()).await?;
@@ -186,9 +195,10 @@ pub async fn serve_wireguard_hub(
                         continue;
                     };
                     let net = Arc::clone(&net);
+                    let token = token.clone();
                     connections.spawn(async move {
                         let _permit = permit;
-                        let _ = serve_connection(net, stream).await;
+                        let _ = serve_connection(net, stream, token.as_ref()).await;
                     });
                 }
             }
@@ -197,20 +207,28 @@ pub async fn serve_wireguard_hub(
     Ok(WireGuardHub { path, routes, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
+/// The ports a client without the hub's token may reach: ssh only, which authenticates
+/// both ends itself. The VMs' unauthenticated services (noVNC, the desktop hosts, dev
+/// servers) need the token.
+pub const OPEN_PORTS: &[u16] = &[22];
+
 /// One SOCKS5 exchange, then a bidirectional copy until either side closes.
 async fn serve_connection(
     net: Arc<WgNet>,
     mut stream: UnixStream,
+    token: Option<&HubClientToken>,
 ) -> Result<(), socks::SocksError> {
-    let request = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
-        if !socks::server_greet(&mut stream).await? {
+    let greeted = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+        let greeting =
+            socks::server_greet(&mut stream, token.map(HubClientToken::as_bytes), true).await?;
+        if greeting == socks::Greeting::Refused {
             return Ok(None);
         }
-        socks::server_read_request(&mut stream).await.map(Some)
+        socks::server_read_request(&mut stream).await.map(|request| Some((greeting, request)))
     })
     .await
     .map_err(|_| socks::SocksError::Protocol("handshake timed out".into()))??;
-    let Some(request) = request else { return Ok(()) };
+    let Some((greeting, request)) = greeted else { return Ok(()) };
 
     if request.command != COMMAND_CONNECT {
         socks::server_reply(&mut stream, REPLY_COMMAND_NOT_SUPPORTED, None).await?;
@@ -225,7 +243,8 @@ async fn serve_connection(
             return Ok(());
         }
     };
-    if !net.routes_contain(target.ip()) {
+    let open_only = greeting == socks::Greeting::Open;
+    if !net.routes_contain(target.ip()) || (open_only && !OPEN_PORTS.contains(&target.port())) {
         socks::server_reply(&mut stream, REPLY_NOT_ALLOWED, None).await?;
         return Ok(());
     }
@@ -281,7 +300,7 @@ mod tests {
             let permits = Arc::clone(&permits);
             async move {
                 let _permit = permits.acquire_owned().await.unwrap();
-                serve_connection(net, server).await
+                serve_connection(net, server, None).await
             }
         });
         client.write_all(&[5, 1, 0]).await.unwrap();

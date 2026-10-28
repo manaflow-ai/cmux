@@ -1084,9 +1084,13 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
 
+# The Blacksmith outage failover reads a variable but only ever picks another Blacksmith size.
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| ")
+
+
 def can_run_on_owned_runner(job: dict) -> bool:
     """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
-    return "vars." in str(job.get("runs-on", ""))
+    return "vars." in OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -1124,10 +1128,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
+        # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test",
-                                           "web-bundles"])
+                                           "release-compile", "request-nightly-next", "request-nightly-next-fast",
+                                           "swift-canary", "swift-test", "web-bundles"])
 
 
 
@@ -1198,6 +1202,30 @@ class SameTreeIsAnEvent(unittest.TestCase):
         # mutate Actions or repository contents.
         self.assertEqual(route["permissions"].get("actions"), "read")
         self.assertEqual(route["permissions"].get("contents"), "read")
+
+    def test_path_route_probes_fail_open_inside_the_job_limit(self):
+        # A slow probe (2026-10-27: one fetch per active artifacts run during a
+        # lane-branch push burst) once held path routing past its job limit; the
+        # cancelled job skipped every Release compile and swift test. Each probe
+        # stops at its own limit and fails open, so routing still succeeds.
+        route = self.jobs()["path_route"]
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertEqual(len(probes), 2)
+        for step in probes:
+            with self.subTest(step=step["name"]):
+                self.assertIs(step.get("continue-on-error"), True)
+                self.assertLessEqual(int(step["timeout-minutes"]), 2)
+                budget = int(step["env"]["CMUX_TUI_TREE_RUN_FETCH_SECONDS"])
+                self.assertLess(budget, 60 * int(step["timeout-minutes"]))
+        self.assertGreater(int(route["timeout-minutes"]), sum(int(step["timeout-minutes"]) for step in probes) + 2)
+        report = next(step for step in route["steps"] if step.get("name") == "Report a probe that failed open")
+        self.assertIn("steps.tree.outcome == 'failure'", report["if"])
+        self.assertIn("steps.tree-final.outcome == 'failure'", report["if"])
+        # The routed tiers come from the step before the probes, never from a probe.
+        for name, value in route["outputs"].items():
+            if not name.startswith("tree_"):
+                with self.subTest(output=name):
+                    self.assertTrue(value.strip().startswith("${{ steps.route.outputs."), value)
 
     def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
         jobs = self.jobs()
@@ -1310,6 +1338,11 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         rust = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
         self.assertLess(max(init, zig, rust), tier)
+        # The Zig packages come from the deadlined, retried fetch, not from build.rs's
+        # single unretried download (a pkg/highway ReadFailed failed the job).
+        fetch = next(i for i, run in enumerate(runs) if "scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next" in run)
+        self.assertLess(zig, fetch)
+        self.assertLess(fetch, tier)
 
     def test_the_cargo_job_runs_on_linux_and_gates_like_the_mac_job(self):
         jobs = self.jobs()
@@ -1318,7 +1351,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
         self.assertNotEqual(cargo["if"], mac["if"])
@@ -1779,10 +1813,10 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
-        # The seed runs once per pool the fast tier lands on, from the due job's matrix:
-        # the key holds the workspace path, so a Blacksmith seed (/Users/runner/_work) never
-        # warms a hosted macos-26 fast tier (/Users/runner/work). Every PR fast tier sampled
-        # on 2026-10-20 ran hosted and built CmuxNext cold (20 to 28 minutes).
+        # The seed runs once per pool the fast tier restores a seed on, from the due job's matrix:
+        # the key holds the workspace path, so each pool needs its own seed. Only Blacksmith
+        # restores one: no GitHub-hosted pool (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
+        # THE SLOWEST THINGS"), and the owned minis keep their builds on their own SSD.
         self.assertEqual(build["strategy"]["matrix"], {"include": "${{ fromJSON(needs.due.outputs.pools) }}"})
         self.assertIs(build["strategy"].get("fail-fast"), False)
         self.assertIn("matrix.runner", str(build["runs-on"]))
@@ -1793,8 +1827,7 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(pools["hosted"]["runner"], "macos-26", "next_macos_cascade.py HOSTED")
-        self.assertEqual(pools["hosted"]["workspace"], "/Users/runner/work/cmux/cmux")
+        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
@@ -1874,11 +1907,12 @@ class FastTierStartsWarm(unittest.TestCase):
                          "due=true", "pointers are not archives")
 
     def test_each_pool_is_due_on_its_own_seeds(self):
-        """A fresh Blacksmith seed does not make the hosted pool's seed fresh: their keys differ."""
+        """A fresh seed at one workspace path does not make another path's pool fresh: their keys differ."""
         import hashlib
         place = lambda path: hashlib.sha256(path.encode()).hexdigest()[:12]
         hosted, blacksmith = "/Users/runner/work/cmux/cmux", "/Users/runner/_work/cmux/cmux"
-        pools = [{"pool": "hosted", "runner": "macos-26", "workspace": hosted},
+        # Two paths, as two pools would have them; "other" is a fixture, not a live pool.
+        pools = [{"pool": "other", "runner": "blacksmith-12vcpu-macos-26", "workspace": hosted},
                  {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": blacksmith}]
         swift = lambda modified, path: {
             "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-0123456789abcdef-fedcba9876543210-{place(path)}-abc.tar.zst",
@@ -1897,11 +1931,11 @@ class FastTierStartsWarm(unittest.TestCase):
                 self.assertIn(entry, pools, "a due pool keeps its runner and workspace")
             return [entry["pool"] for entry in chosen]
 
-        self.assertEqual(due([]), ["hosted", "blacksmith"])
-        self.assertEqual(due([swift("2026-10-19T21:50:00Z", blacksmith)]), ["hosted"])
+        self.assertEqual(due([]), ["other", "blacksmith"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", blacksmith)]), ["other"])
         self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted)]), ["blacksmith"])
         self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), [])
-        self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["hosted"])
+        self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["other"])
 
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1992,11 +2026,7 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
     "&& 'blacksmith-6vcpu-macos-26' || "
-    # Hosted macos-26 takes the overflow while Blacksmith is full or stalled.
-    "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
-    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
-    "&& contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') "
-    "&& needs.macos-placement.outputs.hosted_runner || "
+    # No GitHub-hosted overflow: a job Blacksmith cannot take now waits on the owned label.
     "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
@@ -2071,7 +2101,9 @@ class ReservedLaneLabels(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, context(fast)), fast)
         # Busy or unread: the cascade's slot, else the side route; never the reserved label.
         self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
-        self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")), "macos-26")
+        # An old placement's hosted reading is never read (Leo, 2026-10-27: no GitHub-hosted Mac).
+        self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")),
+                         "glaeda-side-std-xcode-26.6")
         self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
         # The rescue's overflow attempt never goes back to the fast label.
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",

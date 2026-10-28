@@ -26,6 +26,7 @@ import type {
   PromptDelivery,
   PromptDeliveryHop,
   StartSource,
+  TurnTokenSplit,
 } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
@@ -226,6 +227,38 @@ const callOutputTokens = (update: any): number | undefined => {
   const value = Number(update?.outputTokens ?? update?.output_tokens);
   return Number.isFinite(value) && value >= 0 ? value : undefined;
 };
+const tokenCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+/// A marked call's split: its output (`callOutputTokens`) apart from what it read, the fresh input,
+/// cache reads and cache writes acpmux sends beside it (claude_stdio/inbound.rs). Unset for a call
+/// that names no output or no input (an older acpmux).
+function callTokenSplit(update: any, output: number | undefined): TurnTokenSplit | undefined {
+  if (output === undefined || typeof update?.inputTokens !== "number") return undefined;
+  return {
+    output,
+    input: tokenCount(update.inputTokens),
+    cacheRead: tokenCount(update.cachedReadTokens),
+    cacheWrite: tokenCount(update.cachedWriteTokens),
+  };
+}
+/// A `turn_result`'s tokens (acpmux hub/turn_usage.rs: Claude Code's main loop for the turn), when
+/// it names its output and has any (an all-zero result is an empty turn, with nothing to show).
+function resultTokenSplit(msg: any): TurnTokenSplit | undefined {
+  if (typeof msg?.outputTokens !== "number") return undefined;
+  const split = {
+    output: tokenCount(msg.outputTokens),
+    input: tokenCount(msg.inputTokens),
+    cacheRead: tokenCount(msg.cacheReadTokens),
+    cacheWrite: tokenCount(msg.cacheWriteTokens),
+  };
+  return split.output + split.input + split.cacheRead + split.cacheWrite > 0 ? split : undefined;
+}
+const addSplit = (sum: TurnTokenSplit, call: TurnTokenSplit): TurnTokenSplit => ({
+  output: sum.output + call.output,
+  input: sum.input + call.input,
+  cacheRead: sum.cacheRead + call.cacheRead,
+  cacheWrite: sum.cacheWrite + call.cacheWrite,
+});
+const NO_TOKENS: TurnTokenSplit = { output: 0, input: 0, cacheRead: 0, cacheWrite: 0 };
 /// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
 const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
   value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
@@ -1210,6 +1243,10 @@ export class AcpmuxDirectClient {
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
   /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
   private turnTokens: number | undefined;
+  /// The turn's output (`turnTokens`) beside what its calls read, while every call so far named both
+  /// (claude_stdio/inbound.rs); unset from the first that did not (an older acpmux), so the line
+  /// never shows a split that leaves calls out.
+  private turnTokenSplit: TurnTokenSplit | undefined;
   /// The first seq whose usage this client holds: the attach page's first record when acpmux has
   /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
   /// client never saw, so every rebuild leaves its tokens unset. Infinity until an attach answers:
@@ -1857,6 +1894,7 @@ export class AcpmuxDirectClient {
     this.goalSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.usageFromSeq = Infinity;
     this.queue = [];
     this.queueWithdrawn = [];
@@ -2067,6 +2105,52 @@ export class AcpmuxDirectClient {
       () => true,
       () => false,
     );
+  }
+
+  /// Whether the selected chat, attached with nothing out, is listed now as another session than
+  /// the one its rows are of: the machine recreated it (another `createdAt`) or it moved to another
+  /// machine (another `peer`, or a peer's chat now on this Mac). Its rows are another journal then,
+  /// and records of the new session would land under them (`apply` takes a record by its id and
+  /// seq alone). A row that names no `createdAt` says nothing of its session.
+  private rowMovedOn(row: SessionSummary): boolean {
+    if (this.attachedGeneration !== this.selectionGeneration || this.attachOut) return false;
+    // Rows proven of a session (an attach set these): none drawn says nothing to compare, so a
+    // read that failed is not tried again on every row change.
+    if (this.rowsPeer === undefined && typeof this.rowsGeneration !== "number") return false;
+    const peer = typeof row.peer === "string" ? row.peer : undefined;
+    if (peer !== this.rowsPeer) return true;
+    return (
+      typeof row.createdAt === "number" &&
+      typeof this.rowsGeneration === "number" &&
+      row.createdAt !== this.rowsGeneration
+    );
+  }
+
+  /// The chat on screen is listed as another session now (`rowMovedOn`): its rows go, and the
+  /// session listed now is read from nothing, as a switch to it would, behind the same snapshot hold
+  /// (the pane keeps what it drew until the page is in). One attach per such row change, owned as
+  /// any (`copyAttaches`): a reconnect's that starts meanwhile decides. Down, the Mac's copy of the
+  /// new session is drawn if it has one (`keepPeerCopy`); else the pane says it could not read it.
+  private async reattachMovedRow(sessionId: string): Promise<void> {
+    // A selection of its own, as a switch takes: every read still out for the session before (an
+    // older page, its commands, the reads after its attach) checks the generation it was asked
+    // under, so it lands on nothing.
+    const generation = ++this.selectionGeneration;
+    const hold = this.holdSnapshots(SWITCH_HOLD_MS);
+    this.resetSessionState();
+    // An older page in flight was read of the session before: it lands on nothing (`fetchOlder`).
+    this.historyEpoch += 1;
+    const mine = ++this.copyAttaches;
+    try {
+      await this.attach(sessionId, generation, 0);
+    } catch (error) {
+      if (mine !== this.copyAttaches) return;
+      if (await this.keepPeerCopy(sessionId, generation, error)) return;
+      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+    } finally {
+      this.releaseSnapshots(hold);
+    }
   }
 
   /// After a copy was marked offline: its row said the machine was back while the copy's attach
@@ -3082,13 +3166,16 @@ export class AcpmuxDirectClient {
       this.commands = keptCommands;
       rememberCommands(sessionId, keptCommands);
       this.emit("commands");
-    } else if (
+    }
+    // Read back once this attach is kept (below): an attempt the row moves on from is retried
+    // under the same generation, so a read it sent could answer for the retry's session.
+    const readCommandsThrough =
       !keptCommands &&
       !page.some((event) => event.kind === COMMANDS_KIND) &&
       typeof result?.lastSeq === "number" &&
       result.lastSeq > 0
-    )
-      void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
+        ? result.lastSeq
+        : undefined;
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
@@ -3113,6 +3200,8 @@ export class AcpmuxDirectClient {
     if (!current()) return [];
     // The row moved on while those reads were out: what this attach staged is not the chat's.
     if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf) return again();
+    if (readCommandsThrough !== undefined)
+      void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
     this.turnOpener = opener;
     // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
@@ -3246,6 +3335,7 @@ export class AcpmuxDirectClient {
         if (back) this.copyBack = id;
         void this.redrawPeerCopy(id);
       } else if (copy?.offline && back) void this.reattachPeerCopy(id);
+      else if (!copy && this.rowMovedOn(session)) void this.reattachMovedRow(id);
     }
     if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
       this.childChanged(session.sessionId);
@@ -3436,6 +3526,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
@@ -3798,9 +3889,14 @@ export class AcpmuxDirectClient {
       const size = Number(update.size);
       // `used` is the last call's prompt/context size. Only an explicitly reported generated
       // count belongs on the running line; adding `used` here counted the whole context again on
-      // every tool step (for example, 5 × 100K input became 500K instead of 5K output).
-      const output = callOutputTokens(update);
-      if (this.turnTokens !== undefined && isCallUsage(update) && output !== undefined) this.turnTokens += output;
+      // every tool step (for example, 5 × 100K input became 500K instead of 5K output). What the
+      // calls read stays apart, in the split, for the line's "in" and its hover.
+      if (this.turnTokens !== undefined && isCallUsage(update)) {
+        const output = callOutputTokens(update);
+        if (output !== undefined) this.turnTokens += output;
+        const split = callTokenSplit(update, output);
+        this.turnTokenSplit = split && this.turnTokenSplit ? addSplit(this.turnTokenSplit, split) : undefined;
+      }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
@@ -4077,6 +4173,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
+        this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
         this.subagents.startTurn();
         this.settleCompactions(event.seq, true);
         // A Stop before this turn never judges it.
@@ -4105,6 +4202,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.silentTurn = false;
         this.turnTokens = undefined;
+        this.turnTokenSplit = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
@@ -4137,6 +4235,7 @@ export class AcpmuxDirectClient {
             kind: "turnSummary",
             seq: event.seq,
             ...this.turnTotals(event.at),
+            ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
             status,
             ...(continued ? { continued } : {}),
             // An agent that could not start ends its turn with `error` and no `errorText`
@@ -4614,6 +4713,9 @@ export class AcpmuxDirectClient {
         // acpmux may still list a paused queue's session as running from before its turn failed.
         (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary))),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
+      ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
+        ? { turnTokenSplit: this.turnTokenSplit }
+        : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
@@ -4651,6 +4753,10 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
+  /** Changes on every selection, including leaving and returning to the same session. */
+  get selectionToken(): number {
+    return this.selectionGeneration;
+  }
   /** A copy of the selected session's recorded events, oldest first, for the inspector. */
   sessionEvents(): EventRecord[] {
     return this.events.slice();
@@ -4664,9 +4770,15 @@ export class AcpmuxDirectClient {
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    // A failed start leaves the selection as it was; the prompt then goes where the pane is.
-    if (this.creating) await this.creating.catch(() => undefined);
-    if (!this.selectedSessionId) await this.create();
+    // This send belongs to the requested chat. A refused or empty start must not send it to
+    // the previous chat, or start the default harness instead of the one the person picked.
+    if (this.creating || !this.selectedSessionId) {
+      const sessionId = await (this.creating ?? this.create());
+      // The app also calls this before send(): an empty result must stop that preflight,
+      // otherwise send() would ensure again after the failed creation has been cleared.
+      if (!sessionId) throw new Error(translate("error.notOpen"));
+      return sessionId;
+    }
     return this.selectedSessionId;
   }
 
@@ -6498,6 +6610,7 @@ export class AcpmuxDirectClient {
       turnOpen: this.turnOpen,
       silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
+      turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
       streamingActivity: this.streamingActivity,
@@ -6528,6 +6641,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;

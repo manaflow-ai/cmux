@@ -116,6 +116,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
+    /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
+    /// false: every crash shows its notice, and only its Reload button reloads.
+    public var reloadsAfterCrash = true
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
@@ -158,6 +162,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
+    /// the notice's Reload (``reloadAfterCrashes()``).
+    var webKitLoadsOnReload = false
     let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
@@ -226,8 +233,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
         let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+        var allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
                        debugRoot(for: descriptor)].compactMap { $0 }
+        #if DEBUG
+        allowed += PageID.fixtureRoots(for: descriptor.id)
+        #endif
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 

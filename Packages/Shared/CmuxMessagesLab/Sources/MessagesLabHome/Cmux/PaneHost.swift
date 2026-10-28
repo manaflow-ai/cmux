@@ -306,6 +306,9 @@ extension FieldChrome {
     func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
         field.wantsLayer = true
         if let layer = field.layer {
+            // NSGlassEffectView rounds its glass internally, independently of its backing
+            // layer. Keep the added hairline on the same curve instead of boxing the glass.
+            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
             let width: CGFloat = light && edge != nil ? 1 : 0
             if layer.borderWidth != width { layer.borderWidth = width }
             if let edge, light { layer.borderColor = edge.cgColor }

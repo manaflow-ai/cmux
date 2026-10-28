@@ -1,12 +1,12 @@
 import Foundation
 
-/// The key bar's Ctrl and Alt (ghostty-next section 5): a tap arms the
-/// modifier for the next key from either keyboard, a second tap within
-/// `doubleTapInterval` locks it until it is tapped again, and a tap on an
-/// armed modifier after that interval turns it off. Client view state of one
-/// terminal view; the owner never sees it.
+/// The key row's ⌃ ⌥ ⌘ ⇧ (ghostty-next section 5, classic cmux iOS's modifier
+/// keys): a tap arms the modifier for the next key from either keyboard, a
+/// second tap within `doubleTapInterval` locks it until it is tapped again,
+/// and a tap on an armed modifier after that interval turns it off. Client
+/// view state of one terminal view; the owner never sees it.
 public struct TerminalStickyModifiers: Equatable, Sendable {
-    public enum Modifier: Sendable, CaseIterable { case control, alternate }
+    public enum Modifier: Sendable, CaseIterable { case control, alternate, command, shift }
     public enum State: Equatable, Sendable { case off, armed(at: TimeInterval), locked }
 
     /// The longest gap between two taps that locks a modifier.
@@ -14,11 +14,18 @@ public struct TerminalStickyModifiers: Equatable, Sendable {
 
     public private(set) var control: State = .off
     public private(set) var alternate: State = .off
+    public private(set) var command: State = .off
+    public private(set) var shift: State = .off
 
     public init() {}
 
     public func state(_ modifier: Modifier) -> State {
-        modifier == .control ? control : alternate
+        switch modifier {
+        case .control: control
+        case .alternate: alternate
+        case .command: command
+        case .shift: shift
+        }
     }
 
     /// True while the modifier applies to the next key.
@@ -37,9 +44,10 @@ public struct TerminalStickyModifiers: Equatable, Sendable {
     }
 
     /// The modifiers for the key being sent now; armed ones turn off, locked ones stay.
-    public mutating func consume() -> (control: Bool, alternate: Bool) {
-        let used = (control: isActive(.control), alternate: isActive(.alternate))
-        for modifier in Modifier.allCases {
+    public mutating func consume() -> TerminalKeyMods {
+        var used: TerminalKeyMods = []
+        for modifier in Modifier.allCases where isActive(modifier) {
+            used.insert(modifier.keyMod)
             if case .armed = state(modifier) { set(modifier, .off) }
         }
         return used
@@ -47,11 +55,26 @@ public struct TerminalStickyModifiers: Equatable, Sendable {
 
     /// Turns every modifier off (the keyboard hid, the terminal lost focus).
     public mutating func reset() {
-        control = .off
-        alternate = .off
+        for modifier in Modifier.allCases { set(modifier, .off) }
     }
 
     private mutating func set(_ modifier: Modifier, _ state: State) {
-        if modifier == .control { control = state } else { alternate = state }
+        switch modifier {
+        case .control: control = state
+        case .alternate: alternate = state
+        case .command: command = state
+        case .shift: shift = state
+        }
+    }
+}
+
+extension TerminalStickyModifiers.Modifier {
+    var keyMod: TerminalKeyMods {
+        switch self {
+        case .control: .control
+        case .alternate: .alternate
+        case .command: .command
+        case .shift: .shift
+        }
     }
 }

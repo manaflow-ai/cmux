@@ -49,8 +49,6 @@ contains(' <key> ') matches whole keys only:
   whose queue is not stalled), and the Blacksmith label of the bot's overflow
   attempt while one has a free slot, else empty (next_macos_cascade.py; the
   workflow reads it as `free_retry_runner`);
-- `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
-  that label when it takes any (next_macos_cascade.py).
 - `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
   is online and idle for this placement; an empty value keeps the Blacksmith
   overflow route.
@@ -318,8 +316,8 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     behind them for an hour: with CI_FAST_LANE_RUNNER set the tier never
     joined the cascade, and nothing else moved it. So the label is a
     preference taken only when it is free; a busy label, unreadable runners or
-    an unset variable send the tier down the cascade (Blacksmith, hosted
-    macos-26), then the side route, like every other job.
+    an unset variable send the tier down the cascade (Blacksmith), then the
+    side route, like every other job.
     """
     label = (env.get("FAST_LABEL") or "").strip()
     if not label or runners is None:
@@ -589,7 +587,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
-    # queue moves, then hosted macos-26 for the jobs it can run.
+    # queue moves; the rest stay on the owned label (no GitHub-hosted overflow).
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # The dedicated nightly runner is preferred for Release compile. When it is
     # configured but busy/offline, send the compile to Blacksmith immediately

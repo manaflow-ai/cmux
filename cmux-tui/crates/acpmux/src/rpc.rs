@@ -317,6 +317,11 @@ pub mod method {
     /// shows a remote device so its New Agent Chat starts where the app's does.
     pub const MUX_NEW_CHAT_PICKS_SET: &str = "_acpmux/new_chat_picks_set";
     pub const MUX_APPROVERS: &str = "_acpmux/approvers";
+    /// The person's app: this machine's own approver key, which `host enroll`
+    /// enrolls on a peer (`hub/mac_approvers.rs`).
+    pub const MUX_MAC_APPROVER_SET: &str = "_acpmux/mac_approver_set";
+    /// The Macs enrolled here and this machine's own key; `reload` reads the file again.
+    pub const MUX_MAC_APPROVERS: &str = "_acpmux/mac_approvers";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
