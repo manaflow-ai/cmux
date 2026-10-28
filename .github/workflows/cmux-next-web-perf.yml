@@ -109,7 +109,9 @@ jobs:
         working-directory: webviews
         run: |
           set +e
-          bun scripts/latency/run.ts --ci --engine chromium --runs 10 --base "$BASE_SHA" \
+          # Explicit --no-fail delegates the product budget (50 ms p95) to the
+          # trusted validator; harness evidence errors remain fatal under --ci.
+          bun scripts/latency/run.ts --ci --no-fail --engine chromium --runs 10 --base "$BASE_SHA" \
             --json "$RUNNER_TEMP/web-perf-results.json" --require longTasks,reactCommits,cpu
           status=$?
           echo "harness_status=$status" >> "$GITHUB_OUTPUT"
