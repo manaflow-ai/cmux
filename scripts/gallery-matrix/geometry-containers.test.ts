@@ -59,3 +59,12 @@ test("unsupported text-baseline coverage remains explicit in the CI report", asy
   const result = await lintGeometry([{ file: "fixture", artifact: capture(rows()) }], baseline);
   expect(result.coverageGaps).toEqual(baseline.coverageGaps);
 });
+
+test("exclusive containers require captured parts and honor an explicit minimum", async () => {
+  const empty = [node("row", "rows", 0, 0, 300, 28)];
+  const exclusive = rowRules.find((rule) => rule.kind === "exclusive-parts")!;
+  expect((await check(empty, [exclusive])).findings.some((finding) => finding.message.includes("missing peers"))).toBe(true);
+  empty.push(node("spinner", "indicators", 280, 7, 14, 14, "row", "spinner"));
+  expect((await check(empty, [exclusive])).passed).toBe(true);
+  expect((await check(empty, [{ ...exclusive, minCount: 2 }])).passed).toBe(false);
+});

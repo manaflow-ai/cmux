@@ -7,6 +7,8 @@ import type { GeometryArtifact, GeometryElement } from "./geometry";
 /** Selectors assign meaning in the audit config, never in runtime UI. */
 export type GeometrySelection = { group: string; selector: string; secondary?: boolean; containerSelector?: string; containerGroup?: string; part?: string; measurement?: "element" | "text-range" };
 export async function collectGeometry(page: Page, selections: GeometrySelection[], identity: Omit<GeometryArtifact, "elements">, outputDir: string): Promise<string> {
+  const containerGroups = new Set(selections.map((selection) => selection.containerGroup).filter(Boolean));
+  if (selections.some((selection) => containerGroups.has(selection.group))) throw new Error("geometry container and child groups must be distinct");
   const evidence = await page.evaluate((selectors) => {
     const elements: GeometryElement[] = [];
     const groupCounts = new Map<string, number>();

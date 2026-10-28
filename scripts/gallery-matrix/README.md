@@ -144,3 +144,10 @@ ranges. `measurement: text-range` records `DOMRange` bounds as `rectSource: text
 are **not** a text baseline. Unmeasured glyph baselines stay in `coverageGaps`, which is preserved in
 the JSON report. Invisible elements, including opacity-zero ancestors, are excluded by the browser's
 visibility check; missing required peers fail the rule.
+
+Session status also captures `header-action-alignment` in both appearances,
+matching capture `9831817724357efacf50b5ff` at product head
+`7821c60b2bcc18efa9e1f29c08fa95ff80fe4ae0`. Its before Play fails on a 5 px
+DOM Range center difference; the same assertion completes after within 0.5 px.
+The raw sidecar records button boxes, not range coordinates, so range positions
+are collected afresh by the durable collector rather than inferred from boxes.
