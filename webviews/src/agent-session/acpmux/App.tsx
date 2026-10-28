@@ -8306,7 +8306,16 @@ function AcpmuxPane() {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), with Labs > Preview features
     // as the account's machines in the composer's machine list are.
-    const machine = preview && !quick ? cloudMachineRows(chatMachine, snapshot.isWorking, t, (method, params) => callNative(method, params), () => void refreshCloudMachines()) : [];
+    const machine =
+      preview && !quick
+        ? cloudMachineRows(
+            chatMachine,
+            snapshot.isWorking,
+            t,
+            (method, params) => callNative(method, params),
+            () => void refreshCloudMachines(),
+          )
+        : [];
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),

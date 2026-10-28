@@ -57,7 +57,14 @@ export function cloudMachineRows(
     ];
   }
   if (machine.stage === "paused") {
-    return [{ key: "resumeMachine", label: t("chatMenu.resumeMachine"), icon: "action.resume", onSelect: run("cloudMachine.resume") }];
+    return [
+      {
+        key: "resumeMachine",
+        label: t("chatMenu.resumeMachine"),
+        icon: "action.resume",
+        onSelect: run("cloudMachine.resume"),
+      },
+    ];
   }
   return [];
 }

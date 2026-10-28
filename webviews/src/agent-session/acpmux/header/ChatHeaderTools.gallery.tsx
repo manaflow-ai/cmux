@@ -590,19 +590,35 @@ export default componentEntry<HeaderToolsProps>({
     "menu-cloud-machine-running": {
       height: 860,
       note: "A chat on a running Cloud machine (Labs > Preview features): Pause Machine sits before the tools rows (cloudMachineMenu.ts).",
-      props: { ...base, menu: () => withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop)) },
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop),
+          ),
+      },
       play: openMenu,
     },
     "menu-cloud-machine-working": {
       height: 860,
       note: "The same while its turn runs: the row says it stops the turn first.",
-      props: { ...base, menu: () => withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop)) },
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop)),
+      },
       play: openMenu,
     },
     "menu-cloud-machine-paused": {
       height: 860,
       note: "A chat on a paused Cloud machine: Resume Machine.",
-      props: { ...base, menu: () => withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop)) },
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop),
+          ),
+      },
       play: openMenu,
     },
     "keyboard-menu": {
