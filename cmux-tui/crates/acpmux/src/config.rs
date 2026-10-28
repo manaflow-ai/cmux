@@ -827,6 +827,10 @@ pub struct Config {
     pub harnesses: BTreeMap<String, HarnessProfile>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
+    /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
+    /// the normal peer route and send behavior unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_wake: Option<MachineWakeConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
     /// More login-shell variables agents get, beyond the allow-list
@@ -1004,6 +1008,16 @@ pub struct Config {
     /// the hot-reload watcher read the same ones.
     #[serde(skip)]
     pub profile_sources: ProfileSources,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineWakeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 impl Config {

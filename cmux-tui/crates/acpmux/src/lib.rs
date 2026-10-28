@@ -66,6 +66,7 @@ pub(crate) mod linux_sandbox;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
+pub mod machine_wake;
 pub mod mailbox;
 pub mod model_copies;
 pub mod native;
