@@ -61,6 +61,12 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=newterm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "newterm-cold-warm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm"])
+if "--suite=root-profile-ext" in sys.argv:  # SCRATCH: the live check of cp/first5s-root-profile-extensions
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "root-profile-extensions-live.py")
+    rest = [a for a in sys.argv[1:] if a != "--suite=root-profile-ext"]
+    app_arg = rest[rest.index("--app") + 1] if "--app" in rest else None
+    os.execv(sys.executable, [sys.executable, suite, "--app", app_arg, "--out",
+                              os.path.join(os.getcwd(), "artifacts", "split-spring")] + [a for a in rest if a.startswith("--features") or a.startswith("--settle")])
 if "--suite=first-run-idle" in sys.argv:  # SCRATCH: Chromium at idle on a first launch vs later ones
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-run-idle.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first-run-idle"])
