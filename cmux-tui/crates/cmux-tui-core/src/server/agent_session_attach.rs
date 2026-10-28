@@ -85,6 +85,8 @@ pub(crate) struct AgentSessions {
     state: Mutex<AttachState>,
     /// WhoIs attestations from the same-user host proxy, fixed for each link.
     proxy_authors: Mutex<HashMap<u64, Value>>,
+    /// Link shares for guests (`agent-session-share-*`, agent_session_shares.rs).
+    link_shares: proxy::shares::LinkShares,
     /// Unix connections past their first line: a proxy binds only on its first.
     spoken: Mutex<HashSet<u64>>,
     /// A tab's session changes under the write side; every write to or for a teammate's
@@ -573,25 +575,9 @@ pub(super) fn try_handle(
         Ok(None) => (None, None),
         Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
     };
-    // A teammate's link reaches the shared chat's own verbs only: never start, trust, media,
-    // children, permission, typing or view, whatever the proxy forwards.
-    if author.is_some()
-        && !matches!(
-            object.get("cmd").and_then(Value::as_str),
-            Some(
-                "agent-session-attach"
-                    | "agent-session-observe"
-                    | "agent-session-events"
-                    | "agent-session-prompt"
-                    | "agent-session-cancel"
-                    | "agent-session-detach"
-            )
-        )
-    {
-        return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
-    }
-    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-of") {
-        return Some(proxy::session_of(mux, client, object, author.is_some(), writer));
+    // A bound link reaches its own verbs only; the owner's own verbs are answered there.
+    if let Some(handled) = proxy::scope(mux, client, &mut object, author.as_ref(), writer) {
+        return Some(handled);
     }
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
         let clean = Value::Object(object).to_string();
@@ -711,8 +697,6 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
     }
 }
 
-/// The tab's bound acpmux session, if `surface` is an agent tab of this
-/// store with one.
 /// True when `client` is a host proxy's link for a teammate (`agent-session-proxy-bind`).
 pub(super) fn proxy_bound(mux: &Mux, client: u64) -> bool {
     proxy::author(mux, client).is_some()
