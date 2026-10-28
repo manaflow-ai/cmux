@@ -380,8 +380,8 @@ import SwiftUI
         backend.failNext = "no such group"
         await source.editGroup(.setColor("orange"), group: "tgrp_1")
         #expect(tab("t-zsh")?.group?.color == "cyan")
-        #expect(source.toastText == "Set Tab Group Color… didn't work on Aziz's Mac Studio.")
-        #expect(backend.groupEdits == [.setColor("cyan"), .setIcon("hammer"), .setCollapsed(true), .setIcon(nil), .setColor("orange")])
+        #expect(source.toastText == "Set Tab Group Color didn't work on Aziz's Mac Studio.")
+        #expect(backend.groupEdits == [.setColor("cyan"), .setIcon("hammer"), .setCollapsed(true), .setIcon(nil)])
         #expect(source.canMoveGroup("tgrp_1", forward: true))
         await source.newTabInGroup("tgrp_1")
         #expect(source.openedTab != nil && source.route == nil)

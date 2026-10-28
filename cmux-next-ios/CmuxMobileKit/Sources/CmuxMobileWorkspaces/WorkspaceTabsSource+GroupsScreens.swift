@@ -85,6 +85,8 @@ extension WorkspaceTabsSource {
                 store.appendTab(tab, to: workspaceID)
             }
             activate(tab.id)
+            route = nil
+            openedTab = tab.id
             CmuxMobileTheme.standard.haptics.success()
         } catch {
             show(error, doing: "open", "a new screen")
@@ -147,6 +149,9 @@ struct TabGroupIcon: View {
     var body: some View {
         if UIImage(systemName: icon) != nil {
             Image(systemName: icon)
+        } else if icon.hasPrefix("image:") || icon.hasPrefix("svg:") {
+            // A picture the Mac stores (its icon picker's images): the phone has no copy of it.
+            Image(systemName: "photo")
         } else {
             Text(icon)
         }

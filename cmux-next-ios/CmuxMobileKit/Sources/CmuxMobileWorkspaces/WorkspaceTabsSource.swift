@@ -769,8 +769,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
             }
         }
     }
-    /// The tab whose group the person is renaming (Rename Tab Group…).
-    public var renamingGroupTab: WorkspaceTab?
 
     /// The other workspaces on this workspace's Mac, in list order (Move Tab to Workspace…).
     public var otherWorkspaces: [Workspace] {
@@ -831,7 +829,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Mac's list confirms them); Close Tab Group waits for the Mac, as closing a tab does.
     public func editGroup(_ edit: TabGroupEdit, _ id: TabsKitTab.ID) async {
         addingToGroupTab = nil
-        renamingGroupTab = nil
         guard let workspace, let creator, let tab = workspaceTab(id) else { return }
         if case .rename(let name) = edit, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
         // Close Tab Group asks as closing its tabs one by one would (A2).

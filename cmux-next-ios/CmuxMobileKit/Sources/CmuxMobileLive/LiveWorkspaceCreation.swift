@@ -752,15 +752,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         case .moveToNewWorkspace:
             try await run(client, "move-tab-group-to-new-workspace", ["group": try group(of: tab)])
         case .moveToWorkspace(let destination):
-            // The Mac's tabGroup.moveToWorkspace: the destination's shown pane (never its chat
-            // dock: then its first other pane), at the end of its tabs.
+            // The Mac's tabGroup.moveToWorkspace: the destination's first screen's default pane
+            // (never its chat dock: then that screen's first other pane), at the end of its tabs.
             let id = try group(of: tab)
             guard let target = sync.tree?.workspaces.first(where: { $0.id == destination }) else {
                 throw WorkspaceCreationError("That workspace is no longer on this Mac.", isForPerson: true)
             }
-            let screen = target.screens.first(where: \.isActive) ?? target.screens.first
+            let screen = target.screens.first
             let docks = sync.tree?.chatDockPanes ?? []
-            let preferred = (screen?.activePane ?? sync.tree?.panes[destination]).flatMap { docks.contains($0) ? nil : $0 }
+            let preferred = screen?.activePane.flatMap { docks.contains($0) ? nil : $0 }
             guard let pane = preferred ?? screen?.panes.first(where: { !docks.contains($0) }) else {
                 throw WorkspaceCreationError("\(target.title) has no pane to move the group into.", isForPerson: true)
             }
@@ -822,7 +822,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// `select-screen` picks among the screens of whichever workspace the daemon has active (it
     /// names no workspace), so the phone focuses the screen's own active pane instead
     /// (`focus-pane`: "that pane, its screen and workspace active"), one request naming this
-    /// workspace's screen exactly.
+    /// workspace's screen exactly. Like any focus change it also makes this workspace the
+    /// daemon's active one (what a terminal frontend following the session shows); the Mac's
+    /// windows keep their own shown workspace and screen.
     public func selectScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
         guard let pane = screen.activePane ?? screen.panes.first else {

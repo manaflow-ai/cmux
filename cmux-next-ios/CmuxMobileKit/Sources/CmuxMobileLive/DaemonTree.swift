@@ -67,8 +67,8 @@ public struct DaemonTree: Sendable {
     /// Every tab of each pane in the daemon's order, listed or not (`move-tab-group` indexes
     /// count them all): its group and whether it is pinned (the Mac's `TabGroupReorder` slots).
     public var paneSlots: [Int: [PaneSlot]] = [:]
-    /// Panes of an agent chat dock that takes only chats (`dock.role` `agent_chat`): the Mac
-    /// never splits one or moves a tab group into one (`ChatDockRules`).
+    /// Panes of an agent chat dock (`dock.role` `agent_chat`): the Mac never splits one or
+    /// moves a tab group into one (`ChatDockRules.isChatDock`), Home's pinned dock included.
     public var chatDockPanes: Set<Int> = []
 
     public struct PaneSlot: Hashable, Sendable {
@@ -276,14 +276,12 @@ public struct DaemonTree: Sendable {
         return out
     }
 
-    /// The panes of a screen's agent chat docks that take only chats (`columns[].dock`, role
-    /// `agent_chat`), as the Mac's `ChatDockRules.takesOnlyChats`: every chat dock but a pinned
-    /// one that takes tabs (`allow_tabs`).
+    /// The panes of a screen's agent chat docks (`columns[].dock`, role `agent_chat`), as the
+    /// Mac's `ChatDockRules.isChatDock`: a pinned dock that takes tabs still never splits.
     static func chatDockPanes(_ screen: [String: Any]) -> Set<Int> {
         var out: Set<Int> = []
         for case let column as [String: Any] in screen["columns"] as? [Any] ?? [] {
-            guard let dock = column["dock"] as? [String: Any], dock["role"] as? String == "agent_chat",
-                  !(dock["pinned"] as? Bool == true && dock["allow_tabs"] as? Bool == true) else { continue }
+            guard let dock = column["dock"] as? [String: Any], dock["role"] as? String == "agent_chat" else { continue }
             var trees: [Any] = [column["layout"] as Any]
             for case let row as [String: Any] in column["rows"] as? [Any] ?? [] { trees.append(row["layout"] as Any) }
             for tree in trees { out.formUnion(leaves(tree)) }

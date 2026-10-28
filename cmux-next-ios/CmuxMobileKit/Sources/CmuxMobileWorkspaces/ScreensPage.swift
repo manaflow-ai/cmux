@@ -11,7 +11,6 @@ private let theme = CmuxMobileTheme.standard
 /// closes it; + makes a new one. Everything is what the Mac lists.
 struct ScreensPage: View {
     let source: WorkspaceTabsSource
-    @Environment(\.dismiss) private var dismiss
     @State private var screenName = ""
 
     var body: some View {
@@ -19,6 +18,7 @@ struct ScreensPage: View {
             .navigationTitle("Screens")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 if source.canEditTabs {
                     ToolbarItem(placement: .primaryAction) {
@@ -126,7 +126,8 @@ struct ScreensPage: View {
     private func row(_ tab: WorkspaceTab) -> some View {
         Button {
             source.activate(tab.id)
-            dismiss()
+            source.route = nil
+            source.openedTab = tab.id
         } label: {
             Label {
                 Text(tab.title).foregroundStyle(theme.colors.label.color).lineLimit(1)
