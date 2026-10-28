@@ -224,7 +224,9 @@ attempt takes Blacksmith. That runner is reserved for the build
 (reserved_runner()): a wait for it is never stuck, queued or in its setup,
 because it ends when that runner finishes what it holds, and a Blacksmith
 re-run of a nightly waited an hour or more (runs 39318999424, 39320477722,
-39329116254, 2026-10-19). Only a refusal is acted on. A nightly job with no
+39329116254, 2026-10-19). Only a refusal is acted on. Another job pinned to
+that runner (main's prepare-nightly-variant legs) waits RESERVED_FOLLOWER_SECONDS
+at most, then moves like a stuck job. A nightly job with no
 runner label of its own gets the configured budget (CI_OWNED_POOL_RESCUE_SECONDS)
 like a side lane. A refused job waits for the run to finish (the signing job is
 skipped behind it) and then gets its failed jobs re-run. The run is not a pull
@@ -245,8 +247,8 @@ sweeper adopts the run at whatever attempt it is on (NIGHTLY_NEXT_EVENTS,
 owned_rerun()). A refusal there gets its failed jobs re-run, and that re-run
 keeps the earlier attempt's pick, so it takes Blacksmith.
 
-nightly-next's signing jobs, and the jobs that verify, recover or follow them
-(NIGHTLY_SIGN_ALTERNATES), stay on Blacksmith macOS. One queued there with no
+A nightly's signing jobs, and the jobs that verify, image, recover or follow
+them (NIGHTLY_SIGN_ALTERNATES; on main, attempt 1 only), stay on Blacksmith macOS. One queued there with no
 runner past the Blacksmith stall time (simple_pool_picker's
 BLACKSMITH_STALL_MINUTES) is moved by a re-run of failed jobs, whose attempt 2
 takes the alternate label nightly_sign_runner.py picked on attempt 1. GitHub
@@ -439,6 +441,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
+    # The post-publication canary's Mac job takes the side label on attempt 1.
+    ".github/workflows/nightly-next-canary.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
@@ -471,6 +475,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "cmux-tui nightly packages: a release step, so a person re-runs it",
     ".github/workflows/ios-internal-nightly.yml":
         "feat-cmux-next only; signs and uploads the internal iOS build: a release step, so a person re-runs it",
+    ".github/workflows/nightly-next-train.yml":
+        "the train's candidate Release compile takes an owned Mac only while one is idle (pick-train-runner); "
+        "the train's own drive (nightly_next_train_drive.py) re-runs a compile an owned Mac refused, and that "
+        "re-run takes Blacksmith",
     ".github/workflows/main-compile-probe.yml":
         "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
         "that has not started to Blacksmith, and nothing waits on it",
@@ -659,6 +667,27 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+# The nightly jobs whose wait for their reserved runner is never timed: the app build, which that runner is kept
+# for. Any other job pinned to it (main's prepare-nightly-variant legs, #26494, which take the trusted mini right
+# after its build when the picker saw it idle) moves after RESERVED_FOLLOWER_SECONDS: main's push nightlies run
+# in parallel, so a newer push's build can take the mini between the pick and the legs, and they would wait
+# behind a whole build. The re-run of failed jobs takes the job's Blacksmith fallback.
+RESERVED_UNTIMED_JOBS = frozenset({"build-nightly-app"})
+RESERVED_FOLLOWER_SECONDS = 5 * 60  # the queue alarm (QUEUE_ALARM_SECONDS)
+
+
+def reserved_follower(job: Mapping[str, Any]) -> bool:
+    """A job pinned to a reserved runner that is not the build kept for it (RESERVED_UNTIMED_JOBS)."""
+    name = str(job.get("name") or "")
+    return not any(name == build or name.startswith(build + " (") for build in RESERVED_UNTIMED_JOBS)
+
+
+def app_built(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether the run's app build (RESERVED_UNTIMED_JOBS) succeeded on this attempt's job list."""
+    return any(not reserved_follower(job) and job.get("status") == "completed" and job.get("conclusion") == "success"
+               for job in jobs)
+
+
 def reserved_runner(job: Mapping[str, Any]) -> str | None:
     """The one runner a job asked for by its own label (`glaeda-runner-<name>`), if any.
 
@@ -690,26 +719,36 @@ def started_dev_compile(jobs: Sequence[Mapping[str, Any]]) -> str | None:
     return None
 
 
-# nightly-next's Blacksmith macOS jobs (nightly.yml on feat-cmux-next): the signing jobs, which hold the release
-# keys, and the jobs that verify, recover or follow them. On 2026-10-27 build-sign-notarize-nightly and
-# sign-nightly-identity-legacy sat 16 minutes (10:58 to 11:14Z) on a starved blacksmith-6vcpu-macos-26 in run
+# nightly.yml's Blacksmith macOS sign, verify and DMG jobs, on both branches: the signing jobs, which hold the
+# release keys, and the jobs that verify, image, recover or follow them. On 2026-10-27 build-sign-notarize-nightly
+# and sign-nightly-identity-legacy sat 16 minutes (10:58 to 11:14Z) on a starved blacksmith-6vcpu-macos-26 in run
 # 40489472569. From attempt 2 on, each job's runs-on reads `github.run_attempt > 1 && needs.<job>.outputs.<name>`:
-# an alternate macOS 26 label nightly_sign_runner.py picked on attempt 1 (#26171), which a re-run of failed
-# jobs keeps. Each job maps to its jobs-API name (a matrix leg adds ` (arm64)`) and that expression. The rescue
-# acts on a job only when the run's own nightly.yml has the expression in the job's runs-on
-# (sign_stall_gate()); without it a re-run would queue on the same stalled label, so the job is left alone.
+# an alternate macOS 26 label the sign picker chose on attempt 1 (nightly_sign_runner.py on nightly-next, #26171;
+# classic_nightly_build_runner.py on main, whose expression also checks the pick's own attempt), which a re-run of
+# failed jobs keeps. Each job maps to its jobs-API name (a matrix leg adds ` (arm64)`) and the expressions that
+# give it that label. The rescue acts on a job only when the run's own nightly.yml has one of them in the job's
+# runs-on (sign_stall_gate()); without it a re-run would queue on the same stalled label, so the job is left alone.
+# nightly-next's signer-dmg-image and signer-verify were missing until 2026-10-28: run 40585960129's signer-verify
+# sat queued on blacksmith-6vcpu-macos-26 for over an hour, and as a job outside this table it counted as
+# unfinished work, so the run's stalled final-DMG verify was never moved either.
+# tests/test_ci_owned_pool_sources.py derives the jobs that need an entry from both branches' nightly.yml
+# (owned_pool_sources.uncovered_sign_jobs()).
 _SIGN_ALTERNATE = "github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate"
+_CLASSIC_SIGN_ALTERNATE = ("github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != "
+                           "github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate")
 _RECOVERY_ALTERNATE = "github.run_attempt > 1 && needs.find-nightly-next-recovery.outputs.sign_alternate"
 _LEGACY_ALTERNATE = "github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate"
-NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, str]] = {
-    "build-sign-notarize-nightly": ("build-sign-notarize-nightly", _SIGN_ALTERNATE),
-    "verify-signed-nightly": ("Verify signed nightly app", _SIGN_ALTERNATE),
-    "verify-final-dmg-nightly": ("Verify final nightly DMG", _SIGN_ALTERNATE),
-    "generate-nightly-deltas": ("generate-nightly-deltas", _SIGN_ALTERNATE),
-    "recover-nightly-next-notarization": ("recover-nightly-next-notarization", _RECOVERY_ALTERNATE),
-    "verify-recovered-nightly-next": ("verify-recovered-nightly-next", _RECOVERY_ALTERNATE),
-    "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", _LEGACY_ALTERNATE),
-    "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", _LEGACY_ALTERNATE),
+NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "build-sign-notarize-nightly": ("build-sign-notarize-nightly", (_SIGN_ALTERNATE, _CLASSIC_SIGN_ALTERNATE)),
+    "verify-signed-nightly": ("Verify signed nightly app", (_SIGN_ALTERNATE, _CLASSIC_SIGN_ALTERNATE)),
+    "verify-final-dmg-nightly": ("Verify final nightly DMG", (_SIGN_ALTERNATE,)),
+    "signer-dmg-image": ("signer-dmg-image", (_SIGN_ALTERNATE,)),
+    "signer-verify": ("signer-verify", (_SIGN_ALTERNATE,)),
+    "generate-nightly-deltas": ("generate-nightly-deltas", (_SIGN_ALTERNATE, _CLASSIC_SIGN_ALTERNATE)),
+    "recover-nightly-next-notarization": ("recover-nightly-next-notarization", (_RECOVERY_ALTERNATE,)),
+    "verify-recovered-nightly-next": ("verify-recovered-nightly-next", (_RECOVERY_ALTERNATE,)),
+    "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", (_LEGACY_ALTERNATE,)),
+    "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", (_LEGACY_ALTERNATE,)),
 }
 SIGN_BLACKSMITH_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
 # simple_pool_picker.blacksmith_stalled()'s rule: a Blacksmith job with no runner this long is on a stalled label.
@@ -785,8 +824,8 @@ def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, fir
 
 
 def sign_stall_gate(workflow_text: str | None, keys: Sequence[str]) -> list[str]:
-    """The jobs among `keys` whose runs-on in `workflow_text` lacks their attempt-2 alternate label expression
-    (NIGHTLY_SIGN_ALTERNATES). Fails closed: a missing or unreadable file, or a missing job, counts."""
+    """The jobs among `keys` whose runs-on in `workflow_text` lacks every attempt-2 alternate label expression
+    NIGHTLY_SIGN_ALTERNATES gives them. Fails closed: a missing or unreadable file, or a missing job, counts."""
     if not workflow_text:
         return sorted(keys)
     try:
@@ -796,7 +835,7 @@ def sign_stall_gate(workflow_text: str | None, keys: Sequence[str]) -> list[str]
     missing = []
     for key in keys:
         runs_on = str((spec.get(key) or {}).get("runs-on") or "") if isinstance(spec.get(key), Mapping) else ""
-        if NIGHTLY_SIGN_ALTERNATES[key][1] not in runs_on:
+        if not any(expression in runs_on for expression in NIGHTLY_SIGN_ALTERNATES[key][1]):
             missing.append(key)
     return sorted(missing)
 
@@ -1249,8 +1288,13 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     kept = [job for job in jobs if reserved and job_pool(job) and reserved_runner(job)
             and (waiting_for_runner(job) or in_setup(job))]
+    # A job other than the build waits for the reserved runner RESERVED_FOLLOWER_SECONDS at most.
+    timed_out = [job for job in kept if reserved_follower(job) and waiting_for_runner(job)
+                 and queued_seconds(job, now, seen.get(job.get("id"))) >= RESERVED_FOLLOWER_SECONDS]
+    kept = [job for job in kept if not any(job is other for other in timed_out)]
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]
              and not any(job is other for other in kept)]
+    stuck += [job for job in timed_out if not any(job is other for other in stuck)]
     names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
     # Rescuing normally cancels the whole run, so a job already running on a
     # persistent runner would die with the stuck one and move to Blacksmith
@@ -1738,7 +1782,8 @@ class GitHub:
     def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
         """(run id, attempt) of unfinished nightly-next re-runs through SIGN_RESCUE_LAST_ATTEMPT. Only a re-run whose
         build picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a
-        full one the picker placed there) is found here, for its signing jobs' stalls (signing_stall())."""
+        full one the picker placed there) is found here, for its signing jobs' stalls (signing_stall()). Main's
+        nightly is rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
         name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
         found: list[tuple[int, int]] = []
         for status in ("queued", "in_progress"):
@@ -2066,6 +2111,13 @@ class Target:
         return self.nightly and self.push_branch == "nightly-next"
 
     @property
+    def signs_late(self) -> bool:
+        """A nightly on either branch: its sign, verify and DMG jobs (NIGHTLY_SIGN_ALTERNATES) appear only once the
+        app build finishes and can stall on Blacksmith macOS then (signing_stall()). Main's is rescued on attempt 1
+        only (sweep_target() never adopts its later attempts unless they are its own re-runs)."""
+        return self.nightly and (self.push_branch == "nightly-next" or self.attempt == 1)
+
+    @property
     def watch_limit(self) -> int:
         # Every nightly is watched until its run finishes, within this limit: its app build's 90-minute timeout
         # can only be seen once it fires (feed_timeouts()).
@@ -2216,8 +2268,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        if target.late_owned_jobs and target.attempt <= SIGN_RESCUE_LAST_ATTEMPT:
-            # nightly-next's signing jobs on a stalled Blacksmith macOS label (signing_stall()).
+        if target.signs_late and target.attempt <= SIGN_RESCUE_LAST_ATTEMPT:
+            # A nightly's signing jobs on a stalled Blacksmith macOS label (signing_stall()).
             seen_at = now()
             for job in jobs:
                 if sign_job_key(job) and waiting_for_runner(job):
@@ -2243,9 +2295,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
-            elif run_finished(jobs) and not (target.late_owned_jobs and read(
+            elif run_finished(jobs) and not (target.signs_late and read(
                     lambda: api.run(target.run_id), sleep, log).get("status") != "completed"):
-                # nightly-next's signing jobs appear only once the jobs they need finish (signing_stall()), so
+                # A nightly's signing jobs appear only once the jobs they need finish (signing_stall()), so
                 # its watch ends with the run, not with the jobs listed so far.
                 return "stop", "no job of the run asked for a persistent pool"
             elif not jobs and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
@@ -2627,7 +2679,11 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
 
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
-    """Why the pull request (or main) no longer wants this run, or "" when it still does."""
+    """Why the pull request (or main) no longer wants this run, or "" when it still does.
+
+    A main nightly whose app build succeeded (app_built()) is not made moot by main moving on: only its jobs
+    after the build are moved, each push run has its own concurrency group (a re-run cancels nothing), and the
+    publisher refuses a source older than the feed's. Only a newer run pending behind it still wins."""
     if target.nightly and target.push_branch == "nightly-next":
         # Each nightly-next run builds and signs in groups of its own (nightly.yml
         # scopes them to github.run_id), so a newer tip builds alongside this one
@@ -2643,6 +2699,10 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, branch), sleep, log)
         if newer:
             return f"a newer nightly run on {branch} ({newer[0]}) has not finished and builds instead"
+        if app_built(read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)):
+            # Its jobs after the build (a reserved follower, a signing job) are moved, never the build: a
+            # re-run of failed jobs keeps it, so the run is not moot either.
+            return ""
         # Not pending does not mean not superseded: a nightly-next push run is
         # never pending at the workflow level (its builds share a job-level
         # slot), and a newer main push may already be running or done. Once the

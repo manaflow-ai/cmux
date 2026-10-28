@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planificación, TDD, subagentes y revisión"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Solicitud de Cloud VM retrasada",
+      "message": "La asignación de Cloud VM no está disponible temporalmente.",
+      "action": "Espera un minuto y vuelve a intentarlo con la misma clave de idempotencia."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "La solicitud de instantánea necesita una clave de reintento",
+      "message": "Las instantáneas de Cloud VM requieren una clave de idempotencia.",
+      "action": "Vuelve a intentarlo con un Idempotency-Key estable de 128 caracteres como máximo."
+    },
+    "snapshotInProgress": {
+      "title": "La instantánea sigue en curso",
+      "message": "Una instantánea con esta clave de idempotencia aún se está ejecutando para esta Cloud VM.",
+      "action": "Espera a que termine la primera instantánea y vuelve a intentarlo con la misma clave de idempotencia."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "La clave de reintento de la instantánea ya se usó",
+      "message": "Esta clave de idempotencia ya se usó para otra solicitud de instantánea en esta Cloud VM.",
+      "action": "Usa una clave de idempotencia nueva para una instantánea con otro nombre."
+    },
+    "snapshotQuota": {
+      "title": "Se alcanzó el límite de instantáneas",
+      "message": "Esta Cloud VM alcanzó su límite de instantáneas.",
+      "action": "Elimina una instantánea existente y vuelve a intentarlo con la misma clave de idempotencia."
+    },
     "guestInstall": {
       "title": "La configuración de la Cloud VM no terminó",
       "reason": "La configuración del invitado de la Cloud VM no se completó.",

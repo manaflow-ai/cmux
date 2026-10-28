@@ -168,6 +168,31 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM request delayed",
+      "message": "Cloud VM allocation is temporarily unavailable.",
+      "action": "Wait a minute, then retry with the same idempotency key."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot request needs a retry key",
+      "message": "Cloud VM snapshots require an idempotency key.",
+      "action": "Retry with a stable Idempotency-Key of at most 128 characters."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot still in progress",
+      "message": "A snapshot with this idempotency key is still running for this Cloud VM.",
+      "action": "Wait for the first snapshot to finish, then retry with the same idempotency key."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot retry key already used",
+      "message": "This idempotency key was already used for another snapshot request on this Cloud VM.",
+      "action": "Use a new idempotency key for a snapshot with another name."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot limit reached",
+      "message": "This Cloud VM has reached its snapshot limit.",
+      "action": "Delete an existing snapshot, then retry with the same idempotency key."
+    },
     "guestInstall": {
       "title": "Cloud VM setup did not finish.",
       "reason": "The Cloud VM guest setup did not complete.",
