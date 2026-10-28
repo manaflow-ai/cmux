@@ -1019,8 +1019,8 @@ pub struct NewArgs {
     /// reused when there; implies --reuse. Replaces --cwd.
     #[arg(long, value_name = "REPO[@BASE]")]
     pub worktree: Option<String>,
-    /// Read the first prompt from this file (after any prompt words), now; a
-    /// missing or empty file fails before anything starts.
+    /// Read the first prompt from this file (after any prompt words), now; `-`
+    /// reads stdin. A missing or empty file fails before anything starts.
     #[arg(long, value_name = "FILE")]
     pub prompt_file: Option<PathBuf>,
     /// Tell the new session that this session started it and how to report back.

@@ -1,7 +1,6 @@
 # Cloud environments (cmux-next)
 
-Status: core landed (package `@cmux/cloud-env`, provider seam, measured on Freestyle). CloudDO ops and
-the Mac UI are the next steps (section 8).
+Status: core, CloudDO ops and the Vitess table landed. The Mac UI is next (section 8).
 
 ## 1. What an environment is
 
@@ -115,9 +114,27 @@ The user's rule for cmux-next (2026-10-28): no Postgres. New tables go in `cmux-
   `snapshot` rows it already holds. A build's snapshot is an ordinary CloudDO snapshot row. Quota,
   deletion and the provider ledger are therefore the same code as for manual snapshots, in the
   same transaction.
-- Read model: the CloudDO projects environment rows to Vitess (`cloud_environments`, `-- phase:
-  expand`, primary key `(team_id, environment_id)`, no foreign keys, no triggers), like every other
-  projected table. This is used for cross-team admin and analytics reads only.
+- Read model: the CloudDO projects a summary row of each environment to Vitess
+  (`cloud_environments`: id, team, name, repo, status, snapshot id, creator, times). The table is
+  created by `backend/db/drizzle-mysql/0003_cloud_environments.sql` (`-- phase: expand`), has an `id`
+  primary key and a `(team_id, deleted_at)` index, and has no foreign keys and no triggers. The
+  projection kinds `cloud.environment.upsert` and `cloud.environment.delete` exist only for MySQL;
+  the Postgres drain skips them. A delete is a soft delete under the `(source_stream, source_seq)`
+  guard, so a replayed older upsert cannot bring the row back. The setup script and the variable
+  values never leave the CloudDO.
+
+### Ops (owner `cloud:CloudDO`)
+
+| Op | Risk | What |
+|---|---|---|
+| `cloud.environment.list` | read | The team's environments with their status: unbuilt, building, ready, stale or failed. |
+| `cloud.environment.set` | mutate-shared, person | Create (name required) or edit. An edit of the repo, the script or the variables makes the snapshot stale. A rename does not. At most 20 per team. |
+| `cloud.environment.build` | money, person | Answers at once with `building`. The CloudDO alarm runs the build (an `env_build` ledger row), after every other due provider call. The setup has a 10-minute limit inside the 15-minute alarm. A matching snapshot answers `built: false`. |
+| `cloud.environment.boot` | money, person | `cloud.machine.create` from the fresh snapshot (`boot: snapshot`), or cold with the setup started on the machine (`boot: cold`). |
+| `cloud.environment.delete` | destructive, person | Deletes the row and its snapshot (a `snapshot_delete` ledger row). |
+
+Installs go through the person's approval (G8), like the other money ops. Agents are refused for
+every write. A build or a boot with a secret variable answers `cloud.environment.secrets_unavailable`.
 
 ## 8. Plan and status
 
@@ -126,8 +143,9 @@ The user's rule for cmux-next (2026-10-28): no Postgres. New tables go in `cmux-
 | Spec, validation, digest, build script, boot plan (`@cmux/cloud-env`) | Landed, 34 tests (real bash for the script and the detached build) |
 | `CloudSandbox` interface, `GuardedCloudSandbox` over `RawCloudDriver` | Landed |
 | Measured on Freestyle through the CloudDO driver stack | Landed (section 9) |
-| CloudDO ops `cloud.environment.{list,set,delete,build,boot}`, `environment` rows | Next |
-| Vitess projection `cloud_environments` | Next, with the ops |
+| CloudDO ops `cloud.environment.{list,set,delete,build,boot}`, `environment` rows | Landed, 7 tests in the Workers runtime |
+| Vitess table and projection `cloud_environments` | Landed (migration 0003, expand; CI applies it to staging with `CMUX_NEXT_VITESS_STAGING_ADMIN_URL`) |
+| Generated clients (catalog, TS, Rust `cmux-cloud-wire`) | Landed |
 | Mac: wizard source "Environment", "Save as environment", Settings list | Next, after the ops |
 | Secrets at boot from the hosted vault | Waits on the hosted vault (a714, its section 9) |
 

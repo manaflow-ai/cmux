@@ -261,3 +261,162 @@ fn bad_input_is_an_error() {
         "now_ms is required"
     );
 }
+
+// The ask ledger (section 14 order item 1): one person message often holds
+// several asks. A turn records the asks it took (`asks_taken`), each with an
+// owner: a subagent id, "me" (Chief does it in the turn), or "declined" with a
+// reason. An ask with no owner after its turn ends gets a retry note naming
+// it. A spawn the turn asked for comes back as a keyed `spawn` intent, so the
+// host starts each agent once; its report (`outcome_reported`) closes the
+// asks it owns. An `ack` intent marks a message whose every ask has an owner.
+
+fn apply(state: &Value, event: Value, now: u64) -> Value {
+    let ctx = json!({"now_ms": now}).to_string();
+    serde_json::from_str(&ledger_apply(&state.to_string(), &event.to_string(), &ctx).unwrap())
+        .unwrap()
+}
+
+#[test]
+fn a_spawn_request_becomes_one_keyed_spawn_intent_per_task() {
+    let s = run(&[message("msg_1", "fix the flicker, and make tabs 28pt")]).0;
+    let out = apply(
+        &s,
+        json!({"type": "spawn_requested", "message": "msg_1", "tasks": [
+        {"ask": "fix the flicker", "task": "Title: Flicker\nfix it"},
+        {"ask": "make tabs 28pt", "task": "Title: Tabs\n28pt"}]}),
+        1_000,
+    );
+    let spawns: Vec<&Value> = out["intents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["kind"] == "spawn")
+        .collect();
+    assert_eq!(spawns.len(), 2, "{out}");
+    assert_eq!(spawns[0]["key"], "spawn-msg_1-0");
+    assert_eq!(spawns[1]["key"], "spawn-msg_1-1");
+    assert_eq!(spawns[0]["task"], "Title: Flicker\nfix it");
+    // The same request again (a replayed turn) asks for nothing new.
+    let again = apply(
+        &out["state"],
+        json!({"type": "spawn_requested", "message": "msg_1", "tasks": [
+        {"ask": "fix the flicker", "task": "Title: Flicker\nfix it"},
+        {"ask": "make tabs 28pt", "task": "Title: Tabs\n28pt"}]}),
+        1_100,
+    );
+    assert!(
+        again["intents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["kind"] != "spawn"),
+        "{again}"
+    );
+}
+
+#[test]
+fn a_spawn_started_gives_its_ask_an_owner_and_its_report_closes_it() {
+    let s = run(&[message("msg_1", "fix the flicker")]).0;
+    let s = apply(&s, json!({"type": "spawn_requested", "message": "msg_1", "tasks": [{"ask": "fix the flicker", "task": "t"}]}), 1_000)["state"].clone();
+    let s = apply(
+        &s,
+        json!({"type": "spawn_started", "key": "spawn-msg_1-0", "id": "a7"}),
+        1_200,
+    )["state"]
+        .clone();
+    assert_eq!(s["asks"][0]["owner"], "a7", "{s}");
+    let s = apply(
+        &s,
+        json!({"type": "outcome_reported", "id": "a7", "stopped": false}),
+        2_000,
+    )["state"]
+        .clone();
+    assert_eq!(s["asks"][0]["done"], true, "{s}");
+}
+
+#[test]
+fn an_ask_with_no_owner_after_the_turn_gets_a_retry_note() {
+    let s = run(&[message(
+        "msg_1",
+        "fix the flicker, also add a dock icon setting",
+    )])
+    .0;
+    let s = apply(
+        &s,
+        json!({"type": "turn_started", "seen": ["msg_1"]}),
+        1_000,
+    )["state"]
+        .clone();
+    let s = apply(
+        &s,
+        json!({"type": "asks_taken", "message": "msg_1", "asks": [
+        {"ask": "fix the flicker", "owner": "a7"},
+        {"ask": "add a dock icon setting"}]}),
+        1_500,
+    )["state"]
+        .clone();
+    let s = apply(&s, json!({"type": "reply_posted", "chief": true, "answers": ["msg_1"], "text": "a7 fixes the flicker."}), 1_600)["state"].clone();
+    let ended = apply(
+        &s,
+        json!({"type": "turn_ended", "said_no_reply": false}),
+        2_000,
+    );
+    assert!(
+        ended["intents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["kind"] == "schedule"),
+        "{ended}"
+    );
+    let fired = apply(&ended["state"], json!({"type": "check_due"}), 10_000);
+    let note = fired["intents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "notice")
+        .expect("an unowned-ask note");
+    let text = note["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("[unowned]") && text.contains("dock icon"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("flicker"),
+        "an owned ask is not named: {text}"
+    );
+}
+
+#[test]
+fn every_ask_owned_acks_the_message_and_declined_counts_as_owned() {
+    let s = run(&[message("msg_1", "two things")]).0;
+    let out = apply(
+        &s,
+        json!({"type": "asks_taken", "message": "msg_1", "asks": [
+        {"ask": "rename the button", "owner": "me"},
+        {"ask": "buy the domain", "owner": "declined", "reason": "money: needs the person's word"}]}),
+        1_000,
+    );
+    let ack = out["intents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "ack")
+        .expect("an ack");
+    assert_eq!(ack["message"], "msg_1");
+    assert_eq!(ack["key"], "ack-msg_1");
+    let ended = apply(
+        &out["state"],
+        json!({"type": "turn_ended", "said_no_reply": false}),
+        2_000,
+    );
+    let fired = apply(&ended["state"], json!({"type": "check_due"}), 60_000);
+    assert!(
+        fired["intents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| !i["text"].as_str().unwrap_or("").starts_with("[unowned]")),
+        "{fired}"
+    );
+}
