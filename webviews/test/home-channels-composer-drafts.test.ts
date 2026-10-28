@@ -1,4 +1,4 @@
-// The docked Channels view is never let go while a composer holds unsent input (p07-memory-100):
+// The docked Channels view is never let go while a composer holds unsent input:
 // the page tells the host `draft` through `cmux.page.keepAlive` once the first composer holds text or
 // files, and ends it once the last one sends or empties. No call per keystroke.
 import { expect, test } from "bun:test";

@@ -1,5 +1,5 @@
-// The Chromium Host's provider link (host_provider_link.h, task
-// p01-process-233): the socket to the browser host, its dial and its two
+// The Chromium Host's provider link (host_provider_link.h):
+// the socket to the browser host, its dial and its two
 // threads. The UI thread only hands frames over and gets batches back, so a
 // thousand CDP messages a second cost it one task per batch and no wait.
 //

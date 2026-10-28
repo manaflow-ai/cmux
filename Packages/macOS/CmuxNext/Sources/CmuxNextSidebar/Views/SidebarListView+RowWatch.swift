@@ -1,6 +1,6 @@
 import AppKit
 
-/// The rows the list keeps current (feature `sidebarRowsNearViewport`, p06-scheduler-040): the list
+/// The rows the list keeps current (feature `sidebarRowsNearViewport`): the list
 /// tells its ``SidebarRowFeed`` which workspace rows it draws and which of them it shows, as Chrome's
 /// compositor keeps only the tiles near the viewport current (`cc/tiles/tile_manager.cc`). Without a
 /// feed (the feature off, a space page) nothing runs.

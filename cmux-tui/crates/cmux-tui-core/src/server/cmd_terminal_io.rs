@@ -103,7 +103,7 @@ pub(super) fn send(
         submit,
         flow,
     } = params;
-    // The key press's first daemon stage, taken before any check (p04-input-094).
+    // The key press's first daemon stage, taken before any check.
     let received_ns =
         if flow.is_some_and(|flow| flow != 0) { crate::input_stages::now_ns() } else { 0 };
     let surface = match (surface, terminal_id) {
@@ -249,7 +249,7 @@ impl InputFailure {
     }
 }
 
-/// An INPUT frame's bytes (p05-ipc-078): the raw bytes of `send`, with no
+/// An INPUT frame's bytes: the raw bytes of `send`, with no
 /// JSON and no base64, written the way `send` writes them. `flow` (0: none)
 /// is the key press's flow id, carried by the frame header: its hops and
 /// the echo that answers it carry it, as `send`'s `flow` does. The mux is

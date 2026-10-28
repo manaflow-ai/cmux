@@ -43,7 +43,7 @@ final class HistoryTopPage: InternalPageProvider {
 
     func tabClosed(_ key: String) { pages[key] = nil }
 
-    // MARK: Discard (p07-memory-025)
+    // MARK: Discard
 
     /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc): the page
     /// reads the history again when it is made, so nothing but its view state is kept.
@@ -111,7 +111,7 @@ final class BookmarksTopPage: InternalPageProvider {
 
     func tabClosed(_ key: String) { pages[key] = nil }
 
-    // MARK: Discard (p07-memory-025)
+    // MARK: Discard
 
     /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc): the
     /// bookmarks are read again when the page is made, so only its view state is kept.

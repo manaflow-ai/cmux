@@ -9,13 +9,13 @@ import Foundation
 import os
 import Testing
 
-/// Host mode's one Chromium Host (task p01-process-080) with real child processes: a shell stands in for the host,
+/// Host mode's one Chromium Host with real child processes: a shell stands in for the host,
 /// spawned by the production lane spawner on BackgroundWork's `.system` lane with its control channel on fd 3; each
 /// end reaches the main thread as a visible post on the test's MainWorkScheduler (the test runs the main run loop).
 /// A SIGKILLed host that said hello reaches `onHostEnded` once, on the main thread, as killed; a host that ends before
 /// its hello (a failed start, or a crash while it starts), a clean exit and an end while cmux quits report nothing; a
 /// host that could not start is not started again. Every end that is not a clean exit, outside quit, leaves one crash
-/// record with its signal or exit code, its fork API and the last lines of its log without URLs (p01-process-085).
+/// record with its signal or exit code, its fork API and the last lines of its log without URLs.
 @MainActor
 @Suite struct ChromiumHostSupervisorTests {
     /// A stand-in host: `/bin/sh -c script chromium-host [--log-file=<logFile>]`, its control channel on fd 3.
@@ -125,7 +125,7 @@ import Testing
         #expect(rig.reports.reported.map(\.exit.reason) == [.killed, .killed])
     }
 
-    /// p01-process-081/083: a host SIGKILLed before its hello (Chromium never initialized) could not start: it spends
+    /// A host SIGKILLed before its hello (Chromium never initialized) could not start: it spends
     /// none of the crash budget, reports no page crash, its pages do not come back, and no host starts again, as
     /// Chrome does not relaunch a GPU process that failed to initialize.
     @Test func aHostKilledBeforeItsHelloCannotStartAndSpendsNoCrash() async throws {
@@ -277,7 +277,7 @@ import Testing
         #expect(rig.reports.reported.map(\.exit.reason) == [.crashed])
     }
 
-    // MARK: Restart budget (p01-process-083)
+    // MARK: Restart budget
 
     /// `lastEndRestoresPages` of each end, its host crashed (SIGSEGV) at each minute of `minutes` on `clock`.
     private static func restores(crashingAt minutes: [Int], restoresPages: Bool = true, clock: ManualClock = ManualClock(),

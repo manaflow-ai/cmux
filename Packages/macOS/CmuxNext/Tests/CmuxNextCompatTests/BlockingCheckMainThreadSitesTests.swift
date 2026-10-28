@@ -3,8 +3,8 @@
 import Dispatch
 import Testing
 
-/// ``BlockingDetector/mainThreadSites`` and ``BlockingDetector/mainThreadRead``, what the opt-in hang reports count
-/// (p12-perf-process-226), and the detector's fast path that makes those counts cheap in a nightly-next build: a
+/// ``BlockingDetector/mainThreadSites`` and ``BlockingDetector/mainThreadRead``, what the opt-in hang reports count,
+/// and the detector's fast path that makes those counts cheap in a nightly-next build: a
 /// known site's repeat only counts. The `BlockingCheck` prefix puts it in the nightly-configuration run of
 /// `scripts/measure/blocking-checks.sh` as well as the Debug one.
 @Suite(.serialized)

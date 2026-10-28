@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p01-process-233: with the Chromium Host's relay link up, the browser host sends `cdp.prepare`; the app
+/// With the Chromium Host's relay link up, the browser host sends `cdp.prepare`; the app
 /// makes the tab agent-ready as for its own relay, names the page to the browser host (`tab.relay.direct`)
 /// and relays none of its CDP; capture commands the browser host sent to the Chromium Host still vote here.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct BrowserHostProviderDirectRelayTests {

@@ -186,7 +186,7 @@ thread_local! {
 impl LockRank {
     /// Every lock: a thread lowered to UTILITY for an automation request is
     /// raised before it waits for one and while it holds it
-    /// (p06-scheduler-035, `cmux_tui_platform::qos::LockBoost`), so a
+    /// (`cmux_tui_platform::qos::LockBoost`), so a
     /// frontend request or the PTY echo path never waits behind a UTILITY
     /// thread. Release builds rank every `RankedMutex` as `Leaf`, so the rule
     /// cannot depend on the rank. The journal writer rank is not a lock.

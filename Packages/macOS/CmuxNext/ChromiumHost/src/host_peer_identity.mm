@@ -1,6 +1,6 @@
 // Whether the browser host the provider link dialed is code signed as this
-// cmux (host_provider_link.h ProviderLinkPeerSignedAsCmux; task
-// p01-process-233, p01-process.md risk 6). The peer is named by its audit
+// cmux (host_provider_link.h ProviderLinkPeerSignedAsCmux,
+// p01-process.md risk 6). The peer is named by its audit
 // token (LOCAL_PEERTOKEN), never by pid, so a process that reused the
 // browser host's pid never passes:
 //   - this build has a Team ID: the peer satisfies `anchor apple generic and

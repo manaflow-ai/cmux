@@ -12,8 +12,8 @@ private func json(_ text: String) throws -> SchemaJSON {
     try JSONDecoder().decode(SchemaJSON.self, from: Data(text.utf8))
 }
 
-/// The schema reader and table emitter behind `MethodTable.schema`
-/// (p05-ipc-023): they read cmux-tui/spec/fixtures/ipc-method-tables the way
+/// The schema reader and table emitter behind `MethodTable.schema`:
+/// they read cmux-tui/spec/fixtures/ipc-method-tables the way
 /// the Rust build script does, refuse what the tables cannot encode with its
 /// JSON path, and write the same bytes every run.
 @Suite struct TableEmitterTests {

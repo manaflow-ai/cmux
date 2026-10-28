@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Files pane renders through a `VisibleObservation` on its own node (p06-scheduler-337, rule 9),
+/// The Files pane renders through a `VisibleObservation` on its own node,
 /// not a main-actor `ObservationStream` task: a hidden pane (an unselected tab, a hidden pane, an
 /// occluded window) applies no model change, and renders once, the current state, when it shows.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))

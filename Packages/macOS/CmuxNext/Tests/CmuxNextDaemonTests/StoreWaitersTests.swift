@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextWakeups
 import Testing
 
-/// Keyed waits on the store (p06-scheduler-027): a waiter for one record reads its condition only
+/// Keyed waits on the store: a waiter for one record reads its condition only
 /// when that record's key changes, resumes in the apply that lists (or drops) it, and resumes with
 /// nil on its timeout or when its task is cancelled. The timeouts are entries on the store's
 /// MainWakeUpQueue; the test moves its uptime and fires it.

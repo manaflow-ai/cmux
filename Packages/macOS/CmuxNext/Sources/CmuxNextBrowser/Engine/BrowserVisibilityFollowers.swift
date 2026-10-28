@@ -1,7 +1,7 @@
 package import CmuxNextWakeups
 
 /// The app's pages that take their visibility from their tab's node (``BrowserVisibilityFollowing``, feature
-/// `chromiumTabVisibility`, p06-scheduler-212), and a watch of each followed page's capture: the hibernation thaws a
+/// `chromiumTabVisibility`), and a watch of each followed page's capture: the hibernation thaws a
 /// frozen page that gains one, as Chrome's freezing policy unfreezes a page that gains a reason not to freeze
 /// (components/performance_manager/freezing/freezing_policy.cc `CannotFreezeReason`).
 @MainActor package final class BrowserVisibilityFollowers {

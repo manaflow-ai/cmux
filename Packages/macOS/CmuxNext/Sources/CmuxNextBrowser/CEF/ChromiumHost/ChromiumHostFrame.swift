@@ -62,8 +62,8 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     }
     var text: String { String(decoding: payload, as: UTF8.self) }
 
-    /// A wheel frame's fields (`kWheel` and `Wheel` in the header, task
-    /// p04-input-063): the NSEvent's scroll phase, momentum phase and precise
+    /// A wheel frame's fields (`kWheel` and `Wheel` in the header):
+    /// the NSEvent's scroll phase, momentum phase and precise
     /// flag, which Chrome builds its wheel event from
     /// (`content/browser/renderer_host/input/web_input_event_builders_mac.mm`)
     /// so its renderer host latches the gesture and flings the page
@@ -116,7 +116,7 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         return Int32(min(max(scaled, Double(Int32.min)), Double(Int32.max)))
     }
 
-    /// An input frame's presentation (`kInputPresented` in the header, task p04-input-066): the host reports when the
+    /// An input frame's presentation (`kInputPresented` in the header): the host reports when the
     /// frame that shows an input reached the display, by the input's event time, from the fork's presentation
     /// feedback (`gfx::PresentationFeedback`, ui/gfx/presentation_feedback.h), as viz reports it for the frame that
     /// carried the input's `EventMetrics` (cc/metrics/compositor_frame_reporter.cc).

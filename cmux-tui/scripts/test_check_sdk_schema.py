@@ -529,7 +529,7 @@ class LiveSchemaTests(unittest.TestCase):
         )
 
     def test_generated_family_commands_are_served_without_hand_written_fields(self) -> None:
-        # p05-ipc-026: terminal-io's Command variants come from the schema
+        # terminal-io's Command variants come from the schema
         # (crates/cmux-ipc/server-families.json), so server.rs has none.
         generated = CHECKER.generated_command_names()
         self.assertIn("clear-history", generated)
@@ -540,7 +540,7 @@ class LiveSchemaTests(unittest.TestCase):
         self.validate(document, self.inventory)
 
     def test_tabs_family_commands_are_generated_not_written(self) -> None:
-        # p05-ipc-029: tabs joined terminal-io in server-families.json, so its
+        # Tabs joined terminal-io in server-families.json, so its
         # Command variants (the boxed create-surface-with-receipt and
         # move-tab-to-column with its refused `sticky`) are no longer read
         # from server.rs, and a schema change to them is not drift.

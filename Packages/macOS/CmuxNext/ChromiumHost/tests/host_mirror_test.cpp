@@ -1,5 +1,5 @@
-// Checks the Chromium Host's tab and host mirrors (src/host_mirror.mm, tasks
-// p01-process-016 and 017) end to end: the real dispatcher
+// Checks the Chromium Host's tab and host mirrors (src/host_mirror.mm)
+// end to end: the real dispatcher
 // (src/host_dispatch.mm, the generated cases) with a fake shim on one end of a
 // socket pair, the real remote shim (client/remote_shim.mm, loaded as the
 // shared library cmux loads) on the other, and every read made through the

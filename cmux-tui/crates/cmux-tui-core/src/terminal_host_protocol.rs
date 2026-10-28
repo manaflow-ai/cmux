@@ -79,8 +79,8 @@ pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
 /// and only toward a host whose record advertises `supports_shell_activity`;
 /// older hosts reject the unknown bit.
 pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
-/// ClientHello opt-in and HostHello acknowledgement for key-press flows
-/// (p09-observability-018). On a connection that negotiated it, the flag
+/// ClientHello opt-in and HostHello acknowledgement for key-press flows.
+/// On a connection that negotiated it, the flag
 /// marks a payload whose last 8 bytes are not terminal bytes but the
 /// little-endian `flow u64` of a key press ([`flow_trailer_payload`]):
 /// - an interactive `Input` frame (request id 0): the key press the bytes
@@ -91,8 +91,8 @@ pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
 /// Sent only toward a host whose record advertises `supports_input_flow`;
 /// older hosts reject the unknown bit.
 pub const FLAG_INPUT_FLOW: u32 = 1 << 9;
-/// ClientHello opt-in and HostHello acknowledgement for key stages
-/// (p04-input-094), only with [`FLAG_INPUT_FLOW`]. On a connection that
+/// ClientHello opt-in and HostHello acknowledgement for key stages,
+/// only with [`FLAG_INPUT_FLOW`]. On a connection that
 /// negotiated it, a live `Output` frame with `FLAG_INPUT_FLOW |
 /// FLAG_INPUT_STAGES` ends in a 24-byte trailer ([`stages_trailer_payload`]):
 /// the host's PTY write of the key press, the PTY read that echoes it (trace

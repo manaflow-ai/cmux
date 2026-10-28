@@ -9,7 +9,7 @@ import Testing
 /// An owner that accepts every connection and answers with a snapshot the mirror refuses (two
 /// tasks with one id). The source must close, say why, and space its reconnects by a growing
 /// backoff: the backoff resets on a valid snapshot, not on connect, so it never retries this
-/// owner every 200 ms forever (p10-stability-096).
+/// owner every 200 ms forever.
 @MainActor
 struct SocketTasksSourceBadSnapshotTests {
     private struct SnapshotLine: Encodable {
@@ -29,8 +29,8 @@ struct SocketTasksSourceBadSnapshotTests {
         let owner = try BadSnapshotOwner(line: line)
         defer { owner.close() }
 
-        // The app's deadline scheduler on a hand-fired wake-up queue: the reconnect attempt is a MainDeadline
-        // (p06-scheduler-340), and each read's lines run at the rig's next frame.
+        // The app's deadline scheduler on a hand-fired wake-up queue: the reconnect attempt is a MainDeadline,
+        // and each read's lines run at the rig's next frame.
         let rig = MainDeadlineRig()
         let source = SocketTasksSource(path: owner.path,
                                        deadlines: rig.deadlines,

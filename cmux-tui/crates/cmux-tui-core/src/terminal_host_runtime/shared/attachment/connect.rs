@@ -184,7 +184,7 @@ pub(crate) fn connect_record_at_version(
     if input_flow_requested {
         hello_frame.flags |= FLAG_INPUT_FLOW;
     }
-    // Key stages (p04-input-094) ride on the flow's Output frames.
+    // Key stages ride on the flow's Output frames.
     let input_stages_requested = input_flow_requested && record.supports_input_stages;
     if input_stages_requested {
         hello_frame.flags |= FLAG_INPUT_STAGES;

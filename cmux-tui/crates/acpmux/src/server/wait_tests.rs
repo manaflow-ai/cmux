@@ -1,5 +1,5 @@
 //! `_acpmux/wait` on a peer session wakes on the hub events of its row and on its deadline,
-//! never on a timer (p14-energy-070; `tests/daemon_idle.rs` measures the local case).
+//! never on a timer (`tests/daemon_idle.rs` measures the local case).
 
 use super::*;
 use crate::peer::PeerNotice;

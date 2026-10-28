@@ -76,7 +76,7 @@ final class DividerHandleView: NSView {
     /// shows no resize cursor until it lands (``ScreenDividers/refreshHover(at:)``).
     var isOnRenderSpring: Bool { renderSpringsInFlight > 0 }
     /// Frame assignments since the handle was made (tests: a render-server spring sets one, in its start's
-    /// turn, and none until it lands, p03-rendering-024).
+    /// turn, and none until it lands).
     private(set) var frameSetCount = 0
     override var frame: NSRect { didSet { frameSetCount += 1 } }
 
@@ -186,7 +186,7 @@ final class DividerHandleView: NSView {
     private(set) var cursorArea: NSTrackingArea?
 
     /// Places ``cursorArea`` at ``cursorRectInBounds`` when that rect changed: a tracking area swap, never
-    /// a rebuild of the window's cursor rects (p04-input-090), and nothing when the rect is the same.
+    /// a rebuild of the window's cursor rects, and nothing when the rect is the same.
     private func placeCursorArea() {
         let rect = cursorRectInBounds
         if let cursorArea {
@@ -214,7 +214,7 @@ final class DividerHandleView: NSView {
         return resizeCursor
     }
 
-    /// The pointer entered ``cursorArea`` (p04-input-090): no cursor rects, so a frame change during a
+    /// The pointer entered ``cursorArea``: no cursor rects, so a frame change during a
     /// drag or a strip pan rebuilds none of the window's. Mid-spring it leaves the cursor alone.
     override func cursorUpdate(with event: NSEvent) {
         cursor(at: convert(event.locationInWindow, from: nil))?.set()

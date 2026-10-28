@@ -163,7 +163,7 @@ export class EditorStore {
   /** What a discarded page of this tab showed (the config's `viewState`), until the file is in the view. */
   private pendingViewState: unknown = null;
   private readonly reporter;
-  /** `user_edits` while the file holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
+  /** `user_edits` while the file holds edits not on disk: the host keeps the hidden page. */
   private readonly keepAlive: PageKeepAlive;
   /** Whether the file held edits not on disk at the last state change; `user_edits` follows its changes. */
   private dirty = false;

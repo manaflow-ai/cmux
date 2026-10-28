@@ -4,7 +4,7 @@ import AppKit
 import QuartzCore
 import Testing
 
-/// chrome-parity p03-rendering-101: with `motion.renderServer` on, the collapsed toolbar band's open and close
+/// With `motion.renderServer` on, the collapsed toolbar band's open and close
 /// set its share once and lay the top row out once, at rest; additive render-server springs show the band, and
 /// what follows it, moving there, and a change mid-flight keeps the presented width continuous. No frame of the
 /// motion lays the row out. The band's buttons keep their full size while its clip and fade reveal them, the

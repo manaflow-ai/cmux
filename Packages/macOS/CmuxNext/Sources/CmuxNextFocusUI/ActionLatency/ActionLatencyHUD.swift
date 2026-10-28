@@ -193,7 +193,7 @@ package final class ActionLatencyHUD {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
-        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window
         // The title bar's close button closes the panel without hide(): stop the readers there too.
         let closeObserver = PanelCloseObserver { [weak self] in self?.hide() }
         panel.delegate = closeObserver

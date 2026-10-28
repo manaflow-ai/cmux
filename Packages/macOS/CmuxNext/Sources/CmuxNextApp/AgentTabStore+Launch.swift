@@ -3,7 +3,7 @@ import CmuxNextLaunch
 import CmuxNextWakeups
 
 extension AgentTabStore {
-    /// Whether `key`'s view waits for the launch (p08-startup-042). A tab's view is a `WKWebView`, and
+    /// Whether `key`'s view waits for the launch. A tab's view is a `WKWebView`, and
     /// the first one makes the `WKProcessPool` (about 150 ms on the main thread), so before startup
     /// completes a tab draws its picture and makes its view in an afterFirstFrame post of the launch's
     /// scheduler, the focused pane's tab first (``LaunchViewQueue``). A tab outside the focused pane,

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDiff
 
-/// The unified diff the diff page reads for a chat turn (p10-stability-030): ``DiffTurnPatch`` puts
+/// The unified diff the diff page reads for a chat turn: ``DiffTurnPatch`` puts
 /// git's headers back on the session host's `git.checkpoint.diff` reply and fixes the last hunk of a
 /// patch the host cut short. Any reply (paths with quotes and control characters, CRLF and
 /// combining-mark rows, cuts anywhere, hunk headers with huge or negative numbers, values of the
@@ -101,7 +101,7 @@ struct DiffTurnPatchFuzzTests {
 
     /// One input of a property its first choice picks, replayed from bytes. Darwin only:
     /// CmuxNextDiff links CmuxNextAgentPane (AppKit), so the Linux libFuzzer targets
-    /// (p10-stability-182) skip it.
+    /// skip it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(3) {

@@ -39,7 +39,7 @@ public final class ResizeCoordinator {
     /// final size in full screen, and steps the frame in a Zoom; each
     /// in-between size the daemon applied was a PTY reflow and a rebuilt
     /// screen for nothing, on the main thread the animation needs
-    /// (fullscreen-lag, chrome-parity p03-rendering-105). The newest size goes
+    /// (fullscreen-lag). The newest size goes
     /// the frame after it ends. Terminals in other windows do not wait
     /// (PL-burst M6), and a drag stays real time (it does not hold).
     private let holds: (NSWindow?) -> Bool

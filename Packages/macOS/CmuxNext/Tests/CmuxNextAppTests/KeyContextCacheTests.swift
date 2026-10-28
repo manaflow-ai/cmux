@@ -6,7 +6,7 @@ import CmuxNextFocusUI
 import CmuxNextSidebar
 import Testing
 
-/// The key router's per-window key facts behind a generation counter (p04-input-053): a run of chords with
+/// The key router's per-window key facts behind a generation counter: a run of chords with
 /// no change builds the facts and the `KeyContext` once; each input the lookups are built from rebuilds them and
 /// names itself (focus, first responder, file explorer keyboard, top page, sidebar selection crossing one,
 /// workspaces as tabs); each flag of an object they found follows that object with no rebuild (marked text, the

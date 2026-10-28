@@ -147,7 +147,7 @@ fn request_frame(request_id: u32, payload: &[u8]) -> Vec<u8> {
 /// returned, so a panicking reader left its client registered, its writer
 /// waiting and its socket open, and the client waited forever (the suite's
 /// 120 s timeouts after each blocking-call panic). With no reader thread
-/// (p01-process-203) the handler runs on the connection's line sequence,
+/// the handler runs on the connection's line sequence,
 /// whose pool worker survives the panic: the connection still ends.
 #[test]
 fn a_panic_in_a_connections_handler_closes_the_connection() {

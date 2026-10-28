@@ -1,4 +1,4 @@
-// A bare #N's pull request rounds rest while the agent page is hidden (p13-webui-069, MQ4b): the
+// A bare #N's pull request rounds rest while the agent page is hidden (MQ4b): the
 // rounds of link.inspect and pr.inspect wait on a page timeout, so a hidden page asks the host
 // nothing for a minute, a show asks nothing on its turn, and the round runs one wait later.
 import { afterEach, expect, test } from "bun:test";

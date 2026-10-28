@@ -2,7 +2,7 @@ import CmuxNextHibernation
 import CmuxNextWakeups
 import Testing
 
-/// p14-energy-125: a hidden tab whose renderers used more than 5 % of one core over at least 60 s says "Using high
+/// A hidden tab whose renderers used more than 5 % of one core over at least 60 s says "Using high
 /// energy" in its hover card, with Discard; one at 3 % does not, and a tab that shows never does (Chrome's
 /// `CpuHealthTracker` acts on background tabs only). Readings happen only at wakes (the hibernation's replans and a
 /// card's opening), never on a timer of the monitor's own. The renderer readings come from the `measure` seam, the

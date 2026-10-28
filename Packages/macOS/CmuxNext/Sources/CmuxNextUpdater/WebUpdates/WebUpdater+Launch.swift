@@ -1,6 +1,6 @@
 public import Foundation
 
-// The launch check of the kept update (p08-startup-077): its blocking read, which the app runs as a
+// The launch check of the kept update: its blocking read, which the app runs as a
 // launch read on a lane from `main`, and the decision ``WebUpdater/launchTree()`` makes with the
 // followed channel.
 extension WebUpdater {

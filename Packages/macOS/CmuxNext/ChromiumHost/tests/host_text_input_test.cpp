@@ -1,5 +1,5 @@
-// Checks the Chromium Host's text input pushes (src/host_text_input.{h,mm},
-// task p01-process-044) alone and through the dispatcher
+// Checks the Chromium Host's text input pushes (src/host_text_input.{h,mm})
+// alone and through the dispatcher
 // (src/host_dispatch.mm) with a fake shim: the fork's state is read with its
 // size; the text keeps 100 UTF-16 units around the selection and the
 // composition and never splits a surrogate pair; the wire fields round-trip

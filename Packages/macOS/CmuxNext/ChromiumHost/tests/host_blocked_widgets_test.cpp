@@ -1,5 +1,5 @@
-// Checks the Chromium Host's blocked widget handler (src/host_blocked_widgets.h,
-// task p01-process-068) with a fake fork: the handler installs through the
+// Checks the Chromium Host's blocked widget handler (src/host_blocked_widgets.h)
+// with a fake fork: the handler installs through the
 // fork's setter; a shown widget is dismissed once, in a later UI task, and
 // logged once as BLOCKED_WIDGET with its browser, kind, class, rect and the
 // cmux UI that owns its kind; a move or resize of it neither dismisses nor

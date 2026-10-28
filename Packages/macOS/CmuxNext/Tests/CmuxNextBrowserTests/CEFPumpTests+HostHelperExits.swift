@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The Chromium Host's helpers (task p01-process-225): their ends come as HELPER_EXIT (kind 68, HOST/src/
+/// The Chromium Host's helpers: their ends come as HELPER_EXIT (kind 68, HOST/src/
 /// host_helper_exits.h), which decodes to the in-process child monitor's ``CEFChildProcessMonitor/Exit`` and makes
 /// the same `debug.crashes` record and `cef.helper_exit` sample, and the tabs' process list reads the host's
 /// children. Each test records into its own store.

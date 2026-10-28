@@ -52,7 +52,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cmux-tui/spec/sdk-schema.json"
 CENSUS = ROOT / "scripts/cmux-next/ipc-census.py"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
-# The iOS cmux-tui client names every command it sends in this enum (p05-ipc-048).
+# The iOS cmux-tui client names every command it sends in this enum.
 IOS_COMMAND_TABLE = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
 
 sys.path.insert(0, str(ROOT / "cmux-tui/bindings"))
@@ -202,7 +202,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
 # stats and the agent inventory registry refresh, which waits on the network
 # for seconds; else control. An agent chat's prompt, cancel and permission
-# answer are the person's input to the attached session (p05-ipc-018: input
+# answer are the person's input to the attached session (input
 # for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
@@ -210,7 +210,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
-        # Focus and visibility of an attach stream (p05-ipc-142): a tab switch is the person's.
+        # Focus and visibility of an attach stream: a tab switch is the person's.
         "set-stream-priority",
         "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),

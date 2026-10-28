@@ -1,4 +1,4 @@
-// The page half of the oracle's `webviews` facet (oracle-state.ts, p15-oracle-215).
+// The page half of the oracle's `webviews` facet (oracle-state.ts).
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   contributeOracleState,

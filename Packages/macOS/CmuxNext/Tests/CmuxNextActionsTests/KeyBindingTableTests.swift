@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import Testing
 
-/// `resolveWinner` (the key-down path, p04-input-055) picks the entry `resolve` names as winner,
+/// `resolveWinner` (the key-down path) picks the entry `resolve` names as winner,
 /// on the shipped table for every key, in many contexts, with several runnable and accept rules.
 @MainActor @Suite struct KeyBindingTableTests {
     nonisolated static let cmdK = Shortcut("k", modifiers: [.command])

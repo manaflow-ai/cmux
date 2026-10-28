@@ -1,8 +1,8 @@
 // The page view's input method ops on the Chromium Host's remote shim
-// (plans/cmux-next/chromium-host-ops.json optional_exports, p04-input-064). The remote shim sends
+// (plans/cmux-next/chromium-host-ops.json optional_exports). The remote shim sends
 // each one ordered after the key frames written before it (remote_shim.mm, IsOrderedOp), and the
-// host runs its shim's export of the same name, which calls the fork's remote-presentation IME
-// (p01-process-170): Chrome's ImeSetComposition, ImeCommitText, ImeFinishComposingText and
+// host runs its shim's export of the same name, which calls the fork's remote-presentation IME:
+// Chrome's ImeSetComposition, ImeCommitText, ImeFinishComposingText and
 // ImeCancelComposition (content/common/render_widget_host_ns_view.mojom).
 
 /// The shim's IME functions (``CEFShimLibrary/textInput``). Each is nil without the export: in

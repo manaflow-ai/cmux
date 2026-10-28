@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The turn recorder (p15-oracle-032): armed, it reads the armed main-actor facets at each turn end,
+/// The turn recorder: armed, it reads the armed main-actor facets at each turn end,
 /// so a turn shows what changed in that turn and equals the settled mark when nothing changed after
 /// (invariant I3); disarmed it records nothing; a facet read off the main actor cannot be armed; a
 /// request is applied whole or not at all. Run: `swift test --filter OracleTurnRecorderTests`.

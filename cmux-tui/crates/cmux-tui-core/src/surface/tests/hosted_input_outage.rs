@@ -1,4 +1,4 @@
-//! Hosted input across a lost host connection (p05-ipc-085): inputs queued
+//! Hosted input across a lost host connection: inputs queued
 //! in a terminal's input FIFO while its host connection is lost wait out
 //! one reconnect window together, not one window each in turn.
 

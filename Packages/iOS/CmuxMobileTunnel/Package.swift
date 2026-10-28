@@ -19,7 +19,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        // OnceContinuation, the continuation that resumes exactly once.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
         .package(url: "https://github.com/apple/swift-nio-transport-services.git", from: "1.23.0"),

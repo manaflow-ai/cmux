@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextIPC
 
-/// `ResourceFieldUpdate`, a request's optional nullable field (p05-ipc-045): absent keeps, `null`
+/// `ResourceFieldUpdate`, a request's optional nullable field: absent keeps, `null`
 /// clears, a value sets, both ways.
 @Suite struct ResourceFieldUpdateTests {
     private struct Patch: Codable, Equatable {

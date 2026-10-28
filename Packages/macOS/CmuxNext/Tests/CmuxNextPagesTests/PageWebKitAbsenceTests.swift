@@ -5,7 +5,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// A page shown in Chromium makes no WKWebView (p13-webui-041): its WebKit engine
+/// A page shown in Chromium makes no WKWebView: its WebKit engine
 /// (``PageWebKitEngine``) is built only when it falls back, in the turn it does. The calls a host
 /// makes while the Chromium page is on its way reach no engine and build none.
 @MainActor

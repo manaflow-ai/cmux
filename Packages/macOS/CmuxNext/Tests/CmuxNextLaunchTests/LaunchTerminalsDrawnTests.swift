@@ -1,7 +1,7 @@
 import CmuxNextLaunch
 import Testing
 
-/// p01-process-152: `launch.visible_terminals_drawn` (bench_launch.py `after-kill`) comes when every visible terminal
+/// `launch.visible_terminals_drawn` (bench_launch.py `after-kill`) comes when every visible terminal
 /// drew the frame after its first content, never when the content was only queued: a pane counts as loaded at the
 /// queue, before the parse, the draw and the reveal of a pane held clear.
 @MainActor

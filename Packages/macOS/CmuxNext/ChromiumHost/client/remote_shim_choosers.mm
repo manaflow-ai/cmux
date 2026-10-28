@@ -1,5 +1,5 @@
-// The remote shim's chooser handlers (remote_shim_choosers.h, task
-// p01-process-228). Plain C++ (no Objective-C), so
+// The remote shim's chooser handlers (remote_shim_choosers.h).
+// Plain C++ (no Objective-C), so
 // tests/remote_shim_choosers_test.cpp compiles it on any machine
 // (scripts/cmux-next/tests/remote-shim-choosers.test.sh).
 

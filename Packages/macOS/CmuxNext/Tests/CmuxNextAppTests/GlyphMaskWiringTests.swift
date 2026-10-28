@@ -5,7 +5,7 @@ import CmuxNextFeatures
 import CmuxNextMemory
 import Testing
 
-/// The production wiring of `sharedGlyphMasks` (p03-rendering-075): off (the default) gives the scope
+/// The production wiring of `sharedGlyphMasks`: off (the default) gives the scope
 /// tree no cache, so every label keeps its own images; on shares one cache, a consumer in the report.
 @MainActor @Suite(.serialized) struct GlyphMaskWiringTests {
     private static let budget = SubsystemBudget.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false)

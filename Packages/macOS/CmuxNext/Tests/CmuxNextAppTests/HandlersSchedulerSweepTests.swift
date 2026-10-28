@@ -9,7 +9,7 @@ import Foundation
 import Observation
 import Testing
 
-/// The CmuxNextApp/Handlers K-W sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-306, rule 9):
+/// The CmuxNextApp/Handlers K-W sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9):
 /// one case per migrated owner class. A person's Cmd-W ends in one userBlocking task that needs no frame; a CLI run's
 /// completion keeps its daemon command scope; the waits end on their condition, their deadline or their task's cancel,
 /// never by a poll, and a connect wait whose connection dropped waits again instead of telling a failure. The person

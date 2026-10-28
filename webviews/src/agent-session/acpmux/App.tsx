@@ -5890,7 +5890,7 @@ function AcpmuxPane() {
     const discardUnsent = () => harnessSwitch.cancelDeferred();
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     // The handshake's backoff rests while the page is hidden and tries once on show
-    // (retryBackoff.ts, p13-webui-069): a hidden pane asks Swift nothing.
+    // (retryBackoff.ts): a hidden pane asks Swift nothing.
     const handshakeRetry = new RetryBackoff({ firstMs: 250, maxMs: 30_000 });
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.

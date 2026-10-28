@@ -1,6 +1,6 @@
 public import CmuxNextSettings
 
-/// `debug.shipping_mode` (p14-energy-100): what this launch really runs of the shipping
+/// `debug.shipping_mode`: what this launch really runs of the shipping
 /// configuration `scripts/cmux-next/idle-budget.py` measures, read from the app, not predicted
 /// from the launch environment.
 ///

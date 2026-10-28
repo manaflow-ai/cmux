@@ -105,7 +105,7 @@ enum AgentChatCopyHandlers {
 
     @MainActor
     private static func focusedChat(_ context: AppActionContext, _ invocation: ActionInvocation) -> Target? {
-        guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey, // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once per run
+        guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey, // view-observation-allow: one MachineTabIndex lookup, once per run
               let view = context.services.agentTabs.existingView(key), let tab = context.services.locateTab(key)?.0,
               let session = view.model.sessionId, !session.isEmpty, tab.agentSession != nil else {
             context.refuse(AgentChatCopyStrings.notAChat)
@@ -126,7 +126,7 @@ enum AgentChatCopyHandlers {
 
     @MainActor
     private static func isCurrent(_ target: Target, context: AppActionContext) -> Bool {
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per check, before and after the read
+        // view-observation-allow: one MachineTabIndex lookup per check, before and after the read
         guard let located = context.services.locateTab(target.tabKey),
               context.services.paneController(for: located.1)?.currentTabKey == target.tabKey,
               context.services.windows.active?.focusedPane?.paneKey == target.paneKey,

@@ -17,7 +17,7 @@ public import AppKit
 /// off it happens at once.
 ///
 /// The frame steps stay AppKit's. With ``holdsContent`` (feature `windowFrameAnimationHoldsContent`,
-/// off by default; chrome-parity p03-rendering-105) the content resizes once: the window holds its
+/// off by default) the content resizes once: the window holds its
 /// content's resizes while it animates (``Motion/beginFrameAnimation(_:)``), as a full screen
 /// transition does, so each terminal sends the daemon one grid, at the end. Off, content resizes live.
 ///

@@ -57,7 +57,7 @@ pub struct ProviderDriver {
     pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
     /// Tabs agent sessions kept (`tab.keep`): deliverables later sessions list.
     pub(crate) kept_tabs: Mutex<std::collections::BTreeSet<String>>,
-    /// CEF tabs relayed straight to the app's Chromium Host (p01-process-233).
+    /// CEF tabs relayed straight to the app's Chromium Host.
     direct: Arc<DirectRelays>,
 }
 

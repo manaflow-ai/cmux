@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the shim's <select> popup types and their CMUX_SHIM_POPUP_MENU JSON
-# (CEFShim/src/popup_menu_args.h, no CEF needed; task p01-process-060) and runs
+# (CEFShim/src/popup_menu_args.h, no CEF needed) and runs
 # their cases. With CMUX_CEF_FORK=<manaflow-ai/cef checkout at API 31>, also
 # checks the shim's copies of the fork's structs against its include/cef_cmux.h.
 # Small: one clang++ call.

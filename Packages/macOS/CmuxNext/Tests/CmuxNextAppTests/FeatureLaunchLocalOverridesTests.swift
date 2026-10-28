@@ -6,8 +6,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Debug tunable `browserResize.layerHosting` is only the local override of feature `cefLayerHosting`
-/// (p12-perf-process-100): the launch reads it from the build's debug-tunables.json before its FeatureList
+/// The Debug tunable `browserResize.layerHosting` is only the local override of feature `cefLayerHosting`:
+/// the launch reads it from the build's debug-tunables.json before its FeatureList
 /// resolves, and the list itself puts it at step 3 (source `local`), under managed policy and the environment
 /// lists, over the remote document and the channel default, never in Release. Every reader of the list (the engine,
 /// `features.list`, the lab's arm record) sees the same value.

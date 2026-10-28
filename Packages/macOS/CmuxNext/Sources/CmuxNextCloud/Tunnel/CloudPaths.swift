@@ -93,7 +93,7 @@ public struct CloudPaths: Sendable {
         return id
     }
 
-    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread (p08-startup-076). It blocks:
+    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread. It blocks:
     /// run it on a `BackgroundWork` files lane.
     public func deviceIDResult() -> Result<String, CloudDeviceIDError> {
         do {
@@ -112,7 +112,7 @@ public enum CloudDeviceIDError: Error, Equatable, Sendable {
     case unwritable(String)
 }
 
-/// This Mac's install id as the launch's read of it has it (p08-startup-076): `main` reads (or makes) `device-id` on a
+/// This Mac's install id as the launch's read of it has it: `main` reads (or makes) `device-id` on a
 /// launch lane with ``CloudPaths/deviceIDResult()``, and the main thread asks this, which never touches the disk.
 ///
 /// ```swift

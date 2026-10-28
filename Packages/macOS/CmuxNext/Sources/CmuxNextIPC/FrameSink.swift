@@ -2,7 +2,7 @@ import Darwin
 
 /// Where a ``FrameWriter`` puts its bytes. The writer calls ``send(_:fds:)`` only on its own serial drain queue,
 /// never on the caller's thread; a sink may wait there (a blocking socket send). ``trySend(_:fds:)`` is the inline
-/// write of an idle writer (p05-ipc-140): it runs on the caller's thread, never the main thread, and never waits.
+/// write of an idle writer: it runs on the caller's thread, never the main thread, and never waits.
 public protocol FrameSink: Sendable {
     /// Sends a prefix of `bytes`, with `fds` as `SCM_RIGHTS` on its first byte when not empty.
     /// - Returns: The bytes sent (0 means no progress), or why the send failed.

@@ -7,7 +7,7 @@ import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextInput
 
-/// Hold-to-talk hears the held shortcut's release through the app's input tap (p04-input-017): a key-up
+/// Hold-to-talk hears the held shortcut's release through the app's input tap: a key-up
 /// and modifier subscription that exists only while a hold is armed, and leaves the tap at the release,
 /// a quick press, or the pane's close.
 @Suite(.serialized)
@@ -136,7 +136,7 @@ struct AgentPaneDictationTests {
         #expect(!harness.dictation.holdsResources)
     }
 
-    /// A session holds its page's `dictation` keep reason (p13-webui-032), so a hidden chat is not
+    /// A session holds its page's `dictation` keep reason, so a hidden chat is not
     /// frozen or discarded while it still takes words: one begin as it starts, one end as it stops
     /// or as the pane closes, and never one more.
     @Test func aSessionHoldsItsPagesDictationReasonUntilItEnds() throws {

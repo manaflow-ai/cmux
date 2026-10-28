@@ -15,7 +15,7 @@ import CmuxNextCompat
 /// logs: cmux-next has no log bridge, so it sends nothing the main app does
 /// not. App hangs come from ``HangTracking``.
 ///
-/// Idle cost (p09-observability-076, p14-energy-101). On macOS the SDK's
+/// Idle cost. On macOS the SDK's
 /// app-hang tracker (`SentryANRTrackerV1`) is a thread that posts a block to
 /// the main queue every `appHangTimeoutInterval / 5` (1.6 s at 8 s), idle or
 /// not: 0.625 main wakeups per second. Chrome has one HangWatcher per process,
@@ -33,7 +33,7 @@ import CmuxNextCompat
 /// call ``reassertSignalHandlers()`` after the run marker installs its
 /// handlers again.
 ///
-/// Start cost (p08-startup-032). `SentrySDK.start` on main installs every
+/// Start cost. `SentrySDK.start` on main installs every
 /// integration in that call; the SDK (sentry-cocoa 9.28) has no public API
 /// to install one later. Session tracking already does its file I/O on the
 /// SDK's own queue, and network breadcrumbs stay on for the whole run. So
@@ -74,8 +74,8 @@ public final class CrashReporter: Sendable {
         case sentry
         /// The process's one hang watcher, the main-thread watchdog, reports each hang
         /// (`MainThreadWatchdog.onHang`), each episode of ``CrashReporter/appHangThreshold`` and up as an app
-        /// hang (``AppHangReporter``, p14-energy-101), and with feature `fatalHangReports` keeps the fatal-hang
-        /// record the next launch reports (p09-observability-110); Sentry's tracker is off. The app sets these
+        /// hang (``AppHangReporter``), and with feature `fatalHangReports` keeps the fatal-hang
+        /// record the next launch reports; Sentry's tracker is off. The app sets these
         /// sinks before ``CrashReporter/start(profile:)`` (`WatchdogHangSinks`), so a launch hang is reported too.
         case watchdog
     }
@@ -373,7 +373,7 @@ public final class CrashReporter: Sendable {
         SentrySDK.capture(event: SystemCrashEvent(report: report.systemReport, source: .crashpad).event(), scope: Scope())
     }
 
-    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128, 079): nil without
+    /// The previous run's black box as the crash event's `blackbox.txt`: nil without
     /// the hang-reports opt-in, never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``), and
     /// passed through `scrubber` like every other text that leaves the Mac.
     public static func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool,

@@ -303,7 +303,7 @@ import Testing
         await source.shutdown()
     }
 
-    /// p14-energy-067b: a socket pings only after `keepaliveInterval` with no frame from the owner
+    /// A socket pings only after `keepaliveInterval` with no frame from the owner
     /// (Chromium's QUIC ping alarm), and every keepalive wait is flexible. The old loop pinged every
     /// 25 s whatever the socket carried.
     @Test func aSocketThatHearsFramesSendsNoPing() async throws {

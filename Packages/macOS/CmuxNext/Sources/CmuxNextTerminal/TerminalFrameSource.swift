@@ -1,6 +1,6 @@
 import IOSurface
 
-/// What main asks of a surface's presented frames (p03-rendering-081). The renderer is the only writer
+/// What main asks of a surface's presented frames. The renderer is the only writer
 /// of the presented contents (rendering-DESIGN.md R5): main reads the frame it presents and hides,
 /// shows or purges it through Ghostty, never through the layer. Chrome keeps the same split: the
 /// browser holds a reference to the surface's current frame and asks the producer to evict it
@@ -17,7 +17,7 @@ protocol TerminalFrameSource: AnyObject {
     func setPresentation(_ presentation: TerminalPresentation)
 }
 
-/// `ghostty_surface_set_presentation`'s argument (p03-rendering-080).
+/// `ghostty_surface_set_presentation`'s argument.
 enum TerminalPresentation: Equatable {
     /// Nothing shows the frame: its pages may be taken.
     case hidden

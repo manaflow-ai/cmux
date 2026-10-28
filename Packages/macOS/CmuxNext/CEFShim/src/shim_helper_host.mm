@@ -4,7 +4,7 @@
 // watch, the remote accessibility token and page drags. Fork API 31 (task
 // 227): the app's own choosers, screen-share picker and locks, a detached
 // page's display and page state per entry; a detached page's IME and
-// composition bounds (task p01-process-170). Each returns 0 (or does nothing)
+// composition bounds. Each returns 0 (or does nothing)
 // when the fork lacks the call. UI thread only unless noted.
 
 #include <cstddef>
@@ -114,7 +114,7 @@ static_assert(sizeof(ForkImeSpan) == 20 && offsetof(ForkImeSpan, thick) == 8 &&
                   offsetof(ForkImeSpan, underline_color) == 12 && offsetof(ForkImeSpan, background_color) == 16,
               "ForkImeSpan must keep the fork's cmux_ime_span_t layout");
 
-// Fork API 31 (task p01-process-170): IME of a detached page, used from the
+// Fork API 31: IME of a detached page, used from the
 // release that declares API 31 (task 178), as cef_cmux.h's history says.
 bool HasDetachedIme() {
   return fork_api().version >= kDetachedImeForkApi;
@@ -379,7 +379,7 @@ int cmux_shim_tab_restore_entries(int browser_id, const cmux_shim_restore_entry*
   return fork_api().tab_restore_entries(browser_id, copies.data(), copies.count(), current);
 }
 
-// A detached page's IME (task p01-process-170): the four calls Chrome's
+// A detached page's IME: the four calls Chrome's
 // RenderWidgetHostViewCocoa makes on its RenderWidgetHostNSViewHost, for the
 // page view's NSTextInputClient in the app; the fork sends them to the widget
 // that has the text input (an out-of-process iframe too). The Chromium Host

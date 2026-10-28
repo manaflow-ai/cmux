@@ -242,7 +242,7 @@ final class UpdateSurfaceProvider: PageProvider {
 }
 
 extension PageDescriptor {
-    /// The sidebar's update surfaces (p13-webui-054): the changelog page's bundle and origin with
+    /// The sidebar's update surfaces: the changelog page's bundle and origin with
     /// only what a card uses, so the card is app content and opens in the `privileged` group, never
     /// in a WebKit process of its own (p13-webui.md 3.F). Its ops are the surface's own
     /// (``UpdateSurfaceProvider``) and the signed notes' `list`, `get` and `reel` (null: the card's

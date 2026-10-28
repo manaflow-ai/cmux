@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/cmux-next/pgo/build-profile.sh (p08-startup-049): it builds `reload.sh --config profile`, refuses a
+# scripts/cmux-next/pgo/build-profile.sh: it builds `reload.sh --config profile`, refuses a
 # bundle that is not an instrumented profile build, and passes only when the launched app's own .profraw has
 # counts. reload.sh, the launch and llvm-profdata are stubs (the script's test seams); the real run is a fleet
 # step. Also checks that reload.sh's profile arm carries the PGO flags and that no other arm does.

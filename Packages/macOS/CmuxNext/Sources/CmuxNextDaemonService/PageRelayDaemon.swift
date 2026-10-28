@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 
-/// What a page relay needs of its daemon service (p13-webui-066): the app's main connection
+/// What a page relay needs of its daemon service: the app's main connection
 /// (confirmation tokens, and the calls to a daemon without `origin-claim-v1`), its capabilities,
 /// and how to open another connection to it. ``DaemonService`` in the app; a fake daemon in tests.
 @MainActor

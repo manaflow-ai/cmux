@@ -3,7 +3,7 @@
 public import Atomics
 public import CmuxNextCompat
 
-/// The process's crash-key page (``CrashKeyPage``, p09-observability-078) for an owner made before the page
+/// The process's crash-key page (``CrashKeyPage``) for an owner made before the page
 /// exists: the page is attached once, when its black box makes it, and every key stored from then on goes into it;
 /// a key stored before that goes nowhere. Storing reads one pointer and takes no lock and no reference.
 ///

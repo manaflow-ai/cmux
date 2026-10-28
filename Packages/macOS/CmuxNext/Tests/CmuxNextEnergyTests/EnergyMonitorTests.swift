@@ -181,7 +181,7 @@ struct EnergyMonitorTests {
         #expect(heard == [.critical])
     }
 
-    /// p06-scheduler-347: Low Power Mode follows its center through one main-queue observer, in the
+    /// Low Power Mode follows its center through one main-queue observer, in the
     /// post's own turn on main (no task hop), tells its observers once per change, and stops when released.
     @Test func lowPowerModeFollowsItsCenterInThePostsTurn() {
         let center = NotificationCenter()

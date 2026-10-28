@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The app's wiring of `launchWindowsByOcclusion` (p08-startup-062), as `WindowManager.restore` runs it:
+/// The app's wiring of `launchWindowsByOcclusion`, as `WindowManager.restore` runs it:
 /// `scheduleLaunchBuilds` before the restore's `sync`. Before startup completes only the front window, a
 /// window saved in full screen (it enters full screen at launch, never later under the person) and the
 /// windows that show are built; a waiting window that shows holds startup as one loading window; reads

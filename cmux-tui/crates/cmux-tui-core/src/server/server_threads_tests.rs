@@ -1,4 +1,4 @@
-//! `server-threads` and `server-blocking` (p02-threads-203): the registry,
+//! `server-threads` and `server-blocking`: the registry,
 //! lane and site-table snapshots behind them, the owner-only refusal, the
 //! capability, and the read cost.
 

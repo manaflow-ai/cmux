@@ -5,7 +5,7 @@ import Foundation
 /// JavaScript dialogs of driven tabs as driver events. WebKitTab turns
 /// alert, confirm and prompt into `pendingPrompts`; the broker watches that
 /// list with one automation-class ``ServiceObservation`` per tab (no polling;
-/// p06-scheduler-036: the person's input goes first), sends `dialog.opened` for each new
+/// the person's input goes first), sends `dialog.opened` for each new
 /// dialog, and answers it on `dialog.respond`. A dialog stays open until it
 /// is answered, as #15570's driver keeps it (the snapshot shows it).
 @MainActor

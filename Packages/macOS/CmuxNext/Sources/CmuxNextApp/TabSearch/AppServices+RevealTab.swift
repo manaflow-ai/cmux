@@ -18,7 +18,7 @@ extension AppServices {
     ///     key window alone (a link opened in the background).
     @discardableResult
     func revealTab(_ id: String, intent: WindowActivation.Intent = .raise) -> Bool {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
         let located = locateTab(id)
         // A `tab_` link names a tab the strip may know by its first id.
         let tabID = located?.0.id ?? id

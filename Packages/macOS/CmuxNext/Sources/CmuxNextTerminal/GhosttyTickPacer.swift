@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 
-/// libghostty's app ticks at most one per display frame while output streams (p03-rendering-119,
-/// plans/cmux-next/chrome-parity/p03-rendering.md, R5 and DC6).
+/// libghostty's app ticks at most one per display frame while output streams
+/// (plans/cmux-next/chrome-parity/p03-rendering.md, R5 and DC6).
 ///
 /// A wakeup after a quiet spell ticks at once, in its hop's turn. A wakeup less than
 /// ``streamWindowNanos`` after the last tick means output streams: the tick waits for the next frame,
@@ -16,7 +16,7 @@ import CmuxNextWakeups
 /// src/App.zig), and `wakeup_cb` does not say which message woke it. So while output streams, an
 /// OSC 52 read or write, a child exit or a surface close in any terminal waits at most until the
 /// next frame (8.3 ms at 120 Hz, 16.7 ms at 60 Hz). Running those at once needs libghostty to signal a discrete
-/// message apart from the stream's, a ghostty-next change for the integrator lane (p03-rendering-079).
+/// message apart from the stream's, a ghostty-next change for the integrator lane.
 ///
 /// Chrome treats continuous input the same way: a discrete event dispatches at once and continuous
 /// ones coalesce to one per frame, dispatched at the begin-frame (`MainThreadEventQueue`,

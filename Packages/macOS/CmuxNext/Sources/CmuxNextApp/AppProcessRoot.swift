@@ -6,7 +6,7 @@ import os
 
 /// The process root (plans/cmux-next/crash-elimination.md, P1b): the app's one
 /// `AppServices`, held here for the life of the process. The objects under it
-/// never own it back (p10-stability-091): the services, windows, panes and page
+/// never own it back: the services, windows, panes and page
 /// providers it builds keep a non-owning reference, as Chromium's back-pointers
 /// are `raw_ptr` and never keep their owner alive. The few whose lifetime is
 /// structural keep `unowned`, each with a `lifetime:` reason naming this holder
@@ -42,7 +42,7 @@ final class AppProcessRoot {
 }
 
 extension OwnerReference where Owner == AppServices {
-    /// A service's non-owning reference back to the app's `AppServices`, which owns it (p10-stability-091): a read
+    /// A service's non-owning reference back to the app's `AppServices`, which owns it: a read
     /// after the services are gone reports once per site and gives nil, and the caller refuses
     /// (``CmuxNextDaemonService/ActionFailure/appClosing``) or does nothing.
     init(services: AppServices) {

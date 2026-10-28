@@ -119,7 +119,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
         relayed.removeValue(forKey: targetID)?.page?.agentRelay.set(onMessage: nil, onEnd: nil)
     }
 
-    /// A prepared tab whose page the Chromium Host relays to the browser host itself (task p01-process-233): its
+    /// A prepared tab whose page the Chromium Host relays to the browser host itself: its
     /// raw DevTools never pass this relay, so its sends cost the main thread nothing.
     func directTarget(targetID: String) -> CEFAgentDirectTarget? {
         (services?.cache.existingBrowser(targetID)?.tab as? CEFTab)?.agentRelay.directTarget

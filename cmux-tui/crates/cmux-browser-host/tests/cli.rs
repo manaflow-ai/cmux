@@ -320,7 +320,7 @@ fn a_browser_the_host_starts_holds_none_of_the_inherited_sockets() {
     assert!(sockets.is_empty(), "the browser inherited sockets {sockets:?}; all fds: {fds}");
 }
 
-/// p09-observability-099: `serve` takes `--panic-log <path>` (the daemon
+/// `serve` takes `--panic-log <path>` (the daemon
 /// passes it) and serves; the hook itself is tested in tests/panic_log.rs.
 #[cfg(unix)]
 #[test]

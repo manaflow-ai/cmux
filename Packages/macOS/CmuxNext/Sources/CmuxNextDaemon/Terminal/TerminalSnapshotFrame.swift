@@ -60,7 +60,7 @@ struct DecodedAttachLine: Sendable, Equatable {
     var generation: UInt64?
     /// The key press an `output` echoes (its `flow`), for the probe's decode mark.
     var flow: UInt64?
-    /// That press's daemon stages (p04-input-094), for the app's latency slot.
+    /// That press's daemon stages, for the app's latency slot.
     var keyStamps: TerminalKeyStamps?
 }
 

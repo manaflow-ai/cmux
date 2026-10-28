@@ -107,7 +107,7 @@ public final class ScreenshotsCommands {
 
     /// Asks for a new name in a sheet (the name without its extension preselected, as Finder does).
     /// A pane in no window has nothing to attach the sheet to, and no nested modal loop stands in for
-    /// one (p02-threads-132): it renames nothing.
+    /// one: it renames nothing.
     private func askToRename(_ item: FileGridItem, in window: NSWindow?) async {
         guard let window else { return }
         // dialog-keys-exempt: the sheet preselects the name without its extension (Finder), which a CmuxDialogSpec text field cannot do yet

@@ -420,7 +420,7 @@ impl BoundedOutbound {
         self.state.lock().recover_poison().client_streams.get(id)
     }
 
-    /// Moves `stream` to `lane` (`set-stream-priority`, p05-ipc-142): what it
+    /// Moves `stream` to `lane` (`set-stream-priority`): what it
     /// still queues keeps its order and is written in `lane`'s turn from now
     /// on, as is every later item. Under the lock every lane read holds.
     pub(super) fn set_stream_lane(&self, stream: &OutboundStream, lane: StreamLane) {

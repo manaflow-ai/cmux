@@ -49,7 +49,7 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugTabDrag.report(services: services))
             },
-            // Each refactor-switch site's count of the arm it ran (p15-oracle-027), `SwitchHits.Report` encoded as is; `reset` zeroes after the read.
+            // Each refactor-switch site's count of the arm it ran, `SwitchHits.Report` encoded as is; `reset` zeroes after the read.
             .mainActor("debug.oracle.switch_hits") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(Self.encode(services.switchHits.report(reset: call.params["reset"]?.boolValue == true)))

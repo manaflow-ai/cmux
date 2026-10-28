@@ -10,7 +10,7 @@ import Foundation
 import Testing
 
 /// The CmuxNextApp/{Permissions,ComputerUse,RightSidebar,BrowserHost,AgentRecents,DeepLinks,Settings,SidebarSections,Hints}
-/// sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-319, rule 9): one case per migrated owner
+/// sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case per migrated owner
 /// class, on a rig whose wakes and frames the test fires.
 /// - VisibleObservation: the Machines section renders nothing while hidden and renders once in the show turn.
 /// - ServiceObservation and AppEvents: Computer Use Setup reads the grants again on the distributed Accessibility

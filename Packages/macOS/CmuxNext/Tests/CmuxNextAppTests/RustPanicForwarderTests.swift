@@ -52,7 +52,7 @@ import Testing
         #expect(forwarder.forwardNew().isEmpty)
     }
 
-    /// p09-observability-099: the app hosts, the browser host, `cmux mcp serve` and acpmux's agent
+    /// The app hosts, the browser host, `cmux mcp serve` and acpmux's agent
     /// hosts each write their own log, at the path the Rust side names, and group apart in Sentry.
     @Test(arguments: [
         (RustPanicSource.appHost, "app-host-panics.jsonl", "app-host-panic", "app_host_panic_log", "cmux-app-host"),

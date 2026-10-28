@@ -2,7 +2,7 @@ public import AppKit
 import QuartzCore
 public import CmuxNextDesignTokens
 
-/// A layer-backed view's frame and alpha moved on the render server (chrome-parity p03-rendering-104).
+/// A layer-backed view's frame and alpha moved on the render server.
 ///
 /// The view's `frame` and `alphaValue` take their targets once, in the call's turn, so hit testing,
 /// layout, tracking areas and the next change read the rest values. Its layer then shows the change

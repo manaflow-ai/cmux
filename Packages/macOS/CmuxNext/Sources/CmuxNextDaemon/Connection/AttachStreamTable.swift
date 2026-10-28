@@ -11,7 +11,7 @@ enum AttachStreamDelivery: Sendable {
     case lost(TransportCloseReason)
 }
 
-/// Where one attach stream's items go. The reader only routes them (p05-ipc-144): each item runs on the connection's
+/// Where one attach stream's items go. The reader only routes them: each item runs on the connection's
 /// ``DecodeLane`` in wire order, weighed as the stream's `dispatch` says, and the reader runs the stream's
 /// ``EventDispatch/readerWait`` after the item, outside its hang scope, so a lane item never waits on the view.
 struct AttachStreamSink: Sendable {
@@ -33,7 +33,7 @@ struct AttachStreamHandle: Sendable, Hashable {
     let epoch: UInt64
 }
 
-/// The client-minted attach streams of one connection (p05-ipc-095), kept in the transport's state
+/// The client-minted attach streams of one connection, kept in the transport's state
 /// under its one lock. Chrome's `MultiplexRouter` works the same way: the side that associates an
 /// endpoint picks its id, every message names it, and the id is forgotten only once the peer's
 /// closed notification arrived (mojo/public/cpp/bindings/lib/multiplex_router.cc,

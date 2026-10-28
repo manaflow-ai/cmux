@@ -1,4 +1,4 @@
-//! Attach frames (p05-ipc-076): OUTPUT offsets stay contiguous over 10k
+//! Attach frames: OUTPUT offsets stay contiguous over 10k
 //! chunks of a real terminal's attach tap, and decoding the OUTPUT, GRID and
 //! EVENT frames gives back the JSON attach events of the line path.
 
@@ -358,7 +358,7 @@ fn offsets_stay_contiguous_over_ten_thousand_chunks() {
     assert_eq!(expected_offset, attach.offset + sent.len() as u64);
 }
 
-/// p04-input-094: the JSON `output` event of a key's echo carries its daemon
+/// The JSON `output` event of a key's echo carries its daemon
 /// stages and when it was sent; one with no stages carries none, and an
 /// older app's decoder sees the same `flow` either way.
 #[test]

@@ -1,4 +1,4 @@
-/// A terminal key's latency slot as the `flow` of its daemon `send` (p04-input-094). The daemon echoes the flow
+/// A terminal key's latency slot as the `flow` of its daemon `send`. The daemon echoes the flow
 /// with the key's output and its own stages, so the echo finds the slot with no table on either side.
 ///
 /// Bit 63 tags a slot's flow, so it never equals a typing-probe flow (this process's pid in bits 32-62, the

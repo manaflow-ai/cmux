@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The recovered-drafts notice at launch (p08-startup-081, Q11): one afterFirstFrame post that reads the drafts on
+/// The recovered-drafts notice at launch (Q11): one afterFirstFrame post that reads the drafts on
 /// the files lane and replies to main. No read and no toast before the first window's first frame; the toast after it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RecoveryNoticeLaunchTests {
     /// Counts the shown toast views (the center's overlay host, without an overlay).

@@ -1,7 +1,7 @@
 @testable import CmuxNextBrowser
 import Testing
 
-/// Find in a hosted Chromium page (p01-process-048 of plans/cmux-next/chrome-parity/p01-process.md):
+/// Find in a hosted Chromium page (plans/cmux-next/chrome-parity/p01-process.md):
 /// FIND_RESULT carries the caller's find id, so a result already on the wire for an older search
 /// never answers the newer one, and every result of the current search drives the find pill.
 @MainActor @Suite struct CEFFindRequestsTests {
