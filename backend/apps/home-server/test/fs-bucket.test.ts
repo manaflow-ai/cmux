@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import { createHash } from "node:crypto"
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -715,6 +716,45 @@ describe("self-hosted attachment bucket", () => {
       expect(readFileSync(join(outside, `${id}.json`), "utf8")).toBe(forged)
     } finally {
       rmSync(parent, { recursive: true, force: true })
+    }
+  })
+  it("commits each write to a key whole: concurrent puts and completions never leave one write's bytes with another's metadata", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const md5 = (text: string) => createHash("md5").update(text).digest("hex")
+      /** What a reader sees is one write: the bytes, their size and their etag agree. */
+      const whole = async (key: string, written: ReadonlyArray<string>) => {
+        const head = await bucket.head(key)
+        const got = await bucket.get(key)
+        const text = await new Response(got!.body!).text()
+        expect(written).toContain(text)
+        expect([head!.size, head!.etag, got!.size, got!.etag]).toEqual([text.length, md5(text), text.length, md5(text)])
+        expect((await bucket.list({ prefix: key })).objects.filter((o) => o.key === key).map((o) => [o.size, o.etag])).toEqual([[text.length, md5(text)]])
+      }
+      for (let round = 0; round < 20; round++) {
+        // Bodies of different sizes, so a mismatch shows in the size as well as the etag.
+        const bodies = Array.from({ length: 8 }, (_, i) => `${round}:${i}:${"x".repeat(i * 97 + 1)}`)
+        await Promise.all(bodies.map((body) => bucket.put("home/v1/race", body)))
+        await whole("home/v1/race", bodies)
+
+        // A completion racing puts to its own key.
+        const upload = await bucket.createMultipartUpload("home/v1/race-mp")
+        const part = await upload.uploadPart(1, `mp:${round}`)
+        const others = bodies.slice(0, 4)
+        await Promise.all([upload.complete([part]), ...others.map((body) => bucket.put("home/v1/race-mp", body))])
+        await whole("home/v1/race-mp", [`mp:${round}`, ...others])
+
+        // Only one of several conditional puts to a new key wins; what is stored is that one, whole.
+        const fresh = `home/v1/once-${round}`
+        const results = await Promise.all(bodies.map((body) => bucket.put(fresh, body, { onlyIf: { etagDoesNotMatch: "*" } })))
+        expect(results.filter((r) => r !== null)).toHaveLength(1)
+        await whole(fresh, [bodies[results.findIndex((r) => r !== null)]!])
+      }
+      // No temp file is left beside the objects.
+      expect(readdirSync(join(root, "home", "v1")).filter((name) => name.includes(".tmp-") || name.includes(".multipart-"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })
