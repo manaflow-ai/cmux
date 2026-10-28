@@ -191,15 +191,19 @@ import Testing
 
     /// A keyboard lock takes cmux's keys only in its page's fullscreen, as Chrome activates it.
     @Test func aKeyboardLockHoldsKeysOnlyInFullscreen() {
-        let access = Self.access(Recorder(), cursor: Cursor())
-        #expect(access.handle(.keyboardLockRequested, browser: 7, detail: 0, mayLock: true))
-        #expect(!access.holdsKeys)
-        access.fullscreenChanged(true, browser: 8)
-        #expect(!access.holdsKeys, "another page's fullscreen")
-        access.fullscreenChanged(true, browser: 7)
-        #expect(access.holdsKeys)
-        access.handle(.keyboardUnlocked, browser: 7, detail: 0, mayLock: false)
-        #expect(!access.holdsKeys)
+        // `wire` is weak: the recorder must outlive the checks, or no lock is granted.
+        let wire = Recorder()
+        let access = Self.access(wire, cursor: Cursor())
+        withExtendedLifetime(wire) {
+            #expect(access.handle(.keyboardLockRequested, browser: 7, detail: 0, mayLock: true))
+            #expect(!access.holdsKeys)
+            access.fullscreenChanged(true, browser: 8)
+            #expect(!access.holdsKeys, "another page's fullscreen")
+            access.fullscreenChanged(true, browser: 7)
+            #expect(access.holdsKeys)
+            access.handle(.keyboardUnlocked, browser: 7, detail: 0, mayLock: false)
+            #expect(!access.holdsKeys)
+        }
     }
 
     @Test func losingTheKeyboardEndsThePointerLock() {
