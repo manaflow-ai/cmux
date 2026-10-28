@@ -307,7 +307,9 @@ test("the optional reasoning slider replaces Effort's levels only when enabled",
   const effort = await openSub("Effort");
   expect(effort.querySelector(".acpmux-effort-range")).not.toBeNull();
   expect(effort.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
-  expect(doc().activeElement?.classList.contains("acpmux-effort-range")).toBe(true);
+  // EffortTrack transfers focus on the next animation frame, after Base UI positions the popup.
+  await act(async () => await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve())));
+  expect(doc().activeElement).toBe(effort.querySelector(".acpmux-effort-range"));
 });
 
 test("a number key picks that model in place", async () => {
