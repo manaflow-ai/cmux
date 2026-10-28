@@ -192,12 +192,19 @@ public final class ConversationTextEffectLayer: CALayer {
     /// no lock of the caller's, but the SDK does not mark it `Sendable` (Swift
     /// 6 rejects the plain constant), so the argument is written here instead:
     /// - the cache's own state sits behind NSCache's internal lock;
-    /// - every `RenderingKey` is immutable: `let` fields, and its string is a
-    ///   fresh `NSAttributedString(attributedString:)` copy nobody mutates;
-    ///   `hash` and `isEqual` only read;
+    /// - every `RenderingKey` has `let` fields, and its string is a fresh
+    ///   `NSAttributedString(attributedString:)` copy nobody mutates; the copy
+    ///   shares the attribute values, which are immutable fonts, paragraph
+    ///   styles and colors (a dynamic color's provider goes through
+    ///   `UIColor.resolving`, `@Sendable`, see `DynamicColorIsolationTests`);
+    ///   `hash` reads the string and `isEqual` compares those values, both
+    ///   read only;
     /// - every `Rendering` is immutable glyphs plus loops behind its own lock;
     /// - two threads that miss the same key both render and both store, which
     ///   is extra work, not a race: each keeps the `Rendering` it holds.
+    /// The cache is not confined to the main actor: the prefetch's lookups
+    /// and stores would then run on the main thread while the transcript
+    /// scrolls, the work the prefetch exists to keep off it.
     // crash-allow: NSCache is documented thread-safe and its keys and values are immutable or self-locked (argued above)
     nonisolated(unsafe) private static let renderings: NSCache<RenderingKey, Rendering> = {
         let cache = NSCache<RenderingKey, Rendering>()
