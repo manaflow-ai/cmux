@@ -89,4 +89,70 @@ struct TabDropRollbackTests {
         strip.dropEnded(committed: nil)
         #expect(strip.dropPlaceholderIndex == nil)
     }
+    @Test func aSuccessfulDropKeepsItsGapUntilTheTabArrives() throws {
+        let strip = Strip()
+        defer { strip.window.close() }
+        let proposal = try strip.preview()
+        let settle = try #require(strip.view.dropEnded(committed: proposal))
+        settle(true)
+        #expect(strip.view.pendingDrop?.id == "dragged")
+        #expect(strip.view.dropPlaceholderIndex != nil)
+        strip.model.tabs.append(TabItem(id: "dragged", title: "Moved"))
+        strip.view.sync(fromModel: true)
+        #expect(strip.view.pendingDrop == nil && strip.view.dropPlaceholderIndex == nil)
+        #expect(strip.view.presentedTabIDs == ["target", "dragged"])
+    }
+
+    @Test func aLateFailurePreservesTheNextDragsLivePreview() throws {
+        let strip = Strip()
+        defer { strip.window.close() }
+        let proposal = try strip.preview()
+        let settle = try #require(strip.view.dropEnded(committed: proposal))
+        _ = try strip.preview("next")
+        let index = strip.view.dropPlaceholderIndex
+        let point = strip.view.phantomPoint
+        settle(false)
+        #expect(strip.view.pendingDrop == nil)
+        #expect(strip.view.dropPlaceholderIndex == index && strip.view.phantomPoint == point)
+        guard case .tab("next", _) = strip.view.groups.dropPayload else { Issue.record("new drag lost its payload"); return }
+        strip.view.dropExited()
+        #expect(strip.view.dropPlaceholderIndex == nil)
+    }
+
+    @Test func aLateFailureCannotRollBackANewerCommit() throws {
+        let strip = Strip()
+        defer { strip.window.close() }
+        let first = try strip.preview()
+        let settleFirst = try #require(strip.view.dropEnded(committed: first))
+        let second = try strip.preview("next")
+        let settleSecond = try #require(strip.view.dropEnded(committed: second))
+        settleFirst(false)
+        #expect(strip.view.pendingDrop?.id == "next")
+        #expect(strip.view.dropPlaceholderIndex != nil)
+        settleSecond(false)
+        #expect(strip.view.pendingDrop == nil && strip.view.dropPlaceholderIndex == nil)
+        // Terminal results are idempotent.
+        settleFirst(false)
+        settleSecond(false)
+        #expect(strip.view.presentedTabIDs == ["target"])
+    }
+
+    @Test func aRejectedSameStripDropRestoresOrderAndGroup() throws {
+        let strip = Strip()
+        defer { strip.window.close() }
+        strip.model.groups = [TabGroupItem(id: "g")]
+        strip.model.tabs = [TabItem(id: "dragged", title: "Moved", groupID: "g"), TabItem(id: "target", title: "Target")]
+        strip.view.sync(fromModel: true)
+        strip.view.detachedID = "dragged"
+        strip.view.sync(fromModel: false)
+        let proposal = try strip.preview()
+        let settle = try #require(strip.view.dropEnded(committed: proposal))
+        #expect(strip.view.presentedTabIDs == ["target", "dragged"])
+        settle(false)
+        #expect(strip.view.presentedTabIDs == ["dragged", "target"])
+        #expect(strip.view.displayed.first?.groupID == "g")
+        #expect(strip.view.orderOverride == nil && strip.view.groups.membershipOverride.isEmpty)
+        #expect(strip.view.pendingDrop == nil && strip.view.dropPlaceholderIndex == nil)
+    }
+
 }

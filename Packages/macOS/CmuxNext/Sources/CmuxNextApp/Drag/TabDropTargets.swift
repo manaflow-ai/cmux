@@ -98,9 +98,11 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
         bridge?.container.sidebarView.tabDragExited()
     }
 
-    func dropEnded(committed: TabDropProposal?) {
+    @discardableResult
+    func dropEnded(committed: TabDropProposal?) -> (@MainActor (Bool) -> Void)? {
         active = false
         bridge?.container.sidebarView.tabDragEnded()
+        return nil
     }
 }
 
@@ -205,8 +207,10 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         touched = nil
     }
 
-    func dropEnded(committed: TabDropProposal?) {
+    @discardableResult
+    func dropEnded(committed: TabDropProposal?) -> (@MainActor (Bool) -> Void)? {
         dropExited()
+        return nil
     }
 }
 

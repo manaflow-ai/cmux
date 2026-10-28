@@ -25,16 +25,36 @@ extension TabStripView: TabDropTargetProviding {
         hidePhantom()
     }
 
-    public func dropEnded(committed: TabDropProposal?) {
+    @discardableResult
+    public func dropEnded(committed: TabDropProposal?) -> (@MainActor (Bool) -> Void)? {
         let payload = groups.dropPayload
         groups.dropPayload = nil
         guard let committed, case .strip(let stripID, _, _) = committed.kind, stripID == model.stripID, let payload else {
             hidePhantom()
-            return
+            return nil
         }
+        let commitID = UUID()
+        dropCommitID = commitID
         switch payload {
         case .tab(let id, _): commitPhantom(tabID: TabID(id))
         case .tabGroup(let id, _, _, _): commitGroupPhantom(groupID: TabGroupID(id))
+        }
+        let order = orderOverride, membership = groups.membershipOverride
+        return { [weak self] landed in
+            guard let self, dropCommitID == commitID else { return }
+            dropCommitID = nil
+            guard !landed else { return }
+            pendingDrop = nil
+            // A new drag can hover here while this move is still waiting.
+            // Its gap belongs to its pointer, not to the failed commit.
+            if phantomPoint == nil {
+                dropPlaceholderIndex = nil
+                dropPlaceholderGroup = nil
+                groups.phantomWidth = nil
+            }
+            if orderOverride == order { orderOverride = nil }
+            if groups.membershipOverride == membership { groups.membershipOverride = [:] }
+            sync(fromModel: false)
         }
     }
 }
