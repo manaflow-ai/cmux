@@ -26,8 +26,9 @@ fn hub() -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-/// A stand-in `gh` first on this process's PATH: it prints what it was asked, and whether a
-/// token reached it. Set once, before any test here starts a hub.
+/// A stand-in `gh` first on this process's PATH: it prints what it was asked, whether a token
+/// reached it, and whether it was pointed anywhere but github.com. Set once, before any test
+/// here starts a hub.
 fn fake_gh() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -37,12 +38,16 @@ fn fake_gh() {
         let gh = bin.join("gh");
         // For `o/leak` it fails printing a token, and for `o/print` it prints one. For `o/slow`
         // it says it started, and says it finished 4 s later.
-        let script = "#!/bin/sh\ncase \"$*\" in\n*o/slow*) d=$(dirname \"$0\"); touch \"$d/slow-started\"; sleep 4; touch \"$d/slow-done\"; exit 0;;\n*o/leak*) echo \"gh: bad credentials gho_secretB\" >&2; exit 1;;\n*o/print*) echo \"ok github_pat_secretC\"; exit 0;;\nesac\necho \"gh $*\"\n[ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && echo token-seen\nexit 0\n";
+        let script = "#!/bin/sh\ncase \"$*\" in\n*o/slow*) d=$(dirname \"$0\"); touch \"$d/slow-started\"; sleep 4; touch \"$d/slow-done\"; exit 0;;\n*o/leak*) echo \"gh: bad credentials gho_secretB\" >&2; exit 1;;\n*o/print*) echo \"ok github_pat_secretC\"; exit 0;;\nesac\necho \"gh $*\"\n[ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && echo token-seen\n[ \"$GH_HOST\" = github.com ] || echo host-not-github\nexit 0\n";
         std::fs::write(&gh, script).unwrap();
         std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
-        // SAFETY: under the Once, before this process's tests start a hub or a child.
-        unsafe { std::env::set_var("PATH", path) };
+        // SAFETY: under the Once, before this process's tests start a hub or a child. The
+        // daemon's own GitHub token must not reach the `gh` it runs for a machine.
+        unsafe {
+            std::env::set_var("PATH", path);
+            std::env::set_var("GITHUB_TOKEN", "a-token-gh-must-not-see");
+        }
     });
 }
 

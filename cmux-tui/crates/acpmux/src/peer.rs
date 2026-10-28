@@ -467,8 +467,10 @@ impl Peer {
         }
     }
 
+    /// Whether this Mac lends the peer GitHub now: its config says so, and the link is one an
+    /// on-path machine cannot pose as (`lends_over`).
     pub fn github_broker(&self) -> bool {
-        self.github_broker.load(Ordering::SeqCst)
+        self.github_broker.load(Ordering::SeqCst) && lends_over(&self.url)
     }
 
     /// Whether this link takes a GitHub action now: lent, and its handshake finished with the
@@ -1120,6 +1122,19 @@ impl Peer {
     }
 }
 
+/// Whether GitHub may be lent over a link to `url`: ssh (what Add Machine saves) or TLS, or a
+/// plain WebSocket only on this machine's loopback. Over plain `ws://` to another host the
+/// handshake that makes a link a peer could come from anything on the path.
+fn lends_over(url: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else { return false };
+    match u.scheme() {
+        "ssh" => ssh_target(url).is_ok(),
+        "wss" => true,
+        "ws" => matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "[::1]")),
+        _ => false,
+    }
+}
+
 /// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
 fn watch_sessions(reply: &Value) -> Vec<Value> {
     reply
@@ -1469,6 +1484,26 @@ mod link_epoch_tests {
         .expect("a prompt on a dead link must not wait");
         assert!(answer.is_err());
         assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+
+    /// Review of #24797 at 45ab6b1: lending was on for a plain `ws://` peer on another host, so
+    /// anything on the path could answer the handshake as that peer and ask as it.
+    #[test]
+    fn github_is_lent_only_over_ssh_tls_or_loopback() {
+        let (tx, _rx) = mpsc::channel(8);
+        for (url, lends) in [
+            ("ws://10.0.0.5:7777", false),
+            ("ws://box.example:7777", false),
+            ("ws://127.0.0.1:7777", true),
+            ("ws://localhost:7777", true),
+            ("ws://[::1]:7777", true),
+            ("wss://box.example", true),
+            ("ssh://leo@box.example", true),
+        ] {
+            let peer = Peer::new("p", url, None, None, tx.clone());
+            peer.set_github_broker(true);
+            assert_eq!(peer.github_broker(), lends, "{url}");
+        }
     }
 
     /// Review of #24797 at 30e24d1: each reconnect's new peer had slots of its own while the
