@@ -118,7 +118,8 @@ const quotedTarget = (value: string) =>
   new RegExp(`^${PR_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
   new RegExp(`^${ISSUE_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
   OWNER_REPO_REF.test(value) ||
-  /^#\d+$/.test(value);
+  /^#?\d+$/.test(value) ||
+  /^[\w.-]+\/[\w.-]+$/.test(value);
 const callText = (command: string) =>
   command
     .replace(BODY_VALUE, " ")

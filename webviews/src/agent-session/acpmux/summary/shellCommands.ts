@@ -111,6 +111,18 @@ export function isPullRequestCommand(command: string): boolean {
     const name = word.slice(word.lastIndexOf("/") + 1);
     if (/^[A-Za-z_]\w*=/.test(word) || ["env", "command", "nohup", "time"].includes(name)) {
       at++;
+      if (name === "env") {
+        while (words[at]?.startsWith("-")) {
+          const option = words[at++]!;
+          if (option === "--") break;
+          if (["-u", "--unset", "-C", "--chdir"].includes(option)) at++;
+          else if (!["-", "-i", "--ignore-environment"].includes(option) && !/^--(?:unset|chdir)=/.test(option))
+            return false;
+        }
+      } else if (name === "time" || name === "command") {
+        if (words[at] === "-p") at++;
+        if (words[at] === "--") at++;
+      } else if (name === "nohup" && words[at] === "--") at++;
       continue;
     }
     if (name !== "timeout") return ["gh", "glaeda-gh", "gh-merge-green"].includes(name);
