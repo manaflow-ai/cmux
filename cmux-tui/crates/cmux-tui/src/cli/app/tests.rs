@@ -175,6 +175,26 @@ fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
 }
 
 #[test]
+fn app_settings_forwards_section_and_setting_arguments() {
+    let (method, params) = call(
+        parse(&args(&[
+            "app",
+            "settings",
+            "--section",
+            "accounts",
+            "--setting",
+            "accounts.provider",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "app settings");
+    assert_eq!(params["cli"], true);
+    assert_eq!(params["args"], json!({ "section": "accounts", "setting": "accounts.provider" }));
+}
+
+#[test]
 fn unknown_words_run_the_action_with_that_cli_name() {
     let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
     assert_eq!(method, "action.run");
