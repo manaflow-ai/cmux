@@ -56,12 +56,14 @@ chmod +x "$tmp/bin/xcrun" "$tmp/bin/swift"
 # the fake Xcode above has no python3.
 ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$tmp/bin/python3"
 fails=0
+# CMUX_PACKAGE_LANE_TEST_OS=Darwin: the macOS path this test fakes, on a Linux guard runner too.
 lane() {
   local mode="$1" code="$2" out status=0
   : > "$tmp/seen"
   out=$(cd "$repo" && env ${LANE_ENV:-} PATH="$tmp/bin:$PATH" DEVELOPER_DIR="$dev" \
     SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk \
     FAKE_SEEN="$tmp/seen" FAKE_MODE="$mode" FAKE_EXIT="$code" RUNNER_TEMP="$tmp" \
+    CMUX_PACKAGE_LANE_TEST_OS=Darwin \
     CMUX_SWIFT_TEST_STALL_SECONDS=30 CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
     bash scripts/ci/package-test-lane.sh suite Packages/macOS/Fake FakeTests 2>&1) || status=$?
   LANE_OUT="$out"; LANE_STATUS=$status

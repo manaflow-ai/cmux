@@ -151,6 +151,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if self?.services?.agentTabs.pageChats.runNotices?.open(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
@@ -470,6 +471,8 @@ final class NotificationCenterService {
             return
         }
         if decision.acknowledge {
+            // Read on sight: under `sounds.when = always` it still sounds (no banner shows for it).
+            soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
             return
         }
@@ -574,7 +577,7 @@ final class NotificationCenterService {
             let content = self.bannerFormatter.content(
                 headline: headline, posterSubtitle: notification.shownSubtitle,
                 body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
-                workspace: workspaceName, tab: tab?.displayTitle, host: tab?.remote?.sessionName, plain: approval == nil)
+                workspace: workspaceName, tab: tab.map { self.shownName(of: $0) }, host: tab?.remote?.sessionName, plain: approval == nil)
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
@@ -585,6 +588,13 @@ final class NotificationCenterService {
                 self.approvals.keep(id, approval: approval, tab: owner.id)
             }
         }
+    }
+
+    /// The name a banner or the Chief pet gives `tab`: a Home conversation tab its conversation's
+    /// (a Chief's own name, as its tab strip shows it), any other tab its record's.
+    func shownName(of tab: TabModel) -> String {
+        guard tab.kind == .conversation, let home = services?.home else { return tab.displayTitle }
+        return home.tabTitle(for: tab)
     }
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {

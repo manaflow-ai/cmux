@@ -86,6 +86,18 @@ const reconnectButtons = (connectors: HTMLElement) => [
   ...connectors.querySelectorAll<HTMLButtonElement>(".acpmux-chat-inspector-row button"),
 ];
 
+test("connector rows use the Environment row icon slot", async () => {
+  const container = installDom();
+  const connectors = await show(container);
+  const environmentIcon = container.querySelector<SVGElement>(
+    '[data-section="environment"] .acpmux-chat-inspector-row > svg',
+  );
+  const connectorIcon = connectors.querySelector<SVGElement>(".acpmux-chat-inspector-row > svg");
+  expect(environmentIcon?.getAttribute("width")).toBe("14");
+  expect(connectorIcon?.getAttribute("width")).toBe(environmentIcon?.getAttribute("width"));
+  expect(connectorIcon?.getAttribute("height")).toBe(environmentIcon?.getAttribute("height"));
+});
+
 test("a failed server's Reconnect asks for that server, waits, and offers Try again after an error", async () => {
   const container = installDom();
   const asked: string[] = [];

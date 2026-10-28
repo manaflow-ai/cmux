@@ -10,14 +10,27 @@ matches the pushed head:
 
 (a) the job's commit and the head have the same `.swift` and `Package.swift` content under Packages/ (other files may
     differ), or
-(b) the job ran on the head's tree before a rebase: the Swift that differs between the job's commit and the head (the
-    upstream side, and any edit made after the compile) changes no `.swift` or `Package.swift` file in a Swift module
-    (a Sources/<Module>/ or Tests/<Target>/ folder) that the push's own changes touch, nor in a module those modules
-    depend on (their target's dependencies in Package.swift, one level, by name in any package under Packages/, plus
-    what those re-export with `@_exported import`), nor the Package.swift of a package that holds such a module.
-    Without the module check, an upstream rename the push's files use (the case that broke the tip) would pass.
-    Not covered: an upstream change in a module that DEPENDS on the push's modules (a new use of an API the push
-    renames); the full compile on CI catches that.
+(b) the job ran on the head's tree before a rebase (per symbol, 2026-10-28). The head joins two sides that each
+    compiled: upstream's change since the job's fork point (merge-base(job, base)..base) and the push's own change
+    (base..head). It is refused when
+    - the push's own change differs from the one the job compiled (its -/+ lines in any Swift file or Package.swift:
+      an edit after the compile, or a rebase conflict resolved), or
+    - a Package.swift of a package the push touches differs upstream, or another one declares a module the push's
+      modules use, or
+    - upstream changed Swift in a module the push's files are in or use (their targets' dependencies, transitively,
+      by name in any package under Packages/, plus `@_exported import`s) and that change meets the push's files, or
+      upstream changed Swift in a module that is or uses the push's modules and the push's change meets upstream's
+      new lines. Two changes meet where one side changed or removed a declaration (its signature line, a header
+      continuation, an attribute, a struct's stored property without a default, an enum case, a protocol
+      requirement, an initializer, a conformance) or added one, and the other side's code names it: a changed or
+      new member only where that code also names a type it sits in, a removed or top-level one by name alone, a
+      private one only in its own file. An enum whose cases changed also meets a `switch` the other side adds.
+    A body-only change (a function or accessor body, a comment) meets nothing. A file the light Swift reader cannot
+    follow refuses (upstream) or counts every identifier in it (the push's). Before 2026-10-28 any upstream Swift in
+    those modules refused, so a push to the app module was refused almost every time (a751: 11 of 15 rebased pushes;
+    1 of 15 now, a conflict it resolved after the compile). Not covered: a line neither side changed that uses both
+    sides' changed declarations, in a file the push did not change, and type-inferred uses of a changed member whose
+    type the push's file never names; the full compile on CI catches those.
 
 The CEF shim (C++/Objective-C++ under Packages/macOS/CmuxNext/CEFShim/) and the CEF fork pin
 (scripts/cmux-next/cef-manifest.json) are built only by the full fleet app build, not by the compile check (PL-cef-layer
@@ -341,50 +354,547 @@ def exported_by(repo: Path, head: str) -> dict[str, set[str]]:
     return found
 
 
-def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str]) -> str | None:
-    """Rule (b): why the Swift that differs between JOB_COMMIT (what was compiled) and HEAD can change what the push's
-    own Swift changes (OWN: the paths the pushed range changes) compile against, or None when it cannot. A differing
-    file in a module the push touches, or in a module one of those depends on (its Package.swift target, one level),
-    refuses; so does a differing Package.swift of such a module's package. An edit made after the compile is in a
-    touched module, so it refuses too."""
-    delta = [p for p in changed(repo, job_commit, head) if swift_path(p)]
+# ---- Rule (b), per symbol (2026-10-28) -------------------------------------------------------------------------
+# A rebased push combines two sides that each compiled: upstream (merge-base(job, base)..base, compiled by its own
+# pushers) and the push's own change (compiled by the job). The combination fails to compile only where they meet: a
+# declaration one side changed or removed that the other side's files name, a new declaration both could see (an
+# ambiguity), or the push's own change differing from the one compiled. A light Swift reader (comments and string
+# text dropped, interpolations kept, braces tracked) finds the declarations each changed line belongs to.
+
+DECL_SCAN = re.compile(r"""
+    (?P<brace>[{}])
+  | (?<![.\w])(?P<kind>struct|enum|protocol|actor|typealias|associatedtype|macro)\s+`?(?P<name>[A-Za-z_]\w*)
+  | (?<![.\w])class\s+(?!(?:func|var|let|subscript|init|override|final|public|private|internal|fileprivate|open|static|
+        convenience|required|nonisolated|isolated|dynamic|lazy|weak|unowned|mutating|nonmutating|package)\b)`?(?P<cname>[A-Za-z_]\w*)
+  | (?<![.\w])extension\s+(?P<ename>[A-Za-z_][\w.]*)
+  | (?<![.\w])func\s+(?:`?(?P<fname>[A-Za-z_]\w*)|(?P<fop>[^\s(<`]+))
+  | (?<![.\w])(?P<vkind>var|let)\s+`?(?P<vname>[A-Za-z_]\w*)
+  | (?<![.\w])(?P<special>init|deinit|subscript)(?!\w)
+  | (?<![.\w])(?P<case>case)(?!\w)
+  | (?<![.\w])(?P<ctl>if|else|for|while|switch|guard|do|catch|repeat|defer|get|set|willSet|didSet|_modify|_read)(?!\w)
+""", re.X)
+TYPE_KINDS = {"struct", "class", "enum", "protocol", "actor", "extension"}
+IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+STRING_OPEN = re.compile(r'(#*)("""(?=[ \t]*\n)|")')  # a multi-line literal's `"""` ends its line
+ATTRIBUTE_LINE = re.compile(r"^\s*@[A-Za-z_]\w*(?:\([^)]*\))?\s*$")
+
+
+def swift_code(text: str) -> list[str] | None:
+    """TEXT's lines with comments and string literal text blanked (interpolations kept as code), or None when the
+    reader loses its place (an unterminated string or comment)."""
+    out: list[str] = []
+    buf: list[str] = []
+    stack: list[list] = []  # ["str", multiline, hashes] or ["interp", paren depth]
+    block, i, n = 0, 0, len(text)
+    while i < n:
+        c = text[i]
+        top = stack[-1] if stack else None
+        if c == "\n":
+            if top and top[0] == "str" and not top[1]:
+                return None
+            out.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        if block:
+            if text.startswith("/*", i):
+                block, i = block + 1, i + 2
+            elif text.startswith("*/", i):
+                block, i = block - 1, i + 2
+                buf.append(" ")
+            else:
+                i += 1
+            continue
+        if top and top[0] == "str":
+            hashes = top[2]
+            if c == "\\":
+                if text.startswith("#" * hashes + "(", i + 1):
+                    stack.append(["interp", 1])
+                    buf.append(" (")
+                    i += 2 + hashes
+                elif hashes == 0 and i + 1 < n and text[i + 1] != "\n":
+                    i += 2
+                else:
+                    i += 1
+                continue
+            close = ('"""' if top[1] else '"') + "#" * hashes
+            if text.startswith(close, i):
+                stack.pop()
+                buf.append('"')
+                i += len(close)
+            else:
+                i += 1
+            continue
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if text.startswith("/*", i):
+            block, i = 1, i + 2
+            continue
+        if c in '#"':
+            m = STRING_OPEN.match(text, i)
+            if m:
+                stack.append(["str", m.group(2) == '"""', len(m.group(1))])
+                buf.append('"')
+                i = m.end()
+                continue
+        if top and top[0] == "interp":
+            if c == "(":
+                top[1] += 1
+            elif c == ")":
+                top[1] -= 1
+                if top[1] == 0:
+                    stack.pop()
+        buf.append(c)
+        i += 1
+    out.append("".join(buf))
+    return None if stack or block else out
+
+
+def type_name(frames: tuple) -> str | None:
+    """The innermost type or extension FRAMES sit in, or None at the top level."""
+    for frame in reversed(frames):
+        if frame[0] in TYPE_KINDS:
+            return frame[1]
+    return None
+
+
+class SwiftFile:
+    """One Swift file read for rule (b): per line its code, the declarations it makes (kind, name, enclosing
+    frames), the frames and the open declaration (a header not yet at its `{`) it starts in."""
+
+    def __init__(self, code: list[str]):
+        self.code = code
+        self.decls: list[list[tuple]] = []
+        self.frames: list[tuple] = []
+        self.pending: list[tuple | None] = []
+        stack: list[tuple] = []
+        pending: tuple | None = None
+        self.ok = True
+        for line in code:
+            self.frames.append(tuple(stack))
+            self.pending.append(pending)
+            found: list[tuple] = []
+            for m in DECL_SCAN.finditer(line):
+                if m.group("brace") == "{":
+                    stack.append(pending if pending and pending[0] != "ctl" else ("block", None, (), False))
+                    pending = None
+                elif m.group("brace") == "}":
+                    if not stack:
+                        self.ok = False
+                        break
+                    stack.pop()
+                    pending = None
+                elif m.group("ctl"):
+                    pending = ("ctl", None, (), False)
+                elif m.group("case"):
+                    inner = stack[-1] if stack else None
+                    if inner and inner[0] == "enum":
+                        for name in enum_case_names(line[m.end():]):
+                            found.append(("case", name, tuple(stack), hidden(stack, "")))
+                    pending = ("ctl", None, (), False)
+                else:
+                    kind, name = decl_of(m)
+                    decl = (kind, name, tuple(stack), hidden(stack, line[:m.start()]))
+                    found.append(decl)
+                    pending = decl
+            self.decls.append(found)
+            if not self.ok:
+                break
+        self.ok = self.ok and not stack
+
+    def member(self, frames: tuple) -> bool:
+        """True when FRAMES hold only type and extension bodies: a declaration there is visible outside a body."""
+        return all(f[0] in TYPE_KINDS for f in frames)
+
+
+PRIVATE = re.compile(r"(?<![\w.])(?:private|fileprivate)(?![\w(])")
+
+
+def hidden(stack: list, before: str) -> bool:
+    """True for a declaration other files cannot see: `private`/`fileprivate` before it on its line (BEFORE), or
+    inside a type that is."""
+    return bool(PRIVATE.search(before)) or any(frame[3] for frame in stack if frame[0] in TYPE_KINDS)
+
+
+def decl_of(m: re.Match) -> tuple[str, str]:
+    if m.group("kind"):
+        return m.group("kind"), m.group("name")
+    if m.group("cname"):
+        return "class", m.group("cname")
+    if m.group("ename"):
+        return "extension", m.group("ename").rsplit(".", 1)[-1]
+    if m.group("fname"):
+        return "func", m.group("fname")
+    if m.group("fop"):
+        return "operator", m.group("fop")
+    if m.group("vkind"):
+        return m.group("vkind"), m.group("vname")
+    return m.group("special"), m.group("special")
+
+
+def enum_case_names(rest: str) -> list[str]:
+    """The case names of an enum `case a, b(Int), c = 1` line (REST is the text after `case`)."""
+    names, depth, start = [], 0, True
+    for m in re.finditer(r"[A-Za-z_]\w*|[(\[)\],=]", rest):
+        t = m.group(0)
+        if t in "([":
+            depth += 1
+        elif t in ")]":
+            depth -= 1
+        elif t == "," and depth == 0:
+            start = True
+        elif t == "=":
+            start = False
+        elif start and depth == 0 and t not in ("indirect",):
+            names.append(t)
+            start = False
+    return names
+
+
+def read_swift(text: str | None) -> SwiftFile | None:
+    code = swift_code(text) if text is not None else None
+    if code is None:
+        return None
+    file = SwiftFile(code)
+    return file if file.ok else None
+
+
+class Change(tuple):
+    """One declaration a side's change alters: (name, path, scope: the enclosing type names, strict: removed with
+    no declaration of the name left on that side's new lines, private: visible only in PATH)."""
+
+    def __new__(cls, name: str, path: str, scope: frozenset, strict: bool, private: bool):
+        return super().__new__(cls, (name, path, scope, strict, private))
+
+
+class Effect:
+    """What one side's changed lines do to declarations: CHANGED (a declaration changed or removed, or a type whose
+    shape changed: a stored property its memberwise initializer takes, an enum case, a protocol requirement, an
+    attribute, a conformance) and NEW declarations, as ``Change`` rows, plus the paths whose enums changed cases."""
+
+    def __init__(self):
+        self.changed: list[Change] = []
+        self.new: list[Change] = []
+        self.cases: list[Change] = []
+
+    def extend(self, other: "Effect") -> None:
+        self.changed += other.changed
+        self.new += other.new
+        self.cases += other.cases
+
+
+def scope_of(frames: tuple) -> frozenset:
+    """The names of the types and extensions FRAMES sit in."""
+    return frozenset(f[1] for f in frames if f[0] in TYPE_KINDS)
+
+
+def owners(file: SwiftFile, index: int) -> list[tuple[tuple, bool]]:
+    """The declarations line INDEX is part of, as far as callers can see, each with True when the line is only part
+    of it (an attribute line, or a continuation of its header): its own member or top-level declarations, the
+    declaration an attribute line annotates, or the header a continuation line belongs to. A line in a function or
+    accessor body belongs to none: a body change does not change what callers compile against."""
+    own = [d for d in file.decls[index] if file.member(d[2])]
+    if own:
+        return [(d, False) for d in own]
+    if file.decls[index]:
+        return []  # a local declaration
+    code = file.code[index]
+    if not IDENT.search(code):
+        return []
+    if ATTRIBUTE_LINE.match(code):
+        for j in range(index + 1, min(index + 8, len(file.code))):
+            if file.decls[j]:
+                return [(d, True) for d in file.decls[j] if file.member(d[2])]
+        return []
+    pending = file.pending[index]
+    if pending and pending[0] not in ("ctl", "block") and file.member(pending[2]) and file.member(file.frames[index]):
+        return [(pending, True)]
+    return []
+
+
+def signature(code: str) -> str:
+    """A declaration line as callers see it: the text before its body's `{`, whitespace collapsed."""
+    return " ".join(code.split("{", 1)[0].split())
+
+
+def side_effect(path: str, old: SwiftFile | None, new: SwiftFile | None, removed: list[int], added: list[int]) -> Effect:
+    """The ``Effect`` of one file's change: REMOVED lines of OLD and ADDED lines of NEW (indexes; a missing side is
+    None). A declaration whose line changed only after its signature (a body moved onto its line) is not a change."""
+    effect = Effect()
+    seen: list[dict] = [{}, {}]  # per side: (kind, name, scope) -> set of signatures (None: a partial line)
+    existed = {d[1] for row in (old.decls if old else []) for d in row if d[0] in TYPE_KINDS}
+    shape: list[tuple] = []  # (type decl, why) a member change alters
+    for side, (file, lines) in enumerate(((old, removed), (new, added))):
+        if file is None:
+            continue
+        for index in lines:
+            if index >= len(file.code):
+                continue
+            code = file.code[index]
+            for decl, partial in owners(file, index):
+                kind, name, frames, private = decl
+                if kind in ("init", "deinit", "subscript", "operator"):
+                    name = type_name(frames) or name  # callers name the type: `Kit(...)`, `kit[0]`
+                key = (kind, name, scope_of(frames), private)
+                if partial:
+                    text = None
+                elif kind == "case":
+                    found = re.search(rf"(?<!\w){re.escape(name)}(?!\w)(\s*\([^)]*\))?(\s*=\s*[^,]+)?", code)
+                    text = " ".join((found.group(0) if found else code).split())
+                else:
+                    text = signature(code)
+                seen[side].setdefault(key, set()).add(text)
+                inner = frames[-1] if frames else None
+                if inner is None or inner[0] not in TYPE_KINDS or partial or inner[1] not in existed:
+                    continue
+                if kind == "case" and inner[0] == "enum":
+                    shape.append((inner, "case"))
+                elif inner[0] == "protocol":
+                    shape.append((inner, "requirement"))
+                elif (inner[0] == "struct" and kind in ("var", "let") and "=" not in code and "{" not in code
+                      and not re.search(r"(?<!\w)static(?!\w)", code)):
+                    shape.append((inner, "stored"))
+    before, after = seen
+    for key in sorted(set(before) | set(after), key=str):
+        kind, name, scope, private = key
+        if kind in ("init", "deinit", "subscript", "operator"):
+            if key in before and key in after and before[key] == after[key] and None not in before[key]:
+                continue
+            if key in after and key not in before and name not in existed:
+                effect.new.append(Change(name, path, scope - {name}, False, private))  # part of a new type
+            else:
+                # A changed initializer, or a new one in a type that existed: a struct loses its memberwise one.
+                effect.changed.append(Change(name, path, frozenset(), False, private))
+            continue
+        if key in before and key in after:
+            if before[key] == after[key] and None not in before[key]:
+                continue  # the same signature: a body or a comment changed
+            effect.changed.append(Change(name, path, scope, False, private))
+        elif key in before:
+            effect.changed.append(Change(name, path, scope, True, private))
+        elif kind == "extension":
+            if any(":" in (text or ":") for text in after[key]):
+                effect.changed.append(Change(name, path, frozenset(), False, private))  # a new conformance
+        else:
+            effect.new.append(Change(name, path, scope, False, private))
+    for inner, why in shape:
+        row = Change(inner[1], path, scope_of(inner[2]), False, inner[3])
+        effect.changed.append(row)
+        if why == "case":
+            effect.cases.append(row)
+    return effect
+
+
+def tokens_of(text: str | None) -> set[str]:
+    """The identifiers a Swift file names in code (comments and string text left out; on a file the reader cannot
+    follow, every identifier in the text: more names only refuse more)."""
+    if text is None:
+        return set()
+    code = swift_code(text)
+    return set(IDENT.findall("\n".join(code) if code is not None else text))
+
+
+def added_tokens(text: str, added: list[int]) -> set[str]:
+    """The identifiers TEXT's ADDED lines name in code, plus the types and extensions those lines sit in (on a file the
+    reader cannot follow, every identifier in it)."""
+    file = read_swift(text)
+    if file is None:
+        return tokens_of(text)
+    found: set[str] = set()
+    for index in added:
+        if index < len(file.code):
+            found |= set(IDENT.findall(file.code[index]))
+            found |= scope_of(file.frames[index])
+    return found
+
+
+def meets(effect: Effect, files: dict[str, set[str]], switches: dict[str, bool]) -> tuple[str, str] | None:
+    """(why, the file) a side with EFFECT can break among FILES {path: the names it uses} (SWITCHES {path: its change
+    adds a `switch`}), or None. A changed or new member counts where the file also names a type it sits in (a removed
+    one, and a top-level one, by name alone); a private one only in its own file."""
+    def where(row: Change, need_scope: bool):
+        for path, tokens in sorted(files.items()):
+            if row[4] and path != row[1]:
+                continue
+            if row[0] in tokens and (not need_scope or not row[2] or row[2] & tokens):
+                return path
+        return None
+    for row in effect.changed:
+        hit = where(row, not row[3])
+        if hit:
+            return f"`{row[0]}` {'was removed' if row[3] else 'changed'} in {row[1]}", hit
+    for row in effect.new:
+        hit = where(row, True)
+        if hit:
+            return f"`{row[0]}` is new in {row[1]}", hit
+    for row in effect.cases:
+        for path, adds in sorted(switches.items()):
+            if adds and (not row[4] or path == row[1]):
+                return f"enum `{row[0]}` changed its cases in {row[1]}", path
+    return None
+
+
+def blobs(repo: Path, specs: list[str]) -> dict[str, str | None]:
+    """{"rev:path": text, or None when there is no such file} through one `git cat-file --batch`."""
+    if not specs:
+        return {}
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input="\n".join(specs).encode() + b"\n",
+                            capture_output=True, env=env, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(f"git cat-file failed: {result.stderr.decode(errors='replace').strip()[:200]}")
+    out, data, at = {}, result.stdout, 0
+    for spec in specs:
+        end = data.index(b"\n", at)
+        header = data[at:end].decode()
+        at = end + 1
+        if header.endswith(" missing") or header.endswith(" ambiguous"):
+            out[spec] = None
+            continue
+        size = int(header.rsplit(" ", 1)[1])
+        out[spec] = data[at:at + size].decode("utf-8", "replace")
+        at += size + 1
+    return out
+
+
+HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def hunks(repo: Path, a: str, b: str, manifests: bool = False) -> dict[str, tuple[list[int], list[int], list[str]]]:
+    """{path: (removed line indexes in A, added line indexes in B, the -/+ lines)} of A..B for the `.swift` files
+    under Packages/ (with MANIFESTS, for the Package.swift files instead)."""
+    out: dict[str, tuple[list[int], list[int], list[str]]] = {}
+    current, header = None, False
+    for line in git(repo, "diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", a, b, "--", PACKAGES).split("\n"):
+        if line.startswith("diff --git "):
+            current, header = None, True
+        elif header and (line.startswith("--- ") or line.startswith("+++ ")):
+            path = line[4:]
+            if path != "/dev/null" and current is None:
+                path = path[2:]
+                wanted = path.endswith("/" + MANIFEST) if manifests else path.endswith(".swift")
+                current = path if swift_path(path) and wanted else "-"
+                if current != "-":
+                    out.setdefault(current, ([], [], []))
+        elif line.startswith("@@"):
+            header = False
+            m = HUNK.match(line)
+            if m and current not in (None, "-"):
+                a0, an, b0, bn = int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1)
+                out[current][0].extend(range(a0 - 1, a0 - 1 + an))
+                out[current][1].extend(range(b0 - 1, b0 - 1 + bn))
+        elif not header and line[:1] in "+-" and current not in (None, "-"):
+            out[current][2].append(line)
+    return out
+
+
+def module_graph(repo: Path, head: str) -> dict[str, set[str]]:
+    """{target: the targets and products it depends on} over every Package.swift under Packages/ at HEAD (a name in
+    two packages gets both lists: an extra edge only widens what is checked)."""
+    manifests = [p for p in git(repo, "ls-tree", "-r", "--name-only", head, "--", PACKAGES).split("\n")
+                 if p.endswith("/" + MANIFEST)]
+    graph: dict[str, set[str]] = {}
+    for text in blobs(repo, [f"{head}:{p}" for p in manifests]).values():
+        for target, deps in module_deps(text or "").items():
+            graph.setdefault(target, set()).update(deps)
+    return graph
+
+
+def closure(start: set[str], edges: dict[str, set[str]]) -> set[str]:
+    seen, frontier = set(start), set(start)
+    while frontier:
+        frontier = set().union(*(edges.get(n, set()) for n in frontier)) - seen
+        seen |= frontier
+    return seen
+
+
+def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: str | None = None) -> str | None:
+    """Rule (b): why the push's own change (BASE..HEAD; OWN its paths) and the upstream change since the compile
+    (merge-base(JOB_COMMIT, BASE)..BASE) can meet so the head need not build, or None when they cannot (see
+    the module docstring)."""
+    base = base or git(repo, "rev-parse", f"{head}^").strip()
+    fork = git(repo, "merge-base", job_commit, base).strip()
+    own_hunks = hunks(repo, base, head)
+    compiled_hunks = hunks(repo, fork, job_commit)
+    for path in sorted(set(own_hunks) | set(compiled_hunks)):
+        if own_hunks.get(path, ([], [], []))[2] != compiled_hunks.get(path, ([], [], []))[2]:
+            module = module_of(path)
+            return (f"the push's change to {path} ({module[1] if module else 'no module'}) is not the one the compile "
+                    "job compiled (edited after the compile, or a rebase conflict resolved)")
+    own_manifest, compiled_manifest = hunks(repo, base, head, manifests=True), hunks(repo, fork, job_commit, manifests=True)
+    for path in sorted(set(own_manifest) | set(compiled_manifest)):
+        if own_manifest.get(path, ([], [], []))[2] != compiled_manifest.get(path, ([], [], []))[2]:
+            return f"the push's change to {path} is not the one the compile job compiled"
+    upstream = [p for p in changed(repo, fork, base) if swift_path(p)]
+    if not upstream:
+        return None
     touched = {module_of(p) for p in own if swift_path(p)} - {None}
     packages = {package for package, _ in touched} | {p.rsplit("/", 1)[0] for p in own if p.endswith("/" + MANIFEST)}
-    manifests = [p for p in delta if p.endswith("/" + MANIFEST) and p.rsplit("/", 1)[0] in packages]
+    manifests = [p for p in upstream if p.endswith("/" + MANIFEST) and p.rsplit("/", 1)[0] in packages]
     if manifests:
         return f"{manifests[0]} differs"
-    # A dependency is named, not placed: `"Base"` is a target of the same package, `.product(name: "CmuxShared",
-    # package: "CmuxShared")` one of another package under Packages/. Match a differing file's module by name in any
-    # package (an extra match only refuses), then add what those modules re-export (`@_exported import`).
-    uses: set[str] = set()
-    for package, module in touched:
-        try:
-            manifest = git(repo, "show", f"{head}:{package}/{MANIFEST}")
-        except RuntimeError:
-            continue
-        uses |= module_deps(manifest).get(module, set())
-    exports = exported_by(repo, head) if uses else {}
-    frontier = set(uses)
-    while frontier:
-        frontier = set().union(*(exports.get(name, set()) for name in frontier)) - uses
-        uses |= frontier
-    uses -= {module for _, module in touched}
-
-    def needed(path: str) -> bool:
-        module = module_of(path)
-        return module is not None and (module in touched or module[1] in uses)
-    for path in delta:
+    graph = module_graph(repo, head)
+    exports = exported_by(repo, head)
+    names = {module for _, module in touched}
+    forward = closure(names, {k: graph.get(k, set()) | exports.get(k, set()) for k in set(graph) | set(exports)})
+    users: dict[str, set[str]] = {}
+    for target, deps in graph.items():
+        for dep in deps:
+            users.setdefault(dep, set()).add(target)
+    reverse = closure(names, users)
+    for path in upstream:
         if path.endswith("/" + MANIFEST) and path.rsplit("/", 1)[0] not in packages:
-            try:
-                theirs = set(module_deps(git(repo, "show", f"{head}:{path}")))
-            except RuntimeError:
-                theirs = set()
-            if theirs & uses:
-                return f"{path} differs (it declares {sorted(theirs & uses)[0]}, which the push's modules use)"
-    hit = sorted(p for p in delta if needed(p))
+            theirs = set(module_deps(blobs(repo, [f"{head}:{path}"]).get(f"{head}:{path}") or ""))
+            if theirs & forward:
+                return f"{path} differs (it declares {sorted(theirs & forward)[0]}, which the push's modules use)"
+    up_hunks = hunks(repo, fork, base)
+    scoped = [p for p in up_hunks if module_of(p) and module_of(p)[1] in forward | reverse]
+    if not scoped:
+        return None
+    own_swift = list(own_hunks)
+    texts = blobs(repo, [f"{fork}:{p}" for p in scoped] + [f"{base}:{p}" for p in scoped]
+                  + [f"{base}:{p}" for p in own_swift] + [f"{head}:{p}" for p in own_swift])
+
+    def adds_switch(lines: list[str]) -> bool:
+        return any(line.startswith("+") and re.search(r"(?<![.\w])switch(?!\w)", line) for line in lines)
+
+    def effect(path: str, old_rev: str, new_rev: str, rows: tuple) -> Effect | None:
+        old_text, new_text = texts[f"{old_rev}:{path}"], texts[f"{new_rev}:{path}"]
+        old, new = read_swift(old_text), read_swift(new_text)
+        if (old is None and old_text is not None) or (new is None and new_text is not None):
+            return None
+        return side_effect(path, old, new, rows[0], rows[1])
+    # Upstream's change against the push's files (they compile against it).
+    own_files = {p: tokens_of(texts[f"{head}:{p}"]) for p in own_swift if texts[f"{head}:{p}"] is not None}
+    own_switches = {p: adds_switch(own_hunks[p][2]) for p in own_files}
+    for path in scoped:
+        if module_of(path)[1] not in forward:
+            continue
+        found = effect(path, fork, base, up_hunks[path])
+        if found is None:
+            return f"upstream changed {path}, in a module the push is in or uses, and the gate could not read it"
+        hit = meets(found, own_files, own_switches)
+        if hit:
+            return f"upstream: {hit[0]}, and the push's {hit[1]} names it"
+    # The push's change against upstream's changed files in modules that see the push's (they compile against it).
+    reverse_paths = [p for p in scoped if module_of(p)[1] in reverse]
+    if not reverse_paths:
+        return None
+    own_effect = Effect()
+    for path in own_swift:
+        found = effect(path, base, head, own_hunks[path])
+        if found is None:
+            return f"the gate could not read the push's {path}, and upstream changed {reverse_paths[0]}"
+        own_effect.extend(found)
+    # Upstream's unchanged lines are the fork's, which the job compiled with the push's change: only its new lines
+    # (and the types they sit in) can name what the push changed without the job having seen it.
+    up_files = {p: added_tokens(texts[f"{base}:{p}"], up_hunks[p][1]) for p in reverse_paths
+                if texts[f"{base}:{p}"] is not None}
+    hit = meets(own_effect, up_files, {p: adds_switch(up_hunks[p][2]) for p in up_files})
     if hit:
-        return (f"{len(hit)} Swift file(s) differ in a module the push's files are or use "
-                f"({module_of(hit[0])[1]}: {hit[0]})")
+        return f"the push: {hit[0]}, and upstream's {hit[1]} names it"
     return None
 
 
@@ -462,7 +972,7 @@ def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job, receipts=f
                     return True, [f"prepush-gate: build job {job['id']} ran on {ran[:12]}, and the CEF shim or fork pin "
                                   f"differs from the push's ({shim_delta[0]}). Run: " + command(head, shim)]
                 if any(swift_path(p) for p in delta):
-                    unsafe = rebase_safe(repo, ran, head, own)
+                    unsafe = rebase_safe(repo, ran, head, own, base)
                     if unsafe:
                         return True, [f"prepush-gate: compile job {job['id']} ran on {ran[:12]}, and its Swift differs "
                                       f"from the push's: {unsafe}. Run: " + command(head, shim)]

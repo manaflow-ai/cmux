@@ -4,7 +4,7 @@
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
   "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, thread_target, last_message) plus actor_addresses (cloud only).",
   "message.send: thread_root must name a message of this conversation (request.thread_target) that has no thread_root itself, else invalid_thread_root (checked after reply_to). A committed send sets read_cursors[actor] = new seq when read_cursors[actor] (absent = 0) >= the head's last_seq before the send, else leaves it; the change stays kind message. A null thread_root is absent.",
-  "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 to the streak of the thread the message joins (agent_text_streak for the top level, thread_agent_streaks[root id] for a thread; a thread entry at 0 is dropped and an empty map is absent) and sets last_agent_text_at, a human text resets the streak of its own thread only, a person's question.answer resets the question's thread, a text-less work card changes neither; an agent text is refused with agent_budget when its thread's streak >= 6 and agent_rate within 2000 ms of last_agent_text_at, after every other rule passes.",
+  "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 to the streak of the thread the message joins (agent_text_streak for the top level, thread_agent_streaks[root id] for a thread; a thread entry at 0 is dropped and an empty map is absent) and sets last_agent_text_at, a human text resets the streak of its own thread only, a person's question.answer resets the question's thread, a text-less work card changes neither; an agent text is refused with agent_budget when its thread's streak >= 6 and agent_rate within 2000 ms of last_agent_text_at only when its thread's streak >= the number of agent participants without left_at (the first round after a person's text is free of the gap), after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
   "The head guard counts a retracted agent message and applies the gap to the last agent text message however old. The cases named 'loop guard:' are the work-card bypass that a row window misses.",
@@ -12519,6 +12519,505 @@
         }
        ],
        "created_at": "2026-10-01T12:01:12.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "gap round: the first agent answers the person",
+   "head": {
+    "id": "conv_01J0000000000000000000TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "agent_two",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "r1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "r1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "fine"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_01J0000000000000000000TEST",
+     "seq": 1,
+     "client_msg_id": "h1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "status?"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_01J0000000000000000000TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "agent_two",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_01J0000000000000000000TEST",
+      "seq": 2,
+      "client_msg_id": "r1",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "text",
+        "text": "fine"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_01J0000000000000000000TEST",
+       "seq": 2,
+       "client_msg_id": "r1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "fine"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "gap round: the second agent answers within the gap",
+   "head": {
+    "id": "conv_01J0000000000000000000TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "agent_two",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_two",
+    "idempotency_key": "r2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "r2",
+     "parts": [
+      {
+       "type": "text",
+       "text": "also fine"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.050Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_01J0000000000000000000TEST",
+     "seq": 2,
+     "client_msg_id": "r1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "fine"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_01J0000000000000000000TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "agent_two",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.050Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 2,
+      "last_agent_text_at": "2026-10-01T12:00:00.050Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000003",
+      "conversation": "conv_01J0000000000000000000TEST",
+      "seq": 3,
+      "client_msg_id": "r2",
+      "author": "agent_two",
+      "parts": [
+       {
+        "type": "text",
+        "text": "also fine"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.050Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000003",
+       "conversation": "conv_01J0000000000000000000TEST",
+       "seq": 3,
+       "client_msg_id": "r2",
+       "author": "agent_two",
+       "parts": [
+        {
+         "type": "text",
+         "text": "also fine"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.050Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "gap round: a third agent text within the gap is refused",
+   "head": {
+    "id": "conv_01J0000000000000000000TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "agent_two",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 3,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.050Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:00.050Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "r3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "r3",
+     "parts": [
+      {
+       "type": "text",
+       "text": "re"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.100Z",
+    "new_message_id": "msg_00000000000000000000000004",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000003",
+     "conversation": "conv_01J0000000000000000000TEST",
+     "seq": 3,
+     "client_msg_id": "r2",
+     "author": "agent_two",
+     "parts": [
+      {
+       "type": "text",
+       "text": "also fine"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.050Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "agent_rate"
+   }
+  },
+  {
+   "name": "gap round: at the gap",
+   "head": {
+    "id": "conv_01J0000000000000000000TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "agent_two",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 3,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.050Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:00.050Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "r3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "r3",
+     "parts": [
+      {
+       "type": "text",
+       "text": "re"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:02.050Z",
+    "new_message_id": "msg_00000000000000000000000004",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000003",
+     "conversation": "conv_01J0000000000000000000TEST",
+     "seq": 3,
+     "client_msg_id": "r2",
+     "author": "agent_two",
+     "parts": [
+      {
+       "type": "text",
+       "text": "also fine"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.050Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_01J0000000000000000000TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "agent_two",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 4,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:02.050Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 3,
+      "last_agent_text_at": "2026-10-01T12:00:02.050Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000004",
+      "conversation": "conv_01J0000000000000000000TEST",
+      "seq": 4,
+      "client_msg_id": "r3",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "text",
+        "text": "re"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:02.050Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000004",
+       "conversation": "conv_01J0000000000000000000TEST",
+       "seq": 4,
+       "client_msg_id": "r3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "re"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:02.050Z",
        "reactions": []
       }
      }
