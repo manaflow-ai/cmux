@@ -988,35 +988,23 @@ import Testing
         XCTAssertFalse(result.combinedOutput.contains("unexpected agent launch"), result.diagnostics)
     }
 
-    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+    @Test func testRestoreRejectsMissingPersistedCwdBeforeUsingPreparedArguments() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
-        let executable = root.appendingPathComponent("fake cwd agent", isDirectory: false)
         let missingDirectory = root.appendingPathComponent("deleted", isDirectory: true)
         let capturedDirectory = root.appendingPathComponent("captured", isDirectory: true)
+        let marker = root.appendingPathComponent("launched", isDirectory: false)
+        let executable = root.appendingPathComponent("fake cwd agent", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         #!/bin/sh
-        printf 'pwd=%s\\n' "$PWD"
-        for argument in "$@"; do
-          printf 'arg=%s\\n' "$argument"
-        done
+        touch "$CWD_TEST_LAUNCH_MARKER"
         """.write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: executable.path
-        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "cwd-\(UUID().uuidString)"
-        let preparedArguments = [
-            executable.path,
-            "--cwd",
-            capturedDirectory.path,
-            "--session",
-            checkpointID,
-        ]
         let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
@@ -1029,7 +1017,7 @@ import Testing
                     "executable_path": executable.path,
                     "working_directory": capturedDirectory.path,
                 ],
-                "prepared_arguments": preparedArguments,
+                "prepared_arguments": [executable.path, "--cwd", capturedDirectory.path, "--session", checkpointID],
                 "prepared_arguments_working_directory": capturedDirectory.path,
             ],
         ])
@@ -1043,6 +1031,7 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CWD_TEST_LAUNCH_MARKER"] = marker.path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1053,25 +1042,9 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-        let outputLines = result.stdout.components(separatedBy: .newlines)
-        let observedPWD = try XCTUnwrap(outputLines.first(where: { $0.hasPrefix("pwd=") }))
-            .dropFirst("pwd=".count)
-        let observedArguments = outputLines.compactMap { line -> String? in
-            guard line.hasPrefix("arg=") else { return nil }
-            return String(line.dropFirst("arg=".count))
-        }
-        let cwdFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--cwd"))
-        let sessionFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--session"))
-        let observedCwdArgument = try XCTUnwrap(observedArguments.dropFirst(cwdFlagIndex + 1).first)
-        let observedSessionID = try XCTUnwrap(observedArguments.dropFirst(sessionFlagIndex + 1).first)
-        let canonicalRoot = try XCTUnwrap(canonicalExistingPath(root.path))
-
-        XCTAssertEqual(cwdFlagIndex, 0, result.diagnostics)
-        XCTAssertEqual(sessionFlagIndex, 2, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(String(observedPWD))), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(observedCwdArgument)), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(observedSessionID, checkpointID, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertTrue(result.stderr.contains("restore: the saved working directory is missing or is not a directory."), result.diagnostics)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
