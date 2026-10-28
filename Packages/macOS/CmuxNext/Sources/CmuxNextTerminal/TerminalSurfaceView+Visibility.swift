@@ -30,9 +30,13 @@ extension TerminalSurfaceView {
     }
 
     /// The surface or a container above it moved within its window (``TerminalHostView``'s move, the surface's own
-    /// move between hosts): the draw pause reads AppKit's hidden state, which a reparent can change with no hide,
-    /// unhide or window move, so it is computed again (a no-op when nothing changed). Transitions only.
+    /// move between hosts): a reparent can change AppKit's hidden state with no hide, unhide or window move. The
+    /// node takes it as viewDidHide/viewDidUnhide would have given it (a flip runs ``syncWindowState()``: shown
+    /// work, watches, the pause), and the draw pause, which reads AppKit's state, is computed again (a no-op when
+    /// nothing changed). Transitions only.
     func ancestorsMoved() {
+        // visibility-walk-allow: a reparent is a transition AppKit may report with no hide or unhide; the node takes AppKit's state once per move, never per frame
+        visibilityNode.set(isHiddenOrHasHiddenAncestor ? .hidden : .visible)
         updateOcclusion()
     }
 
