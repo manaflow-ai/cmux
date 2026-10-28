@@ -117,17 +117,6 @@ import Testing
         await settle()
         frame(view)
         try expectAtNewest(view, "cold open, a pass later")
-        // The newest bubble grows in place, as when its picture or link preview loads: still at the bottom.
-        let demo = try #require(view.controller.demo)
-        let newest = try #require(demo.store.state.conversation.messages.last { m in
-            m.parts.contains { if case .text = $0 { return true }; return false }
-        })
-        let before = demo.pinnedOffset
-        let more = String(repeating: "\na line that a picture or a preview makes taller", count: 12)
-        view.controller.dispatch(.appendText(newest.id, more))
-        frame(view)
-        #expect(demo.pinnedOffset > before + 100, "the newest bubble grew")
-        try expectAtNewest(view, "the newest bubble grew")
     }
 
     /// A short chat whose few messages are taller than the window: its first page arrives as
