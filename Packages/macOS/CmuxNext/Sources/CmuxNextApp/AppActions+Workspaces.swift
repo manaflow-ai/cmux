@@ -232,6 +232,8 @@ extension AppActions {
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
         else { return } // a second press during the close sends nothing
+        // Home cannot be closed (audit-findings-1 C): a person's Close Workspace on it does nothing.
+        if invocation.origin == .user, TabCloseGuard.isHome(workspace, services) { return }
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
@@ -247,7 +249,7 @@ extension AppActions {
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
-                let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
+                let hidden = InstantClose.begin(id, in: owner, windows: services.windows, keepsWindow: invocation.origin == .user)
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
             },
@@ -266,6 +268,8 @@ extension AppActions {
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
+                // A person's close offers its undo (audit-findings-1 C): "Workspace closed", Undo reopens it.
+                if invocation.origin == .user { WorkspaceGroupClose.offerWorkspaceUndo(closing: workspace, from: controller, services) }
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()

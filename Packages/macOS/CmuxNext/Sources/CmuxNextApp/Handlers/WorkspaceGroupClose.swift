@@ -45,11 +45,12 @@ enum WorkspaceGroupClose {
     /// The close toast in `window`; its Undo reopens what this close recorded
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group).
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
-                          in window: NSWindow, _ services: AppServices) {
+                          in window: NSWindow, _ services: AppServices, action: CmuxToast.Action = .undo(),
+                          duration: Duration = .seconds(6)) {
         // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
         if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
            !undoToasts.allowsNewToast(id) { return }
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration), in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
             // One undo (the person's click), bounded by `arrivalLimit`: the waits are awaited off main, each reopen runs on main.
@@ -109,6 +110,36 @@ enum WorkspaceGroupClose {
         if let id, let groupItem = found.group, let entry = DaemonClosedHistory.groupEntry(id, in: services), entry.item.id == groupItem {
             DaemonClosedHistory.reopen(entry, services: services)
         }
+    }
+
+    /// The toast of a person's close of one workspace (``offerWorkspaceUndo(closing:from:_:)``).
+    static let workspaceToastID = "workspace-closed"
+    /// How long it shows (audit-findings-1 C: 5 s).
+    static let workspaceToastDuration: Duration = .seconds(5)
+
+    /// A person's Close Workspace (Cmd-Shift-W, Cmd-W on its last tab, a row's close button), audit-findings-1 C:
+    /// "Workspace closed" with "Undo (⇧⌘T)" for 5 s, in the window that showed it when that window stays (it shows its
+    /// next row or Home), else in a window that stays. Undo (its button, Cmd-Z) reopens this close's item from the
+    /// daemon's closed history, as Cmd-Shift-T does: the layout, tabs, scrollback and cwd. Called once the close is
+    /// sent (after the question, when one asked), before the daemon records it.
+    static func offerWorkspaceUndo(closing workspace: WorkspaceModel, from controller: WindowController?, _ services: AppServices) {
+        let id = workspace.id, windows = services.windows
+        let staysOpen = { (window: WindowController) in windows.registry.members(of: window.state.id).contains { $0 != id } }
+        guard let window = (controller.flatMap { staysOpen($0) ? $0.window : nil }
+            ?? windows.controllers.first(where: staysOpen)?.window) else { return }
+        let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
+        let undo = services.registry.shortcutDisplay(for: "reopenClosedBrowserPanel").map(undoTitle) ?? CmuxToastStrings.undo
+        offerUndo(workspaceToastID, workspaceClosedToast, groups: [(nil, [workspace.name])], after: seen, in: window, services,
+                  action: .undo(undo), duration: workspaceToastDuration)
+    }
+
+    static var workspaceClosedToast: String {
+        String(localized: "workspace.closedToast", defaultValue: "Workspace closed", table: "Handlers", bundle: .module)
+    }
+
+    /// The Undo button with the key that reopens it, "Undo (⇧⌘T)".
+    static func undoTitle(_ key: String) -> String {
+        String(format: String(localized: "workspace.closedToast.undo", defaultValue: "Undo (%@)", table: "Handlers", bundle: .module), key)
     }
 
     static func closedToast(_ name: String) -> String {

@@ -211,17 +211,28 @@ enum TabCloseGuard {
 extension TabCloseGuard {
     /// Closes `closing`'s workspace as Close Workspace does, when `closing` is every tab of the only pane of its
     /// workspace and nothing can hold the close back; marks `pane` emptied by `press`, so a held key's repeats close
-    /// nothing in the next workspace (``PaneCloseAim``). Returns false, doing nothing, otherwise (the caller closes the
-    /// tabs) or when Close Workspace does not run.
+    /// nothing in the next workspace (``PaneCloseAim``). A key repeat that would empty the workspace closes nothing and
+    /// returns true. Returns false, doing nothing, otherwise (the caller closes the tabs: Home's, or a close that can be
+    /// held back) or when Close Workspace does not run.
     static func closeWorkspaceIfEmptied(_ ctx: AppActionContext, emptying pane: PaneController, closing: [StripTabID],
                                         by press: PaneCloseAim.Press) -> Bool {
         guard let content = pane.workspace, closing.count == pane.orderedIDs.count,
               Set(closing) == Set(pane.orderedIDs),
-              content.layoutModel.screens.reduce(0, { $0 + $1.layout.panes.count }) == 1,
-              closing.allSatisfy({ closesQuietly($0, in: pane) }) else { return false }
+              content.layoutModel.screens.reduce(0, { $0 + $1.layout.panes.count }) == 1 else { return false }
+        // Key repeat never crosses into a workspace close (audit-findings-1 C, hold-shortcuts-ux.md): a held Cmd-W
+        // stops at the last tab, whatever the tab is; only a new press closes the workspace. True: nothing closes.
+        if press.isRepeat { return true }
+        // Home cannot be closed (audit-findings-1 C): its tabs close as tabs.
+        if isHome(content.workspace, ctx.services) { return false }
+        guard closing.allSatisfy({ closesQuietly($0, in: pane) }) else { return false }
         guard ctx.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: content.workspace.id)) else { return false }
         content.focus.noteEmptied(pane.paneKey, by: press)
         return true
+    }
+
+    /// Whether `workspace` is the store's home workspace (Home).
+    static func isHome(_ workspace: WorkspaceModel, _ services: AppServices) -> Bool {
+        workspace.kind == "home" || (workspace.resourceID != nil && workspace.resourceID == services.home.homeWorkspaceID)
     }
 
     /// Whether Close Workspace can take `id`'s close: it is not still asking or deciding, and no page decides it.
