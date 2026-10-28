@@ -898,7 +898,7 @@ class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
         seeder = steps("nightly.yml", "refresh-test-compilation-cache")
         record_at, _ = named(seeder, "Record DerivedData seed inputs")
-        build_at, _ = named(seeder, "Refresh test compilation cache")
+        build_at, _ = named(seeder, "Build the app-host test product")
         save_at, save = named(seeder, "Save DerivedData seed")
         self.assertLess(record_at, build_at)
         self.assertLess(build_at, save_at)
@@ -1502,7 +1502,7 @@ class Wiring(unittest.TestCase):
                 pattern = (r"run_attempt <= ?[4-9]" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3
                            else r"run_attempt (?:<= ?[3-9]|== ?[2-9])")
                 self.assertIsNone(re.search(pattern, text))
-        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
+        self.assertIn("(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor))",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])
         # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}

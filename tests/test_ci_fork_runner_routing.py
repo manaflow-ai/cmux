@@ -83,7 +83,7 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "report text that prints the lane's effective label, not a runs-on value"
     ),
     ("cmux-next-fast-tier-seed.yml",
-     '{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),

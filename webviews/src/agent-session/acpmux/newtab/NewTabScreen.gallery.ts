@@ -820,9 +820,8 @@ export default agentPaneEntry({
         });
         // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
         // within the scroller, below the field. The scroll is a measured step, so the play reports.
-        await ctx.scroll({ selector: ".nt-all-list" }, "bottom");
-        if ((ctx.document.querySelector(".nt-all-list")?.scrollTop ?? 0) === 0)
-          throw new Error("All chats did not scroll");
+        await ctx.scroll({ selector: ".nt-screen" }, "bottom");
+        if ((ctx.document.querySelector(".nt-screen")?.scrollTop ?? 0) === 0) throw new Error("New Tab did not scroll");
         const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
         const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
         if (rows.length === 0) throw new Error("All chats drew no rows");

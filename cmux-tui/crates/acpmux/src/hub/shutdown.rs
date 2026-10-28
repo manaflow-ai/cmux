@@ -66,6 +66,8 @@ impl Hub {
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
+        // The log retention worker sees the shutdown begun and ends (`retention.rs`).
+        self.retention_wake.notify_one();
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();

@@ -47,10 +47,11 @@ import CmuxNextCompat
 
 /// A unix socket that answers `identify` with `capabilities` and every other command `ok`, and
 /// records each request.
-private nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
     let path: String
     private let descriptor: Int32
     private let recorded = Mutex<[Data]>([])
+    private let clients = Mutex<[Int32]>([])
     var frames: [[String: Any]] {
         recorded.withLock { $0 }.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
@@ -75,6 +76,7 @@ private nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd
             while true {
                 let client = accept(descriptor, nil, nil)
                 guard client >= 0 else { return }
+                self.clients.withLock { $0.append(client) }
                 Thread.detachNewThread { self.serve(client, identity: identity) }
             }
         }
@@ -99,6 +101,11 @@ private nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd
                 _ = reply.withUnsafeBytes { send(client, $0.baseAddress, reply.count, 0) }
             }
         }
+    }
+
+    /// Ends every connection accepted so far (each one's thread then closes it).
+    func dropClients() {
+        for client in clients.withLock({ $0 }) { shutdown(client, SHUT_RDWR) }
     }
 
     func stop() {

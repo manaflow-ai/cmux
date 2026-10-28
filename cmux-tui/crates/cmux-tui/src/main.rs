@@ -973,6 +973,20 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 /// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
 /// stamp recompiles this crate and not the libraries.
 fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    // The source commit's time (`identify {revisions: true}`): what
+    // `link machine update --if-older` orders two builds by.
+    #[cfg(unix)]
+    let build_time = cmux_build_identity::BUILD_TIME;
+    #[cfg(not(unix))]
+    let build_time = 0;
+    // Test seam, debug builds only: a daemon that reports another build time,
+    // so a journey can stand one binary in for an older or a newer machine
+    // daemon (machine_update_journey.rs). Release builds report their own.
+    #[cfg(debug_assertions)]
+    let build_time = std::env::var("CMUX_TEST_DAEMON_BUILD_TIME")
+        .ok()
+        .and_then(|time| time.trim().parse().ok())
+        .unwrap_or(build_time);
     cmux_tui_core::server::BuildStamp::new(
         // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
         // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
@@ -981,6 +995,7 @@ fn build_stamp() -> cmux_tui_core::server::BuildStamp {
             .filter(|commit| !commit.is_empty()),
         option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
     )
+    .with_build_time(build_time)
 }
 
 pub(crate) fn version_string() -> String {

@@ -1,3 +1,4 @@
+import CmuxNextHibernation
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
@@ -234,6 +235,7 @@ final class WindowManager {
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
+        rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
                 registry = restoredRegistry
@@ -454,5 +456,33 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
+    }
+
+    // MARK: Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md)
+
+    /// Workspaces some window keeps mounted off screen.
+    var parkedWorkspaceIDs: Set<String> { Set(controllers.flatMap(\.parked.keys)) }
+
+    /// Workspaces shown in a window: its content, the one under a top page, and `sidebar.multiView` companions.
+    var shownWorkspaceIDs: Set<String> {
+        controllers.reduce(into: Set<String>()) { shown, window in
+            if let id = window.content?.workspace.id { shown.insert(id) }
+            if let id = window.state.workspaceID { shown.insert(id) }
+            shown.formUnion(window.state.viewSet?.ids ?? [])
+        }
+    }
+
+    /// Every workspace this app holds memory for (mounted in a window, or a tab `holdsMemory` says
+    /// holds a surface or page), with what keeps it awake.
+    func hibernationResidents(in stores: [DaemonStore], holdsMemory: (String) -> Bool) -> [WorkspaceHibernationResident] {
+        let mounted = parkedWorkspaceIDs
+        return WorkspaceActivityFacts.all(in: stores) { workspace, tabs in mounted.contains(workspace.id) || tabs.contains { holdsMemory($0.id) } }
+            .map { WorkspaceHibernationResident(workspace: $0.workspace, lastActivity: $0.lastActivity, pinned: $0.pinned,
+                                                running: $0.running, needsAttention: $0.needsAttention) }
+    }
+
+    /// Workspace `id` hibernated: every window unmounts its parked content.
+    func releaseParked(_ id: String) {
+        for window in controllers { window.releaseParked(id) }
     }
 }

@@ -10,9 +10,10 @@ helper artifact instead of waiting for a Mac.
 
 A source is an unexpired `cmux-nightly-ghostty-cli-helper` artifact from a
 nightly.yml run of this repository on main or nightly-next. Its build commit
-comes from the log of the job that uploaded it, inside that job's time window:
-the `ghostty-cli-helper-build=<sha>` line both producer jobs print, or, for a
-helper built before that line existed, the job's `git checkout --force <sha>`.
+comes from the log of the job that uploaded it, inside that job's time window.
+Only a stripped helper counts: a build job whose strip step succeeded (its
+`ghostty-cli-helper-build=<sha>` line, or its `git checkout --force <sha>`),
+or a resolver's `ghostty-cli-helper-stripped-build=<sha>` line.
 The artifact is downloaded by ID, checked against GitHub's SHA256 digest,
 unpacked safely and must be a Mach-O with exactly the architectures this run
 ships.
@@ -87,6 +88,11 @@ def macho_archs(path: Path) -> set[str]:
 
 PRODUCERS = ("build-nightly-ghostty-cli-helper", "resolve-nightly-ghostty-cli-helper")
 MARKER = re.compile(r"ghostty-cli-helper-build=([0-9a-f]{40})\b")
+# The shipped helper is stripped in the build job (#25885), so only a stripped
+# helper may be reused: a build job whose strip step succeeded, or a resolver
+# that reused one and says so with this marker.
+STRIP_STEP = "Strip the Ghostty CLI helper"
+STRIPPED_MARKER = re.compile(r"ghostty-cli-helper-stripped-build=([0-9a-f]{40})\b")
 CHECKOUT = re.compile(r"git checkout --progress --force ([0-9a-f]{40})\b")
 
 
@@ -128,12 +134,15 @@ def producer_build_sha(artifact: dict, jobs: list[dict], read_log) -> str | None
         if (job.get("name") not in PRODUCERS or not job.get("started_at") or
                 not job["started_at"] <= created <= (job.get("completed_at") or "9999")):
             continue
-        log = read_log(job["id"])
-        shas = set(MARKER.findall(log))
-        if not shas and job["name"] == PRODUCERS[0]:
-            shas = set(CHECKOUT.findall(log))
-        if len(shas) == 1:
-            return shas.pop()
+        if job["name"] == PRODUCERS[0]:
+            if not any(step.get("name") == STRIP_STEP and step.get("conclusion") == "success"
+                       for step in job.get("steps", [])):
+                return None
+            log = read_log(job["id"])
+            shas = set(MARKER.findall(log)) or set(CHECKOUT.findall(log))
+        else:
+            shas = set(STRIPPED_MARKER.findall(read_log(job["id"])))
+        return shas.pop() if len(shas) == 1 else None
     return None
 
 

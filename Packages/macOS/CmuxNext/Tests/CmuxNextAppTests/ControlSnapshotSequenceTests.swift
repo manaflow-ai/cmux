@@ -55,7 +55,9 @@ struct ControlSnapshotSequenceTests {
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)))
         let frames = ManualFrames()
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: frames)
+        // A private center: the windows other suites open, key and close in this process post on the default one,
+        // and each would publish (a topology build) inside a measured window (j912: 1 extra build in 541 s).
+        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: frames, notifications: NotificationCenter())
         publisher.start()
         let rig = Rig(services: services, router: router, frames: frames, publisher: publisher)
         await Self.settle(rig)

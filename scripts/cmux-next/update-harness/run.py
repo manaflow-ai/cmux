@@ -14,9 +14,12 @@ What it does (plans: .cmux-scratch/hq-ff/updates-plan.md, slice S0):
      builds read CMUXNextUpdateHarness (UpdateHarness.swift, #if DEBUG).
   3. Zips v2, signs the zip, writes a loopback appcast, serves it on
      127.0.0.1:<port>.
-  4. Launches v1 (no activation, automation socket), waits for the update
-     to stage (Sparkle downloads, verifies and extracts it with no prompt),
-     then runs the install action through the control socket.
+  4. Launches v1 (no activation, automation socket) and checks. Without the
+     automatic-install opt-in (the default) the update-found step asks: the
+     harness checks that nothing downloads, presses Update, waits for the
+     update to stage (Sparkle downloads, verifies and extracts it), checks
+     that nothing relaunches, then presses Restart to Update. Otherwise it
+     runs the install action through the control socket.
   5. Waits for v1 to exit (kernel exit event) and for the relaunched app's
      launch marks, then writes <out>/timeline.json and prints the numbers.
   6. Stops what it started (exact pids), the server, and deletes the key.
@@ -317,7 +320,11 @@ def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock
     if not wait_socket(sock, 60):
         return {"result": "the relaunched app's socket did not open"}
     rpc(sock, "action.run", {"id": CHECK_ACTION})
-    staged = marks.wait(lambda rows: first(rows, "phase.ready", pid=v2_pid) or first(rows, "phase.note", pid=v2_pid), a.stage_timeout)
+    staged = marks.wait(lambda rows: next((first(rows, end, pid=v2_pid) for end in ("phase.ready", "phase.note", "phase.available")
+                                           if first(rows, end, pid=v2_pid)), None), a.stage_timeout)
+    if staged and staged["name"] == "phase.available":
+        # The found step asks (no automatic-install opt-in): Update, then the ready step.
+        staged = answer_found_step(a, sock, marks, v2_pid)["staged"]
     if not staged or staged["name"] != "phase.ready":
         return {"result": "v2 staged nothing", "status": rpc(sock, "updates.status")}
     if click_after_keep:
@@ -336,6 +343,37 @@ def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock
 def card_marks(rows, pid):
     """The update card kinds v1 showed, in order (card.* marks)."""
     return [r["name"] for r in rows if r["pid"] == pid and r["name"].startswith("card.")]
+
+
+def answer_found_step(a, sock, marks, pid):
+    """Without the automatic-install opt-in (the default on every channel): the check stops on the
+    update-found step and nothing downloads until its Update; the staged update then waits on the
+    Update Ready card and nothing relaunches until Restart to Update. Returns the steps seen; exits
+    non-zero when either step did not ask."""
+    status = rpc(sock, "updates.status").get("result") or {}
+    steps = {"found": {k: status.get(k) for k in ("phase", "card", "badge", "detected_version", "automatic_downloads")}}
+    # The found step asks: nothing downloads by itself while it waits (a bounded negative wait).
+    downloaded = marks.wait(lambda rows: first(rows, "phase.downloading", pid=pid), 3)
+    steps["downloaded_without_answer"] = bool(downloaded)
+    if downloaded:
+        raise SystemExit("the found update downloaded before its Update was pressed")
+    steps["update_reply"] = rpc(sock, "debug.updater", {"action": "press", "button": "update"}).get("result")
+    log("found step answered: Update", json.dumps(steps)[:600])
+    staged = marks.wait(lambda rows: first(rows, "phase.ready", pid=pid), a.stage_timeout)
+    if not staged:
+        raise SystemExit(f"Update on the found step staged nothing: {json.dumps(rpc(sock, 'updates.status'))[:1500]}")
+    steps["staged"] = staged
+    # The ready step asks: the app keeps running and installs nothing until Restart to Update.
+    # --click-at-stage clicks at once instead (the staging work's timing), so it only reads.
+    steps["relaunched_without_answer"] = wait_exit(pid, 0 if a.click_at_stage else 5) is not None
+    steps["install_started_without_answer"] = bool(first(marks.read(), "install_started", pid=pid))
+    if steps["relaunched_without_answer"] or steps["install_started_without_answer"]:
+        raise SystemExit("the staged update installed or relaunched before Restart to Update")
+    status = rpc(sock, "updates.status").get("result") or {}
+    steps["ready"] = {k: status.get(k) for k in ("phase", "card", "badge", "detected_version", "automatic_downloads")}
+    steps["phases"] = [r["name"] for r in marks.read() if r["pid"] == pid and r["name"].startswith(("phase.", "card.", "download_clicked"))]
+    log("ready step asks", json.dumps(steps["ready"]))
+    return steps
 
 
 def run_attempt_scenario(a, sock, marks, pid, result):
@@ -589,7 +627,8 @@ def main():
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
         if not a.sparkle_auto:
             log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
-        ends = ["phase.ready", "phase.note"] + (["phase.available"] if a.required_update else [])
+        # Without the automatic-install opt-in (the default) the check stops on the update-found step.
+        ends = ["phase.ready", "phase.note", "phase.available"]
         staged = marks.wait(lambda rows: next((first(rows, end, pid=v1_pid) for end in ends if first(rows, end, pid=v1_pid)), None),
                             a.stage_timeout)
         if a.required_update:
@@ -597,6 +636,13 @@ def main():
             result["required"]["staged_without_click"] = bool(staged and staged["name"] == "phase.ready")
             result["required"]["phases"] = [r["name"] for r in marks.read() if r["pid"] == v1_pid and r["name"].startswith("phase.")]
             log("required update", json.dumps(result["required"]))
+        if not a.required_update and not a.sparkle_auto:
+            # No automatic-download opt-in here (the default): the check must stop on the
+            # update-found step. Anything else (straight to staged) skipped the first ask.
+            if not staged or staged["name"] != "phase.available":
+                raise SystemExit(f"the check did not stop on the update-found step: {staged and staged['name']}")
+            result["asked"] = answer_found_step(a, sock, marks, v1_pid)
+            staged = result["asked"]["staged"]
         if not staged or staged["name"] != "phase.ready":
             status = rpc(sock, "updates.status")
             raise SystemExit(f"no staged update: {json.dumps(status)[:1500]}")
@@ -645,9 +691,15 @@ def main():
             if not status.get("badge") or not answered:
                 raise SystemExit("a check while the update waits did not keep the staged update card")
         install_action = ATTEMPT_ACTION if a.scenario == "attempt-staged" else INSTALL_ACTION
+        if "asked" in result and a.scenario is None:
+            # The answer to the ready step: the Update Ready card's Restart to Update.
+            install_action = "debug.updater press restart"
         result["install_action"] = install_action
         t_send = time.time()
-        reply = rpc(sock, "action.run", {"id": install_action})
+        if install_action == "debug.updater press restart":
+            reply = rpc(sock, "debug.updater", {"action": "press", "button": "restart"})
+        else:
+            reply = rpc(sock, "action.run", {"id": install_action})
         t_reply = time.time()
         log("install", json.dumps(reply)[:200])
         if a.break_staged or a.readonly_install:

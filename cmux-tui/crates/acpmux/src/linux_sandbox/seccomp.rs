@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use std::io;
+use std::os::fd::{FromRawFd, OwnedFd};
 
 pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     filter(false)
@@ -375,30 +376,46 @@ fn classify_install_result(rc: libc::c_long, errno: i32) -> io::Result<()> {
     }
 }
 
-pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+fn install_flags(filter: &[libc::sock_filter], flags: libc::c_ulong) -> io::Result<libc::c_long> {
     if filter.is_empty() || filter.len() >= 4096 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seccomp filter length"));
     }
     // SAFETY: PR_SET_NO_NEW_PRIVS takes an integer flag and no pointers.
-    let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
-    if rc != 0 {
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
         return Err(io::Error::last_os_error());
     }
     let program = libc::sock_fprog {
         len: filter.len() as libc::c_ushort,
         filter: filter.as_ptr() as *mut libc::sock_filter,
     };
-    // SAFETY: `program` points to the immutable filter for the duration of
-    // the raw syscall, and TSYNC asks the kernel to synchronize this process.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_seccomp,
-            libc::SECCOMP_SET_MODE_FILTER,
-            libc::SECCOMP_FILTER_FLAG_TSYNC,
-            &program,
-        )
-    };
-    classify_install_result(rc, io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO))
+    // SAFETY: `program` remains live for the raw syscall.
+    let rc =
+        unsafe { libc::syscall(libc::SYS_seccomp, libc::SECCOMP_SET_MODE_FILTER, flags, &program) };
+    if rc < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(rc)
+}
+
+pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+    let rc = install_flags(filter, libc::SECCOMP_FILTER_FLAG_TSYNC as _)?;
+    classify_install_result(rc, 0)
+}
+
+/// Install USER_NOTIF and return the kernel-owned listener. The listener is
+/// handed to the host before exec; the target filter remains active afterward.
+pub(crate) fn install_notify(filter: &[libc::sock_filter]) -> io::Result<OwnedFd> {
+    const NEW_LISTENER: libc::c_ulong = 1 << 3;
+    const TSYNC_ESRCH: libc::c_ulong = 1 << 4;
+    let fd = install_flags(
+        filter,
+        (libc::SECCOMP_FILTER_FLAG_TSYNC as libc::c_ulong) | NEW_LISTENER | TSYNC_ESRCH,
+    )?;
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: seccomp returned a newly owned listener descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd as _) })
 }
 
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]

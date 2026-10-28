@@ -104,6 +104,31 @@ const cardRows = [
   assistant("A very-long-token-without-spaces-stays-contained while the card keeps its useful context.", 11.8),
   summary(11.6, { durationMs: 12_000, toolCount: 1 }),
 ];
+// Prompt wrapping comparison: the fixed-height variants keep the one-line card's proportions,
+// while a longer prompt spends the saved reply lines instead of pushing the transcript down.
+const promptWrapRows = [
+  user("Short prompt stays one line", 18),
+  assistant("A short reply remains unchanged.", 17.8),
+  summary(17.6, { durationMs: 8_000 }),
+  user("Two line prompt keeps its own break\nand leaves the reply readable.", 16),
+  assistant(
+    "The reply still gets multiple lines when the prompt is two lines.\nThe card keeps the same maximum height.",
+    15.8,
+  ),
+  summary(15.6, { durationMs: 18_000, toolCount: 2 }),
+  user("Three line prompt keeps its own break\nwithout making the card taller\nwhile the reply remains useful.", 14),
+  assistant("The first reply lines remain visible below the prompt.\nLonger detail continues in the transcript.", 13.8),
+  summary(13.6, { durationMs: 26_000, toolCount: 3 }),
+  user(
+    "A very long prompt line that wraps naturally across the card width\nthen keeps another explicit line\nand a final line beyond the cap\nwhich should be clipped.",
+    12,
+  ),
+  assistant(
+    "The fixed card gives this long prompt room while retaining a two-line reply.\nThe rest stays in the transcript.",
+    11.8,
+  ),
+  summary(11.6, { durationMs: 31_000, toolCount: 4 }),
+];
 /// Seventy prompts: past the rail's room (64 rows or 70% of the window), so its rows scroll.
 const long = rowsOf([
   ...all,
@@ -163,6 +188,40 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="2"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__meta-token[data-meta="files"]'));
+      },
+    },
+    "card-prompt-fixed-2": {
+      note: "Two-line cap comparison: the same long prompt as the three-line and growing arms uses at most two lines, leaving more room for the reply. The short prompt in this fixture stays on one line.",
+      snapshot: chat(promptWrapRows, { title: "Minimap prompt two-line cap" }),
+      play: async (ctx) => {
+        const style = ctx.document.createElement("style");
+        style.textContent = ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { -webkit-line-clamp: 2; }";
+        ctx.document.head.append(style);
+        await ctx.hover({ selector: '[data-tick="3"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+      },
+    },
+    "card-prompt-fixed-3": {
+      note: "Fixed-height prompt comparison: the three-line prompt preserves its line breaks, takes space from the reply preview and keeps the bookmark aligned to the first line.",
+      snapshot: chat(promptWrapRows, { title: "Minimap prompt three-line cap" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="3"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+      },
+    },
+    "card-prompt-growing": {
+      note: "Comparison arm: the same short, two-line, three-line and long prompts with an unconstrained card show why the fixed maximum reads better in a busy transcript.",
+      snapshot: chat(promptWrapRows, { title: "Minimap prompt growing comparison" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="3"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+        const card = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__card");
+        const style = ctx.document.createElement("style");
+        style.textContent =
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { -webkit-line-clamp: unset; } " +
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__reply { max-height: none !important; }";
+        ctx.document.head.append(style);
+        await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > 166);
       },
     },
     rest: {

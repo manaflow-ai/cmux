@@ -182,6 +182,9 @@ impl Hub {
     /// the team policy forces, `None` when nothing forces it. Tells watchers (the pane's mode
     /// menu, `_acpmux/start_mode`) when it changed.
     pub async fn apply_full_access_push(&self, managed: Option<bool>) {
+        // One push at a time, its teardown included: a later push (an unset) never lands while
+        // an off push still ends what runs in full access (review 36 of #23322).
+        let _one = self.full_access_pushes.lock().await;
         let path = state_file(&*self.config.read().await);
         let (before, after) = self.update_start_mode_state(path.as_deref(), |state| {
             state.full_access_managed = managed;

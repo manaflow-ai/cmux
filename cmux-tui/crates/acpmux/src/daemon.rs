@@ -125,6 +125,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
+    // A capture fixture that cannot be read stops the start: a capture must
+    // never show this host's harnesses in its place (`harness_fixture.rs`).
+    crate::harness_fixture::check().map_err(|why| anyhow!(why))?;
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -319,6 +322,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
+    hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -501,7 +506,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
             {
                 let hub = hub.clone();
-                tokio::spawn(async move { hub.load_logs_async().await });
+                tokio::spawn(async move {
+                    hub.load_logs_async().await;
+                    // Once every log is read: a pass reads only chats whose log is loaded.
+                    let _worker = hub.retention_worker();
+                });
             }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
@@ -1049,7 +1058,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tries += 1;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries % 5 == 0 && !left.is_zero() {
+        if tries.is_multiple_of(5) && !left.is_zero() {
             let job = job.clone();
             let budget = left.min(Duration::from_secs(1));
             let running =

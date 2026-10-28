@@ -79,6 +79,9 @@ cmux cloud list-machines --json
 cmux cloud list-machines                                    # the app's Cloud machines
 cmux cloud new-machine                                      # answers machine_id (or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
+cmux cloud open-machine --target machine:vm-…
+cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
+cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)
 cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspace with a terminal
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>

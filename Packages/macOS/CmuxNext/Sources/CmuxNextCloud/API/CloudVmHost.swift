@@ -1,13 +1,20 @@
 public import Foundation
 
-/// A Cloud machine's acpmux `vmHost` (acpmux `hub/vm_host.rs`): whether it is a dedicated agent
-/// VM, where agents run without the sandbox and the owner's chats start without asking. On by
-/// default on a machine cmux created for its owner; Settings > Machines turns it off and on.
+/// A Cloud machine's acpmux `vmHost` (acpmux `hub/vm_host.rs`): whether it takes its owner's VM
+/// boundary when the owner's own app link asks for it, nothing more. The machine never decides
+/// that: a remote chain from this app's link runs without the sandbox (and, for a peer session
+/// that asked no policy, on Linux, while MDM allows, approves all) only when the Cloud API told
+/// this app it owns the machine (`vmKind: "owner"`, acpmux `hub/vm_boundary.rs`). Team VMs and
+/// every other caller keep the sandbox, and chats this app starts there (`agent-session-start`)
+/// start with policy `ask`. On by default on any Linux machine; off makes the machine refuse the
+/// boundary (the sandbox always), on returns to the default. Settings > Machines shows the switch
+/// only while the link says the caller owns the machine.
 ///
 /// Read and set over the Cloud API's exec, one short command each: the machine's own
 /// `cmux-tui acp --json host vm-host [on|off]`, run as the machine's work user (or root on an
-/// image from before the work user), which answers `{vmHost, cmuxVm, configured}`.
-public enum CloudVmHost {
+/// image from before the work user), which answers `{vmHost, cmuxVm, configured}`. A value the
+/// caller builds (``CloudVmHostStore`` holds one), with the exec budget it runs under.
+public struct CloudVmHost: Sendable {
     /// What the machine said.
     public struct State: Equatable, Sendable {
         /// On now.
@@ -22,10 +29,14 @@ public enum CloudVmHost {
     }
 
     /// The exec's budget: well under the exec API's 25 s.
-    public static let timeoutMs = 15_000
+    public let timeoutMs: Int
+
+    public init(timeoutMs: Int = 15_000) {
+        self.timeoutMs = timeoutMs
+    }
 
     /// The command that reads the setting (`on` nil) or sets it.
-    public static func command(on: Bool?) -> String {
+    public func command(on: Bool?) -> String {
         let state = on.map { $0 ? " on" : " off" } ?? ""
         return [
             "set -eu",
@@ -40,7 +51,7 @@ public enum CloudVmHost {
     }
 
     /// The state in a successful exec's output (acpmux prints one JSON object, pretty), or nil.
-    public static func parse(_ ran: CloudExecResult) -> State? {
+    public func parse(_ ran: CloudExecResult) -> State? {
         guard ran.exitCode == 0, let start = ran.stdout.firstIndex(of: "{"),
               let object = try? JSONSerialization.jsonObject(with: Data(ran.stdout[start...].utf8)) as? [String: Any],
               let on = object["vmHost"] as? Bool else { return nil }
@@ -49,7 +60,7 @@ public enum CloudVmHost {
 
     /// Why a failed exec failed, in the machine's words, bounded: acpmux's `--json` error
     /// envelope's message (`{"error": {"message": …}}`, pretty), else the first line.
-    public static func failure(_ ran: CloudExecResult) -> String {
+    public func failure(_ ran: CloudExecResult) -> String {
         let text = ran.stderr.isEmpty ? ran.stdout : ran.stderr
         if let start = text.firstIndex(of: "{"),
            let object = try? JSONSerialization.jsonObject(with: Data(text[start...].utf8)) as? [String: Any],

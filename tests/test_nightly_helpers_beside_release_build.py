@@ -4,10 +4,10 @@
 Before, the job ran the web bundles, the OptChat Chief, the iPhone host and the
 third-party notices one after another before xcodebuild (about 5 min a night,
 up to 9). Now:
-  - build-nightly-linux-inputs builds the web bundles and the notices on Linux
+  - build-nightly-inputs builds the web bundles and the notices beside the app build
     from the resolved build commit, beside build-nightly-app, which never needs it, downloads each
     hand-off by pattern (a missing one is no error) and builds it itself unless
-    it matches its checkout (scripts/ci/nightly_linux_inputs.py);
+    it matches its checkout (scripts/ci/nightly_inputs.py);
   - the Chief and the iPhone host build in the background (scripts/ci/
     background_build.py) while xcodebuild runs, and a step right after it joins
     them and runs the Xcode phases' own bundle scripts on the app;
@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import os
 import subprocess
 import sys
@@ -35,11 +36,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 BACKGROUND = ROOT / "scripts/ci/background_build.py"
-INPUTS = ROOT / "scripts/ci/nightly_linux_inputs.py"
+INPUTS = ROOT / "scripts/ci/nightly_inputs.py"
 
-spec = importlib.util.spec_from_file_location("nightly_linux_inputs", INPUTS)
-linux_inputs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(linux_inputs)
+spec = importlib.util.spec_from_file_location("nightly_inputs", INPUTS)
+nightly_inputs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(nightly_inputs)
 
 CHIEF = "Build the OptChat Chief (cmux-next)"
 MOBILE = "Build the cmux-next iPhone host (cmux-mobile-host)"
@@ -52,7 +53,10 @@ NOTICES = "Generate third-party notices (cmux-next)"
 STOP = "Stop the helper builds still running"
 CEF = "Fetch the Chromium engine"
 CEF_JOIN = "Finish fetching the Chromium engine"
-LINUX_JOB = "build-nightly-linux-inputs"
+# The only step allowed between the engine join and the Release build: it ends the
+# run before the compile once a job publish needs has failed.
+PUBLISH_CHECK = "Stop when the run can no longer publish (before the compile)"
+INPUTS_JOB = "build-nightly-inputs"
 
 
 class WorkflowStructureTests(unittest.TestCase):
@@ -69,8 +73,8 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn(name, self.names)
         return self.names.index(name)
 
-    def test_linux_job_builds_the_app_commit_holds_no_secret_and_runs_on_linux(self):
-        job = self.jobs[LINUX_JOB]
+    def test_inputs_job_builds_the_app_commit_holds_no_secret_and_runs_off_the_mac(self):
+        job = self.jobs[INPUTS_JOB]
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"])
         self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         self.assertNotIn("environment", job)
@@ -79,15 +83,15 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertNotIn("macos", job["runs-on"])
         self.assertNotIn("secrets.", yaml.safe_dump(job))
         uploads = [step["with"]["name"] for step in job["steps"] if "upload-artifact" in step.get("uses", "")]
-        self.assertEqual(uploads, ["cmux-nightly-linux-web-bundles", "cmux-nightly-linux-notices"])
+        self.assertEqual(uploads, ["cmux-nightly-web-bundles", "cmux-nightly-notices"])
         names = [step.get("name", "") for step in job["steps"]]
         # The bundles go up first: the Mac takes them minutes before the notices.
         self.assertLess(names.index("Upload the web bundles"), names.index("Generate the third-party notices"))
 
-    def test_the_app_build_never_waits_for_the_linux_job(self):
-        self.assertNotIn(LINUX_JOB, self.app["needs"])
-        for name, artifact in ((WEB_DOWNLOAD, "cmux-nightly-linux-web-bundles"),
-                               (NOTICES_DOWNLOAD, "cmux-nightly-linux-notices")):
+    def test_the_app_build_never_waits_for_the_inputs_job(self):
+        self.assertNotIn(INPUTS_JOB, self.app["needs"])
+        for name, artifact in ((WEB_DOWNLOAD, "cmux-nightly-web-bundles"),
+                               (NOTICES_DOWNLOAD, "cmux-nightly-notices")):
             step = self.step(name)
             self.assertIn("download-artifact", step["uses"])
             self.assertEqual(step["with"]["pattern"], artifact)
@@ -100,9 +104,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
-        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
-        self.assertIn("nightly_linux_inputs.py install-web", run)
+        self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)
 
     def test_the_engine_fetch_runs_in_the_background_and_is_joined_before_the_release_build(self):
@@ -196,9 +201,9 @@ class WorkflowStructureTests(unittest.TestCase):
             self.assertLess(self.index(NOTICES), self.index(later))
             self.assertLess(self.index(BUNDLE), self.index(later))
         run = self.step(NOTICES)["run"]
-        self.assertIn("nightly_linux_inputs.py install-notices", run)
+        self.assertIn("nightly_inputs.py install-notices", run)
         self.assertIn("generate-third-party-notices.sh --tui-source tree", run)
-        self.assertIn("nightly_linux_inputs.py bundle-notices build-universal/Build/Products/Release/cmux.app", run)
+        self.assertIn("nightly_inputs.py bundle-notices build-universal/Build/Products/Release/cmux.app", run)
 
     def test_a_failed_or_cancelled_job_stops_the_background_builds(self):
         step = self.app["steps"][-1]
@@ -274,7 +279,7 @@ def git(root, *args):
     subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
 
 
-class LinuxInputsTests(unittest.TestCase):
+class NightlyInputsTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -286,49 +291,61 @@ class LinuxInputsTests(unittest.TestCase):
         builder = self.root / "scripts/cmux-next/build-web-bundles.sh"
         builder.write_text('#!/bin/sh\nset -eu\n[ "$1" = --from ] && find "$2" -type f | sort > "$(dirname "$0")/installed.txt"\n')
         builder.chmod(0o755)
-        for relative in linux_inputs.WEB_OUTPUTS:
+        for relative in nightly_inputs.WEB_OUTPUTS:
             path = self.root / relative
-            if relative.endswith(".js"):
+            if relative.endswith((".js", ".html")):
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("ranker\n")
+                path.write_text(f"{relative}\n")
             else:
                 path.mkdir(parents=True)
                 (path / "index.html").write_text(f"{relative}\n")
         git(self.root, "init", "-q")
         git(self.root, "add", "-A")
         git(self.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture")
-        self.addCleanup(setattr, linux_inputs, "ROOT", linux_inputs.ROOT)
-        linux_inputs.ROOT = self.root
+        self.addCleanup(setattr, nightly_inputs, "ROOT", nightly_inputs.ROOT)
+        nightly_inputs.ROOT = self.root
         self.handoff = Path(self.tmp.name) / "handoff"
 
     def test_web_bundles_round_trip_when_the_source_key_matches(self):
-        linux_inputs.pack_web(self.handoff, "key-a")
-        linux_inputs.install_web(self.handoff)
+        nightly_inputs.pack_web(self.handoff, "key-a")
+        nightly_inputs.install_web(self.handoff)
         installed = (self.root / "scripts/cmux-next/installed.txt").read_text()
-        self.assertEqual(installed.count("\n"), len(linux_inputs.WEB_OUTPUTS))
+        self.assertEqual(installed.count("\n"), len(nightly_inputs.WEB_OUTPUTS))
+
+    def test_the_hand_off_carries_every_path_build_web_bundles_from_requires(self):
+        script = (ROOT / "scripts/cmux-next/build-web-bundles.sh").read_text()
+        names = dict(re.findall(r'^([A-Z]+)="([^"$]+)"$', script, re.M))
+        loop = re.search(r'^  for path in (.+); do\n    \[ -e "\$FROM_ROOT/\$path" \]', script, re.M)
+        self.assertIsNotNone(loop, "build-web-bundles.sh --from's required-path loop moved")
+        required = set()
+        for word in loop.group(1).split():
+            match = re.fullmatch(r'"\$([A-Z]+)(/[^"]*)?"', word)
+            self.assertIsNotNone(match, word)
+            required.add(names[match.group(1)] + (match.group(2) or ""))
+        self.assertEqual(required, set(nightly_inputs.WEB_OUTPUTS))
 
     def test_web_bundles_of_another_source_key_are_not_used(self):
-        linux_inputs.pack_web(self.handoff, "key-b")
-        with self.assertRaises(linux_inputs.NotUsable):
-            linux_inputs.install_web(self.handoff)
+        nightly_inputs.pack_web(self.handoff, "key-b")
+        with self.assertRaises(nightly_inputs.NotUsable):
+            nightly_inputs.install_web(self.handoff)
 
     def test_a_changed_archive_is_not_used(self):
-        linux_inputs.pack_web(self.handoff, "key-a")
-        with (self.handoff / linux_inputs.WEB_TAR).open("ab") as archive:
+        nightly_inputs.pack_web(self.handoff, "key-a")
+        with (self.handoff / nightly_inputs.WEB_TAR).open("ab") as archive:
             archive.write(b"\0" * 512)
-        with self.assertRaises(linux_inputs.NotUsable):
-            linux_inputs.install_web(self.handoff)
+        with self.assertRaises(nightly_inputs.NotUsable):
+            nightly_inputs.install_web(self.handoff)
 
     def test_an_archive_member_outside_the_outputs_is_refused(self):
         self.handoff.mkdir()
         evil = Path(self.tmp.name) / "evil"
         evil.write_text("x")
-        with tarfile.open(self.handoff / linux_inputs.WEB_TAR, "w") as archive:
+        with tarfile.open(self.handoff / nightly_inputs.WEB_TAR, "w") as archive:
             archive.add(evil, arcname="Resources/markdown-viewer/webviews-app/../../../escape")
-        digest = hashlib.sha256((self.handoff / linux_inputs.WEB_TAR).read_bytes()).hexdigest()
-        (self.handoff / linux_inputs.WEB_RECORD).write_text(json.dumps({"source_key": "key-a", "sha256": digest}))
-        with self.assertRaises(linux_inputs.NotUsable):
-            linux_inputs.install_web(self.handoff)
+        digest = hashlib.sha256((self.handoff / nightly_inputs.WEB_TAR).read_bytes()).hexdigest()
+        (self.handoff / nightly_inputs.WEB_RECORD).write_text(json.dumps({"source_key": "key-a", "sha256": digest}))
+        with self.assertRaises(nightly_inputs.NotUsable):
+            nightly_inputs.install_web(self.handoff)
         self.assertFalse((self.root.parent / "escape").exists())
 
     def test_no_hand_off_exits_3_so_the_step_builds_here(self):
@@ -341,26 +358,26 @@ class LinuxInputsTests(unittest.TestCase):
 
     def test_notices_are_taken_only_from_this_commit(self):
         (self.root / "THIRD_PARTY_LICENSES.md").write_text("tree notices\n")
-        linux_inputs.pack_notices(self.handoff)
+        nightly_inputs.pack_notices(self.handoff)
         git(self.root, "checkout", "-q", "--", "THIRD_PARTY_LICENSES.md")
-        linux_inputs.install_notices(self.handoff)
+        nightly_inputs.install_notices(self.handoff)
         self.assertEqual((self.root / "THIRD_PARTY_LICENSES.md").read_text(), "tree notices\n")
         git(self.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "next")
-        with self.assertRaises(linux_inputs.NotUsable):
-            linux_inputs.install_notices(self.handoff)
+        with self.assertRaises(nightly_inputs.NotUsable):
+            nightly_inputs.install_notices(self.handoff)
 
     def test_bundle_notices_replaces_only_the_committed_copy(self):
         app = Path(self.tmp.name) / "cmux.app"
-        bundled = app / linux_inputs.APP_NOTICES
+        bundled = app / nightly_inputs.APP_NOTICES
         bundled.parent.mkdir(parents=True)
         bundled.write_text("committed notices\n")
         os.chmod(bundled, 0o600)
         (self.root / "THIRD_PARTY_LICENSES.md").write_text("tree notices\n")
-        linux_inputs.bundle_notices(app)
+        nightly_inputs.bundle_notices(app)
         self.assertEqual(bundled.read_text(), "tree notices\n")
         self.assertEqual(bundled.stat().st_mode & 0o777, 0o644)
         with self.assertRaises(SystemExit):
-            linux_inputs.bundle_notices(app)
+            nightly_inputs.bundle_notices(app)
 
 
 if __name__ == "__main__":

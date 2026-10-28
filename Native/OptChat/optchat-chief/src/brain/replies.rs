@@ -250,6 +250,29 @@ impl Brain {
         }
     }
 
+    /// The thread a reply naming view line `view_id` goes into when that line
+    /// is no conversation message: for a subagent's report (`[a12] ...`), the
+    /// thread of the person's message the subagent answers, as its report
+    /// itself would post (`answers_of`); `(conversation, message id, root)`.
+    /// None: no person message is behind the line (a note, a tool line, or a
+    /// report of a subagent no message started); the reply goes to the top level.
+    pub(super) fn thread_behind_line(&self, view_id: u64) -> Option<(String, String, String)> {
+        let (_, text) = self.chat.message(view_id)?;
+        let id = text.strip_prefix('[')?.split(']').next()?;
+        let answers = self.state.spawns.values().find_map(|record| {
+            let sub = record.subs.iter().find(|s| s.id == id)?;
+            Some(if sub.answers.is_empty() {
+                record.answers.clone()
+            } else {
+                sub.answers.clone()
+            })
+        })?;
+        let message = answers.last()?.clone();
+        let conversation = self.state.conversation.clone()?;
+        let root = self.state.root_of(&message);
+        Some((conversation, message, root))
+    }
+
     /// The conversation message the Chief's view line `view_id` logged.
     pub(super) fn message_of_line(&mut self, tool: &str, view_id: u64) -> Result<Message, String> {
         let key = self.chat.logged_key(view_id).ok_or_else(|| {
@@ -339,15 +362,45 @@ impl Brain {
         if text.is_empty() {
             return Err("reply: `text` must be a non-empty text".to_owned());
         }
-        let message = self.message_of_line("reply", view_id)?;
-        let root = message
-            .thread_root
-            .clone()
-            .unwrap_or_else(|| message.id.clone());
+        // A line that is no conversation message (a subagent's report): the
+        // thread of the person's message behind it, else the top level.
+        let (target, outcome) = if self.chat.logged_key(view_id).is_some() {
+            let message = self.message_of_line("reply", view_id)?;
+            let root = message
+                .thread_root
+                .clone()
+                .unwrap_or_else(|| message.id.clone());
+            (
+                Some((message.conversation.clone(), message.id.clone(), root)),
+                format!("outcome: done. replied in the thread of message {view_id}"),
+            )
+        } else {
+            match self.thread_behind_line(view_id) {
+                Some(thread) => (
+                    Some(thread),
+                    format!(
+                        "outcome: done. line {view_id} is a report, not a message: replied in the thread of the message it answers"
+                    ),
+                ),
+                None => (
+                    None,
+                    format!(
+                        "outcome: done. line {view_id} is not a message and no message is behind it: posted at the top level"
+                    ),
+                ),
+            }
+        };
+        let conversation = match &target {
+            Some((c, _, _)) => c.clone(),
+            None => self
+                .state
+                .conversation
+                .clone()
+                .ok_or("reply: the conversation is not connected yet; try again")?,
+        };
         let key = format!(
-            "reply-{}-{}-{:016x}",
-            message.conversation,
-            message.seq,
+            "reply-{conversation}-{}-{:016x}",
+            target.as_ref().map_or("top", |(_, m, _)| m.as_str()),
             fnv(text.as_bytes())
         );
         if self.state.outbox.iter().any(|e| e.idempotency_key == key) {
@@ -356,15 +409,18 @@ impl Brain {
             ));
         }
         let text = self.link_subagents(text);
-        let mut entry = super::reply_entry(message.conversation.clone(), &key, &text);
-        if let Op::MessageSend {
-            reply_to,
-            thread_root,
-            ..
-        } = &mut entry.op
+        let mut entry = super::reply_entry(conversation, &key, &text);
+        if let (
+            Some((_, message_id, root)),
+            Op::MessageSend {
+                reply_to,
+                thread_root,
+                ..
+            },
+        ) = (target, &mut entry.op)
         {
             *reply_to = Some(PartRef {
-                message_id: message.id.clone(),
+                message_id,
                 part_index: 0,
             });
             *thread_root = Some(root);
@@ -373,9 +429,7 @@ impl Brain {
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
-        Ok(format!(
-            "outcome: done. replied in the thread of message {view_id}"
-        ))
+        Ok(outcome)
     }
 }
 

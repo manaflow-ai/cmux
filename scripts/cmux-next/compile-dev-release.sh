@@ -124,7 +124,7 @@ test -d "$app"
 "$build_root/scripts/cmux-next/check-app-personalities.sh" "$app"
 ditto -c -k --keepParent "$app" "$archive"
 
-# The Linux build's REF capture (cmux-next.yml, after this step) reads this build. The host tree
+# The fleet build's REF capture (cmux-next.yml, after this step) reads this build. The host tree
 # and DerivedData are another build's as soon as this script's lock goes, so with the capture on
 # they are cloned first, while the lock is held: one clonefile(2) each, about a second. A failed
 # clone only means no capture.

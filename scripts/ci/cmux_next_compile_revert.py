@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Name the one merge to revert when a feat-cmux-next push's Mac Release compile fails.
 
-Pull requests compile on Linux (-Onone, no Xcode project); -O codegen and the final app link
+Pull requests get the fleet compile check (-Onone, no Xcode project); -O codegen and the final app link
 are first compiled by the base push's Mac Release compile. When that compile fails (the
 compiler failed, not the runner), this finds the newest earlier push where it passed and
 the pull requests merged since. With exactly one, that merge is the culprit and the

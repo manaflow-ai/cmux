@@ -65,6 +65,7 @@ extension SettingsSchema {
         "tabs.cmdWClosesPinnedTabs",
         "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
+        "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
@@ -175,7 +176,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
@@ -253,6 +254,7 @@ extension SettingsSchema {
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
+        "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
@@ -283,6 +285,8 @@ extension SettingsSchema {
         "browser.agentMouse.maxMoveMs": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
+        // Whether sign-in pages open in a browser agents can drive is the person's call alone.
+        "browser.openSignInPagesInCmux": .userOnly,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).

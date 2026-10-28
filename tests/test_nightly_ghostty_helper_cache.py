@@ -94,8 +94,9 @@ def run(**overrides):
     return base | overrides
 
 
-def job(name, started="2026-10-27T04:00:00Z", completed="2026-10-27T05:00:00Z", job_id=7):
-    return {"name": name, "id": job_id, "started_at": started, "completed_at": completed}
+def job(name, started="2026-10-27T04:00:00Z", completed="2026-10-27T05:00:00Z", job_id=7, stripped=True):
+    steps = [{"name": reuse.STRIP_STEP, "conclusion": "success" if stripped else "skipped"}]
+    return {"name": name, "id": job_id, "started_at": started, "completed_at": completed, "steps": steps}
 
 
 class MachOTests(unittest.TestCase):
@@ -124,10 +125,22 @@ class ProvenanceTests(unittest.TestCase):
         self.assertFalse(reuse.trusted_run(run(path=".github/workflows/other.yml"), REPO))
         self.assertFalse(reuse.trusted_run(run(head_repository={"full_name": "fork/cmux"}), REPO))
 
+    def test_only_a_stripped_helper_is_reused(self):
+        artifact = {"created_at": "2026-10-27T04:30:00Z"}
+        marker = lambda _: f"ghostty-cli-helper-build={A}\n"
+        self.assertEqual(reuse.producer_build_sha(artifact, [job("build-nightly-ghostty-cli-helper")], marker), A)
+        self.assertIsNone(reuse.producer_build_sha(
+            artifact, [job("build-nightly-ghostty-cli-helper", stripped=False)], marker))
+        # A resolver from before the strip moved (#25885) re-uploaded an unstripped helper.
+        self.assertIsNone(reuse.producer_build_sha(artifact, [job("resolve-nightly-ghostty-cli-helper")], marker))
+        self.assertEqual(reuse.producer_build_sha(
+            artifact, [job("resolve-nightly-ghostty-cli-helper")],
+            lambda _: f"ghostty-cli-helper-stripped-build={B}\n"), B)
+
     def test_marker_then_checkout_fallback(self):
         artifact = {"created_at": "2026-10-27T04:30:00Z"}
         self.assertEqual(reuse.producer_build_sha(
-            artifact, [job("resolve-nightly-ghostty-cli-helper")], lambda _: f"ghostty-cli-helper-build={A}\n"), A)
+            artifact, [job("resolve-nightly-ghostty-cli-helper")], lambda _: f"ghostty-cli-helper-stripped-build={A}\n"), A)
         self.assertEqual(reuse.producer_build_sha(
             artifact, [job("build-nightly-ghostty-cli-helper")],
             lambda _: f"[command]/usr/bin/git checkout --progress --force {B}\n"), B)
@@ -173,7 +186,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("macos-15", helper["runs-on"])
         self.assertNotIn("'macos-26'", runs_on)
         for name in ("Key the Ghostty CLI helper cache", "Cache the Ghostty CLI helper",
-                     "Build Ghostty CLI helper", "Upload Ghostty CLI helper"):
+                     "Build Ghostty CLI helper", "Strip the Ghostty CLI helper", "Upload Ghostty CLI helper"):
             step = next(s for s in helper["steps"] if s.get("name") == name)
             self.assertIn("needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'", step["if"])
         lookup = jobs["resolve-nightly-ghostty-cli-helper"]

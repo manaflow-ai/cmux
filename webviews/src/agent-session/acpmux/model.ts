@@ -184,6 +184,11 @@ export type PromptContentPart =
 /// acpmux names it, so an edit cannot keep or drop it by id yet.
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
+/// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
+/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
+/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
+export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -234,6 +239,9 @@ export type AcpmuxRow = {
   started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
+  /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
+  /// its main loop's, acpmux hub/turn_usage.rs).
+  tokens?: TurnTokenSplit;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
@@ -530,6 +538,19 @@ export type QueueEdit =
   /** Takes back a steer the agent has not read yet (the X beside it); false once it was read. */
   | { op: "withdraw" };
 
+/** Where a chat's running limit comes from: its own override, an ancestor's, the workspace's, the
+ *  settings' (`agents.subsessions.maxRunning`) or acpmux's default. */
+export type SubsessionLimitSource = "session" | "inherited" | "workspace" | "settings" | "default";
+
+/** How many of a chat's sub-sessions run a turn at once (acpmux `subsessionLimits.maxRunning`,
+ *  1 to 1000), and acpmux's own count of those running and waiting for a slot when it read them. */
+export type SubsessionLimits = {
+  maxRunning: number;
+  maxRunningSource?: SubsessionLimitSource;
+  running?: number;
+  queued?: number;
+};
+
 /// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
 export type AcpmuxContextBreakdown = {
   /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
@@ -642,6 +663,9 @@ export type AcpmuxSnapshot = {
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
+    /// How many of the chats its agent started run a turn at once (acpmux `subsessionLimits`, from the attach reply's detail
+    /// and its `limits` records); unset from an acpmux without the limit.
+    subsessionLimits?: SubsessionLimits;
     status?: string;
     enforcement?: Enforcement;
     modes?: {
@@ -692,6 +716,10 @@ export type AcpmuxSnapshot = {
   /// subagents' included (direct.ts `turnTokens`); unset when the harness does not report each
   /// call or the client missed the turn's start.
   turnTokens?: number;
+  /// The turn's output (`turnTokens`) beside what its calls read, when every call this turn named
+  /// its input and output (`inputTokens`, `cachedReadTokens`, `cachedWriteTokens`, `outputTokens`,
+  /// claude_stdio/inbound.rs); unset otherwise.
+  turnTokenSplit?: TurnTokenSplit;
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
   silentTurn?: true;
@@ -723,6 +751,8 @@ export type AcpmuxSnapshot = {
     id: string;
     name: string;
     models: AcpmuxCatalogModel[];
+    /** The harness's own model-menu ids, in its order; absent until it reports a list. */
+    topModels?: string[];
     /** The configured harness login command, when its profile declares one. */
     auth?: { login?: string };
     unavailable?: string;

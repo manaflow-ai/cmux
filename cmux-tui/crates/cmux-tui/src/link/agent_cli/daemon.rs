@@ -56,6 +56,12 @@ impl Daemon {
         Ok(Self { reader: BufReader::new(stream), next_id: 1 })
     }
 
+    /// The pid of the process listening at the other end, when the system says.
+    pub(super) fn peer_pid(&self) -> Option<u32> {
+        use std::os::fd::AsRawFd as _;
+        cmux_link::caller::peer_pid(self.reader.get_ref().as_raw_fd()).ok().flatten()
+    }
+
     /// Sends `cmd` with `params` and returns the answer's `data`.
     pub(super) fn call(
         &mut self,
