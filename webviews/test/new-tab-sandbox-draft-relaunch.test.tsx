@@ -1,4 +1,3 @@
-// A successful New Tab Sandbox send must never become a new unsent draft when its page unmounts.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -9,7 +8,6 @@ const saved = new Map<string, { had: boolean; value: unknown }>();
 let dom: JSDOM;
 let host: HTMLElement;
 let root: Root | undefined;
-
 type Call = { method: string; params: Record<string, unknown> };
 type PaneWindow = Window & {
   webkit?: unknown;
@@ -18,7 +16,6 @@ type PaneWindow = Window & {
   cmuxAcpmuxBridge?: { receive(value: unknown): void; applyPreview(on: boolean): void };
 };
 const paneWindow = () => dom.window as unknown as PaneWindow;
-
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
   const replacements: Record<string, unknown> = {
@@ -86,6 +83,7 @@ for (const route of ["unsent", "sent", "host receipt"] as const) {
     let persistedDraft: string | undefined;
     let run: unknown = null;
     let firstState = true;
+    let painted = Promise.withResolvers<void>();
     let receiveState: ((value: unknown) => void) | undefined;
     const text = route === "sent" ? "already sent task" : "keep this draft";
     const receipt = { status: "succeeded", reply: "done" };
@@ -118,18 +116,21 @@ for (const route of ["unsent", "sent", "host receipt"] as const) {
               run = { task: message.params.task, key: message.params.key, reply: { ok: true, value: { receipt } } };
               value = { receipt, runId: "sandbox-1" };
             } else if (message.method === "chat.unsentDraft") persistedDraft = String(message.params.text ?? "");
+            else if (message.method === "pane.painted") painted.resolve();
             return { ok: true, value };
           },
         },
       },
     };
     const mount = async () => {
+      painted = Promise.withResolvers<void>();
       root = createRoot(host);
       await act(async () => root!.render(<AcpmuxApp />));
       await act(async () => {
         paneWindow().cmuxAcpmuxBridge!.receive(noChat());
         paneWindow().cmuxAcpmuxBridge!.applyPreview(true);
       });
+      await act(async () => painted.promise);
     };
     await mount();
     const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
