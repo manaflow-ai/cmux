@@ -62,7 +62,16 @@ test("the project picker with no projects says none are recent until a search fi
   const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
   root = createRoot(host);
   await act(async () =>
-    root!.render(<ProjectChooser projects={[]} icon={null} onPick={() => {}} onBrowse={() => {}} side="bottom" />),
+    root!.render(
+      <ProjectChooser
+        projects={[]}
+        icon={null}
+        onPick={() => {}}
+        onBrowse={() => {}}
+        onNoProject={() => {}}
+        side="bottom"
+      />,
+    ),
   );
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   const empty = () => document.querySelector(".acpmux-project-empty")?.textContent;
