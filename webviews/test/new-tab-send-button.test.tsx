@@ -237,7 +237,7 @@ test("classic New Tab intercepts /import before its omnibar can treat it as a pa
 
 type Template = "screen" | "classic";
 
-async function commandPage(template: Template, onImportFile: (file: File) => Promise<void>) {
+async function commandPage(template: Template, onImportFile?: (file: File) => Promise<void>, importError?: string) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -246,7 +246,8 @@ async function commandPage(template: Template, onImportFile: (file: File) => Pro
     snapshot: noChat(),
     lastAgent: "claude",
     cwd: "/Users/you/src/app",
-    onImportFile,
+    ...(onImportFile ? { onImportFile } : {}),
+    ...(importError ? { importError } : {}),
     onOpenSession: noop,
     onShowAll: noop,
     onCmuxCommand: () => "Fork is unavailable for this chat right now",
@@ -285,29 +286,110 @@ async function commandPage(template: Template, onImportFile: (file: File) => Pro
       field.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
   };
-  const send = async () =>
+  const send = async (afterDispatch?: () => void) =>
     act(async () => {
       if (template === "screen") host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click();
       else host.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      afterDispatch?.();
     });
-  const paste = async () => {
+  const paste = async (file = new File([PNG], "private.png", { type: "image/png" }), pending = false) => {
     const event = new window.Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(event, "clipboardData", {
       value: {
-        files: [new File([PNG], "private.png", { type: "image/png" })],
+        files: [file],
         types: ["Files"],
         getData: () => "",
       },
     });
     await act(async () => field.dispatchEvent(event));
     expect(
-      host.querySelector(".acpmux-attachment-image:not(.acpmux-attachment-pending):not(.acpmux-attachment-failed)"),
+      host.querySelector(
+        pending
+          ? ".acpmux-attachment-pending"
+          : ".acpmux-attachment-image:not(.acpmux-attachment-pending):not(.acpmux-attachment-failed)",
+      ),
     ).not.toBeNull();
   };
   return { field, edit, send, paste, prompts };
 }
 
 for (const template of ["screen", "classic"] as const) {
+  for (const accepted of [true, false]) {
+    test(`${template}: pending attachment does not delay /import and is cancelled only when accepted=${accepted}`, async () => {
+      const page = await commandPage(template, accepted ? async () => {} : undefined);
+      const file = new File([PNG], "pending.png", { type: "image/png" });
+      const bytes = await file.arrayBuffer();
+      let resolve!: (bytes: ArrayBuffer) => void;
+      Object.defineProperty(file, "arrayBuffer", {
+        value: () =>
+          new Promise<ArrayBuffer>((done) => {
+            resolve = done;
+          }),
+      });
+      await page.paste(file, true);
+      await page.edit("/import");
+      let opened = false;
+      host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!.click = () => {
+        opened = true;
+      };
+      await page.send(() => {
+        expect(opened).toBe(accepted);
+      });
+      expect(page.field.value).toBe(accepted ? "" : "/import");
+      expect(Boolean(host.querySelector(".acpmux-attachment-pending"))).toBe(!accepted);
+      expect(page.prompts).toEqual([]);
+      await act(async () => {
+        resolve(bytes);
+      });
+      await page.edit("Explain this file");
+      await page.send();
+      expect(page.prompts).toHaveLength(1);
+      expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(
+        accepted ? [] : ["pending.png"],
+      );
+    });
+  }
+
+  test(`${template}: ordinary prompts still wait for pending attachments`, async () => {
+    const page = await commandPage(template, async () => {});
+    const file = new File([PNG], "pending.png", { type: "image/png" });
+    const bytes = await file.arrayBuffer();
+    let resolve!: (bytes: ArrayBuffer) => void;
+    Object.defineProperty(file, "arrayBuffer", {
+      value: () =>
+        new Promise<ArrayBuffer>((done) => {
+          resolve = done;
+        }),
+    });
+    await page.paste(file, true);
+    await page.edit("Explain this file");
+    await page.send();
+    expect(page.prompts).toEqual([]);
+    await act(async () => {
+      resolve(bytes);
+    });
+    expect(page.prompts).toHaveLength(1);
+    expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["pending.png"]);
+  });
+
+  test(`${template}: a rejected import is visible on New Tab`, async () => {
+    const page = await commandPage(template, async () => {
+      throw new Error("Transcript could not be imported");
+    });
+    await page.edit("/import");
+    await page.send();
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+    expect(page.prompts).toEqual([]);
+    expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Transcript could not be imported");
+  });
+
+  test(`${template}: the app's import error is visible on New Tab`, async () => {
+    await commandPage(template, async () => {}, "Native import failed");
+    expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Native import failed");
+  });
+
   for (const outcome of ["cancel", "invalid transcript"] as const) {
     test(`${template}: /import consumes staged attachments after ${outcome}, not in the next prompt`, async () => {
       const imported: File[] = [];

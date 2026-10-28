@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import type { ComposerAttachment } from "../attachments";
 
 export type NewTabCommandActions = {
+  importError?: string | undefined;
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   onImportFile?(file: File): void | Promise<void>;
 };
@@ -22,6 +23,7 @@ export function useNewTabCommand(
 ) {
   const t = useT();
   const [refusal, setRefusal] = useState<{ text: string; message: string }>();
+  const [fileError, setFileError] = useState<string>();
   const importInput = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
   const intercept = (prompt: string, harness?: string, attachmentCount = 0): boolean => {
@@ -44,6 +46,7 @@ export function useNewTabCommand(
     if (command.command.action === "import") {
       if (!actions.onImportFile) refuse(t("composer.cmuxUnavailable"));
       else {
+        setFileError(undefined);
         importInput.current?.click();
         clear();
       }
@@ -78,12 +81,22 @@ export function useNewTabCommand(
       tabIndex={-1}
       aria-label="/import"
       hidden
-      onChange={(event) => {
+      onChange={async (event) => {
         const file = event.currentTarget.files?.[0];
         event.currentTarget.value = "";
-        if (file) void actions.onImportFile?.(file);
+        if (!file) return;
+        setFileError(undefined);
+        try {
+          await actions.onImportFile?.(file);
+        } catch (error) {
+          setFileError(error instanceof Error ? error.message : String(error));
+        }
       }}
     />
   );
-  return { intercept, input, error: refusal?.text === text ? refusal.message : undefined };
+  return {
+    intercept,
+    input,
+    error: (refusal?.text === text ? refusal.message : undefined) ?? fileError ?? actions.importError,
+  };
 }

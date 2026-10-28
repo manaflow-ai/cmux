@@ -342,6 +342,7 @@ export function NewTabPage({
   onSubmit,
   onCmuxCommand,
   onImportFile,
+  importError,
   onJump,
   onOpenSession,
   onShowAll,
@@ -429,7 +430,7 @@ export function NewTabPage({
   const command = useNewTabCommand(
     text,
     setText,
-    { onCmuxCommand, onImportFile },
+    { onCmuxCommand, onImportFile, importError },
     {
       attachments,
       setAttachments,
@@ -581,6 +582,7 @@ export function NewTabPage({
   const submitNow = useRef<() => void>(() => {});
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
+    if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length)) return;
     if (holdForAttachments(() => submitNow.current())) return;
     submitNow.current();
   };
