@@ -4031,14 +4031,14 @@ article.acpmux-row:empty {
 .cv-user__inline-file {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: min(260px, 70vw);
-  height: 30px;
+  gap: var(--acpmux-file-chip-gap, 6px);
+  max-width: min(340px, 72vw);
+  min-height: var(--cv-line-height);
   margin: 2px 4px;
-  padding: 0 9px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  border-radius: var(--acpmux-file-chip-radius, 6px);
+  background: var(--agent-control);
   vertical-align: middle;
 }
 .cv-user__inline-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
