@@ -337,3 +337,42 @@ async fn recovery_clears_an_outage_saved_before_the_handshake_completed() {
         restored.retry_delay(&mut Backoff::default(), crate::store::now_ms(), 1.0) <= Backoff::CAP
     );
 }
+
+/// Boot settles the peer immediately without probing it; an explicit replacement still
+/// retries immediately, even when this host has never answered (lastSeen is absent).
+#[tokio::test(start_paused = true)]
+async fn parked_boot_settles_without_probing_but_manual_replacement_retries() {
+    for manual in [false, true] {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let peer = Peer::new("absent", "invalid://peer", None, None, hub.peer_notices.clone());
+        if manual {
+            peer.seed_last_seen(None);
+        }
+        let now = crate::store::now_ms();
+        peer.seed_cached_link(None, Some(now - 86_400_001), Some(now + 3_600_000));
+        hub.peers.lock().unwrap().insert("absent".into(), peer.clone());
+        let mut settled = peer.settled();
+        let running = tokio::spawn(peer.clone().run());
+        tokio::time::timeout(Duration::from_secs(1), settled.changed())
+            .await
+            .expect("startup wait settles without waiting for hourly retry")
+            .unwrap();
+        let attempts = peer.link().attempts;
+        let refused = tokio::time::timeout(
+            Duration::from_millis(1),
+            peer.request(method::SESSION_NEW, json!({})),
+        )
+        .await;
+        tokio::time::advance(Duration::from_secs(120)).await;
+        tokio::task::yield_now().await;
+        let later_attempts = peer.link().attempts;
+        peer.stop();
+        running.await.unwrap();
+        assert_eq!(attempts, u32::from(manual), "manual={manual}");
+        assert_eq!(later_attempts, attempts, "no extra attempt within two minutes");
+        assert_eq!(reason(&refused.expect("fast refusal").unwrap_err()), Some("peer_unreachable"));
+    }
+}

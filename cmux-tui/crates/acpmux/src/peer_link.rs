@@ -217,6 +217,8 @@ pub struct Link {
     pub last_seen: Option<u64>,
     /// When the link last went down, while it is down.
     pub down_since: Option<u64>,
+    /// A parked peer's next automatic attempt, preserved across daemon updates.
+    pub next_retry_at: Option<u64>,
     /// Failed attempts since the link was last ready.
     pub attempts: u32,
     /// When the link last became ready.
@@ -234,7 +236,7 @@ impl Link {
             (true, true) => PeerState::Connected,
             (true, false) => PeerState::Degraded,
             (false, _) if self.last_seen.is_some() => PeerState::Reconnecting,
-            (false, _) if self.attempts == 0 => PeerState::Connecting,
+            (false, _) if self.attempts == 0 && self.down_since.is_none() => PeerState::Connecting,
             (false, _) => PeerState::Offline,
         }
     }
@@ -282,6 +284,21 @@ impl Link {
         }
     }
 
+    /// Save only parked schedules: ordinary short reconnect backoff starts fresh on boot.
+    pub fn schedule_retry(&mut self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
+        let delay = self.retry_delay(backoff, now, jitter);
+        self.next_retry_at = (delay >= Duration::from_secs(3_600))
+            .then(|| now.saturating_add(delay.as_millis() as u64));
+        delay
+    }
+
+    pub fn parked_retry_wait(&self, now: u64) -> Option<Duration> {
+        self.next_retry_at.filter(|at| *at > now && self.down_since.is_some()).map(|at| {
+            // A wall-clock correction must not strand a peer beyond one retry interval.
+            Duration::from_millis(at - now).min(Duration::from_secs(3_660))
+        })
+    }
+
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
         self.opened_at = Some(now);
@@ -298,6 +315,7 @@ impl Link {
         self.overdue = false;
         self.last_seen = Some(now);
         self.down_since = None;
+        self.next_retry_at = None;
         self.attempts = 0;
         self.ready_at = Some(now);
     }
@@ -519,6 +537,26 @@ mod tests {
         link.ready(day + 3_001);
         link.down(day + 3_002, STABLE);
         assert!(link.retry_delay(&mut backoff, day + 3_002, 0.0) <= Backoff::CAP);
+    }
+
+    #[test]
+    fn parked_schedule_retains_only_the_remaining_wait_and_recovery_clears_it() {
+        let now = 86_400_001;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        let delay = link.schedule_retry(&mut Backoff::default(), now, 0.0);
+        assert_eq!(delay, Duration::from_secs(3_600));
+        assert_eq!(link.parked_retry_wait(now + 120_000), Some(Duration::from_secs(3_480)));
+        assert_eq!(link.parked_retry_wait(now + 3_600_000), None);
+        assert_eq!(
+            link.parked_retry_wait(0),
+            Some(Duration::from_secs(3_660)),
+            "clock correction is bounded"
+        );
+        link.opened(now + 2_000);
+        link.ready(now + 2_001);
+        assert_eq!(link.next_retry_at, None);
+        assert_eq!(link.parked_retry_wait(now + 2_001), None);
     }
 
     #[test]

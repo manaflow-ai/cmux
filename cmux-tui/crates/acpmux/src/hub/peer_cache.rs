@@ -15,6 +15,8 @@ struct Saved {
     last_seen: Option<u64>,
     #[serde(default)]
     down_since: Option<u64>,
+    #[serde(default)]
+    next_retry_at: Option<u64>,
     sessions: Vec<Value>,
 }
 
@@ -75,7 +77,12 @@ impl Hub {
             .map(|r| r.summary.clone())
             .collect();
         let link = p.link();
-        let saved = Saved { last_seen: link.last_seen, down_since: link.down_since, sessions };
+        let saved = Saved {
+            last_seen: link.last_seen,
+            down_since: link.down_since,
+            next_retry_at: link.next_retry_at,
+            sessions,
+        };
         let write = || -> anyhow::Result<()> {
             crate::config::private_state_dir(&dir)?;
             crate::config::write_atomic(&path, &serde_json::to_vec(&saved)?)
@@ -96,8 +103,7 @@ impl Hub {
         let Some(path) = cache_path(&dir, &peer.name) else { return };
         let Ok(bytes) = std::fs::read(&path) else { return };
         let Ok(saved) = serde_json::from_slice::<Saved>(&bytes) else { return };
-        peer.seed_last_seen(saved.last_seen);
-        peer.seed_outage(saved.down_since);
+        peer.seed_cached_link(saved.last_seen, saved.down_since, saved.next_retry_at);
         peer.cache_saved_outage
             .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -188,6 +194,10 @@ mod tests {
         again.load_peer_cache(&restored);
         assert_eq!(restored.link().down_since, Some(down_since));
         assert_eq!(restored.link().last_seen, None, "never reached is preserved");
+        assert!(
+            restored.link().next_retry_at.is_some_and(|at| at > now_ms()),
+            "the remaining parked interval survives reboot"
+        );
         assert!(again.remote_sessions().is_empty());
         let mut backoff = crate::peer_link::Backoff::default();
         assert_eq!(
@@ -200,6 +210,7 @@ mod tests {
     fn older_peer_caches_have_no_proven_outage_age() {
         let saved: Saved = serde_json::from_value(json!({"lastSeen": 1, "sessions": []})).unwrap();
         assert_eq!(saved.down_since, None);
+        assert_eq!(saved.next_retry_at, None);
     }
 
     /// A peer that is registered but never runs: its link stays down.
