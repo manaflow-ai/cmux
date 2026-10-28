@@ -160,6 +160,7 @@ nonisolated struct DraftStateMigrationTests {
             try fixture.write("source/agent-draft-attachments/\(path)", path)
         }
         try fixture.write("destination/agent-draft-attachments/current/1", "B current")
+        try fixture.write("source/agent-draft-attachments/current/legacy", "older A")
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination")) { source, target in
             if source.path.hasSuffix(failing) { throw CopyFailure.injected }
             try FileManager.default.copyItem(at: source, to: target)
@@ -170,6 +171,7 @@ nonisolated struct DraftStateMigrationTests {
         for path in ["chat-a/1", "chat-a/2", "chat-b/1"] {
             #expect(try fixture.text("destination/agent-draft-attachments/\(path)") == path)
         }
+        #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-draft-attachments/current/legacy").path))
     }
 
     private enum CopyFailure: Error { case injected }

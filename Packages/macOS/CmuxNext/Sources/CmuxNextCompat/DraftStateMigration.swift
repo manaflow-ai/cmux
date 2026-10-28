@@ -23,24 +23,38 @@ public enum DraftStateMigration {
 
     static func adopt(from roots: [URL], to destination: URL, fileManager: CheckedFileManager = FileManager.checked,
                       copyItem: (URL, URL) throws -> Void) {
-        try? fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
-                                         attributes: [.posixPermissions: 0o700])
-        let marker = destination.appending(path: ".adopted-v1")
-        if fileManager.fileExists(atPath: marker.path) {
-            // Upgrade the old global marker into per-artifact tombstones before returning.
-            for artifact in artifacts {
-                let settled = destination.appending(path: ".adopted-v1-\(artifact)")
-                try? settle(settled, fileManager: fileManager)
+        guard !fileManager.fileExists(atPath: destination.appending(path: ".adopted-v1").path) else { return }
+        let staging = destination.deletingLastPathComponent().appending(path: ".draft-adoption-\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: staging) }
+        do {
+            try fileManager.createDirectory(at: staging.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.copyItem(at: destination, to: staging)
+            } else {
+                try fileManager.createDirectory(at: staging, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
             }
-            return
+            try adoptArtifacts(from: roots, staging: staging, destination: destination,
+                               fileManager: fileManager, copyItem: copyItem)
+            // The artifact and its settled marker become visible together, before draft readers start.
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
+            } else {
+                try fileManager.moveItem(at: staging, to: destination)
+            }
+        } catch {
+            // The live root remains intact if staging fails; a later launch can retry.
         }
+    }
+
+    private static func adoptArtifacts(from roots: [URL], staging: URL, destination: URL,
+                                       fileManager: CheckedFileManager, copyItem: (URL, URL) throws -> Void) throws {
         var failed = false
         for artifact in artifacts {
-            let settled = destination.appending(path: ".adopted-v1-\(artifact)")
-            // A settled artifact is a tombstone as well as a completion record: if the person
-            // clears its restored data, a later launch must not resurrect the old source.
+            let settled = staging.appending(path: ".adopted-v1-\(artifact)")
+            // The marker also protects a later intentional removal from legacy resurrection.
             guard !fileManager.fileExists(atPath: settled.path) else { continue }
-            let target = destination.appending(path: artifact)
+            let target = staging.appending(path: artifact)
             let source = roots
                 .filter { $0.standardizedFileURL != destination.standardizedFileURL }
                 .map { $0.appending(path: artifact) }
@@ -57,14 +71,14 @@ public enum DraftStateMigration {
                 try settle(settled, fileManager: fileManager)
             } catch {
                 failed = true
-                // A broken source or marker never blocks launch; the next launch can retry it.
+                // Discard every copied child of a failed artifact; preserve only the live current data.
+                if fileManager.fileExists(atPath: settled.path) { try fileManager.removeItem(at: settled) }
+                if fileManager.fileExists(atPath: target.path) { try fileManager.removeItem(at: target) }
+                let current = destination.appending(path: artifact)
+                if fileManager.fileExists(atPath: current.path) { try fileManager.copyItem(at: current, to: target) }
             }
         }
-
-        if !failed && artifacts.allSatisfy({ fileManager.fileExists(atPath: destination.appending(path: ".adopted-v1-\($0)").path) }) {
-            try? Data("1".utf8).blockingWrite(to: marker, options: [.atomic])
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
-        }
+        if !failed { try settle(staging.appending(path: ".adopted-v1"), fileManager: fileManager) }
     }
 
     private static func settle(_ marker: URL, fileManager: CheckedFileManager) throws {
