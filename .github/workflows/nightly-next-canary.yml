@@ -121,7 +121,7 @@ jobs:
     # side label on attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS
     # on main re-runs a refused job), Blacksmith macOS 26 from attempt 2 on. Never
     # a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     permissions:
       contents: read
