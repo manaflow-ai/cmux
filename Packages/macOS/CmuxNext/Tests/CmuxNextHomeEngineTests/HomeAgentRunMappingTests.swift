@@ -61,6 +61,14 @@ struct HomeAgentRunMappingTests {
         #expect(run.messages.first?.date == Date(timeIntervalSince1970: 7))
     }
 
+    @Test func cloudSequenceOrdersMessagesWithoutBecomingAnUpdateRevision() throws {
+        let run = try mapped([["id": "tool:1", "seq": 12, "kind": "tool", "status": "running",
+                              "tool": ["name": "tell", "input": ["id": "a1", "message": "check"]]]])
+        #expect(run.revision == 0)
+        #expect(run.messages.first?.sequence == 12)
+        #expect(run.messages.first?.revision == 0)
+    }
+
     @Test func failedTellWithoutOutputIsStillMarkedFailed() throws {
         let run = try mapped([["id": "tool:1", "kind": "tool", "status": "failed",
                               "tool": ["name": "tell", "input": ["id": "a1", "message": "check"]]]])

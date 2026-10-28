@@ -86,6 +86,18 @@ struct HomeAgentMessagesTests {
         #expect(book.inserting(into: [question()], summary: nil).last?.plainText.hasSuffix("updated report") == true)
     }
 
+    @Test func unversionedCloudStepUpdatesReplaceContentAtTheSameSequence() {
+        var book = HomeAgentMessages()
+        let running = run(revision: 0, messages: [message("tell", revision: 0, text: "Please check")])
+        let refused = run(revision: 0, messages: [message("tell", revision: 0, text: "Please check\n[Error: outcome: refused]")])
+        #expect(book.apply(running))
+        #expect(book.apply(refused))
+        #expect(!book.apply(refused))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.count == 2)
+        #expect(rows.last?.plainText.contains("outcome: refused") == true)
+    }
+
     @Test func separateReportRecordFollowsTellBesideTheAssignment() {
         var book = HomeAgentMessages()
         var tell = run(revision: 1, messages: [.init(id: "tell", sequence: 1, revision: 1,

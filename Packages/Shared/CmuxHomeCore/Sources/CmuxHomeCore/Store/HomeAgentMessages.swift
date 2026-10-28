@@ -9,10 +9,12 @@ struct HomeAgentMessages {
         let held = runs[key]
         // Run metadata and individual steps have separate revision clocks. An older snapshot
         // can fill a missing step, but cannot move an already observed run to an older anchor.
-        var next = held.map { update.revision > $0.revision ? update : $0 } ?? update
+        var next = held.map { update.revision > $0.revision || $0.revision == 0 ? update : $0 } ?? update
         var messages: [String: HomeAgentRun.Message] = [:]
         for message in (held?.messages ?? []) + update.messages {
-            if let old = messages[message.id], old.revision >= message.revision { continue }
+            // Cloud has stable sequence numbers but no update revision. Its latest
+            // received payload replaces the same step; sequence only orders rows.
+            if let old = messages[message.id], old.revision > 0, old.revision >= message.revision { continue }
             messages[message.id] = message
         }
         next.messages = Array(messages.values)

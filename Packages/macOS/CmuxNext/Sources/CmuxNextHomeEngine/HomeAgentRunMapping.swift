@@ -9,7 +9,7 @@ nonisolated enum HomeAgentRunMapping {
                     author: (String) -> ParticipantID) -> HomeAgentRun {
         HomeAgentRun(conversation: ConversationID(conversation), id: run.id, author: author(run.author),
                      turn: run.turn.map { IdempotencyKey($0) }, answers: (run.answers ?? []).map { MessageID($0) },
-                     threadRoot: run.threadRoot.map { MessageID($0) }, revision: run.rev ?? run.lastStepSeq ?? 0, messages: steps.compactMap { step in
+                     threadRoot: run.threadRoot.map { MessageID($0) }, revision: run.rev ?? 0, messages: steps.compactMap { step in
             let peer: String, text: String, outgoing: Bool
             if step.kind == "tool", let tool = step.tool,
                (["tell", "optchat.tell", "mcp__optchat__tell"].contains(tool.name) || tool.input?.isTellEnvelope == true),
@@ -32,7 +32,7 @@ nonisolated enum HomeAgentRunMapping {
             } else {
                 return nil
             }
-            return HomeAgentRun.Message(id: step.id, sequence: step.seq ?? 0, revision: step.rev ?? step.seq ?? 0,
+            return HomeAgentRun.Message(id: step.id, sequence: step.seq ?? 0, revision: step.rev ?? 0,
                                         peer: peer, outgoing: outgoing, text: text,
                                         date: Date(timeIntervalSince1970: (step.at ?? step.tool?.startedAt ?? run.startedAt ?? 0) / 1000))
         })
