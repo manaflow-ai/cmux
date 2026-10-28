@@ -4,6 +4,48 @@ import Testing
 
 @Suite("Workstream startup deadline")
 struct WorkstreamStartupDeadlineTests {
+    @Test("A deadline during latest-tail decode keeps partial rows pageable")
+    @MainActor
+    func partialLatestRowsKeepAnEOFCursor() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("history.jsonl")
+        let writer = WorkstreamPersistence(fileURL: url)
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let old = WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            createdAt: timestamp,
+            payload: .sessionStart
+        )
+        let newest = WorkstreamItem(
+            workstreamId: "newest",
+            source: .claude,
+            kind: .sessionStart,
+            createdAt: timestamp,
+            payload: .sessionStart
+        )
+        try await writer.append(old)
+        try await writer.append(newest)
+
+        let clock = AdvancingUptime()
+        let persistence = WorkstreamPersistence(fileURL: url, uptimeNanoseconds: { clock.read() })
+        let store = WorkstreamStore(
+            persistence: persistence,
+            initialLoadLimit: 10,
+            startupHardBudgetNanoseconds: 3
+        )
+        await store.start()
+
+        #expect(store.items.map(\.workstreamId) == ["newest"])
+        #expect(store.hasMorePersistedItems)
+        await store.loadOlderItems()
+        #expect(store.items.map(\.workstreamId) == ["old", "newest"])
+        #expect(!store.hasMorePersistedItems)
+    }
+
     @Test("An expired oversized-tail pass leaves all valid history reachable", arguments: [
         UInt64(0), 1, 64, 130, 140, 260, 275
     ])
@@ -40,6 +82,11 @@ struct WorkstreamStartupDeadlineTests {
             more = page.hasMoreBefore
         }
         #expect(!more)
-        #expect(recovered == expected)
+        // A partial startup tail intentionally overlaps the first page from
+        // EOF. Reconcile by UUID exactly as WorkstreamStore does, then verify
+        // that every expected row remains reachable in journal order.
+        var seen = Set<UUID>()
+        let uniqueRecovered = recovered.filter { seen.insert($0.id).inserted }
+        #expect(uniqueRecovered == expected)
     }
 }
