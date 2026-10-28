@@ -3,12 +3,13 @@
 // - Codex through `codex app-server` (JSON-RPC on stdio), routed by its config's provider.
 // Each gets the cmux MCP server behind mcp-log.mjs, so the run is graded on what it called,
 // and a clean home (no skills, memory or MCP servers of this machine).
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const SDK_PATH = join(homedir(), ".bun/install/global/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs");
+const CLAUDE_BIN = process.env.CLAUDE_BIN ?? execFileSync("which", ["claude"]).toString().trim();
 
 /**
  * One Claude Code turn through the Agent SDK. `mcp` is {command, args, env} for the cmux
@@ -34,6 +35,9 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, effort,
         // Claude Code's own prompt and tools, as a user's session has them.
         systemPrompt: { type: "preset", preset: "claude_code" },
         settingSources: [],
+        // The installed Claude Code: the SDK's bundled one can be older than a model requires
+        // (Opus 5.5 needs 2.1.280+, the SDK bundled 2.1.81 and every run got a 400).
+        pathToClaudeCodeExecutable: CLAUDE_BIN,
         mcpServers: { cmux: { type: "stdio", ...mcp } },
         effort,
         env: { ...env, CLAUDE_CONFIG_DIR: home, ...(allTools ? { ENABLE_TOOL_SEARCH: "true" } : {}) },
@@ -59,7 +63,11 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, effort,
     steps: Math.max(0, (result?.num_turns ?? 1) - 1),
     usage: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, cost: result?.total_cost_usd ?? 0 },
     shell,
-    error: result ? (result.is_error ? `result error: ${String(result.result ?? result.subtype).slice(0, 300)}` : null) : (error ?? "no result"),
+    error: result
+      ? result.is_error || /^API Error: [45]\d\d/.test(String(result.result ?? ""))
+        ? `result error: ${String(result.result ?? result.subtype).slice(0, 300)}`
+        : null
+      : (error ?? "no result"),
   };
 }
 

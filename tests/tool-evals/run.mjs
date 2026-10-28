@@ -281,7 +281,7 @@ async function runCliAgent(sample, testCase, surface) {
   sample.steps = out.steps;
   Object.assign(sample.usage, out.usage);
   sample.shell.push(...out.shell);
-  if (out.error && !out.text) sample.agentError = out.error;
+  if (out.error && (!out.text || /^API Error/.test(out.text))) sample.agentError = out.error;
   // MCP calls and, for cmux_exec, the calls its scripts made.
   const log = readLines(mcpLog);
   const requests = new Map(log.filter((l) => l.dir === "in" && l.msg.method === "tools/call").map((l) => [l.msg.id, l.msg.params]));
