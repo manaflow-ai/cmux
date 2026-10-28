@@ -1,0 +1,124 @@
+@testable import CmuxNextApp
+import Foundation
+import Testing
+
+/// Review of the App token at 535d77a: the lease named the Stack team (a UUID), which the cmux
+/// API refuses as a team id, and a signed-out first launch never cleared a lease the daemon kept.
+@Suite struct GitHubAppLeaseTests {
+    private let project = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+    private let user = "0b6c2f1e-8d0a-4a51-9a4e-5f3c7d1e2a90"
+    private let stackTeam = "4c1d9e7a-2b3f-4e68-8a0c-6d5e9f1b3a27"
+
+    /// The ids the backend derives (`domains/user.ts`), computed there with sha256 for these inputs.
+    @Test func aLendNamesTheTeamByItsCmuxIDNeverItsStackID() {
+        let shared = GitHubAppLease.backendTeam(stackProjectID: project, userID: user, stackTeamID: stackTeam, managed: false)
+        #expect(shared == "team_18b8d7083ab4a1e6dd3e")
+        #expect(shared != stackTeam)
+        let personal = GitHubAppLease.backendTeam(stackProjectID: project, userID: user, stackTeamID: nil, managed: false)
+        #expect(personal == "team_249f328cf8ed89fd792e")
+        #expect(GitHubAppLease.backendTeam(stackProjectID: project, userID: user, stackTeamID: stackTeam, managed: true) == shared)
+        #expect(GitHubAppLease.backendTeam(stackProjectID: project, userID: user, stackTeamID: nil, managed: true) == nil)
+        #expect(GitHubAppLease.backendTeam(stackProjectID: project, userID: nil, stackTeamID: stackTeam, managed: false) == nil)
+    }
+
+    @Test func theFirstAccountSeenCountsEvenSignedOut() {
+        var account = GitHubAppLease.Account()
+        #expect(account.changed(user: nil, team: nil), "a signed-out launch clears a kept lease")
+        #expect(!account.changed(user: nil, team: nil))
+        #expect(account.changed(user: user, team: "team_249f328cf8ed89fd792e"))
+        #expect(!account.changed(user: user, team: "team_249f328cf8ed89fd792e"))
+        #expect(account.changed(user: user, team: "team_18b8d7083ab4a1e6dd3e"))
+        #expect(account.changed(user: nil, team: nil))
+    }
+
+    /// What the stand-in daemon was sent, in order.
+    @MainActor final class Daemon {
+        var calls: [[String: Any]] = []
+        var replies: [[String: Any]] = []
+        func call(_ params: [String: Any]) -> [String: Any]? {
+            calls.append(params)
+            return replies.isEmpty ? ["lent": params["clear"] == nil] : replies.removeFirst()
+        }
+        func seq(_ i: Int) -> UInt64? { (calls[i]["seq"] as? UInt64) }
+    }
+
+    /// An install token (unsigned; only its claims are read) for `user` in `team`.
+    private func jwt(user: String, team: String) -> String {
+        let claims = try! JSONSerialization.data(withJSONObject: ["sub": user, "team": team, "exp": 4_102_444_800])
+        let part = claims.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "e30.\(part).sig"
+    }
+
+    private struct NoToken: Error {}
+
+    /// Review of the lender at 862f252: a team switch only queued the new lend, so when its
+    /// token could not be had the daemon kept the earlier team's sign-in.
+    @MainActor @Test func aSwitchClearsTheEarlierSignInBeforeItFetchesTheNext() async {
+        let daemon = Daemon()
+        let lease = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { daemon.call($0) }, tokens: { _ in throw NoToken() })
+        lease.accountChanged(user: "user_a", team: "team_1")
+        await lease.settled()
+        lease.stop()
+        #expect(daemon.calls.count == 1)
+        #expect(daemon.calls.first?["clear"] as? Bool == true)
+    }
+
+    /// Review of the lender at 862f252: the install identity follows the account on its own, so
+    /// right after a switch it could still hand out the user before's token.
+    @MainActor @Test func aTokenOfAnotherAccountOrTeamIsNeverLent() async {
+        let daemon = Daemon()
+        let other = jwt(user: "user_b", team: "team_1")
+        let lease = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { daemon.call($0) }, tokens: { _ in other })
+        lease.accountChanged(user: "user_a", team: "team_1")
+        await lease.settled()
+        lease.stop()
+        #expect(daemon.calls.count == 1, "only the clear")
+        #expect(!daemon.calls.contains { $0["bearer"] != nil })
+
+        let right = jwt(user: "user_a", team: "team_1")
+        let daemon2 = Daemon()
+        let lease2 = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { daemon2.call($0) }, tokens: { _ in right })
+        lease2.accountChanged(user: "user_a", team: "team_1")
+        await lease2.settled()
+        lease2.stop()
+        #expect(daemon2.calls.count == 2)
+        #expect(daemon2.calls[0]["clear"] as? Bool == true)
+        #expect(daemon2.calls[1]["bearer"] as? String == right)
+        #expect(daemon2.calls[1]["team"] as? String == "team_1")
+        #expect((daemon2.seq(1) ?? 0) > (daemon2.seq(0) ?? .max), "the lend is newer than the clear")
+    }
+
+    /// Review of the lender at 862f252: a reply refusing a clear as older than the daemon's
+    /// lease counted as taken, so a lease from an app run whose clock was ahead stayed.
+    @MainActor @Test func aClearTheDaemonCallsOlderGoesAgainPastItsSeq() async {
+        let daemon = Daemon()
+        let ahead: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) + 3_600_000
+        daemon.replies = [["lent": true, "stale": true, "seq": NSNumber(value: ahead)], ["lent": false]]
+        let lease = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { daemon.call($0) }, tokens: { _ in throw NoToken() })
+        lease.accountChanged(user: nil, team: nil)
+        await lease.settled()
+        lease.stop()
+        #expect(daemon.calls.count == 2)
+        #expect(daemon.seq(1) == ahead + 1)
+        #expect(daemon.calls[1]["clear"] as? Bool == true)
+    }
+
+    /// Review of the lender at df7ca0f: the lease was cleared only once `isSignedIn` turned
+    /// false, at the end of a sign-out, so a failed install revoke left the daemon minting with it.
+    @MainActor @Test func aSignOutClearsTheLeaseWhenItStarts() async {
+        let daemon = Daemon()
+        let token = jwt(user: "user_a", team: "team_1")
+        let lease = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { daemon.call($0) }, tokens: { _ in token })
+        lease.accountChanged(user: "user_a", team: "team_1")
+        await lease.settled()
+        let lent = daemon.calls.count
+        #expect(daemon.calls.last?["bearer"] as? String == token)
+        lease.signOutStarted()
+        await lease.settled()
+        lease.stop()
+        #expect(daemon.calls.count == lent + 1)
+        #expect(daemon.calls.last?["clear"] as? Bool == true)
+        #expect((daemon.seq(lent) ?? 0) > (daemon.seq(lent - 1) ?? .max), "newer than the lend")
+    }
+}
