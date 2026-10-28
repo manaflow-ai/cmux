@@ -49,6 +49,9 @@ const productionWith = (extra: Record<string, string>, plans: Record<string, str
   return { ...cloudConfig(vars), entitlements: knownPlans(entitlementsOn(vars), plans) }
 }
 
+/** Whether a config with these vars can create a machine (the reducer's createConfigProblem). */
+const canCreate = (vars: Record<string, string>) => createConfigProblem(cloudConfig(vars as unknown as Env)) === undefined
+
 describe("Cloud plan entitlements in the production config", () => {
   it("every paid plan id web billing writes has Cloud limits, and nothing else does", () => {
     const paid = new Set([...INFERENCE_PERSONAL_PLAN_IDS, ...INFERENCE_TEAM_PLAN_IDS])
@@ -84,11 +87,27 @@ describe("Cloud plan entitlements in the production config", () => {
     expect(teamPlan(productionWith({ CLOUD_PLAN_ENTITLEMENTS: "off" }, { team_paid: "pro" }), "team_paid")).toBeNull()
   })
 
+  it("the provider rule: production can create only with its own image on either transport", () => {
+    const prod = { ...productionVars(), CLOUD_PLAN_ENTITLEMENTS: "on" }
+    // Keys are secrets (prod-promote.ts G5 checks their names); here only their presence is assumed.
+    const keys = { CLOUD_FREESTYLE_API_KEY: "secret-name-only", CLOUD_VM_API_SERVICE_KEY: "secret-name-only" }
+    expect(canCreate({ ...prod, ...keys, CLOUD_VM_TRANSPORT: "direct", CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-prod-vmimg-ci-1" })).toBe(true)
+    expect(canCreate({ ...prod, ...keys, CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-prod-vmimg-ci-1" })).toBe(true)
+    // Another environment's image, no image, no key, or the wrong name prefix: nothing to sell.
+    expect(canCreate({ ...prod, ...keys, CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-dev-vmimg-ci-1" })).toBe(false)
+    expect(canCreate({ ...prod, ...keys, CLOUD_FREESTYLE_SNAPSHOT: "" })).toBe(false)
+    expect(canCreate({ ...prod, CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-prod-vmimg-ci-1" })).toBe(false)
+    expect(canCreate({ ...prod, ...keys, CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-prod-vmimg-ci-1", CLOUD_NAME_PREFIX: "cmuxnp-stg-cld-" })).toBe(false)
+    const vmApi = { CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.example", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
+    expect(canCreate({ ...prod, ...keys, ...vmApi })).toBe(true)
+    expect(canCreate({ ...prod, ...keys, ...vmApi, CLOUD_VM_API_IMAGE: "" })).toBe(false)
+    expect(canCreate({ ...prod, ...vmApi })).toBe(false)
+    expect(canCreate({ ...prod, ...keys, CLOUD_VM_TRANSPORT: "vmapi", CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-prod-vmimg-ci-1" })).toBe(false)
+  })
+
   it("production turns entitlements on only with a provider it can create machines with", () => {
     const vars = productionVars()
-    if (!entitlementsOn(vars as Pick<Env, "CLOUD_PLAN_ENTITLEMENTS">)) return
-    // The provider keys are secrets (prod-promote.ts checks their names before a production deploy); here only their presence is assumed.
-    const config = cloudConfig({ ...vars, CLOUD_FREESTYLE_API_KEY: "secret-name-only", CLOUD_VM_API_SERVICE_KEY: "secret-name-only" } as unknown as Env)
-    expect(createConfigProblem(config), "CLOUD_PLAN_ENTITLEMENTS is on in production, but production has no Cloud image or provider").toBeUndefined()
+    if (!entitlementsOn(vars)) return
+    expect(canCreate({ ...vars, CLOUD_FREESTYLE_API_KEY: "secret-name-only", CLOUD_VM_API_SERVICE_KEY: "secret-name-only" }), "CLOUD_PLAN_ENTITLEMENTS is on in production, but production has no Cloud image or provider").toBe(true)
   })
 })

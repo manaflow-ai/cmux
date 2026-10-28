@@ -328,5 +328,8 @@ describe("paid Cloud entitlements (CLOUD_PLAN_ENTITLEMENTS) in production", () =
     expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on" }), approvals(), have)).toEqual(["CLOUD_FREESTYLE_API_KEY"])
     expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on", CLOUD_VM_TRANSPORT: "vm-api" }), approvals(), have)).toEqual(["CLOUD_VM_API_SERVICE_KEY"])
     expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on" }), approvals(), new Set([...have, "CLOUD_FREESTYLE_API_KEY"]))).toEqual([])
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on", CLOUD_VM_TRANSPORT: "direct" }), approvals(), have)).toEqual(["CLOUD_FREESTYLE_API_KEY"])
+    // cloudConfig gives any other transport no provider, so no secret satisfies it.
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on", CLOUD_VM_TRANSPORT: "vmapi" }), approvals(), new Set([...have, "CLOUD_FREESTYLE_API_KEY", "CLOUD_VM_API_SERVICE_KEY"]))).toEqual(["CLOUD_VM_TRANSPORT=vmapi (no Cloud provider)"])
   })
 })

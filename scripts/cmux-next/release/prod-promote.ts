@@ -127,7 +127,11 @@ export const missingSecrets = (env: ProdEnv, approvals: Approvals, have: Readonl
   const need = new Set(approvals.required_secrets)
   if (env.vars.HOME_INVITES_SEND === "on") need.add("HOME_INVITE_FROM")
   // Paid Cloud entitlements sell machines: the provider key of the configured transport must exist (cloud-driver.ts cloudConfig).
-  if (env.vars.CLOUD_PLAN_ENTITLEMENTS === "on") need.add(env.vars.CLOUD_VM_TRANSPORT === "vm-api" ? "CLOUD_VM_API_SERVICE_KEY" : "CLOUD_FREESTYLE_API_KEY")
+  // Same transport split as cloudConfig: unset or "direct" is Freestyle, "vm-api" is the VM API, anything else has no provider.
+  if (env.vars.CLOUD_PLAN_ENTITLEMENTS === "on") {
+    const t = env.vars.CLOUD_VM_TRANSPORT
+    need.add(t === undefined || t === "direct" ? "CLOUD_FREESTYLE_API_KEY" : t === "vm-api" ? "CLOUD_VM_API_SERVICE_KEY" : `CLOUD_VM_TRANSPORT=${t} (no Cloud provider)`)
+  }
   return [...need].map((n) => (env.vars[n] !== undefined ? `${n} (a plain var shadows the secret)` : !have.has(n) ? n : "")).filter(Boolean).sort()
 }
 
