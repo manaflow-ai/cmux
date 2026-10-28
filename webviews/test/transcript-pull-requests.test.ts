@@ -458,3 +458,29 @@ test("shell substitutions and conditions retain executed mutations", () => {
     expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
   }
 });
+
+test("brokered PR lifecycle writes settle the same record", () => {
+  for (const [action, state] of [
+    ["merge", "merged"],
+    ["close", "closed"],
+    ["reopen", "open"],
+  ]) {
+    const rows = toolsRows(shell("gh pr close 7 -R acme/app"), shell(`glaeda-gh post pr-${action} acme/app#7`));
+    expect(transcriptPullRequests(rows)).toMatchObject([{ number: 7, changed: true, state }]);
+  }
+});
+
+test("PR evidence canonicalizes issue URLs in either order without stale Sources", () => {
+  const issue = assistant("See https://github.com/acme/app/issues/7", 1);
+  const pr = activity([shell("gh pr view 7 -R acme/app")], 2);
+  for (const rows of [
+    [issue, pr],
+    [pr, issue],
+  ]) {
+    expect(sessionSummary(rows, "acme/app").sources).toEqual([
+      { url: "https://github.com/acme/app/pull/7", label: "acme/app #7", kind: "pullRequest" },
+    ]);
+    rows.push(activity([shell("glaeda-gh post pr-merge acme/app#7")], 3));
+    expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+  }
+});

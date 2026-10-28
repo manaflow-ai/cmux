@@ -146,6 +146,33 @@ test("background completion invalidates a mixed streaming activity summary", asy
   }
 });
 
+test("same-state subagent metadata updates refresh the cached summary title", async () => {
+  const agent = (name: string): Step => [
+    "in",
+    "subagent_state_update",
+    {
+      method: "session/update",
+      params: {
+        update: { sessionUpdate: "subagent_state_update" },
+        _meta: {
+          acpmux: {
+            subagents: [{ id: "child", parent: null, name, state: "running" }],
+          },
+        },
+      },
+    },
+  ];
+  const daemon = fakeDaemon(record([agent("Before")]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).subagents[0]?.title).toBe("Before");
+    daemon.push(record([agent("After")], 2));
+    expect(sessionSummary(rows()).subagents[0]?.title).toBe("After");
+  } finally {
+    client.close();
+  }
+});
+
 test("a background shell's states land on its call's row, a later turn's end included", async () => {
   const daemon = fakeDaemon(
     record([
