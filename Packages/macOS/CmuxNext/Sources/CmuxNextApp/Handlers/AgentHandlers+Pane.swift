@@ -59,7 +59,9 @@ extension AgentHandlers {
             context.registry.refuse(WorkspaceVerbStrings.noMachine)
             return true
         }
-        guard daemon.connection != nil else {
+        // A retained connection can outlive a dropped link while the daemon retries; require the
+        // same live state the environment picker exposes before accepting an explicit destination.
+        guard daemon.isLive else {
             context.registry.refuse(WorkspaceVerbStrings.machineNotConnected)
             return true
         }
