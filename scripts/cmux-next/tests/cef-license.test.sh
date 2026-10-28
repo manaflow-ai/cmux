@@ -47,8 +47,8 @@ entries = json.load(open(sys.argv[1]))["entries"]
 core = {"Contents/Frameworks/Chromium Embedded Framework.framework/*",
         "Contents/Frameworks/libcmux_cef_shim.dylib",
         "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
-        "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-        "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*"}
+        "Contents/MacOS/cmux-remote-browser-host",
+        "Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*"}
 cef = [e for e in entries if e["path"] in core]
 assert core <= {e["path"] for e in cef} and all(need in e["notices"] for e in cef), cef
 PY

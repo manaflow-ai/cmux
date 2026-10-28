@@ -3,7 +3,7 @@ import CmuxNextRemoteBrowser
 import Foundation
 
 /// The phone's streamed browser tabs run on this app's own remote browser
-/// host (`Contents/Helpers/cmux-remote-browser-host.app`, the CEF host its
+/// host (`Contents/MacOS/cmux-remote-browser-host`, the CEF host its
 /// remote browser tabs use), one ``LocalRemoteBrowserHost`` per phone tab,
 /// started and stopped at hostd's request (cmux-next-ios/verify/browser-stream.md).
 /// Every configuration bundles the host (arm64 only); each host listens on loopback

@@ -214,8 +214,8 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",
         "Contents/Resources/bin/cmux-mobile-host",
-        "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-        "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
+        "Contents/MacOS/cmux-remote-browser-host",
+        "Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
         # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
         # app binary; Iroh.framework/Iroh is then a stub without Rust code.
         "Contents/MacOS/cmux",

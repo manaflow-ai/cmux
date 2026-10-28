@@ -650,7 +650,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Helpers/cmux-remote-browser-host.app",
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/MacOS/cmux-remote-browser-host",
 				"$(TARGET_TEMP_DIR)/embed-remote-browser-host.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;

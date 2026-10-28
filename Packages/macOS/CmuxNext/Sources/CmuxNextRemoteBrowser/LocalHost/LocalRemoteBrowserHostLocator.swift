@@ -20,15 +20,17 @@ public nonisolated struct RemoteBrowserHostListening: Sendable, Equatable {
     }
 }
 
-/// Finds the remote browser host: `CMUX_NEXT_RB_HOST` (a host `.app` or its
-/// executable), else the host app this build bundles at
-/// `Contents/Helpers/cmux-remote-browser-host.app`. The host must run from an
-/// app bundle: CEF loads its framework and helper apps relative to it
-/// (scripts/cmux-next/bundle-remote-browser-host.sh makes that layout).
+/// Finds the remote browser host: `CMUX_NEXT_RB_HOST` (a standalone host
+/// `.app` or its executable), else the host this build embeds as a second
+/// executable, `Contents/MacOS/cmux-remote-browser-host`. The host must run
+/// from an app bundle that holds its CEF framework and helper apps: CEF loads
+/// them relative to it, and the helpers' sandbox lets them read only that
+/// bundle (scripts/cmux-next/remote-browser-host-layout.sh).
 public nonisolated struct LocalRemoteBrowserHostLocator: Sendable {
     public static let environmentKey = "CMUX_NEXT_RB_HOST"
-    public static let bundledAppPath = "Contents/Helpers/cmux-remote-browser-host.app"
     public static let executableName = "cmux-remote-browser-host"
+    /// The embedded host, relative to the app bundle.
+    public static let bundledExecutablePath = "Contents/MacOS/\(executableName)"
 
     public let environment: [String: String]
     public let appBundle: URL
@@ -41,7 +43,7 @@ public nonisolated struct LocalRemoteBrowserHostLocator: Sendable {
     /// The candidates in order (the override first).
     public var candidates: [URL] {
         let override = environment[Self.environmentKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-        return [override, appBundle.appending(path: Self.bundledAppPath)].compactMap { $0 }.map(Self.executable(in:))
+        return [override.map(Self.executable(in:)), appBundle.appending(path: Self.bundledExecutablePath)].compactMap { $0 }
     }
 
     /// The first candidate that is an executable file.

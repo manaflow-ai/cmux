@@ -47,8 +47,9 @@
 #      the Chromium host Contents/MacOS/<product> Chromium Host: hardened
 #      runtime, the app's identifier, the browser-process subset of the
 #      effective app entitlements with no allow-jit) through
-#      scripts/cmux-next/sign-cef.sh, the remote browser host under
-#      Contents/Helpers (rbh_sign), then every other nested framework under
+#      scripts/cmux-next/sign-cef.sh, the remote browser host (its helper apps
+#      and Contents/MacOS/cmux-remote-browser-host, rbh_sign_embedded), then
+#      every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
 #   5. The main app bundle with the effective app-level entitlements,
@@ -179,15 +180,20 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
           --reuse-published
       fi
     fi
-    # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
-    # the app's CEF framework, which it links through a symlink: its five helper apps
-    # with CEF's per-helper entitlements (allow-jit for GPU and Renderer), then the host
-    # app, all with the hardened runtime and a secure timestamp (rbh_sign).
-    for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
-      [[ -d "$rb_host" ]] || continue
-      echo "==> signing the remote browser host $(basename "$rb_host")"
-      ( source "$SCRIPT_DIR/cmux-next/remote-browser-host-layout.sh" && rbh_sign "$rb_host" "$IDENTITY" )
-    done
+    # The remote browser host (embed-remote-browser-host.sh), after the app's CEF
+    # framework, which it uses: its five helper apps (Contents/Frameworks/
+    # cmux-remote-browser-host Helper*.app) with CEF's per-helper entitlements
+    # (allow-jit for GPU and Renderer), then its executable
+    # Contents/MacOS/cmux-remote-browser-host, all with the hardened runtime and a
+    # secure timestamp (rbh_sign_embedded).
+    if [[ -f "$APP_PATH/Contents/MacOS/cmux-remote-browser-host" ]]; then
+      echo "==> signing the remote browser host"
+      ( source "$SCRIPT_DIR/cmux-next/remote-browser-host-layout.sh" && rbh_sign_embedded "$APP_PATH" "$IDENTITY" )
+    fi
+    if [[ -e "$APP_PATH/Contents/Helpers/cmux-remote-browser-host.app" ]]; then
+      echo "error: $APP_PATH carries the earlier remote browser host layout (Contents/Helpers), whose helpers run unsandboxed; rebuild it" >&2
+      exit 1
+    fi
     while IFS= read -r -d '' framework; do
       case "$(basename "$framework")" in
         "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|libcmux_cef_shim_remote.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;

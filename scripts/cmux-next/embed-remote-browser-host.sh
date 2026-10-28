@@ -2,17 +2,19 @@
 # Xcode "Embed remote browser host" phase of the cmux-next target, after
 # "Embed CEF". Every configuration (Release too, since the iPhone host streams
 # the phone's browser tabs from it): puts the pinned remote browser host where
-# LocalRemoteBrowserHostLocator finds it with no CMUX_NEXT_RB_HOST:
+# LocalRemoteBrowserHostLocator finds it with no CMUX_NEXT_RB_HOST, as a second
+# executable of the app that uses the app's CEF framework
+# (remote-browser-host-layout.sh, "embedded"):
 #
-#   Contents/Helpers/cmux-remote-browser-host.app        (remote-browser-host-layout.sh)
-#     Contents/Frameworks/Chromium Embedded Framework.framework
-#       -> ../../../../Frameworks/Chromium Embedded Framework.framework
+#   Contents/MacOS/cmux-remote-browser-host
+#   Contents/Frameworks/cmux-remote-browser-host Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
 #
-# The framework is a relative symlink to the app's own CEF (no ~390 MB copy).
-# codesign --verify --deep --strict passes on the app; a strict verify of the
-# host app alone rejects the symlink, so a notarized release needs the host to
-# load CEF from an explicit path first (tracker cx-0y2y; unproven either way,
-# see cmux-next-ios/SECURITY.md `browser`). Also:
+# The host's helpers run in Chromium's sandbox, which lets them read only the
+# host's main bundle; as a second executable that bundle is the app, which
+# holds the framework and the helpers (the earlier
+# Contents/Helpers/cmux-remote-browser-host.app linked the framework through a
+# symlink out of its own bundle, so it ran with the sandbox off; this phase
+# removes it). Also:
 #   - a Release build that cannot embed it (no pinned artifact reachable, a CEF
 #     pin mismatch) builds without it and says so, unless
 #     CMUX_NEXT_REQUIRE_RB_HOST=1; a DEV build fails, as below;
@@ -36,11 +38,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/remote-browser-host-layout.sh"
 FW_NAME="Chromium Embedded Framework.framework"
-LAYOUT="rbh-1-cef-symlink"
+LAYOUT="rbh-2-second-executable"
 OPT_OUT_FILE="RemoteBrowserHostOptOut.txt"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
-dest="$app/Contents/Helpers/$RBH_NAME.app"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-remote-browser-host.stamp"
 rm -f "$stamp"
 opt_out="$app/Contents/Resources/$OPT_OUT_FILE"
@@ -48,10 +49,9 @@ rm -f "$opt_out"
 
 skip() { # <reason>
   echo "note: not embedding the remote browser host: $1"
-  rm -rf "$dest"
+  rbh_remove_embedded "$app"
   mkdir -p "$(dirname "$stamp")"
   printf 'skipped:%s\n' "$1" > "$stamp"
-  rmdir "$app/Contents/Helpers" 2>/dev/null || true
   exit 0
 }
 fail() { # <message>
@@ -61,7 +61,8 @@ fail() { # <message>
   fi
   echo "error: $1" >&2
   echo "error: this DEV build would lack the remote browser host (\"Open Remote Browser Tab\" fails). Restore the pinned artifact, or opt out explicitly with CMUX_NEXT_SKIP_RB_HOST=1 (recorded in the log and in About)." >&2
-  rm -rf "$dest" "$stamp"
+  rbh_remove_embedded "$app"
+  rm -f "$stamp"
   exit 1
 }
 
@@ -99,20 +100,21 @@ lipo -archs "$bin" | tr ' ' '\n' | grep -qx arm64 || { echo "error: $bin has no 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 [[ -z "$identity" ]] && identity="-"
 want="$LAYOUT $(json_field "$pin" sha256) $identity"
-if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" && -L "$dest/Contents/Frameworks/$FW_NAME" ]] &&
-  codesign --verify "$dest/Contents/MacOS/$RBH_NAME" 2>/dev/null; then
+embedded_complete() {
+  local path
+  while IFS= read -r path; do
+    [[ -e "$path" ]] || return 1
+    codesign --verify "$path" 2>/dev/null || return 1
+  done < <(rbh_embedded_paths "$app")
+  [[ ! -e "$app/Contents/Helpers/$RBH_NAME.app" ]]
+}
+if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]] && embedded_complete; then
   echo "note: remote browser host already embedded ($want)"
   exit 0
 fi
 
-mkdir -p "$app/Contents/Helpers"
-tmp="$(mktemp -d "$app/Contents/Helpers/.rbh.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
-staged="$tmp/$RBH_NAME.app"
-rbh_write_bundle "$bin" "$staged"
-ln -s "../../../../Frameworks/$FW_NAME" "$staged/Contents/Frameworks/$FW_NAME"
-rbh_sign "$staged" "$identity"
-rm -rf "$dest"
-mv "$staged" "$dest"
+rm -f "$stamp"
+rbh_write_embedded "$bin" "$app"
+rbh_sign_embedded "$app" "$identity" || fail "signing the embedded remote browser host failed"
 printf '%s' "$want" > "$stamp"
 echo "note: embedded the remote browser host ($(json_field "$pin" sha256 | cut -c1-12), signed by $identity)"

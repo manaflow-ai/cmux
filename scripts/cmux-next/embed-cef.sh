@@ -383,11 +383,14 @@ for i in "${!kinds[@]}"; do
 PLIST
   if ! cmp -s "$tmp_plist" "$plist"; then mv "$tmp_plist" "$plist"; else rm -f "$tmp_plist"; fi
 done
-# Helpers left over from another product name (a renamed tag).
+# Helpers left over from another product name (a renamed tag). The remote
+# browser host's helpers (cmux-remote-browser-host Helper*.app,
+# embed-remote-browser-host.sh) are not CEF's and stay.
 for existing in "$frameworks"/*" Helper"*.app; do
   [[ -e "$existing" ]] || continue
   base="$(basename "$existing")"
   keep=0
+  [[ "$base" == "cmux-remote-browser-host Helper"*.app ]] && keep=1
   for w in "${wanted[@]}"; do [[ "$w" == "$base" ]] && keep=1; done
   (( keep )) || rm -rf "$existing"
 done

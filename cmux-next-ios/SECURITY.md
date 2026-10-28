@@ -224,9 +224,19 @@ and answers the phone, but Chief replies only while a brain runs in that home
 ## `browser`: streamed browser tabs (the remote browser host)
 
 A phone browser tab streams from a CEF remote browser host the Mac app runs,
-`Contents/Helpers/cmux-remote-browser-host.app`. Release builds bundle it too
+`Contents/MacOS/cmux-remote-browser-host` (a second executable of the app, with
+its helper apps in `Contents/Frameworks`). Release builds bundle it too
 (arm64 only; on an Intel Mac the app never starts it and hostd advertises no
 `browser-stream-v1`, so the phone hides New Browser Tab).
+
+- **Sandbox.** The host's renderer, GPU and utility processes run in
+  Chromium's macOS sandbox, as Chrome's and the app's own Chromium helpers do
+  (`rb_shim.mm`: `no_sandbox = false`, and each helper enters the sandbox
+  before it loads CEF). The sandbox lets a helper read only the host's main
+  bundle, which is why the host is a second executable of the app and not an
+  app of its own (remote-browser-host-layout.sh). The host's `--smoke` checks
+  on a real Mac that every renderer and the GPU process is sandboxed and
+  cannot read a file outside the profile (`scripts/cmux-next/rb-host-sandbox-smoke.sh`).
 
 - **Who reaches it.** Only cmux-mobile-host, for a paired phone (`auth` passes first;
   the `browser` service is behind the same gate as every other). The app starts

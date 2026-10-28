@@ -29,6 +29,9 @@ make_app() { # <dir> <bundle id> [no-base-helper]
     mkdir -p "$fw/$h/Contents/MacOS"
     printf 'helper' > "$fw/$h/Contents/MacOS/${h%.app}"
   done
+  # The embedded remote browser host's helpers (embed-remote-browser-host.sh):
+  # not CEF's, so they neither name the product nor go into the pack.
+  mkdir -p "$fw/cmux-remote-browser-host Helper.app/Contents/MacOS" "$fw/cmux-remote-browser-host Helper (GPU).app/Contents/MacOS"
   cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -43,7 +46,11 @@ app="$(make_app "$work/a" com.cmuxterm.app.test)"
 "$pack" split "$app" "$work/out" --base-url https://files.example.com/ > /dev/null
 fw="$app/Contents/Frameworks"
 [[ ! -e "$fw/Chromium Embedded Framework.framework" && ! -e "$fw/libcmux_cef_shim.dylib" ]] || fail "the engine is still in the app"
-for left in "$fw"/*Helper*; do [[ -e "$left" ]] && fail "a helper is still in the app: $left"; done
+for left in "$fw"/*Helper*; do
+  case "$(basename "$left")" in "cmux-remote-browser-host Helper"*) continue ;; esac
+  [[ -e "$left" ]] && fail "a helper is still in the app: $left"
+done
+[[ -d "$fw/cmux-remote-browser-host Helper.app" ]] || fail "the remote browser host's helper went into the pack"
 [[ -d "$fw/Sparkle.framework" ]] || fail "another framework was moved"
 pin="$work/out/cef-runtime.json"
 key="$(field "$pin" key)"

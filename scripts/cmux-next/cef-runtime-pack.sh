@@ -60,7 +60,8 @@ frameworks="$app/Contents/Frameworks"
 [[ -f "$frameworks/$SHIM" ]] || die "no $SHIM in $frameworks"
 helpers=()
 while IFS= read -r -d '' helper; do helpers+=("$helper"); done \
-  < <(find "$frameworks" -mindepth 1 -maxdepth 1 -type d -name '* Helper*.app' -print0 | sort -z)
+  < <(find "$frameworks" -mindepth 1 -maxdepth 1 -type d -name '* Helper*.app' \
+    ! -name 'cmux-remote-browser-host Helper*' -print0 | sort -z)
 base_helper=""
 for helper in "${helpers[@]}"; do
   case "$(basename "$helper")" in *" Helper.app") base_helper="$(basename "$helper")" ;; esac

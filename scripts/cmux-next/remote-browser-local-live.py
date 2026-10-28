@@ -5,7 +5,7 @@
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled [--out DIR]
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled --edge [--out DIR]
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --host-app <app> --stats [--out DIR]
-(--bundled: the host the DEV build embeds in Contents/Helpers, with CMUX_NEXT_RB_HOST unset)
+(--bundled: the host the DEV build embeds as Contents/MacOS/cmux-remote-browser-host, with CMUX_NEXT_RB_HOST unset)
 (--edge: only the popup edge check, in a short window: a date picker at the page's bottom-right
 edge shows in full in its own child panel (cx-3nbw), follows a window move, never becomes key,
 takes a click, and goes with its tab; a <select> there opens a native menu.)
@@ -61,8 +61,9 @@ APP = os.path.realpath(opts.app) if opts.app else next(iter(glob.glob(os.path.ex
 if not APP or not os.path.isdir(APP):
     sys.exit(f"no tagged app for {opts.tag}")
 if opts.bundled:
-    opts.host_app = os.path.join(APP, "Contents/Helpers/cmux-remote-browser-host.app")
-    if not os.path.isdir(opts.host_app):
+    # The embedded host is a second executable of the app (embed-remote-browser-host.sh).
+    opts.host_app = APP
+    if not os.access(os.path.join(APP, "Contents/MacOS/cmux-remote-browser-host"), os.X_OK):
         sys.exit(f"{APP} embeds no remote browser host")
 SOCKET = None  # the launched app's control socket (BenchApp.launch finds it)
 

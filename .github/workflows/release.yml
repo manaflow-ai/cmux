@@ -389,7 +389,7 @@ jobs:
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
           # The remote browser host the Embed remote browser host phase puts in
-          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+          # Contents/MacOS (phone browser tabs, arm64). From R2 with the same key;
           # unavailable, the app builds without it (the phase warns). A digest
           # mismatch fails here. The tailnet store is not reachable from runners.
           if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then

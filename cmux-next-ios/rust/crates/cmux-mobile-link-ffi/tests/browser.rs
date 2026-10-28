@@ -415,7 +415,7 @@ async fn the_shown_tab_takes_the_lane_back_over_webrtc() {
 }
 
 /// The real CEF browser host (`CMUX_MOBILE_RB_HOST_EXE`, e.g. a DEV app's
-/// `Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/...`) over
+/// `Contents/MacOS/cmux-remote-browser-host`) over
 /// the WebRTC video track, with a page from `CMUX_MOBILE_RB_URL`. Measurement support,
 /// not part of the suite: `cargo test -p cmux-mobile-link-ffi --test browser real_host -- --ignored --nocapture`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

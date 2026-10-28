@@ -197,6 +197,10 @@ for shim in "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_r
 done
 for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
   [[ -d "$helper" ]] || continue
+  case "$(basename "$helper")" in
+    # The remote browser host's helpers: rbh_sign_embedded signs them.
+    "cmux-remote-browser-host Helper"*) continue ;;
+  esac
   case "$helper" in
     *" Helper (GPU).app"|*" Helper (Renderer).app")
       codesign "${flags[@]}" --entitlements "$jit" "$helper" ;;

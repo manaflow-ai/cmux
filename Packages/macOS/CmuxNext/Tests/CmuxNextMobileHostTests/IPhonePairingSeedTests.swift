@@ -45,7 +45,7 @@ import Testing
     }
 }
 
-/// Phone browser tabs need the bundled remote browser host (Contents/Helpers, arm64):
+/// Phone browser tabs need the bundled remote browser host (Contents/MacOS, arm64):
 /// a test bundle has none, so the iPhone host offers no browser tabs (no
 /// `browser-stream-v1`) instead of failing a tab later.
 @Suite struct IPhoneBrowserHostsTests {

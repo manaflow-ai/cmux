@@ -27,6 +27,7 @@
 #include "include/cef_parser.h"
 #include "include/cef_request_handler.h"
 #include "include/cef_resource_request_handler.h"
+#include "include/cef_sandbox_mac.h"
 #include "include/cef_task.h"
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
@@ -593,6 +594,13 @@ class App : public CefApp, public CefBrowserProcessHandler {
     command_line->AppendSwitch("use-mock-keychain");
     command_line->AppendSwitch("no-first-run");
     command_line->AppendSwitch("disable-field-trial-config");
+    // Chromium's code-sign clone copies the main bundle at every start so
+    // helpers launched during an update still match their signature. An
+    // embedded host's main bundle is the whole app, and the app runs one host
+    // per remote tab; the host ends with the app, which an update restarts.
+    // The app's Chromium host turns it off for the same reason
+    // (ChromiumHostConfiguration.swift).
+    command_line->AppendSwitchWithValue("disable-features", "MacAppCodeSignClone");
   }
   void OnContextInitialized() override {
     if (g_rp.set_needs_begin_frames_handler) {
@@ -628,6 +636,14 @@ int rb_shim_run(int argc,
       helper = true;
     }
   }
+  // A helper (renderer, GPU, utility) enters the macOS sandbox before it
+  // loads CEF, as the app's own helpers do (CEFShim helper_main.mm): the
+  // browser process launches it with the sandbox profile, and a helper that
+  // cannot enter it exits instead of running page content unsandboxed.
+  CefScopedSandboxContext sandbox_context;
+  if (helper && !sandbox_context.Initialize(argc, argv)) {
+    return 1;
+  }
   CefScopedLibraryLoader loader;
   if (helper ? !loader.LoadInHelper() : !loader.LoadInMain()) {
     return 1;
@@ -654,15 +670,19 @@ int rb_shim_run(int argc,
       return 3;  // Not a remote presentation framework (API < 19).
     }
     CefSettings settings;
-    settings.no_sandbox = true;
+    // The helpers run sandboxed, as Chrome's and the app's own do: this host
+    // renders pages it does not control. Chromium's renderer sandbox lets a
+    // helper read only the main bundle (the outer app when the app embeds the
+    // host as Contents/MacOS/cmux-remote-browser-host), so the framework and
+    // the helper apps must sit in that bundle (remote-browser-host-layout.sh).
+    settings.no_sandbox = false;
     CefString(&settings.root_cache_path) = cache_dir;
     CefString(&settings.cache_path) = std::string(cache_dir) + "/profile";
     settings.log_severity = LOGSEVERITY_WARNING;
     // CEF defaults the main bundle to the top-level .app in the executable's
-    // path. A DEV cmux-next app embeds the host at
-    // Contents/Helpers/cmux-remote-browser-host.app, so without this CEF looks
-    // for the host's helper apps in the outer app and every child process
-    // fails to launch. Our own bundle holds the helpers and the framework.
+    // path; name ours (NSBundle's) so CEF finds the framework and the helper
+    // apps where the sandbox lets the helpers read them: the standalone host
+    // app, or the app that embeds the host as a second executable.
     CefString(&settings.main_bundle_path) =
         std::string([[[NSBundle mainBundle] bundlePath] UTF8String]);
     CefRefPtr<App> app(new App());

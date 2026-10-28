@@ -56,6 +56,8 @@ bundle() { # <dir> [host] [plist]: an app with the engine, the shim, three helpe
   for helper in "app Helper" "app Helper (GPU)" "app Helper (Renderer)"; do
     mkdir -p "$fw/$helper.app/Contents/MacOS"
   done
+  # The embedded remote browser host's helper: rbh_sign_embedded signs it, not sign-cef.sh.
+  mkdir -p "$fw/cmux-remote-browser-host Helper (GPU).app/Contents/MacOS"
   mkdir -p "$app/Contents/MacOS"
   if [[ "${2:-}" == host ]]; then
     : > "$app/Contents/MacOS/app Chromium Host"
@@ -101,6 +103,7 @@ grep -q -- '--entitlements .*app Helper (GPU).app$' <<<"$log" || fail "the GPU h
 grep -q -- '--entitlements .*app Helper (Renderer).app$' <<<"$log" || fail "the renderer helper lost its JIT entitlements: $log"
 grep -q 'app Helper.app$' <<<"$log" || fail "the base helper was not signed: $log"
 if grep -q 'Chromium Host' <<<"$log"; then fail "a host was signed in a bundle without one: $log"; fi
+if grep -q 'cmux-remote-browser-host' <<<"$log"; then fail "sign-cef.sh signed the remote browser host's helper: $log"; fi
 
 # 2. Ad hoc with the host and the app's Info.plist (a dev build): the remote shim
 # signed; the host signed last, without entitlements, as the app's identifier.

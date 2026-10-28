@@ -57,12 +57,12 @@
       "notices": ["first-party"]
     },
     {
-      "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-      "what": "the remote browser host for the iPhone's browser tabs (cmux-tui/crates/cmux-remote-browser-host, its own Cargo workspace; the pinned prebuilt binary of remote-browser-host.pin.json, embed-remote-browser-host.sh): Rust, a first-party C++ shim and CEF's libcef_dll wrapper; it loads the app's CEF through the symlink Contents/Frameworks/Chromium Embedded Framework.framework",
+      "path": "Contents/MacOS/cmux-remote-browser-host",
+      "what": "the remote browser host for the iPhone's browser tabs (cmux-tui/crates/cmux-remote-browser-host, its own Cargo workspace; the pinned prebuilt binary of remote-browser-host.pin.json, embed-remote-browser-host.sh): Rust, a first-party C++ shim and CEF's libcef_dll wrapper; a second executable of the app that loads the app's CEF framework, so its sandboxed helpers can read it",
       "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
-      "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
+      "path": "Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
       "what": "the remote browser host's CEF helper processes: copies of the same binary (remote-browser-host-layout.sh)",
       "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },

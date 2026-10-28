@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # embed-remote-browser-host.sh under Xcode's /bin/bash 3.2, with a stub host
 # binary, a fake app CEF framework and a file:// stand-in for the controller
-# artifact store (no network, no R2). Covers: the DEV layout (CEF symlink,
-# five helpers, signatures), Release embeds it the same way (the iPhone host
+# artifact store (no network, no R2). Covers: the DEV layout (a second
+# executable of the app and five helpers beside the app's own CEF framework,
+# signatures; the earlier Contents/Helpers host app is removed), Release embeds it the same way (the iPhone host
 # streams phone browser tabs from it) and builds without it, saying so, when it is
 # unavailable unless CMUX_NEXT_REQUIRE_RB_HOST=1,
 # a sha256 mismatch fails the build (also from a damaged store copy), a CEF
@@ -50,88 +51,95 @@ run() { # <configuration> [ARCHS] [VAR=value...] -> sets out, rc
   rc=$?
   set -e
 }
-host="$TMP/build/app.app/Contents/Helpers/cmux-remote-browser-host.app"
+appdir="$TMP/build/app.app"
+exe="$appdir/Contents/MacOS/cmux-remote-browser-host"
+old_host="$appdir/Contents/Helpers/cmux-remote-browser-host.app"
+helpers() { ls -d "$appdir/Contents/Frameworks/cmux-remote-browser-host Helper"*.app 2>/dev/null | wc -l | tr -d ' '; }
 optout="$TMP/build/app.app/Contents/Resources/RemoteBrowserHostOptOut.txt"
 
-# 1. Debug: embeds the pinned binary with the CEF symlink and five signed helpers.
+# 1. Debug: embeds the pinned binary as a second executable with five signed
+# helpers beside the app's CEF, and removes the earlier Contents/Helpers app.
 write_pin "$sha" "$app_cef"; serve "$TMP/host"; new_app
+mkdir -p "$old_host/Contents/MacOS"; cp "$TMP/host" "$old_host/Contents/MacOS/cmux-remote-browser-host"
 run Debug
 [[ $rc == 0 ]] || fail "Debug embed failed" "$out"
-[[ -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "no host executable" "$out"
-[[ "$(readlink "$host/Contents/Frameworks/$FW")" == "../../../../Frameworks/$FW" ]] || fail "CEF is not the app symlink"
-[[ -d "$host/Contents/Frameworks/$FW/" ]] || fail "CEF symlink does not resolve to the app framework"
-n=$(ls -d "$host/Contents/Frameworks/cmux-remote-browser-host Helper"*.app | wc -l | tr -d ' ')
-[[ $n == 5 ]] || fail "expected 5 helpers, got $n"
-codesign --verify "$host/Contents/MacOS/cmux-remote-browser-host" || fail "host executable not signed"
-codesign --verify "$host/Contents/Frameworks/cmux-remote-browser-host Helper (GPU).app" || fail "GPU helper not signed"
+[[ -x "$exe" ]] || fail "no host executable in Contents/MacOS" "$out"
+[[ ! -e "$old_host" && ! -e "$appdir/Contents/Helpers" ]] || fail "the earlier Contents/Helpers host app was not removed" "$out"
+[[ -d "$appdir/Contents/Frameworks/$FW" && ! -L "$appdir/Contents/Frameworks/$FW" ]] || fail "the app's CEF framework changed"
+[[ $(helpers) == 5 ]] || fail "expected 5 helpers, got $(helpers)"
+codesign --verify "$exe" || fail "host executable not signed"
+codesign -dv "$exe" 2>&1 | grep -q '^Identifier=com.manaflow.cmux-remote-browser-host$' || fail "host executable has the wrong identifier"
+codesign --verify "$appdir/Contents/Frameworks/cmux-remote-browser-host Helper (GPU).app" || fail "GPU helper not signed"
 # Unchanged inputs: the stamp skips the rebuild.
 run Debug
 grep -q 'already embedded' <<<"$out" || fail "second Debug run did not reuse the embed" "$out"
+# A missing helper is embedded again.
+rm -rf "$appdir/Contents/Frameworks/cmux-remote-browser-host Helper (Renderer).app"
+run Debug
+[[ $rc == 0 && $(helpers) == 5 ]] || fail "a missing helper was not embedded again" "$out"
 
 # 2. Release: embeds the same layout (the iPhone host's browser tabs need it).
 new_app
 run Release
 [[ $rc == 0 ]] || fail "Release run failed" "$out"
-[[ -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "Release did not embed the host" "$out"
-[[ "$(readlink "$host/Contents/Frameworks/$FW")" == "../../../../Frameworks/$FW" ]] || fail "Release CEF is not the app symlink"
-n=$(ls -d "$host/Contents/Frameworks/cmux-remote-browser-host Helper"*.app | wc -l | tr -d ' ')
-[[ $n == 5 ]] || fail "Release: expected 5 helpers, got $n"
+[[ -x "$exe" ]] || fail "Release did not embed the host" "$out"
+[[ $(helpers) == 5 ]] || fail "Release: expected 5 helpers, got $(helpers)"
 # A universal Release app embeds the arm64 host too.
 new_app
 run Release "arm64 x86_64"
-[[ $rc == 0 && -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "universal Release did not embed the host" "$out"
+[[ $rc == 0 && -x "$exe" ]] || fail "universal Release did not embed the host" "$out"
 
 # 3. sha256 mismatch from the store fails the build (fail closed), also optional mode.
 printf 'tampered' > "$TMP/bad"; serve "$TMP/bad"; rm -rf "$TMP/cache"; new_app
 run Debug
 [[ $rc != 0 ]] || fail "a sha256 mismatch did not fail the build" "$out"
 grep -q 'sha256 mismatch' <<<"$out" || fail "mismatch not reported" "$out"
-[[ ! -e "$host" ]] || fail "a mismatched host was embedded" "$out"
+[[ ! -e "$exe" && $(helpers) == 0 ]] || fail "a mismatched host was embedded" "$out"
 
 # 3b. A damaged cache copy is fetched again from a good source.
 serve "$TMP/host"; mkdir -p "$TMP/cache/$sha"; printf 'rot' > "$TMP/cache/$sha/cmux-remote-browser-host-macos-arm64"; new_app
 run Debug
-[[ $rc == 0 && -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "damaged cache was not repaired" "$out"
+[[ $rc == 0 && -x "$exe" ]] || fail "damaged cache was not repaired" "$out"
 
 # 4. CEF pin mismatch: fails the build, naming both digests.
 write_pin "$sha" "0000000000000000000000000000000000000000000000000000000000000000"; new_app
 run Debug
-[[ $rc != 0 && ! -e "$host" ]] || fail "CEF pin mismatch did not fail the build" "$out"
+[[ $rc != 0 && ! -e "$exe" ]] || fail "CEF pin mismatch did not fail the build" "$out"
 grep -q 'CEF pin mismatch' <<<"$out" || fail "CEF mismatch not reported" "$out"
 grep -q "$app_cef" <<<"$out" || fail "CEF mismatch does not name the app CEF digest" "$out"
 
 # 5. No arm64 in ARCHS: skip.
 write_pin "$sha" "$app_cef"; new_app
 run Debug x86_64
-[[ $rc == 0 && ! -e "$host" ]] || fail "x86_64-only build embedded a host" "$out"
+[[ $rc == 0 && ! -e "$exe" ]] || fail "x86_64-only build embedded a host" "$out"
 
 # 6. Unavailable binary (no store entry, no R2): fails the build, naming the
 # artifact and its pinned digest. A silent skip shipped DEV apps whose "Open
 # Remote Browser Tab" could not work (2026-10-09, controller store miss).
 rm -rf "$TMP/store" "$TMP/cache"; new_app
 run Debug
-[[ $rc != 0 && ! -e "$host" ]] || fail "an unavailable pinned binary did not fail the build" "$out"
+[[ $rc != 0 && ! -e "$exe" ]] || fail "an unavailable pinned binary did not fail the build" "$out"
 grep -q "cmux-remote-browser-host-macos-arm64" <<<"$out" || fail "the failure does not name the artifact" "$out"
 grep -q "$sha" <<<"$out" || fail "the failure does not name the pinned digest" "$out"
 
 # 6a. Release with the binary unavailable: builds without it and says so; required, it fails.
 run Release
-[[ $rc == 0 && ! -e "$host" ]] || fail "an unavailable host failed or embedded in Release" "$out"
+[[ $rc == 0 && ! -e "$exe" ]] || fail "an unavailable host failed or embedded in Release" "$out"
 grep -q 'Release build without the remote browser host' <<<"$out" || fail "Release did not say it lacks the host" "$out"
 run Release arm64 CMUX_NEXT_REQUIRE_RB_HOST=1
-[[ $rc != 0 && ! -e "$host" ]] || fail "a required host did not fail the Release build" "$out"
+[[ $rc != 0 && ! -e "$exe" ]] || fail "a required host did not fail the Release build" "$out"
 
 # 6b. The explicit opt-out embeds nothing, says so in the log and records it in
 # the app (Contents/Resources/RemoteBrowserHostOptOut.txt, shown in About).
 run Debug arm64 CMUX_NEXT_SKIP_RB_HOST=1
-[[ $rc == 0 && ! -e "$host" ]] || fail "the opt-out failed or embedded a host" "$out"
+[[ $rc == 0 && ! -e "$exe" ]] || fail "the opt-out failed or embedded a host" "$out"
 grep -q 'CMUX_NEXT_SKIP_RB_HOST=1' <<<"$out" || fail "the opt-out is not in the build log" "$out"
 grep -q 'CMUX_NEXT_SKIP_RB_HOST=1' "$optout" 2>/dev/null || fail "the opt-out is not recorded in the app" "$out"
 
 # 6c. A later build with the host removes the opt-out record.
 serve "$TMP/host"
 run Debug
-[[ $rc == 0 && -x "$host/Contents/MacOS/cmux-remote-browser-host" && ! -e "$optout" ]] || fail "embedding did not clear the opt-out record" "$out"
+[[ $rc == 0 && -x "$exe" && ! -e "$optout" ]] || fail "embedding did not clear the opt-out record" "$out"
 
 # 7. The standalone bundle script still writes the shared layout with its own CEF copy.
 mkdir -p "$TMP/cef/$FW/Resources"
