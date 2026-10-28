@@ -650,3 +650,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]
 mod untrusted_mint_tests;
+
+#[cfg(all(test, unix))]
+#[path = "switch_on_felt_daemon_person_input_lane_tests.rs"]
+mod switch_on_felt_daemon_person_input_lane_tests;
