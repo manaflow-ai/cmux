@@ -38,6 +38,21 @@ import Testing
         #expect(loader.start([], forkSupports: false, personChose: false) == .nothing, "nothing to load")
     }
 
+    /// No built-in folder (the person's own unpacked copy of uBlock Origin is in the profile) is `nothing`: the
+    /// developer-mode policy stays off, so the person's copy stays enabled.
+    @Test func thePersonsOwnCopyStaysEnabledWithNothingBuiltIn() {
+        let loader = CEFBuiltInExtensionLoader()
+        loader.featureOn = true
+        let start = loader.begin([], forkSupports: false, personChose: false)
+        #expect(start.placement == .nothing)
+        let inputs = start.switchInputs(folders: [], keepsUnpackedEnabled: true)
+        let arguments = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: "com.cmuxterm.app.next", environment: [:],
+                                            builtInExtensions: inputs.folders, builtInExtensionsAtFirstTab: inputs.atFirstTab,
+                                            keepsUnpackedEnabled: inputs.keepsUnpackedEnabled).arguments
+        #expect(arguments.contains("disable-features=ExtensionDisableUnsupportedDeveloper"), "\(arguments)")
+        #expect(!arguments.contains { $0.hasPrefix("load-extension=") })
+    }
+
     /// `debug.cef` `built_in_extensions`: the feature, the fork's call, the person's choice and the way taken.
     @Test func theStartSaysWhichWayItWent() {
         let loader = CEFBuiltInExtensionLoader()
