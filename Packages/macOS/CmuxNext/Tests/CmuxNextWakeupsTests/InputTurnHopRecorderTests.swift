@@ -13,8 +13,8 @@ import CmuxNextWakeupsTestSupport
 /// holds 64 records and the tables 128 sites; non-Swift callouts are timed when input was pending at
 /// their start or end and at their own run-loop depth, and a sampled one counts under its site;
 /// reset starts the since-reset window over; the rows encode as `debug.input hops` returns them.
-@MainActor @Suite(.timeLimit(.minutes(1))) struct MainJobGateDiagnosticsTests {
-    nonisolated static let key = MainJobGateDiagnostics.InputTurn(pending: .key, dispatching: false)
+@MainActor @Suite(.timeLimit(.minutes(1))) struct InputTurnHopRecorderTests {
+    nonisolated static let key = InputTurnHopRecorder.InputTurn(pending: .key, dispatching: false)
     /// The tests' entry image: their enqueues come through `DispatchQueue.sync`, as the hook's
     /// come through libswift_Concurrency.
     nonisolated static let dispatch = "libdispatch.dylib"
@@ -22,9 +22,9 @@ import CmuxNextWakeupsTestSupport
     /// Enqueues from two call sites are two rows; three from one site are one row (count 3, both
     /// origins, the priority) whose site is the calling function's frame, not the recorder's.
     @Test func enqueuesFromTwoSitesAreTwoRows() throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
-        let queue = DispatchQueue(label: "MainJobGateDiagnosticsTests.sync")
-        for origin in [MainJobGateDiagnostics.Origin.main, .offMain, .main] {
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
+        let queue = DispatchQueue(label: "InputTurnHopRecorderTests.sync")
+        for origin in [InputTurnHopRecorder.Origin.main, .offMain, .main] {
             Self.enqueueFromSiteA(hops, queue, origin: origin)
         }
         Self.enqueueFromSiteB(hops, queue)
@@ -46,13 +46,13 @@ import CmuxNextWakeupsTestSupport
     }
 
     @inline(never)
-    nonisolated static func enqueueFromSiteA(_ hops: MainJobGateDiagnostics, _ queue: DispatchQueue,
-                                             origin: MainJobGateDiagnostics.Origin) {
+    nonisolated static func enqueueFromSiteA(_ hops: InputTurnHopRecorder, _ queue: DispatchQueue,
+                                             origin: InputTurnHopRecorder.Origin) {
         queue.sync { hops.recordEnqueue(turn: key, origin: origin, priority: 25) }
     }
 
     @inline(never)
-    nonisolated static func enqueueFromSiteB(_ hops: MainJobGateDiagnostics, _ queue: DispatchQueue) {
+    nonisolated static func enqueueFromSiteB(_ hops: InputTurnHopRecorder, _ queue: DispatchQueue) {
         queue.sync { hops.recordEnqueue(turn: key, origin: .main, priority: 25) }
     }
 
@@ -85,7 +85,7 @@ import CmuxNextWakeupsTestSupport
     /// frame is a second site.
     @Test func stacksMeetAtTheirFirstFramePastTheRuntime() throws {
         let runtime = try Self.symbol("dispatch_async"), outer = try Self.symbol("free"), other = try Self.symbol("realloc")
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         hops.push(Self.record(stack: [try Self.symbol("malloc"), runtime, outer], turn: Self.key))
         hops.push(Self.record(stack: [try Self.symbol("calloc"), runtime, outer], turn: .init(pending: .click, dispatching: true)))
         hops.push(Self.record(stack: [try Self.symbol("malloc"), runtime, other], turn: Self.key))
@@ -102,7 +102,7 @@ import CmuxNextWakeupsTestSupport
     /// A stack cut inside the runtime (only thread-start frames after it) or one that never came
     /// through the entry image has no site: it counts as `truncated`, never as a runtime frame.
     @Test func aStackWithNoFramePastTheRuntimeIsTruncated() throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         hops.push(Self.record(stack: [try Self.symbol("malloc"), try Self.symbol("dispatch_async"), try Self.symbol("pthread_create")],
                               turn: Self.key))
         hops.push(Self.record(stack: [try Self.symbol("malloc"), try Self.symbol("free")], turn: Self.key))
@@ -158,9 +158,9 @@ import CmuxNextWakeupsTestSupport
     /// The ring holds 64 records until a fold: the rest count as dropped, and a fold frees it. The
     /// since-reset window counts only the drops after its reset.
     @Test func theRingHolds64RecordsAndCountsTheRest() throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         for _ in 0..<100 { hops.push(try Self.record(address: 0x10)) }
-        #expect(hops.ring.count == MainJobGateDiagnostics.pendingLimit)
+        #expect(hops.ring.count == InputTurnHopRecorder.pendingLimit)
         let snapshot = hops.snapshot(sinceLaunch: true)
         #expect(snapshot.recorded == 64)
         #expect(snapshot.dropped == 36)
@@ -173,14 +173,14 @@ import CmuxNextWakeupsTestSupport
 
     /// At most 128 sites: a hop at a further site counts in `sites_overflow`, a known site still counts.
     @Test func theTablesHold128Sites() throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         for address in 1...200 {
             hops.push(try Self.record(address: UInt(address)))
             if address % 32 == 0 { hops.fold() }
         }
         hops.push(try Self.record(address: 1))
         let snapshot = hops.snapshot(sinceLaunch: true)
-        #expect(snapshot.rows.count == MainJobGateDiagnostics.siteLimit)
+        #expect(snapshot.rows.count == InputTurnHopRecorder.siteLimit)
         #expect(snapshot.sitesOverflow == 72)
         #expect(snapshot.recorded == 201)
         #expect(snapshot.rows.first?.count == 2, "the known site counted its second hop")
@@ -189,7 +189,7 @@ import CmuxNextWakeupsTestSupport
 
     /// Many threads push while a fold runs: every record is folded or dropped, once.
     @Test func concurrentProducersLoseNoRecord() async throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         let producers = 8, each = 2_000
         let records = try (0..<producers).map { try Self.record(address: UInt($0 + 1)) }
         await withTaskGroup(of: Void.self) { group in
@@ -210,7 +210,7 @@ import CmuxNextWakeupsTestSupport
 
     /// Reset empties the since-reset window; the since-launch window keeps every hop.
     @Test func resetStartsTheSinceResetWindowOver() throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         hops.push(try Self.record(address: 0x20))
         hops.reset()
         hops.push(try Self.record(address: 0x30))
@@ -224,7 +224,7 @@ import CmuxNextWakeupsTestSupport
     /// pending at its start or at its end (a callout already running when the key came delays it
     /// too); one with no input at either end and one under 20 µs are not recorded.
     @Test func calloutsAreTimedWhenInputWasPendingAtEitherEnd() {
-        let hops = MainJobGateDiagnostics(folding: .manual)
+        let hops = InputTurnHopRecorder(folding: .manual)
         let fake = FakeRunLoop()
         let timer = fake.timer(hops)
         timer.observe(.entry)
@@ -255,7 +255,7 @@ import CmuxNextWakeupsTestSupport
     /// `beforeTimers` meets the outer stretch at another depth, which is not recorded; the inner
     /// stretch is, at its own depth and mode.
     @Test func aNestedRunLoopTimesOnlyItsOwnStretch() {
-        let hops = MainJobGateDiagnostics(folding: .manual)
+        let hops = InputTurnHopRecorder(folding: .manual)
         let fake = FakeRunLoop()
         fake.turn = Self.key
         let timer = fake.timer(hops)
@@ -282,8 +282,8 @@ import CmuxNextWakeupsTestSupport
     /// thread), the end of a pass that CFRunLoop's poll sent from the sources back to the timers
     /// with no wait included.
     @Test func aPassWithNoWaitWakesTheFoldOffMain() async {
-        let queue = DispatchQueue(label: "MainJobGateDiagnosticsTests.fold")
-        let hops = MainJobGateDiagnostics(folding: .queue(queue))
+        let queue = DispatchQueue(label: "InputTurnHopRecorderTests.fold")
+        let hops = InputTurnHopRecorder(folding: .queue(queue))
         let fake = FakeRunLoop()
         fake.turn = Self.key
         let timer = fake.timer(hops)
@@ -305,7 +305,7 @@ import CmuxNextWakeupsTestSupport
             samples.value.add(1, ordering: .relaxed)
             return stack
         }
-        let hops = MainJobGateDiagnostics(folding: .manual)
+        let hops = InputTurnHopRecorder(folding: .manual)
         let fake = FakeRunLoop()
         let timer = fake.timer(hops, sampler: sampler)
         timer.observe(.entry)
@@ -337,7 +337,7 @@ import CmuxNextWakeupsTestSupport
 
     /// The rows encode with the `debug.input hops` keys: site, lane swift|nonswift, count, kinds, origin.
     @Test func rowsEncodeWithTheirKeys() throws {
-        let hops = MainJobGateDiagnostics(folding: .manual, entry: Self.dispatch)
+        let hops = InputTurnHopRecorder(folding: .manual, entry: Self.dispatch)
         hops.push(try Self.record(address: 0x40))
         hops.recordCallout(.timer, mode: .default, turn: Self.key, nanos: 2_000_000)
         let data = try JSONEncoder().encode(hops.snapshot(sinceLaunch: true))
@@ -360,8 +360,8 @@ import CmuxNextWakeupsTestSupport
         record(stack: [try symbol("dispatch_async"), address], turn: key)
     }
 
-    nonisolated static func record(stack: [UInt], turn: MainJobGateDiagnostics.InputTurn) -> HopRecord {
-        var record = HopRecord(lane: .swift, origin: MainJobGateDiagnostics.Origin.main.rawValue, turn: turn)
+    nonisolated static func record(stack: [UInt], turn: InputTurnHopRecorder.InputTurn) -> HopRecord {
+        var record = HopRecord(lane: .swift, origin: InputTurnHopRecorder.Origin.main.rawValue, turn: turn)
         record.setStack(stack)
         return record
     }
@@ -388,11 +388,11 @@ import CmuxNextWakeupsTestSupport
 private final class FakeRunLoop {
     var nanos: UInt64 = 1_000_000_000
     var timerDue = false
-    var mode = MainJobGateDiagnostics.RunLoopModeName.default
-    var turn = MainJobGateDiagnostics.InputTurn()
+    var mode = InputTurnHopRecorder.RunLoopModeName.default
+    var turn = InputTurnHopRecorder.InputTurn()
 
     /// A timer that reads this run loop and observes nothing (the test drives its stages).
-    func timer(_ hops: MainJobGateDiagnostics, sampler: CalloutStackSampler? = nil) -> InputTurnCalloutTimer {
+    func timer(_ hops: InputTurnHopRecorder, sampler: CalloutStackSampler? = nil) -> InputTurnCalloutTimer {
         InputTurnCalloutTimer(diagnostics: hops, sampler: sampler, observing: false, now: { self.nanos }, timerDue: { self.timerDue },
                               mode: { self.mode }) { self.turn }
     }

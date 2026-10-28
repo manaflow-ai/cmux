@@ -6,12 +6,14 @@ import Foundation
 /// The input-turn hop recorder (plans/cmux-next/chrome-parity/p04-input.md, task 022; machine queue
 /// MQ-input-turn-hops): every main-thread hop that runs beside a person's input, by its site.
 ///
-/// Two producers write it:
-/// - the MainJobGate hook (task 021) calls ``recordEnqueue(turn:origin:priority:)`` for each
-///   main-actor job enqueued while input is pending or dispatching: the recorder keeps the job's
-///   stack (``HopRecord/depth`` return addresses, through the awaiting task's async frames), its
-///   origin (the main thread or another) and priority;
-/// - ``InputTurnCalloutTimer`` times each non-Swift callout of the main run loop (a timer, a GCD main
+/// Two lanes:
+/// - Swift: ``recordEnqueue(turn:origin:priority:)`` keeps a main-actor job's stack (``HopRecord/depth``
+///   return addresses, through the awaiting task's async frames), its origin (the main thread or
+///   another) and priority. Its producer was the MainJobGate hook, deleted in sequence-manager S6
+///   (sequence-manager-DESIGN.md 2.7): the app has no hook that knows the input turn, so in the app
+///   this lane stays empty. The unposted main jobs that ran ahead of an input are named by the
+///   main-job census's input window instead (CmuxNextLaunch `MainJobCensus`, `debug.main_jobs.input`);
+/// - non-Swift: ``InputTurnCalloutTimer`` times each non-Swift callout of the main run loop (a timer, a GCD main
 ///   block or a mach-port source after a wake, and the run loop's source and block pass) with
 ///   input pending at its start or its end, and ``CalloutStackSampler`` names a long one's site.
 ///
@@ -29,14 +31,12 @@ import Foundation
 /// `scripts/cmux-next/input-turn-hops.py` symbolicates its sites to file:line with the dSYM.
 ///
 /// ```swift
-/// let hops = MainJobGateDiagnostics()
+/// let hops = InputTurnHopRecorder()
 /// let sampler = CalloutStackSampler { mainStack.sample() }
-/// let timer = InputTurnCalloutTimer(diagnostics: hops, sampler: sampler) { inputPendingState.turn }
-/// // The MainJobGate hook, while input is pending or dispatching:
-/// hops.recordEnqueue(turn: turn, origin: pthread_main_np() != 0 ? .main : .offMain, priority: priority)
+/// let timer = InputTurnCalloutTimer(diagnostics: hops, sampler: sampler) { InputTurn(pending: kinds(), dispatching: false) }
 /// let rows = hops.snapshot(sinceLaunch: true).rows
 /// ```
-public final class MainJobGateDiagnostics: Sendable {
+public final class InputTurnHopRecorder: Sendable {
     /// The most sites a snapshot holds; a hop at a further site counts in ``Snapshot/sitesOverflow``.
     public static let siteLimit = 128
     /// The most records that wait for the fold; a further record counts in ``Snapshot/dropped``.
@@ -137,7 +137,7 @@ public final class MainJobGateDiagnostics: Sendable {
         }
     }
 
-    let ring = HopRing(capacity: MainJobGateDiagnostics.pendingLimit)
+    let ring = HopRing(capacity: InputTurnHopRecorder.pendingLimit)
     private let droppedCount = Atomic<UInt64>(0)
     /// A background fold is queued and has not started.
     private let foldQueued = Atomic<Bool>(false)
@@ -165,9 +165,9 @@ public final class MainJobGateDiagnostics: Sendable {
 
     // MARK: Producers (any thread; no allocation, lock or system call)
 
-    /// A main-actor job was enqueued while input is pending or dispatching (the MainJobGate hook):
-    /// keeps the caller's stack, `origin` and `priority` (the job's raw `TaskPriority`).
-    // perf-hot: 2us main-job-gate
+    /// A main-actor job was enqueued while input is pending or dispatching: keeps the caller's stack,
+    /// `origin` and `priority` (the job's raw `TaskPriority`).
+    // perf-hot: 2us input-turn-hops
     @inline(never)
     public func recordEnqueue(turn: InputTurn, origin: Origin, priority: UInt8) {
         var record = HopRecord(lane: .swift, origin: origin.rawValue, priority: priority, turn: turn)
@@ -228,7 +228,7 @@ public final class MainJobGateDiagnostics: Sendable {
     }
 }
 
-extension MainJobGateDiagnostics {
+extension InputTurnHopRecorder {
     /// The recorder's rows (`debug.input` action `hops`).
     public struct Snapshot: Sendable, Encodable, Equatable {
         /// Since launch (true) or since the last reset.
@@ -237,7 +237,7 @@ extension MainJobGateDiagnostics {
         public var recorded: UInt64
         /// Hops the full ring refused in this window.
         public var dropped: UInt64
-        /// Hops at a site past ``MainJobGateDiagnostics/siteLimit`` in this window.
+        /// Hops at a site past ``InputTurnHopRecorder/siteLimit`` in this window.
         public var sitesOverflow: UInt64
         /// Hops written and not folded yet.
         public var pending: Int

@@ -5,8 +5,8 @@
 ///
 /// CmuxNextCompat has no scheduler, so the classed values come from CmuxNextWakeups
 /// (`MainWorkScheduler.callbackClass(_:owner:)`): input and frame callbacks run at once as tasks of
-/// their class, and userBlocking, visible, automation and background ones wait behind pending input
-/// (the `MainJobGate`), work of their class queued before them and the frame budget. Chrome posts every UI-thread task with its
+/// their class, and userBlocking, visible, automation and background ones wait behind work of their
+/// class queued before them and the frame budget. Chrome posts every UI-thread task with its
 /// queue's type the same way (`content/browser/scheduler/browser_task_queues.h`).
 ///
 /// ``immediate`` runs the callback in the callout itself, as before this type existed. It is the

@@ -168,10 +168,10 @@ extension DebugInput {
 /// MQ-input-turn-hops). Its rows are the unique sites of main-actor jobs enqueued and non-Swift
 /// callouts run during input turns, with count, kinds, origin and swift|nonswift. The read runs on
 /// the global executor: the fold resolves stacks with `dladdr`, never on the main thread.
-nonisolated extension MainJobGateDiagnostics: DebugInputRecorder {
+nonisolated extension InputTurnHopRecorder: DebugInputRecorder {
     public var kind: DebugInputRecorderKind { .hops }
 
-    public func rows(sinceLaunch: Bool) async -> MainJobGateDiagnostics.Snapshot {
+    public func rows(sinceLaunch: Bool) async -> InputTurnHopRecorder.Snapshot {
         await resolvedSnapshot(sinceLaunch: sinceLaunch)
     }
 }
