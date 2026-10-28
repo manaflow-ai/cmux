@@ -24,7 +24,7 @@ public final class AgentPaneMachineLink {
             self.words = words
         }
 
-        var json: JSONValue { ["machine": .string(machine), "link": .string(link), "words": .string(words)] }
+        var json: CmuxNextSettings.JSONValue { ["machine": .string(machine), "link": .string(link), "words": .string(words)] }
     }
 
     /// What a chat that needs a machine finds its link doing.
