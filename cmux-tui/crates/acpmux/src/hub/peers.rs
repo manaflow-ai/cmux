@@ -558,7 +558,7 @@ impl Hub {
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                             .map(|(key, _)| key.clone());
                         if let Some(old_id) = old_id {
-                            map.remove(&old_id);
+                            map.take(&old_id);
                         }
                         map.insert(
                             id.clone(),
@@ -834,7 +834,7 @@ impl Hub {
             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
             .filter(|(_, r)| created(r) == generation)
             .map(|(key, _)| key.clone());
-        let removed = key.and_then(|key| map.remove(&key));
+        let removed = key.and_then(|key| map.take(&key));
         // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge that
         // names no generation and found no such row removes no copy of another.
         if generation.is_some() || removed.is_some() {
@@ -989,10 +989,15 @@ mod tests {
         let mut actual = Vec::new();
         hub.visit_session_summaries(|row| {
             // A writer can remove rows during serialization without changing this snapshot.
-            hub.remote_sessions
-                .try_lock()
-                .expect("visitor must not hold row lock")
-                .retain(|_, _| false);
+            let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
+            let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
+            for (id, captured) in captured {
+                let writes = rows.writes;
+                let removed = rows.take(&id).unwrap();
+                assert!(Arc::ptr_eq(&removed, &captured), "discard must not deep-clone a row");
+                assert_eq!(rows.writes, writes + 1);
+                assert!(rows.get(&id).is_none());
+            }
             actual.push(row);
         });
         super::super::session_pages::sort_session_summaries(&mut actual);

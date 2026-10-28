@@ -282,6 +282,8 @@ impl ListGuard {
         }
         pace.spend(now + wait, window.mul_f64(share));
         replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
+        tracing::debug!(target: "acpmux::list_cost", window_us = window.as_micros(),
+            wait_us = (wait + more).as_micros(), share, "list_reply_reservation");
         Ok(wait + more)
     }
 
@@ -305,7 +307,11 @@ impl ListGuard {
         let serial = self.begun.fetch_add(1, Ordering::SeqCst) + 1;
         let (started, key) = (Instant::now(), key(hub));
         let built = Snapshot::build(hub);
-        let window = started.elapsed().saturating_mul(PACE).min(MAX_WINDOW);
+        let elapsed = started.elapsed();
+        let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
+        tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
+            build_us = elapsed.as_micros(), window_us = window.as_micros(),
+            builder_wait_us = wait.as_micros(), "list_snapshot_build");
         state.pace.spend(started, window);
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);

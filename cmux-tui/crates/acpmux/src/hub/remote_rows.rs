@@ -36,7 +36,7 @@ impl RemoteRows {
 
     // Readers capture Arc handles under the mutex, then serialize outside it. A write
     // replaces the row; readers retain the captured version until their build ends.
-    fn take(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
+    pub(crate) fn take(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
         let row = self.rows.remove(key)?;
         self.writes += 1;
         if let Some(pair) = pair_of(&row.summary)
