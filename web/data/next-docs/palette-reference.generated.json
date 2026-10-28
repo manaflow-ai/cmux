@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1199,
+    "entries": 1212,
     "shortcuts": 189
   },
   "sections": [
@@ -490,10 +490,40 @@
           "command": null
         },
         {
+          "id": "window.toggleDockBottom",
+          "title": "Toggle Bottom Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-bottom"
+        },
+        {
+          "id": "window.toggleDockOrientation",
+          "title": "Toggle Dock Corners",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-orientation"
+        },
+        {
           "id": "toggleFullScreen",
           "title": "Toggle Full Screen",
           "shortcut": "⌃⌘F",
           "command": null
+        },
+        {
+          "id": "window.toggleDockLeft",
+          "title": "Toggle Left Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-left"
+        },
+        {
+          "id": "window.toggleDockRight",
+          "title": "Toggle Right Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-right"
+        },
+        {
+          "id": "window.toggleDockTop",
+          "title": "Toggle Top Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-top"
         },
         {
           "id": "zoomWindow",
@@ -724,6 +754,30 @@
           "command": "cmux workspace disconnect"
         },
         {
+          "id": "workspace.dockBottom",
+          "title": "Dock Workspace Bottom",
+          "shortcut": null,
+          "command": "cmux workspace dock-bottom"
+        },
+        {
+          "id": "workspace.dockLeft",
+          "title": "Dock Workspace Left",
+          "shortcut": null,
+          "command": "cmux workspace dock-left"
+        },
+        {
+          "id": "workspace.dockRight",
+          "title": "Dock Workspace Right",
+          "shortcut": null,
+          "command": "cmux workspace dock-right"
+        },
+        {
+          "id": "workspace.dockTop",
+          "title": "Dock Workspace Top",
+          "shortcut": null,
+          "command": "cmux workspace dock-top"
+        },
+        {
           "id": "workspace.duplicate",
           "title": "Duplicate Workspace",
           "shortcut": null,
@@ -776,6 +830,12 @@
           "title": "Find Work",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "workspace.toggleDockFloating",
+          "title": "Float Docked Workspace",
+          "shortcut": null,
+          "command": "cmux workspace toggle-dock-floating"
         },
         {
           "id": "groupSelectedWorkspaces",
@@ -1508,6 +1568,12 @@
           "title": "Toggle Checklist Item Complete",
           "shortcut": "⌘\r",
           "command": "cmux workspace toggle-checklist-item-complete"
+        },
+        {
+          "id": "workspace.undock",
+          "title": "Undock Workspace",
+          "shortcut": null,
+          "command": "cmux workspace undock"
         },
         {
           "id": "workspaceGroup.ungroup",
@@ -5800,6 +5866,12 @@
           "command": null
         },
         {
+          "id": "voiceRoom.open",
+          "title": "Open Voice Room",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.previousBookmarkedPrompt",
           "title": "Previous Bookmarked Prompt",
           "shortcut": null,
@@ -5928,6 +6000,12 @@
         {
           "id": "home.stopChief",
           "title": "Stop the Chief",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "voiceRoom.stop",
+          "title": "Stop Voice Room",
           "shortcut": null,
           "command": null
         },

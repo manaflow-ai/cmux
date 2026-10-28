@@ -57,6 +57,8 @@ enum CloudPresenter {
     /// The money confirmation of a machine create: only the person answers
     /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
     static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+    /// The confirmation of an environment build (a spend) or delete: only the person answers it.
+    static let environmentConfirmIdentifier = "cmux.dialog.cloud.environmentConfirm"
     /// Credential installation always requires a real click; debug.dialog cannot approve it.
     static let credentialRecoveryIdentifier = "cmux.dialog.cloud.credentialRecovery"
 

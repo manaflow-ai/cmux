@@ -1227,6 +1227,12 @@ pre.cv-math-source {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
 }
+/* Response focus rings are opt-in (focusRing.enabled, #23745): the shared desktop ring leaves the
+   row out (desktop.css), so without the setting the row draws nothing, not the engine's own
+   `outline: auto`. */
+.acpmux-row:focus-visible {
+  outline: none;
+}
 [data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;

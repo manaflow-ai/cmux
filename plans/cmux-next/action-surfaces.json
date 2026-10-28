@@ -32922,6 +32922,62 @@
       "title_table" : "MusicActions"
     },
     {
+      "cli" : "undeclared",
+      "cli_name" : "action voice-room-open",
+      "context_menu" : "undeclared",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "voiceRoom.open",
+      "main_menu" : null,
+      "mcp" : "undeclared",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Voice Room",
+      "title_key" : "action.voiceRoom.open",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "undeclared",
+      "cli_name" : "action voice-room-stop",
+      "context_menu" : "undeclared",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "voiceRoom.stop",
+      "main_menu" : null,
+      "mcp" : "undeclared",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop Voice Room",
+      "title_key" : "action.voiceRoom.stop",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "media play-pause",
       "context_menu" : "offered",
