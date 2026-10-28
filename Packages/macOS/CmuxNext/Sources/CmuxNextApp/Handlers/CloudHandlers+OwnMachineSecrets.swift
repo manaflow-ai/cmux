@@ -81,6 +81,11 @@ extension CloudHandlers {
                 case .ssh(let route): destination = route
                 }
             }
+            // And one at a time per account on a host, whatever name reached it (an SSH machine and a peer
+            // alias): both replace the same file, so a slower earlier one never lands over a newer one.
+            let account = "dest:" + destination.sshArgument.lowercased() + ":" + (destination.port.map(String.init) ?? "22")
+            guard cloud.deliveringSecrets.insert(account).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
+            defer { cloud.deliveringSecrets.remove(account) }
             let home = FileManager.default.homeDirectoryForCurrentUser
             let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
             let index = try await work.run(.userBlocking, mayBlock: .files) { CloudMachineSecrets.read(indexURL.path) }
