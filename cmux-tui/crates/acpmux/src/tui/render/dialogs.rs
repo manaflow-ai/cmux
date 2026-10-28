@@ -173,12 +173,14 @@ pub(super) fn draw_new_session(
     } else {
         agent
     };
-    let policy_hint = match POLICIES[form.policy] {
-        "ask" => "you approve each tool call",
-        "approve-reads" => "reads auto, writes ask",
-        "approve-edits" => "reads and edits auto, shell asks",
-        "approve-all" => "nothing asks",
-        _ => "everything denied",
+    let policy = form.policy_name();
+    let policy_hint = match policy {
+        Some("ask") => "you approve each tool call",
+        Some("approve-reads") => "reads auto, writes ask",
+        Some("approve-edits") => "reads and edits auto, shell asks",
+        Some("approve-all") => "nothing asks",
+        Some(_) => "everything denied",
+        None => "",
     };
     let val = |i: usize, v: &str, hint: &str| -> Vec<(String, Style)> {
         let mut out = vec![
@@ -192,7 +194,9 @@ pub(super) fn draw_new_session(
                 },
             ),
         ];
-        out[0].0 = out[0].0.trim_end().to_owned();
+        if let Some(first) = out.first_mut() {
+            first.0 = first.0.trim_end().to_owned();
+        }
         if !hint.is_empty() {
             out.push((format!("  {hint}"), c.prompt().fg(c.status_dim_fg)));
         }
@@ -203,12 +207,12 @@ pub(super) fn draw_new_session(
         (agent_line, ""),
         (form.name.text(), if form.name.is_empty() { "blank = automatic" } else { "" }),
         (form.cwd.text(), ""),
-        (format!("◀ {} ▶", POLICIES[form.policy]), policy_hint),
+        (format!("◀ {} ▶", policy.unwrap_or_default()), policy_hint),
         (form.prompt.text(), if form.prompt.is_empty() { "optional" } else { "" }),
     ];
     let mut header = vec![vec![]];
-    for (i, (v, hint)) in values.iter().enumerate() {
-        let (l, ls) = label(i, names[i]);
+    for (i, ((v, hint), name)) in values.iter().zip(names).enumerate() {
+        let (l, ls) = label(i, name);
         let mut line = vec![(l, ls)];
         line.extend(val(i, v, hint).into_iter().skip(1));
         header.push(line);
@@ -258,8 +262,8 @@ pub(super) fn draw_picker(f: &mut ratatui::Frame, area: Rect, p: &mut Picker, ap
     let rows: Vec<DialogRow> = p
         .visible
         .iter()
-        .map(|&ri| {
-            let row = &p.rows[ri];
+        .filter_map(|&ri| p.rows.get(ri))
+        .map(|row| {
             if row.header {
                 DialogRow {
                     spans: vec![(format!(" {}", row.label), c.prompt_title())],

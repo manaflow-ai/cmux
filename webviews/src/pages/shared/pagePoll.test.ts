@@ -1,4 +1,4 @@
-// A page poll rests while the page is hidden or frozen (p13-webui-069, MQ4b): it arms no
+// A page poll rests while the page is hidden, frozen or parked (p13-webui-069, MQ4b): it arms no
 // timer and runs nothing, and on show it checks once ("check") or waits one period ("wait"). A
 // poll's reads never overlap: the next period starts when the last read settles.
 import { describe, expect, test } from "bun:test";
@@ -64,9 +64,9 @@ describe("startPagePoll", () => {
     expect(ticks).toEqual([{ resumed: false }, { resumed: true }]);
   });
 
-  // A parked (pooled or preloaded) document reads hidden from its engine (214b69605cb: no JS
-  // parked flag): it runs nothing until the engine shows it.
-  test("a parked document, hidden in its engine, runs nothing until it shows", async () => {
+  // A parked (pooled or preloaded) page is hidden by its engine until native shows its view
+  // (pageLifecycle.ts, p13-webui-033: the engine is the one visibility truth).
+  test("a parked document, hidden by its engine, runs nothing until it is shown", async () => {
     const { doc, lifecycle, clock, ticks, run } = setup({ hidden: true });
     startPagePoll(run, 1000, { lifecycle, timers: clock });
     await clock.advance(MINUTE);

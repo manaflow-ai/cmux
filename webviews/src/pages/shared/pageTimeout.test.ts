@@ -1,5 +1,5 @@
-// A page timeout (a retry backoff, a bounded poll's next round) rests while the page is hidden
-// or frozen (p13-webui-069, MQ4b): no timer is armed, and on show it runs at once ("check")
+// A page timeout (a retry backoff, a bounded poll's next round) rests while the page is hidden,
+// frozen or parked (p13-webui-069, MQ4b): no timer is armed, and on show it runs at once ("check")
 // or counts its whole period again ("wait").
 import { describe, expect, test } from "bun:test";
 import { FakeLifecycleDocument, FakePollClock } from "../../../test/support/pagePollFakes";
@@ -76,9 +76,9 @@ describe("startPageTimeout", () => {
     expect(runs.count).toBe(1);
   });
 
-  // A parked (pooled or preloaded) document reads hidden from its engine (214b69605cb: no JS
-  // parked flag): it arms nothing until the engine shows it.
-  test("a parked document, hidden in its engine, arms nothing until it shows", async () => {
+  // A parked (pooled or preloaded) page is hidden by its engine until native shows its view
+  // (pageLifecycle.ts, p13-webui-033: the engine is the one visibility truth).
+  test("a parked document, hidden by its engine, arms nothing until it is shown", async () => {
     const { doc, lifecycle, clock, runs, run } = setup({ hidden: true });
     startPageTimeout(run, 1000, { lifecycle, timers: clock, onResume: "wait" });
     await clock.advance(MINUTE);

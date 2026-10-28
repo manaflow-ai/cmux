@@ -1,6 +1,0 @@
-{/* * */ 'browser':{// note
-"urlsToAlwaysOpenExternally":[1],"passwords":{"offerToSave":"true"}},"agentPane":{"display":{/* block */ "inspector":{// url: https://localhost/x
-"placement":true}}},"sidebar":{// "quoted"
-"workspaceRow":{/* block */ "mixed":{"pullRequest":false},// url: https://localhost/x
-"terminal":{/* block */ "log":false}},"nowPlaying":{/* {"k": 1} */ "otherApps":1},"spacesVisibility":true},// a { brace
-"appearance":{"colorTransition":{/* block */ "duration":"1"}}}

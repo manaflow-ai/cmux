@@ -5,6 +5,7 @@
 //! with what a key does.
 
 use super::*;
+use crate::no_panic::JsonExt;
 mod table;
 pub use table::{ACTIONS, EDITING_KEYS};
 
@@ -78,8 +79,8 @@ pub fn find(name: &str) -> Option<&'static ActionDef> {
     ACTIONS.iter().find(|d| d.name == n || d.aliases.contains(&n))
 }
 
-pub fn def(action: Action) -> &'static ActionDef {
-    ACTIONS.iter().find(|d| d.action == action).expect("every action is in ACTIONS")
+pub fn def(action: Action) -> Option<&'static ActionDef> {
+    ACTIONS.iter().find(|d| d.action == action)
 }
 
 /// Effort levels offered for a draft, before the harness can be asked.
@@ -381,7 +382,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
                     if let Some(n) = args.first() {
-                        p["_meta"]["acpmux"]["name"] = json!(n);
+                        p.set_path(&["_meta", "acpmux", "name"], json!(n));
                     }
                     self.request_bg(method::SESSION_FORK, p, Some("forked".into()));
                 }
@@ -420,7 +421,9 @@ impl App {
             Action::Policy => match args.first() {
                 Some(p) if self.on_draft() => {
                     if POLICIES.contains(p) {
-                        self.draft_mut().unwrap().policy = p.to_string();
+                        if let Some(draft) = self.draft_mut() {
+                            draft.policy = p.to_string();
+                        }
                         self.status = format!("draft policy: {p}");
                     } else {
                         self.report_error(format!("policy must be one of {}", POLICIES.join(", ")));
@@ -568,7 +571,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id});
                     if let Some(d) = args.first() {
-                        p["dest"] = json!(d);
+                        p.set("dest", json!(d));
                     }
                     self.request_bg(
                         method::MUX_EXPORT,

@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 
 /// The launch picture over the live root, region by region (p08-startup-060, plans/cmux-next/chrome-parity/

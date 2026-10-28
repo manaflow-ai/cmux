@@ -504,7 +504,9 @@ pub(super) fn parse_ghostty_config_file_until_with_scrollback(
                 let Some(&index) = snapshot_by_identity.get(&identity) else {
                     continue;
                 };
-                let (_, includes, value) = &snapshot[index];
+                let Some((_, includes, value)) = snapshot.get(index) else {
+                    continue;
+                };
                 if let Some(value) = value {
                     resolved = Some(*value);
                 }
@@ -762,8 +764,10 @@ pub(super) fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, val
             }
         }
         "palette" => {
-            if let Some((index, color)) = ghostty_vt::parse_palette_entry(value) {
-                defaults.palette[index as usize] = Some(color);
+            if let Some((index, color)) = ghostty_vt::parse_palette_entry(value)
+                && let Some(slot) = defaults.palette.get_mut(usize::from(index))
+            {
+                *slot = Some(color);
             }
         }
         _ => {}

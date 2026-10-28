@@ -338,7 +338,7 @@ pub fn text_field(
         let avail = width.saturating_sub(2) as usize;
         let chars: Vec<char> = text.chars().collect();
         let start = cursor_col.saturating_sub(avail);
-        let shown: String = chars[start..].iter().collect();
+        let shown: String = chars.iter().skip(start).collect();
         buf.set_stringn(x + 1, y, &shown, width.saturating_sub(1) as usize, c.prompt_input());
         return (x + 1 + (cursor_col - start) as u16, y);
     }

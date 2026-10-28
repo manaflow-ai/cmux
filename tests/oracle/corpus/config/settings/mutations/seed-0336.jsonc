@@ -1,9 +1,0 @@
-{
-	"browser": {
-		"enabled": true,
-	},
-	"layout": {
-		"closeFocus": "shadowed",
-		"closeFocus": true
-	},
-}

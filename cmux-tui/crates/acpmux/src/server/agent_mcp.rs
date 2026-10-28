@@ -11,6 +11,7 @@
 
 use super::{Conn, chats};
 use crate::hub::Hub;
+use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use crate::subsession_mcp::{DaemonTools, SERVER_FIELD, ToolRequests};
 use serde_json::{Value, json};
@@ -63,7 +64,7 @@ pub(super) fn initialize(tools: DaemonTools, params: &Value) -> Value {
         "serverInfo": {"name": tools.server_name(), "version": env!("CARGO_PKG_VERSION")},
     });
     if let Some(text) = tools.instructions() {
-        reply["instructions"] = json!(text);
+        reply.set("instructions", json!(text));
     }
     reply
 }

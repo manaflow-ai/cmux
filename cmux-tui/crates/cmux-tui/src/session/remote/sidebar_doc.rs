@@ -13,6 +13,7 @@
 //! with an anchor item. A daemon without the capability keeps the old path
 //! (the control protocol's `move-workspace`, no pin).
 
+use crate::json_fields::JsonFields;
 use serde_json::Map;
 
 use cmux_tui_core::resource::{PROTOCOL, StreamPublicId};
@@ -39,9 +40,9 @@ pub(crate) struct SidebarDropAnchors {
 /// in the anchor's section and group.
 fn drop_target(anchor: ItemRow, side: &str) -> Value {
     let mut to = json!({"section": anchor.section});
-    to[side] = Value::String(anchor.id);
+    to.insert(side, Value::String(anchor.id));
     if let Some(parent) = anchor.parent {
-        to["parent"] = Value::String(parent);
+        to.insert("parent", Value::String(parent));
     }
     to
 }
@@ -399,7 +400,7 @@ impl RemoteSession {
             let key = StreamPublicId::random().map_err(|error| {
                 anyhow::anyhow!("cannot allocate an idempotency key: {error:?}")
             })?;
-            request["idempotency_key"] = json!(format!("tui-{}", key.as_str()));
+            request.insert("idempotency_key", json!(format!("tui-{}", key.as_str())));
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();
