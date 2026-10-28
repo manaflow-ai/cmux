@@ -131,7 +131,7 @@ describe("Channels attachments: any file", () => {
         throw new Error(`unexpected op ${String(params.op)}`);
       },
     };
-    await new AttachmentService(client as never).upload("conversation", file);
+    await new AttachmentService(client as never).upload("conversation", file, () => {});
     expect(decodes).toBe(0);
   });
 });
