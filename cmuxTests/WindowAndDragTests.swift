@@ -220,6 +220,15 @@ struct WindowAccessorSwiftTestingTests {
             ),
             "A reused object identity must not let the hidden bootstrap task close a real main window."
         )
+
+        window.identifier = NSUserInterfaceItemIdentifier(MainWindowBootstrapWindowPolicy.identifier)
+        #expect(
+            MainWindowBootstrapWindowPolicy.owns(
+                window,
+                objectIdentifier: ObjectIdentifier(window)
+            ),
+            "The actual bootstrap window must remain eligible for its normal cleanup."
+        )
     }
 }
 
