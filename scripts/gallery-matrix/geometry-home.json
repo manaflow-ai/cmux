@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "revision": {
+    "sha": "80cbb16fd9a98586bcfe29c2e1ee7b90522bb643",
+    "source": "matching Home capture 62bab366fc72beb1cc38fb40; icons 2 to 0 px, labels 4 to 0 px in both appearances"
+  },
+  "required": [
+    {
+      "caseId": "home-columns-light",
+      "engine": "chromium",
+      "theme": "light"
+    },
+    {
+      "caseId": "home-columns-dark",
+      "engine": "chromium",
+      "theme": "dark"
+    }
+  ],
+  "rules": [
+    {
+      "id": "home-marks-column",
+      "kind": "peer-alignment",
+      "group": "home-marks",
+      "axis": "x",
+      "measure": "start",
+      "tolerancePx": 0.5,
+      "minCount": 6,
+      "source": "dom-rect"
+    },
+    {
+      "id": "home-labels-column",
+      "kind": "peer-alignment",
+      "group": "home-labels",
+      "axis": "x",
+      "measure": "start",
+      "tolerancePx": 0.5,
+      "minCount": 6,
+      "source": "dom-rect"
+    }
+  ],
+  "cases": [
+    {
+      "id": "home-columns-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.home-lists",
+        "variant": "baseline",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 560,
+        "height": 640,
+        "auditScroll": ".acpmux-home-area",
+        "source": "src/agent-session/acpmux/HomeLists.gallery.tsx"
+      }
+    },
+    {
+      "id": "home-columns-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.home-lists",
+        "variant": "baseline",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 560,
+        "height": 640,
+        "auditScroll": ".acpmux-home-area",
+        "source": "src/agent-session/acpmux/HomeLists.gallery.tsx"
+      }
+    }
+  ],
+  "selectors": {
+    "home-columns-light": [
+      {
+        "group": "home-marks",
+        "selector": ".acpmux-home-inbox-mark, .acpmux-home-row > .acpmux-icon:first-child"
+      },
+      {
+        "group": "home-labels",
+        "selector": ".acpmux-home-inbox-text, .acpmux-home-row > .acpmux-home-title"
+      }
+    ],
+    "home-columns-dark": [
+      {
+        "group": "home-marks",
+        "selector": ".acpmux-home-inbox-mark, .acpmux-home-row > .acpmux-icon:first-child"
+      },
+      {
+        "group": "home-labels",
+        "selector": ".acpmux-home-inbox-text, .acpmux-home-row > .acpmux-home-title"
+      }
+    ]
+  },
+  "coverageGaps": [
+    "Text bounds are measured; glyph baselines are not available from DOM rectangle evidence."
+  ]
+}

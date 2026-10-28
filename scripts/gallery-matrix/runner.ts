@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { collectGeometry, type GeometrySelection } from "./geometry-collector";
+import { collectGeometry, prepareGeometryCapture, type GeometrySelection } from "./geometry-collector";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -264,7 +264,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     const geometrySelections: GeometrySelection[] | undefined = process.env.CMUX_GEOMETRY_SELECTORS
       ? JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8"))[item.id] : undefined;
-    if (geometrySelections) await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
+    if (geometrySelections) await prepareGeometryCapture(page, typeof params.auditScroll === "string" ? params.auditScroll : undefined);
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);

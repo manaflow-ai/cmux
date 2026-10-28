@@ -4,6 +4,17 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GeometryArtifact, GeometryElement } from "./geometry";
 
+/** Match a declared scrolled fixture before freezing it for screenshot/geometry pairing. */
+export async function prepareGeometryCapture(page: Page, scrollSelector?: string): Promise<void> {
+  if (scrollSelector) await page.evaluate((selector) => {
+    const targets = document.querySelectorAll(selector);
+    if (targets.length !== 1) throw new Error(`geometry scroll target must resolve once: ${selector}`);
+    const target = targets[0]!;
+    target.scrollTop = target.scrollHeight;
+  }, scrollSelector);
+  await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
+}
+
 /** Selectors assign meaning in the audit config, never in runtime UI. */
 export type GeometrySelection = { group: string; selector: string; secondary?: boolean; containerSelector?: string; containerGroup?: string; part?: string; measurement?: "element" | "text-range" };
 export async function collectGeometry(page: Page, selections: GeometrySelection[], identity: Omit<GeometryArtifact, "elements">, outputDir: string): Promise<string> {
