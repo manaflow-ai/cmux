@@ -12,9 +12,10 @@ import CmuxNextWakeups
 
 /// Sends terminal grid changes to the daemon the next frame, with at most one
 /// grid in flight per terminal (perf I7; Lawrence 2026-10-17: everything in a
-/// drag is real time). A divider drag, a live window resize, a sidebar slide
-/// or a layout spring changes a pane's size every frame, and the text reflows
-/// with it. Every daemon resize reflows the PTY and echoes a rebuilt screen,
+/// drag is real time). A divider drag, a live window resize, a main-thread
+/// sidebar slide or a layout spring changes a pane's size every frame, and the
+/// text reflows with it; a sidebar slide on the render server (`motion.renderServer`)
+/// sizes each pane once, in the toggle's turn, so each terminal sends one grid. Every daemon resize reflows the PTY and echoes a rebuilt screen,
 /// so while a terminal's last grid has not echoed its next one waits, and the
 /// newest size (never the ones in between) goes the frame the echo comes: the
 /// daemon never queues stale sizes. An echo that does not come within

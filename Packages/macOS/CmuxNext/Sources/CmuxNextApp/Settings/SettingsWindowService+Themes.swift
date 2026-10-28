@@ -8,19 +8,22 @@ import CmuxNextSettingsWindow
 /// context menus and CLI.
 extension SettingsWindowService {
     var themeLevels: [SettingsThemeLevel] {
+        guard let services else { return [] }
         guard services.windows.active != nil else { return [] }
         let personal = services.machines.local.supports(DaemonCapability.profiles.rawValue)
         return (personal ? [.room, .workspace] : []) + [.terminal]
     }
 
     func theme(at level: SettingsThemeLevel) -> String? {
+        guard let services else { return nil }
         let current = services.themes.currentChoice(Self.action(level, reset: false), target: nil)
         return current == ActionArgument.themeConfigValue ? nil : current
     }
 
-    func acceptsTheme(_ text: String) -> Bool { services.themes.catalog.accepts(text) }
+    func acceptsTheme(_ text: String) -> Bool { services?.themes.catalog.accepts(text) ?? false }
 
     func setTheme(_ spec: String?, at level: SettingsThemeLevel) {
+        guard let services else { return }
         let id = Self.action(level, reset: spec == nil)
         let arguments: [String: ActionValue] = spec.map { ["theme": .string($0)] } ?? [:]
         services.registry.perform(id, invocation: ActionInvocation(arguments: arguments))

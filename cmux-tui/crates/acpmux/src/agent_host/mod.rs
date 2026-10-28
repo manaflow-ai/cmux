@@ -26,6 +26,7 @@ pub mod host {
         Err(crate::platform::unsupported("the agent host"))
     }
 }
+pub mod entry_queue;
 pub mod link;
 pub mod program_wait;
 #[cfg(unix)]
@@ -677,6 +678,13 @@ pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(
 pub async fn read_frame<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
     r: &mut R,
 ) -> Result<Option<T>> {
+    Ok(read_sized_frame(r).await?.map(|(frame, _)| frame))
+}
+
+/// [`read_frame`] with the frame's body length in bytes.
+pub async fn read_sized_frame<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
+    r: &mut R,
+) -> Result<Option<(T, usize)>> {
     let mut len = [0u8; 4];
     match r.read_exact(&mut len).await {
         Ok(_) => {}
@@ -689,7 +697,7 @@ pub async fn read_frame<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
     }
     let mut body = vec![0u8; len];
     r.read_exact(&mut body).await?;
-    Ok(Some(serde_json::from_slice(&body)?))
+    Ok(Some((serde_json::from_slice(&body)?, len)))
 }
 
 /// Pick the highest protocol version both sides speak.
