@@ -7,7 +7,21 @@ import Observation
 public final class AppStore {
     public var teams: [Team] { didSet { refreshAttentionCount() } }
     public var activeTeamID: String { didSet { refreshAttentionCount() } }
-    public var workspaces: [Workspace] { didSet { refreshAttentionCount() } }
+    /// Every Mac's workspaces. Setting the same value again changes nothing
+    /// and notifies no one: a Mac's whole list arrives on every tree update,
+    /// and a view reading it rebuilt itself for an unchanged list.
+    public var workspaces: [Workspace] {
+        get {
+            access(keyPath: \.workspaces)
+            return workspaceStorage
+        }
+        set {
+            guard newValue != workspaceStorage else { return }
+            withMutation(keyPath: \.workspaces) { workspaceStorage = newValue }
+            refreshAttentionCount()
+        }
+    }
+    @ObservationIgnored private var workspaceStorage: [Workspace]
     /// The active team's workspaces that need attention (the Workspaces tab
     /// badge). Kept as a value that changes only with the count: the
     /// workspaces change on every Mac tree update while an agent works, and a
@@ -72,7 +86,7 @@ public final class AppStore {
         lastTabByWorkspace = tabMemory.load()
         self.teams = teams
         self.activeTeamID = activeTeamID
-        self.workspaces = workspaces
+        workspaceStorage = workspaces
         self.feed = feed
         refreshAttentionCount()
     }
