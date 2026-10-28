@@ -15,7 +15,11 @@ export type QueuedEditDraft = {
 type Write = { sessionId: string; promptId: string } & ({ draft: QueuedEditDraft } | { revision: string });
 const pending = new Map<string, Write>();
 let drain: Promise<void> | undefined;
-holdWebSwap(() => (pending.size || drain ? "composer.queue-edit-unsaved" : null));
+holdWebSwap(() => {
+  // The host asks again before a swap: retry one refused drain, retaining the newest writes.
+  if (pending.size && !drain) void settleQueuedEditWrites();
+  return pending.size || drain ? "composer.queue-edit-unsaved" : null;
+});
 
 function enqueue(write: Write): void {
   // Browser galleries have no native store and must never hold a web update for one.
