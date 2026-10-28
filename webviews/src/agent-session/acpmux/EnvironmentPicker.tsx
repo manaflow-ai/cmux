@@ -179,7 +179,11 @@ export function EnvironmentPicker({
       setAlternate(false);
     };
   }, [open, offersSandbox]);
-  const ordered = useMemo(() => orderEnvironments(environments), [environments]);
+  const ordered = useMemo(() => {
+    const rows = orderEnvironments(environments);
+    const currentIndex = rows.findIndex((environment) => environment.id === currentRow);
+    return currentIndex > 0 ? [rows[currentIndex]!, ...rows.slice(0, currentIndex), ...rows.slice(currentIndex + 1)] : rows;
+  }, [environments, currentRow]);
   const sections = useMemo(() => environmentSections(environments), [environments]);
   const sectionOf = (environment: Environment) => sections.get(environment.id) ?? "fleet";
   const numbers = useMemo(
