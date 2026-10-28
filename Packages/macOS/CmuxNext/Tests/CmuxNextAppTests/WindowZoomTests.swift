@@ -13,6 +13,7 @@ import Testing
 @MainActor @Suite(.serialized) struct WindowZoomTests {
     private func shownWindow() throws -> (ShellWindow, NSRect) {
         _ = NSApplication.shared
+        Motion.reduceMotionOverride = true // PROBE: a host with Reduce Motion on
         let screen = try #require(NSScreen.main, "zooming needs a screen")
         let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
         let window = ShellWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

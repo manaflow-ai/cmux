@@ -35,6 +35,7 @@ import Testing
           })
     func aSecondOfTheSceneCostsTheMainThreadUnder30Milliseconds() throws {
         _ = NSApplication.shared
+        Motion.reduceMotionOverride = true // PROBE: a host with Reduce Motion on
         let screen = try #require(NSScreen.main)
         // Read again as the scene is built: the host setting is per host, not a failure of the scene.
         if let reason = Self.loopsOff() {
