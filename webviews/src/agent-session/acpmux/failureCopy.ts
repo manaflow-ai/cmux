@@ -80,6 +80,8 @@ const SPAWN_FAILED =
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
 /// the text says less.
 const TYPED: readonly [RegExp, FailureKind][] = [
+  // The cmux model router's own codes, when they reach the turn typed.
+  [/inference\.plan_required|credits\.insufficient/i, "needs-credits"],
   [/disk|no[_.-]?space|enospc/i, "disk-full"],
   [/tailscale|tailnet/i, "tailscale"],
   [/peer|unreachable|connect|network/i, "unreachable"],

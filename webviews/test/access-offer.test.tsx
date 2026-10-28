@@ -23,6 +23,12 @@ test("the router's credit refusals read as needs-credits, not a key, quota or ge
     '{"error":{"code":"credits.insufficient"}}',
   ])
     expect([message, failureKind(message, router)]).toEqual([message, "needs-credits"]);
+  // The router's code alone, typed, with no words.
+  expect(failureKind(undefined, router, "inference.plan_required")).toBe("needs-credits");
+  expect(failureKind("agent process closed", router, "credits.insufficient")).toBe("needs-credits");
+  expect(failureCopy(t, undefined, router, "credits.insufficient")).toBe(
+    "cmux model router needs cmux credits or your own API key for this model.",
+  );
   expect(failureCopy(t, noCredits, router)).toBe("cmux model router needs cmux credits or your own API key for this model.");
   // After credits land, the same prompt goes again.
   expect(failureRecovery("needs-credits")).toBe("retry");
