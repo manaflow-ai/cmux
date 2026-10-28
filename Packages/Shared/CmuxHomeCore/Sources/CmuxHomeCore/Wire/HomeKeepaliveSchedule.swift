@@ -12,7 +12,12 @@ struct HomeKeepaliveSchedule: Sendable, Equatable {
 
     /// The instant the next ping is due.
     func nextPing<Instant: InstantProtocol<Duration>>(afterPing lastPing: Instant, lastInbound: Instant?) -> Instant {
-        guard let lastInbound, lastInbound > lastPing else { return lastPing.advanced(by: interval) }
-        return lastInbound.advanced(by: interval)
+        lastPing.advanced(by: nextPing(afterPing: .zero, lastInbound: lastInbound.map { lastPing.duration(to: $0) }))
+    }
+
+    /// The time the next ping is due, for times read as durations since one start on one clock.
+    func nextPing(afterPing lastPing: Duration, lastInbound: Duration?) -> Duration {
+        guard let lastInbound, lastInbound > lastPing else { return lastPing + interval }
+        return lastInbound + interval
     }
 }

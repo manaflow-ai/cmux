@@ -26,6 +26,8 @@ actor HomeWireStream {
     private let client: HomeWireClient
     private let sockets: any HomeWireSocketConnecting
     private let clock: any Clock<Duration>
+    /// Time on ``clock`` since the stream was made: the keepalive's ping and inbound times.
+    private let elapsed: @Sendable () -> Duration
     private var loop: Task<Void, Never>?
     private var socket: (any HomeWireSocket)?
     private var wait: Task<Void, Never>?
@@ -37,8 +39,8 @@ actor HomeWireStream {
     private var awaitingSnapshot = false
     /// The subscribe went out on the current socket.
     private var subscribed = false
-    /// When the owner last sent a frame, on ``clock``: it pushes the next keepalive ping out.
-    private var lastInbound: (any InstantProtocol)?
+    /// When the owner last sent a frame, on ``elapsed``: it pushes the next keepalive ping out.
+    private var lastInbound: Duration?
     /// The quiet time on a socket before a keepalive ping.
     static let keepaliveInterval: Duration = .seconds(25)
 
@@ -48,6 +50,7 @@ actor HomeWireStream {
         self.client = client
         self.sockets = sockets
         self.clock = clock
+        elapsed = Self.stopwatch(clock)
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
     }
 
@@ -158,7 +161,7 @@ actor HomeWireStream {
         do {
             while !stopped, !Task.isCancelled {
                 let text = try await socket.receive()
-                lastInbound = clock.now
+                lastInbound = elapsed()
                 if try await handle(text, on: socket) { welcomed = true }
             }
             return .ended(welcomed: welcomed, unauthorized: false)
@@ -176,17 +179,12 @@ actor HomeWireStream {
     /// Pings after ``keepaliveInterval`` with no frame from the owner; a socket that stops answering
     /// is closed, so the loop dials again.
     private func keepAlive(_ socket: any HomeWireSocket) async {
-        await keepAlive(socket, on: clock)
-    }
-
-    private func keepAlive<C: Clock<Duration>>(_ socket: any HomeWireSocket, on clock: C) async {
         let schedule = HomeKeepaliveSchedule(interval: Self.keepaliveInterval)
-        var lastPing = clock.now
+        var lastPing = elapsed()
         // wakeup-allow: deadline one ping deadline at a time, `keepaliveInterval` after the last ping or
         // the owner's last frame; frames push it out, the socket's end cancels it.
         while !Task.isCancelled {
-            let due = schedule.nextPing(afterPing: lastPing, lastInbound: lastInbound as? C.Instant)
-            let remaining = clock.now.duration(to: due)
+            let remaining = schedule.nextPing(afterPing: lastPing, lastInbound: lastInbound) - elapsed()
             if remaining > .zero {
                 // wakeup-allow: deadline the next ping's due time, with leeway; on waking the loop reads
                 // the due time again, because the owner's frames may have pushed it out.
@@ -197,8 +195,15 @@ actor HomeWireStream {
                 socket.close()
                 return
             }
-            lastPing = clock.now
+            lastPing = elapsed()
         }
+    }
+
+    /// Time on `clock` since this call. The clock's instants stay inside the closure, so the actor
+    /// keeps plain durations and never opens the existential clock in an async call.
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     // MARK: Frames
