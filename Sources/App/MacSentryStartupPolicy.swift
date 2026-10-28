@@ -2,6 +2,16 @@ import CmuxFoundation
 import CmuxSettings
 import Foundation
 
+/// Keeps AppKit's exception escalation policy aligned with the macOS versions
+/// where its SF Symbol renderer throws recoverable Objective-C exceptions.
+enum MacOSExceptionPolicy: Sendable {
+    static func shouldEscalateUncaughtExceptions(
+        for operatingSystemVersion: OperatingSystemVersion
+    ) -> Bool {
+        operatingSystemVersion.majorVersion < 27
+    }
+}
+
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
@@ -50,7 +60,9 @@ struct MacSentryStartupPolicy: Sendable {
     static func shouldEnableUncaughtNSExceptionReporting(
         for operatingSystemVersion: OperatingSystemVersion
     ) -> Bool {
-        operatingSystemVersion.majorVersion < 27
+        MacOSExceptionPolicy.shouldEscalateUncaughtExceptions(
+            for: operatingSystemVersion
+        )
     }
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
