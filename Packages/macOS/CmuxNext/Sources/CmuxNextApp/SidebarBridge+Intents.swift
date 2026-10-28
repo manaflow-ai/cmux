@@ -73,20 +73,16 @@ extension SidebarBridge {
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
-            // Several rows: one "Closed N workspaces" toast whose Undo reopens them all (WorkspaceBulkClose), not one
-            // "Workspace closed" per row that replaces the last.
-            let names = ids.compactMap { services.workspace(id: $0.rawValue)?.name }
-            let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
-            var closed = 0
-            for id in ids {
-                var run = ActionInvocation(closingRow: id.rawValue)
-                run.closesWithOthers = ids.count > 1
-                if services.registry.perform("closeWorkspace", invocation: run) { closed += 1 }
+            // Several rows: one toast ("Closed N workspaces") that each row's close joins once it is sent (after its
+            // question), whose Undo reopens them all; not one "Workspace closed" per row that replaces the last.
+            let close = { (batch: String?) in
+                for id in ids {
+                    var run = ActionInvocation(closingRow: id.rawValue)
+                    run.closeBatch = batch
+                    services.registry.perform("closeWorkspace", invocation: run)
+                }
             }
-            if ids.count > 1, closed > 0, let window = services.windows.active?.window {
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(closed), groups: [(nil, names)],
-                                              after: seen, in: window, services)
-            }
+            if ids.count > 1 { WorkspaceGroupClose.withUndoBatch(services, close) } else { close(nil) }
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }

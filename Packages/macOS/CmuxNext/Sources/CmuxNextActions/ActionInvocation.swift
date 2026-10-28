@@ -87,9 +87,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// A run the sidebar sends for one of its rows (a row's close button or speaker, a middle-click,
     /// Delete on the selection): each row by itself, never widened to the selection. In-app only.
     public var closesRowOnly = false
-    /// One row of a person's close of several rows at once (the sidebar's `.close(ids)`): the sidebar offers one undo
-    /// toast for all of them, so this row's close offers none. In-app only.
-    public var closesWithOthers = false
+    /// One row of a person's close of several rows at once (the sidebar's `.close(ids)`): names the batch whose one
+    /// undo toast this row's close joins once it is sent. Nil for a close of one row. In-app only.
+    public var closeBatch: String?
     /// A person's unconfirmed Close Workspace: the destructive gate let it run at the press, and the
     /// handler asks about running programs itself, after the row has left (`WorkspaceCloseFlow`).
     /// In-app only: the control socket never sets it.

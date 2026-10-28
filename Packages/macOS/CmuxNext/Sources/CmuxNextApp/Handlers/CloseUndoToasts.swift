@@ -49,6 +49,8 @@ final class CloseUndoToasts {
         var reopen: @MainActor () -> Void
     }
     private var shown: Shown?
+    /// Several-row workspace closes being started (`WorkspaceGroupClose.withUndoBatch`), by batch id.
+    var workspaceBatches: [String: WorkspaceGroupClose.UndoBatch] = [:]
 
     private weak var services: AppServices?
     /// The presenter (tests replace it with a headless one).

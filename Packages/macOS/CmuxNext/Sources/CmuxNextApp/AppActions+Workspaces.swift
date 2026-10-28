@@ -242,6 +242,8 @@ extension AppActions {
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
+        // Its undo toast's batch, taken in the press's turn (a several-row close's, else its own).
+        let undoBatch = WorkspaceGroupClose.undoBatch(invocation.closeBatch, services)
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let warnAgent = services.settings?.snapshot.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let flow = WorkspaceCloseFlow(
@@ -271,22 +273,26 @@ extension AppActions {
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
-                // A person's close offers its undo (audit-findings-1 C), only where the close is sent now: not for an
-                // offline machine's row that could not hide (refused at once), nor for one row of a several-row close
-                // (the sidebar offers one toast for all of them).
-                let offers = invocation.origin == .user && !invocation.closesWithOthers && (!offline || hidden)
-                if offers { WorkspaceGroupClose.offerWorkspaceUndo(closing: workspace, from: controller, services) }
+                // A person's close offers its undo (audit-findings-1 C) once it is sent, joining its several-row close's
+                // toast when it is one row of one. Not while its machine is offline: the close waits for the machine, and
+                // nothing is recorded to bring back until then.
+                let batch = invocation.origin == .user && !offline ? undoBatch : nil
+                if let batch { WorkspaceGroupClose.offerWorkspaceUndo(closing: workspace, in: batch, from: controller, services) }
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection)
                     }
-                    guard hidden else { return failure }
+                    // A refused close says so; it leaves its toast (the batch's toast keeps the others), and Home goes back.
+                    if failure != nil, let batch { WorkspaceGroupClose.withdraw(id, from: batch, services) }
+                    guard hidden else {
+                        if failure != nil { selected.undoHide?() }
+                        return failure
+                    }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
-                    // A refused close says so; its "Workspace closed" toast goes.
-                    if failure != nil, offers { WorkspaceGroupClose.withdrawWorkspaceUndo(services) }
+                    if failure != nil { selected.undoHide?() }
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
@@ -294,13 +300,15 @@ extension AppActions {
             // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
             // (or it closed another way meanwhile).
             restore: { hidden in
-                guard hidden else { return }
-                ClosingWorkspaces.shared.end(id, refused: false, in: nil)
-                // Home, taken from another window so this one stayed open, goes back there.
-                selected.undoHide?()
-                if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
-                    services.windows.show(workspaceID: id, in: controller.state)
+                if hidden {
+                    ClosingWorkspaces.shared.end(id, refused: false, in: nil)
+                    if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
+                        services.windows.show(workspaceID: id, in: controller.state)
+                    }
                 }
+                // Home, taken from another window so this one stayed open, goes back there, only while the workspace is
+                // still listed here (closed another way meanwhile, Home keeps this window open).
+                if services.workspace(id: id) != nil { selected.undoHide?() }
             })
         if let work = flow.start(id, asks: invocation.asksIfRunning) { services.registry.track(work) }
     }

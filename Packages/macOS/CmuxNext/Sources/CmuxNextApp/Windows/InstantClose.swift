@@ -21,7 +21,7 @@ enum InstantClose {
             let from = windows.registry.value.owner(of: home)
             // Into this window (from the window that lists it, if any) and its room, selected: one transition.
             windows.claim(workspaceID: home, in: controller.state)
-            tookHome(TookHome(home: home, from: from, wasShownThere: from.flatMap(windows.controller(for:))?.state.workspaceID == home))
+            tookHome(TookHome(home: home, from: from))
             room = WindowProfiles.visible(windows.registry.members(of: window), profile: controller.state.profileID, machines: machines)
         }
         guard ClosingWorkspaces.shared.begin(id, among: room) else { return false }
@@ -34,29 +34,31 @@ enum InstantClose {
         return true
     }
 
-    /// Home as a close took it: its id, the window that listed it, and whether that window showed it.
+    /// Home as a close took it: its id and the window that listed it (which did not show it).
     struct TookHome {
         var home: String
         var from: String?
-        var wasShownThere: Bool
     }
 
     /// Whether `window` can take Home: a normal window (Home never enters an incognito one, whose close discards its
     /// workspaces), and Home is in no window, already in `window`, or in a window that keeps another workspace and does
-    /// not show Home now (a person looking at Home there keeps it).
+    /// not show Home now (a person looking at Home there keeps it), or in a window the person closed.
     private static func canTake(_ home: String, into window: String, _ windows: WindowManager) -> Bool {
         let registry = windows.registry.value
         guard !registry.isIncognito(window), !registry.crossesIncognito([home], to: window) else { return false }
-        guard let owner = registry.owner(of: home), owner != window else { return true }
+        guard let owner = registry.owner(of: home), owner != window, registry.window(owner)?.isOpen == true else { return true }
         let shownThere = windows.controller(for: owner)?.state.workspaceID == home
         return !shownThere && windows.registry.members(of: owner).contains { $0 != home }
     }
 
-    /// A cancelled close (`WorkspaceCloseFlow`'s restore): Home goes back to the open window it came from, selected
-    /// there if it was shown; with no such window it stays.
+    /// A cancelled or refused close: Home goes back to the open window it came from, unless this window would be left
+    /// with nothing else (then it stays, so this window stays open); with no such window it stays.
     static func giveBack(_ took: TookHome, from state: WindowState, windows: WindowManager) {
-        guard let from = took.from, from != state.id, windows.registry.value.window(from)?.isOpen == true,
-              let target = windows.controller(for: from), windows.registry.value.owner(of: took.home) == state.id else { return }
-        windows.claim(workspaceID: took.home, in: target.state, select: took.wasShownThere)
+        let registry = windows.registry.value
+        guard let from = took.from, from != state.id, registry.window(from)?.isOpen == true, let target = windows.controller(for: from),
+              registry.owner(of: took.home) == state.id,
+              windows.registry.members(of: state.id).contains(where: { $0 != took.home && !ClosingWorkspaces.shared.ids.contains($0) })
+        else { return }
+        windows.claim(workspaceID: took.home, in: target.state, select: false)
     }
 }

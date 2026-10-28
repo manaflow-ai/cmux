@@ -36,7 +36,8 @@ import Foundation
 public nonisolated final class BurstTrace: Sendable {
     /// What a mark records.
     public enum Kind: String, Sendable {
-        /// A refusal the person saw (the refusal HUD).
+        /// A press refused: one the person saw (the refusal HUD), or a held key's repeat stopped at a boundary it never
+        /// crosses (a held Cmd-W at the last tab of a workspace).
         case refusal
         /// A person's Cmd-W that closed nothing and showed nothing. No build emits it since a Cmd-W is
         /// aimed at the pane on screen when it was pressed (`PaneCloseAim`: a press aimed at an emptied
