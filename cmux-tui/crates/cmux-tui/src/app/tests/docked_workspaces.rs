@@ -48,13 +48,15 @@ fn docking_the_active_workspace_draws_it_on_its_edge_beside_the_stage() {
     app.sync_layout((100, 31));
 
     let content = app.content_area;
+    // The default extent is 300 permille of the frame.
+    let width = ((u32::from(content.width) * 300 + 500) / 1000) as u16;
     let dock = pane_rect(&app, workspace_pane(&app, "work")).expect("the dock draws its pane");
     let stage = pane_rect(&app, workspace_pane(&app, "stage")).expect("the stage draws its pane");
     assert_eq!(
         (dock.x, dock.y, dock.width, dock.height),
-        (content.x, content.y, 30, content.height)
+        (content.x, content.y, width, content.height)
     );
-    assert_eq!((stage.x, stage.width), (content.x + 30, content.width - 30));
+    assert_eq!((stage.x, stage.width), (content.x + width, content.width - width));
     // Focus stays in the docked workspace (W4); the stage shows the other one (W2).
     assert_eq!(app.tree.active_workspace, workspace_index(&app, "work"));
     assert_eq!(app.stage_screen_id(), stage_screen_of_workspace(&app, "stage"));
@@ -155,7 +157,7 @@ fn the_dock_record_survives_a_new_client() {
     assert_eq!(stored.projection["dock_orientation"], "row_major");
 
     // A restarted client with the same id reads the same frame.
-    let mut restarted = test_app(Session::Local(mux.clone()));
+    let mut restarted = test_app(Session::Local(mux));
     restarted.sidebar_visible = false;
     restarted.config.viewport.docked_workspaces = true;
     restarted.client_focus_id = Some("client-docked-persist".to_string());
