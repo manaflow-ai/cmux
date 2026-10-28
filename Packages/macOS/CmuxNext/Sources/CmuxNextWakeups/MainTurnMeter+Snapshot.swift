@@ -34,6 +34,25 @@ extension MainTurnMeter {
         /// The slots of the turns with the most unattributed time, in no order (empty slots are
         /// zero); ``longestUnattributed`` sorts them.
         public var topUnattributed = [TopTurn](repeating: TopTurn(), count: MainTurnMeter.topCount)
+        /// The turns that ran the budgeted scheduler's display tick (``TurnKind/tick``), and how many
+        /// of them ran a budgeted task too: the in-tick placement's batch, zero after commit.
+        public var tickTurns = KindTurns()
+        public var tickTurnsWithBudgetedTasks = 0
+        /// The after-commit placement's budget turns (``TurnKind/budget``).
+        public var budgetTurns = KindTurns()
+
+        /// One kind's turns: how many, the longest, and per bucket of ``bucketEdges``.
+        public nonisolated struct KindTurns: Sendable, Equatable {
+            public var count = 0
+            public var maxNanos: UInt64 = 0
+            public var buckets = [UInt32](repeating: 0, count: Snapshot.bucketEdges.count + 1)
+
+            mutating func record(_ nanos: UInt64, bucket: Int) {
+                count += 1
+                maxNanos = max(maxNanos, nanos)
+                buckets[bucket] &+= 1
+            }
+        }
 
         /// The buckets' upper edges in nanoseconds: 4 ms (the turn target) and 16.7 ms (a 60 Hz frame)
         /// are edges, so the share of turns under each is exact.

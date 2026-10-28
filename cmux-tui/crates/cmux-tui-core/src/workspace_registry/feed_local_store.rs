@@ -133,9 +133,9 @@ fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 /// the cloud owner's item id shape (`fi_` plus 20 of `[a-z0-9]`), because
 /// `feed.adopt` keeps the id and FeedDO refuses any other shape.
 pub(crate) fn feed_item_id(notification: &NotificationPublicId) -> String {
-    let digest = Sha256::digest(format!("cmux-feed-item:{}", notification.as_str()));
-    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("fi_{}", &hex[..20])
+    let digest: [u8; 32] =
+        Sha256::digest(format!("cmux-feed-item:{}", notification.as_str())).into();
+    format!("fi_{}", hex_bytes(&digest[..10]))
 }
 
 /// `notify:<daemon session>:<public notification id>` (section 9.1 item 3).

@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextAppearance
 
 extension ModuleResourceBundle {
     /// This module's string table (Localizable.xcstrings). Use it instead of

@@ -217,7 +217,7 @@ private nonisolated final class Invocation: Sendable {
         // The group exists now, so a stop reaches git and cmux children too.
         guard let stdin else { return }
         do {
-            try stdin.write(contentsOf: request)
+            try stdin.blockingWrite(contentsOf: request)
             try stdin.close()
         } catch {
             fail(.startFailed)

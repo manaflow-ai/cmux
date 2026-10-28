@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextActions
 public import CmuxNextBrowserImport
+public import CmuxNextWakeups
 
 /// What the App supplies to ``CookieImportService``: who asked, the target
 /// profile, the window to ask in, and where the cookies go.
@@ -17,6 +18,8 @@ public struct CookieImportHost {
     public var track: @MainActor (ActionWork) -> Void
     /// Where the cookies go (the target profile's Chromium cookie jar).
     public var destination: any CookieDestination
+    /// The app's one deadline placer: the consent panel's limit, and through its `work` the run's main-thread steps.
+    public var deadlines: MainDeadlineScheduler
 
     /// Creates the host.
     ///
@@ -27,15 +30,18 @@ public struct CookieImportHost {
     ///   - reveal: Reveals a tab by id.
     ///   - track: Reports the import task to a capturing caller.
     ///   - destination: Where the cookies go.
+    ///   - deadlines: The app's one deadline placer.
     public init(requester: @escaping @MainActor (ActionInvocation) -> CookieImportRequester,
                 target: @escaping @MainActor (ActionInvocation) -> (id: String, name: String),
                 window: @escaping @MainActor () -> NSWindow?, reveal: @escaping @MainActor (String) -> Void,
-                track: @escaping @MainActor (ActionWork) -> Void, destination: any CookieDestination) {
+                track: @escaping @MainActor (ActionWork) -> Void, destination: any CookieDestination,
+                deadlines: MainDeadlineScheduler) {
         self.requester = requester
         self.target = target
         self.window = window
         self.reveal = reveal
         self.track = track
         self.destination = destination
+        self.deadlines = deadlines
     }
 }

@@ -140,6 +140,7 @@ public actor ImportHistorySync {
     /// A write arrived: one read `delay` later, however many writes follow.
     private func changed(_ key: String) {
         guard watches[key] != nil else { return }
+        // timer-class-allow: off-main: the debounce fires into this actor (ImportHistorySync) and never wakes the main thread
         let timer = timers[key] ?? DemandTimer(owner: "ImportHistorySync")
         timers[key] = timer
         timer.scheduleIfIdle(after: delay) { [weak self] in await self?.refresh(key) }
@@ -192,7 +193,7 @@ final class HistoryFileWatch: Sendable {
             var info = stat()
             // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; stat writes one
             // `stat` into the local `info`, which outlives it.
-            guard unsafe stat(path, &info) == 0 else { return [-1, -1, -1] }
+            guard unsafe blockingStat(path, &info) == 0 else { return [-1, -1, -1] }
             return [info.st_size, Int64(truncatingIfNeeded: info.st_mtimespec.tv_sec), Int64(truncatingIfNeeded: info.st_mtimespec.tv_nsec)]
         }
     }

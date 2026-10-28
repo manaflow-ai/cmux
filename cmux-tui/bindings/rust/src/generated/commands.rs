@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd.
+// cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -4528,6 +4528,24 @@ pub struct SetSplitRatioRequest {
 pub type SetSplitRatioResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetStreamPriorityRequestPriority {
+    #[serde(rename = "focused")]
+    Focused,
+    #[serde(rename = "visible")]
+    Visible,
+    #[serde(rename = "hidden")]
+    Hidden,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetStreamPriorityRequest {
+    pub priority: SetStreamPriorityRequestPriority,
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTabPinnedRequest {
     pub pinned: bool,
@@ -6868,6 +6886,10 @@ impl CmuxClient {
             self.require_capability_field("set-split-ratio", "layout-undo-v1")?;
         }
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
+    }
+
+    pub fn set_stream_priority(&mut self, request: SetStreamPriorityRequest) -> Result<T::SetStreamPriorityResult> {
+        self.execute(&SET_STREAM_PRIORITY_METADATA, &request)
     }
 
     pub fn set_tab_pinned(&mut self, request: SetTabPinnedRequest) -> Result<SetTabPinnedResult> {

@@ -7,6 +7,7 @@
 // main thread. Read from the real stylesheets and the real components in Chromium and WebKit; the
 // shimmer still moves, the label still reads once, and Reduce Motion stops every loop.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -30,7 +31,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
   const markup = renderToStaticMarkup(
     <div>
       <div id="thinking">
-        <Thinking since={START} now={() => START + 18_000} below />
+        <Thinking since={START} clock={fixedPageClock(START + 18_000)} below />
       </div>
       <span id="ring">
         <Spinner loading />

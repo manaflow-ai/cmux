@@ -15,8 +15,8 @@
 //! view detaches. With no policy-bearing terminal it blocks indefinitely
 //! (it used to tick every 15 s whether or not any policy existed).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::thread::JoinHandle;
 
 use cmux_threads::checked;
 
@@ -261,7 +261,7 @@ pub(crate) enum ReaperMessage {
 /// the handle wakes it without joining.
 pub struct IdleTerminalReaper {
     stop: Option<mpsc::Sender<ReaperMessage>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<SupervisedThread<()>>,
 }
 
 impl IdleTerminalReaper {
@@ -270,7 +270,7 @@ impl IdleTerminalReaper {
             let _ = stop.send(ReaperMessage::Stop);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = checked::sync::join(thread);
+            let _ = thread.join();
         }
     }
 }
@@ -299,10 +299,11 @@ pub fn start_idle_terminal_reaper(
             let _ = waker.send(ReaperMessage::Wake);
         });
     }
-    let thread = crate::thread_qos::spawn_raisable(
+    let thread = supervised::spawn_raisable(
         "mux-idle-close",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             loop {
                 let Some(owner) = mux.upgrade() else { break };

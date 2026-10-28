@@ -233,7 +233,7 @@ extension TraceBlackBox {
         private static func bootSessionUUID() -> [UInt8] {
             var buffer = [CChar](repeating: 0, count: 64)
             var length = buffer.count
-            guard sysctlbyname("kern.bootsessionuuid", &buffer, &length, nil, 0) == 0 else { return [] }
+            guard blockingSysctlByName("kern.bootsessionuuid", &buffer, &length, nil, 0) == 0 else { return [] }
             var bytes: [UInt8] = []
             var high: UInt8?
             for character in buffer.prefix(while: { $0 != 0 }) where character != CChar(UInt8(ascii: "-")) {

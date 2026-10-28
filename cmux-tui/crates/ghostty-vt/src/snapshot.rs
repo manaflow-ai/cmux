@@ -50,44 +50,53 @@ pub struct SnapshotRecord<'a> {
     pub tag: u16,
     /// Header and payload, exactly as encoded (CRC intact).
     pub bytes: &'a [u8],
+    /// `bytes` after the record header.
+    payload: &'a [u8],
 }
 
-impl SnapshotRecord<'_> {
-    pub fn payload(&self) -> &[u8] {
-        &self.bytes[SNAPSHOT_RECORD_HEADER_LEN..]
+impl<'a> SnapshotRecord<'a> {
+    pub fn payload(&self) -> &'a [u8] {
+        self.payload
     }
 }
 
 /// Iterate the records of a snapshot (after the envelope). Stops at the first
 /// incomplete record, so a READY prefix iterates through READY.
 pub fn snapshot_records(snapshot: &[u8]) -> impl Iterator<Item = SnapshotRecord<'_>> {
-    let mut at = if snapshot.len() >= SNAPSHOT_ENVELOPE_LEN { SNAPSHOT_ENVELOPE_LEN } else { 0 };
-    let valid = snapshot.len() >= SNAPSHOT_ENVELOPE_LEN && &snapshot[..8] == SNAPSHOT_MAGIC;
+    let valid = snapshot_envelope_version(snapshot).is_some();
+    let mut at = SNAPSHOT_ENVELOPE_LEN;
     std::iter::from_fn(move || {
         if !valid {
             return None;
         }
-        let end = record_end(snapshot, at)?;
-        let record = SnapshotRecord {
-            tag: u16::from_le_bytes([snapshot[at], snapshot[at + 1]]),
-            bytes: &snapshot[at..end],
-        };
+        let (record, end) = record_at(snapshot, at)?;
         at = end;
         Some(record)
     })
 }
 
-fn record_end(bytes: &[u8], at: usize) -> Option<usize> {
-    let header = bytes.get(at..at.checked_add(SNAPSHOT_RECORD_HEADER_LEN)?)?;
-    let payload_len = u32::from_le_bytes([header[2], header[3], header[4], header[5]]) as usize;
-    let end = at.checked_add(SNAPSHOT_RECORD_HEADER_LEN)?.checked_add(payload_len)?;
-    (end <= bytes.len()).then_some(end)
+/// The complete record that starts at `at`, and the offset just past it;
+/// `None` when the header or the payload it declares is cut off.
+fn record_at(bytes: &[u8], at: usize) -> Option<(SnapshotRecord<'_>, usize)> {
+    let rest = bytes.get(at..)?;
+    let (header, after_header) = rest.split_first_chunk::<SNAPSHOT_RECORD_HEADER_LEN>()?;
+    let [tag0, tag1, len0, len1, len2, len3, ..] = *header;
+    let payload_len = usize::try_from(u32::from_le_bytes([len0, len1, len2, len3])).ok()?;
+    let payload = after_header.get(..payload_len)?;
+    let record_len = SNAPSHOT_RECORD_HEADER_LEN.checked_add(payload_len)?;
+    let record = SnapshotRecord {
+        tag: u16::from_le_bytes([tag0, tag1]),
+        bytes: rest.get(..record_len)?,
+        payload,
+    };
+    Some((record, at.checked_add(record_len)?))
 }
 
 /// The format version in a snapshot envelope.
 pub fn snapshot_envelope_version(snapshot: &[u8]) -> Option<u16> {
-    (snapshot.len() >= SNAPSHOT_ENVELOPE_LEN && &snapshot[..8] == SNAPSHOT_MAGIC)
-        .then(|| u16::from_le_bytes([snapshot[8], snapshot[9]]))
+    let (envelope, _) = snapshot.split_first_chunk::<SNAPSHOT_ENVELOPE_LEN>()?;
+    let [magic @ .., version0, version1] = envelope;
+    (magic == SNAPSHOT_MAGIC).then(|| u16::from_le_bytes([*version0, *version1]))
 }
 
 /// Byte length of the READY prefix of a snapshot (envelope through READY).
@@ -118,10 +127,15 @@ pub fn snapshot_digest_input(ready: &[u8]) -> Vec<u8> {
         let payload = record.payload();
         out.extend_from_slice(&record.tag.to_le_bytes());
         out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-        let start = out.len();
-        out.extend_from_slice(payload);
-        if record.tag == tag::SCREEN && payload.len() >= 12 {
-            out[start + 4..start + 12].fill(0);
+        if record.tag == tag::SCREEN
+            && let Some((head, rest)) = payload.split_first_chunk::<4>()
+            && let Some((_history_extent, tail)) = rest.split_first_chunk::<8>()
+        {
+            out.extend_from_slice(head);
+            out.extend_from_slice(&[0; 8]);
+            out.extend_from_slice(tail);
+        } else {
+            out.extend_from_slice(payload);
         }
     }
     out
@@ -161,10 +175,8 @@ impl SnapshotSink {
             self.scanned = SNAPSHOT_ENVELOPE_LEN;
         }
         while self.ready_end.is_none() {
-            let Some(end) = record_end(&self.bytes, self.scanned) else { return };
-            if u16::from_le_bytes([self.bytes[self.scanned], self.bytes[self.scanned + 1]])
-                == tag::READY
-            {
+            let Some((record, end)) = record_at(&self.bytes, self.scanned) else { return };
+            if record.tag == tag::READY {
                 self.ready_end = Some(end);
             }
             self.scanned = end;
@@ -296,17 +308,18 @@ pub fn primary_history_pages(complete: &[u8]) -> Result<Vec<SnapshotHistoryPage>
     // The primary screen's HISTORY record comes first (TERMINAL declares the
     // primary screen first); stop at the next HISTORY or FINISH.
     let Some(history) = records.next() else { return Err(Error::InvalidValue) };
-    if history.tag != tag::HISTORY || history.payload().len() < 6 {
+    let (tag::HISTORY, &[_, _, count0, count1, count2, count3, ..]) =
+        (history.tag, history.payload())
+    else {
         return Err(Error::InvalidValue);
-    }
-    let payload = history.payload();
-    let page_count = u32::from_le_bytes([payload[2], payload[3], payload[4], payload[5]]) as usize;
+    };
+    let page_count = u32::from_le_bytes([count0, count1, count2, count3]);
     for _ in 0..page_count {
         let Some(page) = records.next() else { return Err(Error::InvalidValue) };
-        if page.tag != tag::PAGE || page.payload().len() < 4 {
+        let (tag::PAGE, &[_, _, rows0, rows1, ..]) = (page.tag, page.payload()) else {
             return Err(Error::InvalidValue);
-        }
-        let rows = u16::from_le_bytes([page.payload()[2], page.payload()[3]]);
+        };
+        let rows = u16::from_le_bytes([rows0, rows1]);
         pages.push((page.bytes.to_vec(), rows));
     }
     let total: u64 = pages.iter().map(|(_, rows)| u64::from(*rows)).sum();

@@ -3,7 +3,7 @@
   "name": "memoryFreezeEligibility",
   "owner": "PL-memory",
   "description": "A hidden page does not freeze while its site may show notifications, it holds a Web Lock or an open IndexedDB connection, or it still loads, and an opener and the pages it opened freeze only together (Chrome's freezing policy).",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

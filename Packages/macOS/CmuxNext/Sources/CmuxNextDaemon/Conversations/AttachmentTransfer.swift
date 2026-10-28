@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Foundation
+import CmuxNextCompat
 
 /// Attachment bytes over one daemon connection: a chunked upload by SHA-256
 /// and a chunked read into a local file. The local owner
@@ -49,14 +50,14 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
             let total = max(1, pieces.reduce(0) { $0 + $1.size })
             var sent = 0
             for piece in pieces {
-                let handle = try FileHandle(forReadingFrom: piece.url)
+                let handle = try FileHandle.blockingForReading(from: piece.url)
                 defer { try? handle.close() }
                 var offset = 0
                 // Ends at the declared size; a file shorter than declared ends at its EOF
                 // and the commit refuses it (`incomplete`).
                 while offset < piece.size {
                     try Task.checkCancellation()
-                    let bytes = try handle.read(upToCount: min(ConversationClient.attachmentChunkBytes, piece.size - offset)) ?? Data()
+                    let bytes = try handle.blockingRead(upToCount: min(ConversationClient.attachmentChunkBytes, piece.size - offset)) ?? Data()
                     guard !bytes.isEmpty else { break }
                     _ = try await connection.request(Upload(step: .chunk(upload: upload, piece: piece.variant, offset: offset, bytes: bytes)),
                                                      timeout: chunkTimeout)
