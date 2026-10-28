@@ -198,9 +198,13 @@ test("a send in a chat whose machine dropped since it was listed is refused once
   expect((prompts[1]!.params._meta as any).acpmux.promptId).toBe((prompts[0]!.params._meta as any).acpmux.promptId);
 });
 
-test("a pick's reconnect and the send behind it reconnect the machine once at a time", async () => {
+test("a pick's reconnect and the sends behind it reconnect the machine once at a time", async () => {
   const { client: pane, asked } = await client("offline");
-  await Promise.all([pane.reconnectPeer("gpu-box"), pane.startSession("claude", "/home/dev/project", "gpu-box")]);
+  await Promise.all([
+    pane.reconnectPeer("gpu-box"),
+    pane.startSession("claude", "/home/dev/project", "gpu-box"),
+    pane.startSession("claude", "/home/dev/other", "gpu-box"),
+  ]);
   const reconnects = asked.filter((message) => message.method === "_acpmux/peer_reconnect");
   expect(reconnects).toHaveLength(1);
   expect(asked.map((message) => message.method)).toContain("session/new");
