@@ -171,7 +171,9 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
             return None;
         }
     };
-    tracing::info!("mesh relay: on, through {}", config.url.trim());
+    // The origin only (no user, password or query is accepted in the URL).
+    let shown = config.origin().unwrap_or_default();
+    tracing::info!("mesh relay: on, through {shown}");
     let control = Arc::new(crate::mesh::RefuseControl);
     Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
 }

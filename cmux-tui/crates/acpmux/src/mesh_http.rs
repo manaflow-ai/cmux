@@ -37,15 +37,25 @@ impl MeshRelayConfig {
         if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
             return Err("meshRelay.url must be https (http only on a loopback address)".into());
         }
+        // Nothing secret may ride in the URL: it is logged, and the token goes in a header.
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err("meshRelay.url must carry no user or password".into());
+        }
+        if url.query().is_some() || url.fragment().is_some() {
+            return Err("meshRelay.url must carry no query or fragment".into());
+        }
         if self.token_command.first().is_none_or(|p| p.trim().is_empty()) {
             return Err("meshRelay.tokenCommand names no program".into());
         }
-        Ok(self.url.trim().trim_end_matches('/').to_owned())
+        let path = url.path().trim_end_matches('/');
+        Ok(format!("{}{path}", url.origin().ascii_serialization()))
     }
 }
 
 /// The longest wait for the token command.
 const TOKEN_COMMAND_WAIT: Duration = Duration::from_secs(30);
+/// The most the token command may print; past it, it is stopped and its output dropped.
+const MAX_TOKEN_OUTPUT: usize = 64 << 10;
 /// The largest hub answer read.
 const MAX_ANSWER_BYTES: usize = 4 << 20;
 
@@ -103,23 +113,49 @@ impl HttpHub {
         }
         let (program, args) =
             self.command.split_first().ok_or_else(|| HubError::refused("no token command"))?;
-        let run = tokio::process::Command::new(program)
+        let mut child = tokio::process::Command::new(program)
             .args(args)
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
-            .output();
-        let out = tokio::time::timeout(TOKEN_COMMAND_WAIT, run)
+            .spawn()
+            .map_err(|e| HubError::unavailable(format!("cannot run the token command: {e}")))?;
+        let mut pipe = child
+            .stdout
+            .take()
+            .ok_or_else(|| HubError::unavailable("the token command has no stdout"))?;
+        // Read into one buffer that never grows (no copy left behind) and is wiped on drop; the
+        // child is killed when this is dropped (a timeout, too much output).
+        let run = async move {
+            use tokio::io::AsyncReadExt;
+            let mut out = Zeroizing::new(vec![0u8; MAX_TOKEN_OUTPUT + 1]);
+            let mut len = 0;
+            loop {
+                let n = pipe.read(&mut out[len..]).await?;
+                if n == 0 {
+                    break;
+                }
+                len += n;
+                if len > MAX_TOKEN_OUTPUT {
+                    return Ok((out, len, None));
+                }
+            }
+            let status = child.wait().await?;
+            Ok::<_, std::io::Error>((out, len, Some(status)))
+        };
+        let (out, len, status) = tokio::time::timeout(TOKEN_COMMAND_WAIT, run)
             .await
             .map_err(|_| HubError::unavailable("the token command did not answer in 30 s"))?
-            .map_err(|e| HubError::unavailable(format!("cannot run the token command: {e}")))?;
-        let stdout = Zeroizing::new(String::from_utf8_lossy(&out.stdout).into_owned());
-        if !out.status.success() {
-            return Err(HubError::unavailable(format!(
-                "the token command failed ({})",
-                out.status
-            )));
+            .map_err(|e| HubError::unavailable(format!("the token command: {e}")))?;
+        let Some(status) = status else {
+            return Err(HubError::unavailable("the token command printed too much"));
+        };
+        if !status.success() {
+            return Err(HubError::unavailable(format!("the token command failed ({status})")));
         }
+        let stdout = std::str::from_utf8(&out[..len])
+            .map_err(|_| HubError::unavailable("the token command printed no text"))?;
         let token = parse_token(&stdout).map_err(HubError::unavailable)?;
         *held = Some((token.0.clone(), token.1));
         Ok(token.0)
@@ -174,12 +210,17 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
     if (200..300).contains(&status) {
         return Ok(body);
     }
-    let code = body.get("code").and_then(Value::as_str).map(str::to_owned);
-    let said = body.get("message").and_then(Value::as_str).unwrap_or("");
+    // Only the status and a well-formed code: the hub's free text (or a proxy's) could reflect
+    // the request, token included, and errors are logged.
+    let code = body
+        .get("code")
+        .and_then(Value::as_str)
+        .filter(|c| {
+            c.len() <= 64 && c.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        })
+        .map(str::to_owned);
     let mut error = HubError::refused(
-        format!("the hub answered {status} {} {said}", code.as_deref().unwrap_or(""))
-            .trim()
-            .to_owned(),
+        format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
     );
     error.refused = !(status == 408 || status == 429 || status >= 500);
     error.retry_after =
@@ -267,6 +308,33 @@ mod tests {
         assert!(config("http://hub.example.com", &["mint"]).origin().is_err());
         assert!(config(hub, &[]).origin().is_err());
         assert!(config("not a url", &["mint"]).origin().is_err());
+        assert!(config("https://user:secret@hub.example.com", &["mint"]).origin().is_err());
+        assert!(config("https://hub.example.com/?access_token=abc", &["mint"]).origin().is_err());
+        assert!(config("https://hub.example.com/#t", &["mint"]).origin().is_err());
+        assert_eq!(
+            config("https://hub.example.com/mesh/", &["mint"]).origin().unwrap(),
+            "https://hub.example.com/mesh"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_token_command_that_prints_without_end_is_stopped_not_buffered() {
+        let config = MeshRelayConfig {
+            url: "http://127.0.0.1:9".into(),
+            token_command: ["sh", "-c", "yes"].map(str::to_owned).to_vec(),
+        };
+        let hub = HttpHub::new(&config).unwrap();
+        let e = hub.token(true).await.unwrap_err();
+        assert!(e.to_string().contains("too much"), "{e}");
+    }
+
+    #[test]
+    fn a_hub_error_logs_no_free_text_from_the_answer() {
+        let e = answer(400, br#"{"code": "mesh.bad", "message": "Bearer abc.def"}"#).unwrap_err();
+        assert!(!e.to_string().contains("abc.def"), "{e}");
+        assert_eq!(e.code.as_deref(), Some("mesh.bad"));
+        let e = answer(400, br#"{"code": "Bearer abc.def ghi"}"#).unwrap_err();
+        assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
     }
 
     #[test]
