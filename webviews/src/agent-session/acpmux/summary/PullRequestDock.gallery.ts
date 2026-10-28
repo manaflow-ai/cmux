@@ -21,7 +21,7 @@ const merge = (number: number) =>
 const inspector = { "pane.tabState": { inspector: true } };
 /// Session Info opens only on the viewer's click (#26692): the play opens it to show its Changes.
 const openSessionInfo: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Session Info" });
+  if (!ctx.document.querySelector(".acpmux-chat-inspector")) await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"));
 };
 

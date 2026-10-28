@@ -193,7 +193,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
   let peeked: { key: string; raw: string | null; state: State | undefined } | undefined;
   const listeners = new Set<() => void>();
   const current = (): State => (state ??= defaults());
-  /// What the pane shows, closed: a new chat's state when the pane leaves another chat. The same
+  /// What the pane shows, closed: a new chat's state when the pane leaves another chat's session. The same
   /// object while the pane's state is, so a snapshot read twice is equal.
   let closedOf: { from: State; to: State } | undefined;
   const closed = (): State => {
@@ -212,12 +212,12 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     current,
     /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
     /// switched to another chat draws that chat's state from its first frame: the chat's saved
-    /// state, else, for a chat with none, what the pane shows now closed (a new chat never opens
-    /// the Inspector by itself). A pane with no chat yet getting its first session is the same chat:
-    /// it keeps what it shows (the viewer may have opened it before the first prompt).
+    /// state, else, for a chat with none that replaces another chat's session, what the pane shows
+    /// now closed (a new chat never opens the Inspector by itself). No session (a new chat before its
+    /// first, a harness switch on an empty chat) and a pane with no session getting its first are
+    /// the same chat: it keeps what it shows (the viewer may have opened it before the first prompt).
     shownFor(sessionId: string | undefined): State {
-      if (!sessionId) return pane ? closed() : current();
-      if (sessionId === pane) return current();
+      if (!sessionId || sessionId === pane) return current();
       const key = INSPECTOR_PANE_PREFIX + sessionId;
       const raw = read(key);
       if (peeked?.key !== key || peeked.raw !== raw) peeked = { key, raw, state: storedState(raw) };
@@ -229,16 +229,17 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     },
     /// The pane shows chat `sessionId` (a relaunch, a new chat's first session, another chat in the
     /// pane): it shows that chat's saved state, or saves what it shows as the chat's, closed when the
-    /// pane left another chat for it. No session (a new chat not started yet, a harness switch):
-    /// nothing is saved until one comes, and a pane that left a chat shows the new one closed.
+    /// pane went straight from another chat's session to it. No session (a new chat not started yet,
+    /// a harness switch): nothing is saved until one comes, and the pane keeps what it shows.
     bind(sessionId: string | undefined) {
       if (sessionId === pane) return;
       const left = pane !== undefined;
       pane = sessionId || undefined;
-      const saved = pane ? storedState(read(INSPECTOR_PANE_PREFIX + pane)) : undefined;
+      if (!pane) return;
+      const saved = storedState(read(INSPECTOR_PANE_PREFIX + pane));
       if (saved) return update(saved, false);
       if (left) update(closed(), false);
-      if (pane) save(pane, current());
+      save(pane, current());
     },
     setOpen(open: boolean) {
       write(OPEN_KEY, open ? "1" : "0");

@@ -87,14 +87,20 @@ test("a new chat never opens Session Info by itself, whatever another chat or an
   expect(store.shownFor("chat-b").open).toBe(false);
   store.bind("chat-b");
   expect(store.current().open).toBe(false);
-  // A new chat with no session yet (a harness switch) too.
-  store.bind("chat-a");
-  expect(store.current().open).toBe(true);
-  expect(store.shownFor(undefined).open).toBe(false);
-  store.bind(undefined);
-  expect(store.current().open).toBe(false);
   // Chat A was left open by the viewer: it shows open again.
   expect(store.shownFor("chat-a").open).toBe(true);
+  store.bind("chat-a");
+  expect(store.current().open).toBe(true);
+
+  // The viewer's own open survives a harness switch on an empty new chat (no session for a moment,
+  // then the new harness's): it is the same chat to them.
+  store.bind("chat-empty");
+  store.setOpen(true);
+  store.bind("");
+  expect(store.current().open).toBe(true);
+  expect(store.shownFor("chat-switched").open).toBe(true);
+  store.bind("chat-switched");
+  expect(store.current().open).toBe(true);
 });
 
 test("after a relaunch each pane shows its own state again", async () => {
@@ -178,15 +184,14 @@ test("with no session the pane saves nothing until one comes, then saves under i
   const { createInspectorStore } = await page("unbound");
   const store = createInspectorStore(() => localStorage);
   store.bind("chat-a");
-  store.setOpen(true);
   // A harness switch shows a new chat with no session yet: the last chat is no longer the pane's.
   store.bind(undefined);
-  // The viewer opens it before the new chat's first prompt; chat A keeps its own.
+  // The viewer opens it before the new chat's first prompt; chat A keeps its own (closed).
   store.setOpen(true);
   store.setWidth(400);
   const relaunched = createInspectorStore(() => localStorage);
   relaunched.bind("chat-a");
-  expect(relaunched.current()).toMatchObject({ open: true, width: 320 });
+  expect(relaunched.current()).toMatchObject({ open: false, width: 320 });
   // The new chat's session arrives: what the pane shows is saved as that chat's.
   expect(store.shownFor("chat-new").open).toBe(true);
   store.bind("chat-new");
