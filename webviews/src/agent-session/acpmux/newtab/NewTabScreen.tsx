@@ -1475,7 +1475,11 @@ export function NewTabScreen(props: Props) {
           pickMachine(id === "local" ? undefined : { peer: id });
         },
         onReconnect: (id) => props.onReconnectMachine?.(id),
-        onCloudMachine: (cloudMachine) => void runCloudMachine(cloudMachine),
+        // A Cloud machine is a machine too: Persistent again, as the picker's Cloud rows do.
+        onCloudMachine: (cloudMachine) => {
+          if (props.runMode?.mode === "sandboxed") props.runMode.onMode("persistent");
+          void runCloudMachine(cloudMachine);
+        },
         ...(props.onConnect ? { onAddMachine: () => props.onConnect!("addMachine") } : {}),
       }}
     />

@@ -72,10 +72,11 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTest([]);
 });
 
 afterAll(() => {
@@ -502,6 +503,15 @@ test("a machine's button under Sandboxed goes back to Persistent", async () => {
   // Sandboxed runs on a VM of its own: no machine reads pressed.
   expect(host.querySelector('.nt-machine[aria-pressed="true"]')).toBeNull();
   await click(machineButton("cloud-1"));
+  expect(modes).toEqual(["persistent"]);
+});
+
+test("an account Cloud machine's button under Sandboxed goes back to Persistent too", async () => {
+  const modes: string[] = [];
+  await mount({ machines: true, runMode: { mode: "sandboxed", onMode: (mode) => modes.push(mode) } });
+  const { setCloudMachinesForTest } = await import("../src/agent-session/acpmux/cloudMachines");
+  await act(async () => setCloudMachinesForTest([{ id: "m-1", name: "atlas-web", stage: "paused" }]));
+  await click(machineButton("cloud-machine:m-1"));
   expect(modes).toEqual(["persistent"]);
 });
 
