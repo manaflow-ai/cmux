@@ -84,11 +84,11 @@ STUB
   : > "$TMP/dsym-src/Chromium Embedded Framework.dSYM/Contents/Resources/DWARF/Chromium Embedded Framework"
   tar -cf "$dist/fw.dSYM.tar" -C "$TMP/dsym-src" .
   with_dsym='{"chromium": "1.0", "debug_symbols": "fw.dSYM.tar"}'
-  embed() { # <case> <configuration> <manifest JSON> [OTHER_SWIFT_FLAGS]
+  embed() { # <case> <configuration> <manifest JSON> [OTHER_SWIFT_FLAGS] [VAR=value...]
     printf '%s\n' "$3" > "$TMP/scripts/cef-manifest.json"
     env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" ARCHS=arm64 TARGET_BUILD_DIR="$TMP/$1/Products/$2" \
       WRAPPER_NAME=app.app PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/$1/derived" \
-      CONFIGURATION="$2" OTHER_SWIFT_FLAGS="${4:-}" CMUX_NEXT_SKIP_UBLOCK=1 \
+      CONFIGURATION="$2" OTHER_SWIFT_FLAGS="${4:-}" CMUX_NEXT_SKIP_UBLOCK=1 "${@:5}" \
       /bin/bash "$TMP/scripts/embed-cef.sh" > "$TMP/$1.log" 2>&1 ||
       { printf 'embed-cef.sh failed (%s):\n' "$1" >&2; cat "$TMP/$1.log" >&2; exit 1; }
   }
@@ -110,6 +110,11 @@ STUB
   expect_framework release Release stripped
   embed bench Release "$with_dsym" '-O -DCMUX_BENCH_HOOKS'
   expect_framework bench Release kept
+  # A sanitizer build (reload.sh --config asan|tsan|ubsan) keeps symbols for its reports.
+  for sanitizer in ENABLE_ADDRESS_SANITIZER ENABLE_THREAD_SANITIZER ENABLE_UNDEFINED_BEHAVIOR_SANITIZER; do
+    embed "$sanitizer" Release "$with_dsym" '' "$sanitizer=YES"
+    expect_framework "$sanitizer" Release kept
+  done
   embed nodsym Release '{"chromium": "1.0"}'
   expect_framework nodsym Release kept
   # An unstripped embed from an earlier build is redone, not reused from the stamp.

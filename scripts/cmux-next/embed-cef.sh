@@ -260,13 +260,17 @@ print(value if isinstance(value, str) else "")' "$SCRIPT_DIR/cef-manifest.json" 
 }
 rm -rf "$cef_dsyms"
 # Whether step 2 strips the framework binary's local symbols: a Release build
-# (not a bench build, whose local dump report names Chromium frames with atos
-# on the framework itself) that kept the dSYM of every slice it embeds.
+# that kept the dSYM of every slice it embeds, except a bench build (its local
+# dump report names Chromium frames with atos on the framework itself) and a
+# sanitizer build (reload.sh --config asan|tsan|ubsan keeps symbols for its
+# reports, and the sanitizer symbolizer does not search CEF-dSYMs).
 strip_framework=0
 if [[ "${CONFIGURATION:-}" == "Release" ]]; then
   if [[ -n "$arm_dir" ]]; then keep_cef_dsym arm64 "$arm_dir" debug_symbols; fi
   if [[ -n "$x86_dir" ]]; then keep_cef_dsym x86_64 "$x86_dir" x86_64.debug_symbols; fi
   if [[ " ${OTHER_SWIFT_FLAGS:-} " != *" -DCMUX_BENCH_HOOKS "* ]] &&
+    [[ "${ENABLE_ADDRESS_SANITIZER:-NO}" != YES && "${ENABLE_THREAD_SANITIZER:-NO}" != YES &&
+      "${ENABLE_UNDEFINED_BEHAVIOR_SANITIZER:-NO}" != YES ]] &&
     { [[ -z "$arm_dir" ]] || [[ -d "$cef_dsyms/arm64" ]]; } &&
     { [[ -z "$x86_dir" ]] || [[ -d "$cef_dsyms/x86_64" ]]; }; then
     strip_framework=1
@@ -325,8 +329,11 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # build is not official, so Chromium's own enable_stripping is off (210 MiB
   # of the 468 MiB arm64 slice of stage c8953bc613cd, 31 MiB compressed).
   # strip_framework is set only when the dSYM of every embedded slice was kept
-  # for Sentry (step 1c), so crashes still symbolicate there. The 5,243 global
-  # symbols stay (strip -S -x), and with them the UUID the dSYM matches.
+  # (step 1c): CEF-dSYMs/<arch>, which nightly.yml and release.yml upload to
+  # Sentry. The same dSYM stays in the pinned artifact (cef-manifest.json
+  # "debug_symbols"), so a failed or skipped upload can be redone, and atos
+  # reads it for a local .ips. The 5,243 global symbols stay (strip -S -x),
+  # and with them the LC_UUID the dSYM matches.
   if (( strip_framework )); then
     "${CMUX_STRIP_TOOL:-strip}" -S -x "$fw/Versions/A/$FW_BINARY"
   fi
