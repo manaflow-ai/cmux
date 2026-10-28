@@ -130,6 +130,12 @@ fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<crate::browser::B
     Ok(sup)
 }
 
+/// The API the tests drive; this commit accepts every CDP option.
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_cdp_options(_opts: &Opts) -> Res<()> {
+    Ok(())
+}
+
 /// Which peers the host serves while hello claims are unauthenticated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {
@@ -381,6 +387,25 @@ fn stream_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tcp_cdp_port_option_is_refused() {
+        let opts =
+            |a: &[&str]| Opts::parse(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        let err =
+            check_cdp_options(&opts(&["--browser", "about:blank", "--browser-cdp-port", "9222"]))
+                .expect_err("--browser-cdp-port must be refused");
+        assert!(err.to_string().contains("--browser-cdp-socket"), "{err}");
+        assert!(check_cdp_options(&opts(&["--browser-cdp-socket", "/x/cdp.sock"])).is_err());
+        assert!(check_cdp_options(&opts(&[
+            "--browser",
+            "u",
+            "--browser-cdp-socket",
+            "/x/cdp.sock"
+        ]))
+        .is_ok());
+        assert!(check_cdp_options(&opts(&["--browser", "u"])).is_ok());
+    }
 
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
