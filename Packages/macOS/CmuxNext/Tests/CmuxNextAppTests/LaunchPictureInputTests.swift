@@ -269,7 +269,6 @@ struct LaunchPictureInputTests {
             }
             romaji += key.characters ?? ""
             if let done = kana[romaji] {
-                romaji = ""
                 view.setMarkedText(done, selectedRange: NSRange(location: 1, length: 0), replacementRange: none)
                 romaji = done == "か" ? "ka" : "na"
                 return

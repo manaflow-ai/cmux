@@ -79,7 +79,9 @@ struct TerminalInputMethodTraceTests {
                 case .mark(let text):
                     view.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0), replacementRange: none)
                 case .insert(let text): view.insertText(text, replacementRange: none)
-                case .insertUnit(let unit): view.insertText(NSString(characters: [unit], length: 1), replacementRange: none)
+                case .insertUnit(let unit):
+                    // SAFETY: the one-unit array lives for the call; NSString copies its one character.
+                    view.insertText(unsafe NSString(characters: [unit], length: 1), replacementRange: none)
                 case .unmark: view.unmarkText()
                 case .command(let selector): view.doCommand(by: selector)
                 case .insertTranslated: view.insertText(translated?.characters ?? "", replacementRange: none)
@@ -87,8 +89,13 @@ struct TerminalInputMethodTraceTests {
             }
         }
 
-        /// The bytes the program got, once the input queue drained.
-        func settle() async throws {
+        /// The bytes the program got, once the input queue drained: the first write (up to 5 s), then
+        /// no new write for 100 ms. A test that expects nothing written waits the 2 s window instead.
+        func settle(expectingWrites: Bool = true) async throws {
+            if expectingWrites {
+                let first = ContinuousClock.now + .seconds(5)
+                while io.writes.isEmpty, ContinuousClock.now < first { try await Task.sleep(for: .milliseconds(20)) }
+            }
             let deadline = ContinuousClock.now + .seconds(2)
             var last = -1
             while ContinuousClock.now < deadline {
@@ -145,8 +152,17 @@ struct TerminalInputMethodTraceTests {
             Step(key: "\u{0A}", keyCode: UInt16(kVK_ANSI_J), modifiers: [.control], calls: [.mark("か")]),
             Step(key: "\u{7F}", keyCode: UInt16(kVK_Delete), calls: [.unmark]),
         ])
-        try await rig.settle()
+        try await rig.settle(expectingWrites: false)
         #expect(rig.written.isEmpty, "the program got \(rig.written.debugDescription) from keys Kotoeri took")
+    }
+
+    /// A key the input method lets pass (no preedit: Return is `insertNewline:`) reaches the program itself.
+    @Test func aKeyTheInputMethodPassesReachesTheProgram() async throws {
+        let rig = try Self.rig()
+        defer { rig.close() }
+        try rig.play([Step(key: "\r", keyCode: UInt16(kVK_Return), calls: [.command(#selector(NSResponder.insertNewline(_:)))])])
+        try await rig.settle()
+        #expect(rig.written == "\r", "got \(rig.written.debugDescription)")
     }
 
     // MARK: Chinese (Pinyin)
@@ -182,9 +198,7 @@ struct TerminalInputMethodTraceTests {
             Step(key: "\u{F703}", keyCode: UInt16(kVK_RightArrow), calls: [.insert("한")]),
         ])
         try await rig.settle()
-        #expect(rig.written.hasPrefix("한"), "got \(rig.written.debugDescription)")
-        #expect(rig.written.dropFirst().contains("C"), "the arrow did not reach the program after the commit: \(rig.written.debugDescription)")
-        #expect(rig.written.components(separatedBy: "한").count == 2, "한 sent more than once")
+        #expect(rig.written == "한\u{1B}[C", "not the commit then the arrow: \(rig.written.debugDescription)")
     }
 
     /// A syllable then the next consonant: 2-Set commits 한 and starts ㄱ in one key.
