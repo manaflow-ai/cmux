@@ -212,12 +212,14 @@ public final class HostBrowserSignInFlow {
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
             cancelAttemptTimeout()
             cancelSlowSignInHint()
+            // Hold the session continuation while the callback validates.
+            // Safari can report the hosted session cancelled in that window;
+            // resuming then would end the attempt and drop these tokens as
+            // raced.
+            let continuation = takeActiveSessionContinuation()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
-            resumeActiveSessionContinuation(
-                returning: .cancelled(reason: "external_callback"),
-                reason: "externalCallback",
-                expectedAttemptID: attemptID
-            )
+            log.log("auth.browser.session.resume reason=externalCallback attempt=\(attemptID)")
+            continuation?.resume(returning: .cancelled(reason: "external_callback"))
             return signedIn
         }
         if let state {
@@ -738,6 +740,15 @@ public final class HostBrowserSignInFlow {
     private func issueCallbackState(_ state: String) {
         let lifetime = browserAttemptTimeout > 0 ? browserAttemptTimeout : 10 * 60
         issuedCallbackStates.issue(state, clock: clock, lifetime: .seconds(lifetime))
+    }
+
+    /// Detach the session continuation so later session completions, attempt
+    /// replacement and sign-out cannot resume it; the caller must resume it.
+    private func takeActiveSessionContinuation() -> CheckedContinuation<HostBrowserAuthSessionResult?, Never>? {
+        let continuation = activeSessionContinuation
+        activeSessionContinuation = nil
+        activeSessionContinuationAttemptID = nil
+        return continuation
     }
 
     private func resumeActiveSessionContinuation(
