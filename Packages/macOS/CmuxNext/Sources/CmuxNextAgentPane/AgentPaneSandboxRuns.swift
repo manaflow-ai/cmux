@@ -15,6 +15,16 @@ public final class AgentPaneSandboxRuns {
 
     public var isRunning: Bool { running != nil }
 
+    /// Whether this pane's send, running or ended, is attempt `key`.
+    public func holds(key: String) -> Bool { running?.key == key || last?.key == key }
+
+    /// A send that ended elsewhere, shown by this new pane as its own (``AgentPaneSeedSource/sandboxResult``):
+    /// the page reads it with `sandbox.state`, and the tab's one send is spent. A pane that holds a send keeps it.
+    func restore(task: String, key: String, snapshot: [String: Any]) {
+        guard running == nil, last == nil else { return }
+        last = (task, key, AgentPaneReply.sandbox(snapshot: snapshot))
+    }
+
     /// A send's reply as its task's result: main-actor bound, so it may cross the task's end.
     @MainActor final class Reply {
         let value: [String: Any]

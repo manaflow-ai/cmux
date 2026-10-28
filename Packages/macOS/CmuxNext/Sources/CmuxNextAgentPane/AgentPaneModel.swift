@@ -229,6 +229,7 @@ public final class AgentPaneModel {
         self.sessionId = sessionId
         self.seed = seed
         self.newTab = sessionId == nil ? newTab : nil
+        if let result = seed?.sandboxResult { sandboxRuns.restore(task: result.task, key: result.key, snapshot: result.snapshot) }
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }

@@ -78,6 +78,9 @@ public final class AgentPaneSeedSource {
     /// session the page adds the workspace context to its first prompt, hidden from the
     /// transcript (`_meta.acpmux.context`). Held apart from the read seed, which a slow read drops.
     public var workspaceContext = false
+    /// A Sandboxed send that already ended, shown by this new page (a Run notification's click after
+    /// the tab that sent it closed): its task, attempt key and final Run snapshot (``AgentPaneSandboxRuns``).
+    public var sandboxResult: (task: String, key: String, snapshot: [String: Any])?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -87,7 +90,7 @@ public final class AgentPaneSeedSource {
     /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
     /// that takes its folder from its New Tab context can stand in for it.
     public var holdsOnlyFolder: Bool {
-        guard read == nil else { return false }
+        guard read == nil, sandboxResult == nil else { return false }
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
             && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
