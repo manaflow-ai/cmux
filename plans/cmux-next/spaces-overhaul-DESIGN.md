@@ -20,12 +20,15 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
    Consequence: a click on a pinned row selects a workspace of the current space, so it can never
    switch the window's space (Austin's bug: a pin from space B, drawn in space A, switched to B).
    Cmd-1…9 and Ctrl-Cmd-[ / ] walk the same filtered band.
-2. **Incognito spaces** (not built in the first slices; see Open). A space flagged incognito keeps
-   nothing: no browser history, no cookies (one off-the-record browser profile per incognito space,
-   as an incognito window uses today), no session restore of its windows or workspaces, no Home
-   history. Marked with the incognito glyph on its dot and in the window title. Deleting it or
-   quitting ends its workspaces. The daemon stores only the space row with `incognito: true` so the
-   space survives a reconnect but not a quit (the app deletes it at launch).
+2. **Incognito spaces** (`space.newIncognito`, New Incognito Space: palette, Window menu, the
+   sidebar's New menu, CLI `space new-incognito`, MCP). A new space named Incognito with the
+   eyeglasses icon, on the default browser profile, shown in a new incognito window (the
+   off-the-record browser profile, no history or cookies kept, never restored, the incognito
+   badge). Its workspace is pinned to the space. The space is deleted when its window is gone, at
+   quit, and at the next launch after a crash (the incognito ledger lists the spaces). Another
+   window switching to it shows the incognito window instead; the incognito window never switches
+   to a normal space, so incognito and normal content never mix. Not yet: Home history in an
+   incognito space (the Home chat is shared, rule 5).
 3. **New Window is a new space** (Cmd-Shift-N, `newWindow`, also palette, CLI `app new-window`,
    MCP). The window opens on a new space with the next free color and its own first workspace (the
    same path as New Space, `RoomHandlers.create`). Default picked: a new space every time; the old
@@ -79,13 +82,6 @@ agent chat, that the asked keys keep their pane meaning, and that no space key i
 
 ## Plan for the unbuilt rules
 
-- **Incognito spaces (rule 2).** New Incognito Space (`space.newIncognito`, palette, CLI, MCP,
-  sidebar "+" menu) creates a space with the eyeglasses icon and opens it in an incognito window
-  (`WindowRegistry.markIncognito`, the off-the-record browser profile, no restore, workspaces close
-  with the window). The app keeps the incognito space ids in a ledger beside the incognito workspace
-  ledger and runs Delete Space on them at quit and at the next launch, so nothing outlives the
-  session. Open: a normal window that switches to an incognito space, and a workspace moved in or
-  out (refused, as for incognito windows today).
 - **A Home per space (rule 5).** Needs the daemon: `ensure_home {profile}` returns a Home workspace
   per space (`kind: home`, pinned to the space); the chat dock column (`HomeDock`) holds the one
   shared Chief conversation tab in each, keyed so the store never duplicates a conversation.
@@ -108,5 +104,5 @@ agent chat, that the asked keys keep their pane meaning, and that no space key i
 
 ## Open
 
-- Rules 2, 5 and 6 are designed here and not built.
+- Rules 5 and 6 are designed here and not built.
 - The drag-out gesture needs a running-app check on a GUI host.
