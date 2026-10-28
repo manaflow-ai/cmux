@@ -5,7 +5,9 @@
 //! (`peer_link.rs`).
 
 use crate::no_panic::LockExt;
-use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
+use crate::peer_link::{
+    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -64,6 +66,17 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
+}
+
+/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackoffWait {
+    /// The delay passed.
+    Done,
+    /// This computer slept through it: the attempt goes now.
+    Woke,
+    /// The peer was stopped.
+    Stopped,
 }
 
 pub struct Peer {
@@ -817,9 +830,36 @@ impl Peer {
                 break;
             }
             let delay = backoff.next(crate::peer_link::jitter());
+            match self.wait_backoff(delay).await {
+                BackoffWait::Done => {}
+                // The network that failed before the sleep may take a moment to come back: the
+                // next attempts are quick ones again.
+                BackoffWait::Woke => backoff.reset(),
+                BackoffWait::Stopped => break,
+            }
+        }
+    }
+
+    /// Waits out one backoff delay. A wait that this
+    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
+    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
+    /// minute after the wake, while the network that failed before the sleep is likely back.
+    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        let deadline = tokio::time::Instant::now() + delay;
+        let mut watch = SleepWatch::now();
+        loop {
+            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
             tokio::select! {
-                _ = tokio::time::sleep(delay) => {}
-                _ = self.stop_signal.notified() => break,
+                _ = tokio::time::sleep_until(check) => {
+                    if let Some(slept) = watch.check() {
+                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
+                        return BackoffWait::Woke;
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        return BackoffWait::Done;
+                    }
+                }
+                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
     }
@@ -1038,12 +1078,44 @@ impl Peer {
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
+        // After this computer slept, the link's monotonic timers say its last frame came moments
+        // ago, while its ssh tunnel has often died: a ping goes out at once, and the link is
+        // dropped (and redialed) when nothing answers within `WAKE_PROBE`, rather than after the
+        // ssh keepalive or the whole silence budget. Stops with the link.
+        let mut wake_watch = SleepWatch::now();
+        let mut wake_check = tokio::time::interval_at(
+            tokio::time::Instant::now() + SleepWatch::EVERY,
+            SleepWatch::EVERY,
+        );
+        wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut wake_probe: Option<tokio::time::Instant> = None;
+        // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
+        // the regular ping's tick may be served first, and its write must be held to the probe's
+        // deadline, never the whole send budget.
+        macro_rules! check_wake {
+            () => {
+                if let Some(slept) = wake_watch.check() {
+                    tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
+                    // One deadline for the ping to go out and its answer to come back.
+                    let deadline = tokio::time::Instant::now() + WAKE_PROBE;
+                    match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                    }
+                }
+            };
+        }
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(());
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
+                _ = wake_check.tick() => check_wake!(),
+                _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                }
                 // Once only: a finished oneshot is not polled again.
                 stale = &mut stale_rx, if !stale_settled => {
                     stale_settled = true;
@@ -1062,10 +1134,12 @@ impl Peer {
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
-                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                    check_wake!();
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                     ticks += 1;
                     if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
@@ -1076,6 +1150,7 @@ impl Peer {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     last_frame = tokio::time::Instant::now();
+                    wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
@@ -1169,15 +1244,18 @@ impl Peer {
                     if epoch != self.link_epoch() {
                         continue;
                     }
+                    // Before the frame is marked: a link a wake check drops never had it.
+                    check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
                     if let Some(key) = key {
                         self.on_wire.lock_or_recover().insert(key);
                     }
                     let text = line.trim_end_matches('\n').to_owned();
-                    match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                 }
             }
@@ -1256,6 +1334,17 @@ fn connect_timed_out(after: Duration) -> String {
 
 fn stopped_reading(budget: Duration) -> String {
     format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+}
+
+/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// passed, else the send budget.
+fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
+    match wake_probe {
+        Some(probe) if probe <= tokio::time::Instant::now() => {
+            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+        }
+        _ => stopped_reading(budget),
+    }
 }
 
 /// The default WebSocket port of an `ssh://` peer.
