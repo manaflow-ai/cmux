@@ -133,6 +133,7 @@ def parse_validity(spec):
 def summarize(report, metrics, runs_wanted):
     out = {}
     on_runs = [r for r in report["runs"] if r["arm"] == "on"]
+    bench_failed = sum(1 for r in report["runs"] if r.get("raw") is None)
     bad_scenario = sum(1 for r in on_runs if r.get("invalid_scenario"))
     has_probe = bool(report.get("probes"))
     for name, regex, higher in metrics:
@@ -155,7 +156,9 @@ def summarize(report, metrics, runs_wanted):
         verified = all(r.get("arm_verified") is True for r in report["runs"] if r.get("valid"))
         strong = enough and verified and p is not None and p < 0.05 and band is not None and abs(effect) > band
         verdict = ("proven" if better else "regression") if strong else "not proven"
-        if bad_scenario:
+        if bench_failed and bench_failed >= len(report["runs"]) / 2:
+            verdict = "bench failed"  # the bench produced no report: neither proof nor a scenario verdict
+        elif bad_scenario:
             # The mechanism did not run in the on arm: the scenario is wrong, not the code (coordinator, 2026-10-28).
             verdict = "invalid scenario"
         elif verdict == "not proven" and not has_probe:
@@ -168,7 +171,7 @@ def summarize(report, metrics, runs_wanted):
         out[name] = {"better": "higher" if higher else "lower", "on": arms["on"], "off": arms["off"],
                      "effect_ms_or_unit": None if effect is None else round(effect, 3),
                      "noise_band": None if band is None else round(band, 3), "mann_whitney_p": p,
-                     "verdict": verdict, "why_not": why, "on_runs_mechanism_not_run": bad_scenario}
+                     "verdict": verdict, "why_not": why, "on_runs_mechanism_not_run": bad_scenario, "runs_without_report": bench_failed}
     return out
 
 
@@ -237,8 +240,8 @@ def run_one(opts, inner_args, arm, index):
         values = [v for reply in probe_rows for p, v in flatten(reply.get(method)) if regex.search(p)]
         probes[name] = {"max": max(values) if values else None, "n": len(values), "min_to_run": minimum,
                         "ran": bool(values) and max(values) >= minimum}
-    if opts.probes_parsed:
-        scenario_ok = all(p["ran"] for p in probes.values())
+    if opts.probes_parsed and probe_rows:
+        scenario_ok = all(p["ran"] for p in probes.values())  # no probe rows at all: the bench failed before the quit
     invalid = []
     for name, regex, limit in opts.validity_parsed:
         bad = [v for p, v in flatten(raw) if regex.search(p) and v > limit]
