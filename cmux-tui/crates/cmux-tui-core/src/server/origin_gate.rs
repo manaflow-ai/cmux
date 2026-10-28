@@ -438,9 +438,18 @@ impl AcceptedPeer {
     /// Reads `stream`'s peer identity. May block: never call it on a thread
     /// that disallows blocking.
     pub(super) fn resolve(mux: &Mux, stream: &dyn transport::Stream) -> Self {
-        let peer_key = stream.peer_process_key();
-        let peer_token = stream.peer_token();
-        let peer_uid = stream.peer_uid();
+        Self::classify(mux, stream.peer_process_key(), stream.peer_token(), stream.peer_uid())
+    }
+
+    /// Classifies a peer from the identity its socket reported. May block
+    /// (it reads the peer's executable): never call it on a thread that
+    /// disallows blocking.
+    pub(super) fn classify(
+        mux: &Mux,
+        peer_key: Option<String>,
+        peer_token: Option<cmux_link::app_caller::PeerToken>,
+        peer_uid: Option<u32>,
+    ) -> Self {
         let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
         let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
         let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
