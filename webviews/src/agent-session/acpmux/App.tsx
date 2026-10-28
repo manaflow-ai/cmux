@@ -2690,7 +2690,10 @@ export function VirtualTranscript({
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
       noteQueue();
-      flushSync(() => measure(true));
+      // ResizeObserver runs after the transcript has laid out. Let the resulting width/height
+      // state update batch with the observer turn instead of forcing a nested React commit while
+      // the composer keydown is still on the stack; the next render keeps the same measured box.
+      measure(true);
     });
     observer.observe(node);
     measure(false);
