@@ -141,7 +141,8 @@ public final class SessionStateStore {
                        programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
                        commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] },
                        promptSinceMs: tab.terminalResourceID.flatMap { state?.terminalPromptSinceMs[$0] },
-                       lastOutputMs: tab.terminalResourceID.flatMap { state?.terminalLastOutputMs[$0] })
+                       lastOutputMs: tab.terminalResourceID.flatMap { state?.terminalLastOutputMs[$0] },
+                       shellIdleSinceMs: tab.terminalResourceID.flatMap { state?.terminalShellIdleSinceMs[$0] })
     }
 
     /// The app's screen group runs for `workspace`, in screen order.

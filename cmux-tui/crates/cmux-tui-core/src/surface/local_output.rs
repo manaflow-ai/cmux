@@ -377,7 +377,7 @@ impl OutputPublisher {
             );
             if !responses.is_empty() {
                 // Waits while the child does not read its input.
-                let _ = will_block(|| surface.write_bytes(&responses));
+                let _ = will_block(|| surface.write_terminal_reply(&responses));
             }
         }
     }

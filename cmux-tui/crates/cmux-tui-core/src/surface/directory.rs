@@ -49,6 +49,32 @@ impl Surface {
             .prompt_since()
     }
 
+    /// Since when the terminal's own shell sits idle at its prompt (its
+    /// prompt's time): `extra.shell_idle` (`terminal-activity-v1`, see
+    /// `terminal_activity`). Memory only: the foreground check behind it
+    /// ran on the terminal's publication ([`Self::check_shell_foreground`]).
+    pub(crate) fn terminal_shell_idle_since(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .idle_since()
+    }
+
+    /// Runs the foreground check a prompt mark asked for
+    /// (`ShellActivity::foreground_check_due`): whether the terminal's own
+    /// process holds the PTY's foreground and still runs the program the
+    /// daemon spawned. It reads the process table, so it runs here, on the
+    /// publication's lane, outside the metadata lock, never on the output
+    /// thread. A mark or input that came meanwhile drops its answer.
+    fn check_shell_foreground(&self, pty: &PtySurface) {
+        let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_due();
+        let Some(epoch) = due else { return };
+        let holds = !self.is_dead() && own_program_holds_foreground(pty.pid, &pty.command);
+        pty.terminal_metadata.lock().recover_poison().activity.record_foreground(epoch, holds);
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {
@@ -104,6 +130,7 @@ impl Surface {
     /// parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
+        self.check_shell_foreground(pty);
         let (progress_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().recover_poison();
             let progress = metadata.take_progress_change().is_some();
@@ -295,5 +322,24 @@ impl PtyTerminalRuntime {
             *previous = value;
             self.directory_pending.store(true, Ordering::Release);
         }
+    }
+}
+
+/// Whether the terminal's PTY child `pid` (or the shell login(1) started for
+/// it) holds the PTY's foreground and still runs `command`'s program, the one
+/// the daemon spawned: not a job it started (ssh, a nested shell) and not a
+/// program `exec`ed in its place. False when unknown: no pid, a failed lookup,
+/// and Windows, where a console has no foreground process group.
+fn own_program_holds_foreground(pid: Option<u32>, command: &[String]) -> bool {
+    #[cfg(unix)]
+    {
+        let (Some(pid), Some(spawned)) = (pid, command.first()) else { return false };
+        platform::foreground_own_program(pid)
+            .is_some_and(|running| crate::terminal_activity::same_program(&running, spawned))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (pid, command);
+        false
     }
 }

@@ -70,6 +70,9 @@ public struct SessionStateMirror: Sendable, Hashable {
     /// Since when each terminal's shell sits at its prompt; absent while a command runs and without
     /// shell integration.
     public var terminalPromptSinceMs: [ResourceID: UInt64] = [:]
+    /// Since when each terminal's own shell sits idle at its prompt (`extra.shell_idle`); absent when anything
+    /// else may run or input waits.
+    public var terminalShellIdleSinceMs: [ResourceID: UInt64] = [:]
     /// When each terminal last printed.
     public var terminalLastOutputMs: [ResourceID: UInt64] = [:]
 
@@ -130,10 +133,11 @@ public struct SessionStateMirror: Sendable, Hashable {
             guard tabs[id] != record else { return }
             tabs[id] = record
             touched.insert(.tab(id))
-        case .terminal(let id, let progress, let programStatus, let busySinceMs, let promptSinceMs, let lastOutputMs):
+        case .terminal(let id, let progress, let programStatus, let busySinceMs, let promptSinceMs, let lastOutputMs, let shellIdleSinceMs):
             let status = programStatus.isEmpty ? nil : programStatus
             guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs
-                || terminalPromptSinceMs[id] != promptSinceMs || terminalLastOutputMs[id] != lastOutputMs else {
+                || terminalPromptSinceMs[id] != promptSinceMs || terminalLastOutputMs[id] != lastOutputMs
+                || terminalShellIdleSinceMs[id] != shellIdleSinceMs else {
                 return
             }
             terminalProgress[id] = progress
@@ -141,6 +145,7 @@ public struct SessionStateMirror: Sendable, Hashable {
             terminalBusySinceMs[id] = busySinceMs
             terminalPromptSinceMs[id] = promptSinceMs
             terminalLastOutputMs[id] = lastOutputMs
+            terminalShellIdleSinceMs[id] = shellIdleSinceMs
             touched.insert(.terminal(id))
         case .closed(let item):
             let before = closed

@@ -29,6 +29,27 @@
 //! publishes it. `cmux terminal <t> wait --until prompt|idle` waits on these
 //! facts (cx-6so.14).
 //!
+//! `shell_idle` is the stricter fact a close may trust without asking: the
+//! terminal's own shell sits at that prompt. A prompt mark alone does not say
+//! so. A nested shell with its own integration (ssh, `docker exec`) prints
+//! its prompt while ssh holds the terminal; a command typed a moment ago has
+//! not reached its `C` yet; a shell without integration that replaced the
+//! integrated one (`exec bash`) never ends the old prompt. So `shell_idle`
+//! holds only while (1) the PTY's foreground process group leader is the
+//! terminal's own process (the PTY child, or the shell login(1) started for
+//! it) and still runs the spawned program (an `exec` of another program
+//! fails it), checked after the last prompt mark (`A` or `B`), and (2) no
+//! input was written to the terminal since the last `A`. Anything unknown
+//! counts as not idle: no check yet, a check that failed, input the daemon
+//! did not see (a terminal adopted from another daemon, until its next `A`),
+//! and Windows, where a console has no foreground process group.
+//!
+//! The check reads the process table (`/proc`, proc_pidinfo), so the output
+//! thread never runs it: a mark asks for it, and the terminal's publication
+//! on the work lane runs it before it publishes ([`ShellActivity::foreground_check_due`]).
+//! Input clears the fact in the input's own turn, before the bytes are
+//! written, and asks for the publication after them.
+//!
 //! `last_output` is when the terminal last printed anything, with or
 //! without shell integration. Reads (`terminal.list`, `terminal.show`) and
 //! every other publish carry the exact time; output on its own pushes an
@@ -110,9 +131,18 @@ pub(crate) struct ShellActivity {
     line_modes_armed: bool,
     /// When the shell drew the prompt it sits at (`A`, until the next `C`).
     prompt_since_ms: Option<u64>,
+    /// Input was written to the terminal since the last `A`, or may have
+    /// been (state taken from a terminal host).
+    input_after_prompt: bool,
+    /// Whether the terminal's own shell held the foreground when checked
+    /// after the last mark; `None` until checked.
+    shell_foreground: Option<bool>,
+    /// Counts marks and inputs, so a foreground check that raced one of them
+    /// is dropped ([`Self::record_foreground`]).
+    epoch: u64,
     /// When the terminal last printed anything.
     last_output_ms: Option<u64>,
-    published: (Option<u64>, bool, Option<u64>),
+    published: (Option<u64>, bool, Option<u64>, Option<u64>),
     published_output_ms: Option<u64>,
 }
 
@@ -121,6 +151,12 @@ impl ShellActivity {
     /// new prompt, which clears any OSC 9;4 progress the finished command
     /// left behind.
     pub(crate) fn observe(&mut self, mark: ShellMark, now_ms: u64) -> bool {
+        // Every mark asks for a new foreground check: after `A` the shell
+        // may still run its prompt hooks as foreground jobs, and `B` (the
+        // prompt drawn, the line editor reading) is when it holds the
+        // terminal itself.
+        self.shell_foreground = None;
+        self.epoch = self.epoch.wrapping_add(1);
         match mark {
             ShellMark::CommandStart => {
                 self.busy_since_ms.get_or_insert(now_ms);
@@ -134,6 +170,7 @@ impl ShellActivity {
             ShellMark::PromptStart => {
                 self.end();
                 self.prompt_since_ms.get_or_insert(now_ms);
+                self.input_after_prompt = false;
                 true
             }
             ShellMark::InputStart => false,
@@ -178,6 +215,49 @@ impl ShellActivity {
         self.prompt_since_ms
     }
 
+    /// Notes input written to the terminal (keys, a paste, a `send`), before
+    /// it is written: until the next `A` the shell is not idle. Returns true
+    /// when the published facts still say idle, so the caller asks for a
+    /// publication.
+    pub(crate) fn note_input(&mut self) -> bool {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.input_after_prompt = true;
+        self.published.3.is_some()
+    }
+
+    /// The epoch to hand [`Self::record_foreground`] when the shell sits at a
+    /// prompt with no input since and its foreground was not checked since
+    /// the last mark; `None` when no check would change the facts.
+    pub(crate) fn foreground_check_due(&self) -> Option<u64> {
+        (self.busy_since_ms.is_none()
+            && self.prompt_since_ms.is_some()
+            && !self.input_after_prompt
+            && self.shell_foreground.is_none())
+        .then_some(self.epoch)
+    }
+
+    /// Records a foreground check started at `epoch`
+    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
+    /// own shell held the foreground. A mark or input since then drops it.
+    pub(crate) fn record_foreground(&mut self, epoch: u64, holds: bool) {
+        if epoch == self.epoch {
+            self.shell_foreground = Some(holds);
+        }
+    }
+
+    /// Since when the terminal's own shell sits idle at its prompt (the
+    /// prompt's `A` time): at a prompt, its foreground checked as the
+    /// shell's after the last mark, no input since the `A`.
+    pub(crate) fn idle_since(&self) -> Option<u64> {
+        if self.busy_since_ms.is_some()
+            || self.input_after_prompt
+            || self.shell_foreground != Some(true)
+        {
+            return None;
+        }
+        self.prompt_since_ms
+    }
+
     /// Notes output seen at `now_ms`.
     pub(crate) fn note_output(&mut self, now_ms: u64) {
         self.last_output_ms = Some(now_ms);
@@ -200,44 +280,80 @@ impl ShellActivity {
     }
 
     /// Takes a terminal host's state. The facts publish as a change on the
-    /// next `take_change`.
+    /// next `take_change`. The host's state does not say whether input was
+    /// written since its prompt (another daemon wrote it), so the shell is
+    /// not idle until its next `A`.
     pub(crate) fn restore(&mut self, snapshot: ShellActivitySnapshot) {
         self.busy_since_ms = snapshot.busy_since_ms;
         self.interactive = snapshot.busy_since_ms.is_some() && snapshot.interactive;
         self.line_modes_armed = snapshot.busy_since_ms.is_some() && snapshot.line_modes_armed;
         self.prompt_since_ms = snapshot.prompt_since_ms;
+        self.input_after_prompt = true;
+        self.shell_foreground = None;
+        self.epoch = self.epoch.wrapping_add(1);
     }
 
-    /// Keeps `previous`'s last output (the host's state does not carry it),
-    /// so a reconnect neither drops it nor pushes it again.
+    /// Keeps what this daemon knows that the host's state does not carry:
+    /// `previous`'s last output, so a reconnect neither drops it nor pushes
+    /// it again, and whether input was written since the prompt (this
+    /// daemon wrote all of it).
     pub(crate) fn keep_output_of(&mut self, previous: &ShellActivity) {
         self.last_output_ms = previous.last_output_ms;
         self.published_output_ms = previous.published_output_ms;
+        self.input_after_prompt = previous.input_after_prompt;
     }
 
-    /// Whether the command or prompt fact changed, or the last output moved
-    /// a whole interval past the one published, since the last call (marks
-    /// it taken).
+    /// The published facts: command, prompt and idle shell.
+    fn facts(&self) -> (Option<u64>, bool, Option<u64>, Option<u64>) {
+        (self.busy_since_ms, self.interactive, self.prompt_since_ms, self.idle_since())
+    }
+
+    /// Whether the command, prompt or idle-shell fact changed, or the last
+    /// output moved a whole interval past the one published, since the last
+    /// call (marks it taken).
     pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.has_change();
+        let changed = self.facts() != self.published || self.output_moved();
         if changed {
-            self.published = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
+            self.published = self.facts();
             self.published_output_ms = self.last_output_ms;
         }
         changed
     }
 
-    /// [`Self::take_change`] without marking it taken.
+    /// [`Self::take_change`] without marking it taken, or a foreground check
+    /// is due (the publication runs it first).
     pub(crate) fn has_change(&self) -> bool {
-        let current = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
-        let output_moved = match (self.last_output_ms, self.published_output_ms) {
+        self.facts() != self.published
+            || self.output_moved()
+            || self.foreground_check_due().is_some()
+    }
+
+    /// The last output moved a whole interval past the one published.
+    fn output_moved(&self) -> bool {
+        match (self.last_output_ms, self.published_output_ms) {
             (Some(last), Some(published)) => {
                 last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
             }
             (last, published) => last != published,
-        };
-        current != self.published || output_moved
+        }
     }
+}
+
+/// Whether `running`, the terminal's foreground leader's program (a path, or
+/// Linux's argv[0], which a program can fill with more words), is the program
+/// `spawned` (the terminal's argv[0]) names: the same file name, a login
+/// shell's leading `-` aside. A program `exec`ed in the shell's place is not.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn same_program(running: &str, spawned: &str) -> bool {
+    fn file_name(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path).trim_start_matches('-')
+    }
+    let spawned = file_name(spawned);
+    if spawned.is_empty() {
+        return false;
+    }
+    let first_word = running.split_whitespace().next().unwrap_or_default();
+    file_name(running) == spawned || file_name(first_word) == spawned
 }
 
 /// The `activity` field of a terminal record.
@@ -247,6 +363,11 @@ pub(crate) fn activity_json(state: CommandActivity, since_ms: u64) -> Value {
 
 /// The `prompt` field of a terminal record.
 pub(crate) fn prompt_json(since_ms: u64) -> Value {
+    json!({"since_ms": since_ms.to_string()})
+}
+
+/// The `shell_idle` field of a terminal record (its prompt's time).
+pub(crate) fn shell_idle_json(since_ms: u64) -> Value {
     json!({"since_ms": since_ms.to_string()})
 }
 
@@ -327,6 +448,100 @@ mod tests {
         activity.note_output(40_000);
         assert_eq!(activity.last_output(), Some(40_000));
         assert!(activity.take_change(), "a time before the published one publishes");
+    }
+
+    /// A shell at its prompt, its foreground checked as its own.
+    fn idle_at(since_ms: u64) -> ShellActivity {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, since_ms);
+        activity.observe(ShellMark::InputStart, since_ms);
+        let epoch = activity.foreground_check_due().expect("a prompt asks for a check");
+        activity.record_foreground(epoch, true);
+        activity
+    }
+
+    #[test]
+    fn a_prompt_is_idle_only_after_its_foreground_check() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        assert_eq!(activity.prompt_since(), Some(1_000));
+        assert_eq!(activity.idle_since(), None, "unchecked is not idle");
+        assert!(activity.has_change(), "the due check asks for a publication");
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground(epoch, false);
+        assert_eq!(activity.idle_since(), None, "another group holds the terminal");
+        assert_eq!(activity.foreground_check_due(), None, "checked once per mark");
+        // The next mark asks again.
+        activity.observe(ShellMark::InputStart, 1_001);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground(epoch, true);
+        assert_eq!(activity.idle_since(), Some(1_000));
+    }
+
+    #[test]
+    fn input_ends_idle_until_the_next_prompt() {
+        let mut activity = idle_at(1_000);
+        assert!(activity.take_change());
+        assert!(activity.note_input(), "published idle: the input asks for a publication");
+        assert_eq!(activity.idle_since(), None);
+        assert_eq!(activity.prompt_since(), Some(1_000), "the prompt fact stands");
+        assert_eq!(activity.foreground_check_due(), None, "no check while input is pending");
+        assert!(activity.take_change());
+        assert!(!activity.note_input(), "already published not idle");
+        // A nested prompt's mark (or the shell's own) clears the input, and
+        // its check decides.
+        activity.observe(ShellMark::PromptStart, 2_000);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground(epoch, false);
+        assert_eq!(activity.idle_since(), None);
+    }
+
+    #[test]
+    fn a_check_that_raced_a_mark_or_input_is_dropped() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        let stale = activity.foreground_check_due().unwrap();
+        activity.observe(ShellMark::InputStart, 1_001);
+        activity.record_foreground(stale, true);
+        assert_eq!(activity.idle_since(), None, "a check from before the mark");
+        let stale = activity.foreground_check_due().unwrap();
+        activity.note_input();
+        activity.record_foreground(stale, true);
+        assert_eq!(activity.idle_since(), None, "a check from before the input");
+    }
+
+    #[test]
+    fn a_running_command_is_never_idle() {
+        let mut activity = idle_at(1_000);
+        activity.observe(ShellMark::CommandStart, 1_500);
+        assert_eq!(activity.idle_since(), None);
+        assert_eq!(activity.foreground_check_due(), None);
+    }
+
+    #[test]
+    fn a_host_state_is_not_idle_until_its_next_prompt() {
+        let previous = idle_at(1_000);
+        let mut restored = ShellActivity::default();
+        restored.restore(previous.snapshot());
+        assert_eq!(restored.prompt_since(), Some(1_000));
+        assert_eq!(restored.idle_since(), None, "input written before the adoption is unknown");
+        assert_eq!(restored.foreground_check_due(), None);
+        // A reconnect inside this daemon keeps what it knows about input.
+        let mut reconnected = ShellActivity::default();
+        reconnected.restore(previous.snapshot());
+        reconnected.keep_output_of(&previous);
+        assert!(reconnected.foreground_check_due().is_some(), "checked again, then idle");
+    }
+
+    #[test]
+    fn same_program_matches_the_spawned_file_name_only() {
+        assert!(same_program("/bin/bash", "/bin/bash"));
+        assert!(same_program("-bash", "/usr/bin/bash"));
+        assert!(same_program("/bin/zsh", "zsh"));
+        assert!(same_program("bash --rcfile x", "/bin/bash"), "Linux argv[0] with words");
+        assert!(!same_program("/bin/dash", "/bin/bash"), "an exec'd shell");
+        assert!(!same_program("ssh", "/bin/zsh"));
+        assert!(!same_program("/bin/bash", ""));
     }
 
     #[test]

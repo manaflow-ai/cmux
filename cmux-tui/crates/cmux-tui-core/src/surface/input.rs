@@ -56,6 +56,29 @@ impl From<crate::pty_write::DeliveryFailure> for ConfirmedInputFailure {
     }
 }
 
+/// Notes input about to be written to `pty` (`ShellActivity::note_input`):
+/// its shell is not idle until its next prompt. True when the published facts
+/// still say idle, so the caller asks for a publication after the write. A
+/// memory write under the metadata lock, before the bytes leave: a prompt mark
+/// read after it is the shell's answer to this input or later.
+fn note_shell_input(pty: &PtySurface, bytes: &[u8]) -> bool {
+    !bytes.is_empty()
+        && !only_focus_reports(bytes)
+        && pty
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .activity
+            .note_input()
+}
+
+/// Whether `bytes` are only focus reports (`CSI I`, `CSI O`): a view that
+/// gained or lost focus while the program asked for them (fish's line editor
+/// does), not input anyone typed.
+fn only_focus_reports(bytes: &[u8]) -> bool {
+    bytes.len() % 3 == 0 && bytes.chunks(3).all(|report| report == b"\x1b[I" || report == b"\x1b[O")
+}
+
 /// The error of an input write to a browser surface.
 fn not_a_terminal() -> std::io::Error {
     std::io::Error::new(
@@ -101,6 +124,29 @@ impl Surface {
 
     /// [`Self::write_bytes_flow`] in the input turn `turn` of this terminal.
     pub(crate) fn write_bytes_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        flow: u64,
+    ) -> std::io::Result<()> {
+        let publish = note_shell_input(self.pty_in(turn)?, bytes);
+        let written = self.write_unnoted_in(turn, bytes, flow);
+        if publish {
+            self.post_pending_publications();
+        }
+        written
+    }
+
+    /// Writes the terminal's own replies to the program's queries (device
+    /// attributes, cursor position, colors): bytes no one typed, so they
+    /// leave the shell's idle fact alone (`terminal_activity`).
+    pub(crate) fn write_terminal_reply(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let turn = self.input_turn().ok_or_else(not_a_terminal)?;
+        self.write_unnoted_in(&turn, bytes, 0)
+    }
+
+    /// [`Self::write_bytes_in`] without noting the input.
+    fn write_unnoted_in(
         &self,
         turn: &InputTurn<'_>,
         bytes: &[u8],
@@ -250,6 +296,16 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ConfirmedInputFailure::Known(not_a_terminal()));
         };
+        let publish = note_shell_input(pty, bytes);
+        let delivered = Self::deliver_confirmed(pty, bytes);
+        if publish {
+            self.post_pending_publications();
+        }
+        delivered
+    }
+
+    /// [`Self::write_bytes_confirmed`] after the input was noted.
+    fn deliver_confirmed(pty: &PtySurface, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
         // The request is sent in its turn; its acknowledgement is awaited
         // after the turn ended, as after the runtime lock.
         let turn = pty.input_fifo.enter();
@@ -328,6 +384,21 @@ impl Surface {
         bytes: &[u8],
         timeout: Option<Duration>,
     ) -> std::io::Result<()> {
+        let publish = note_shell_input(self.pty_in(turn)?, bytes);
+        let written = self.write_paste_unnoted_in(turn, bytes, timeout);
+        if publish {
+            self.post_pending_publications();
+        }
+        written
+    }
+
+    /// [`Self::write_paste_in`] without noting the input.
+    fn write_paste_unnoted_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         let pty = self.pty_in(turn)?;
         if bytes.is_empty() {
             return Ok(());
@@ -401,5 +472,19 @@ impl Surface {
             panic!("input test requires the in-process test runtime");
         };
         *writer = replacement;
+    }
+}
+
+#[cfg(test)]
+mod focus_report_tests {
+    use super::only_focus_reports;
+
+    #[test]
+    fn only_focus_reports_are_not_typed_input() {
+        assert!(only_focus_reports(b"\x1b[I"));
+        assert!(only_focus_reports(b"\x1b[O\x1b[I"));
+        assert!(!only_focus_reports(b"\x1b[Ix"));
+        assert!(!only_focus_reports(b"ls"));
+        assert!(!only_focus_reports(b"\x1b[A"), "an arrow key is input");
     }
 }

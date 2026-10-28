@@ -993,6 +993,24 @@ pub fn shell_holds_foreground(pid: u32) -> bool {
         .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
 }
 
+/// The program of the terminal's own process when it holds the terminal's
+/// foreground: the PTY child `pid` itself, or the shell login(1) started as
+/// its child (see [`shell_holds_foreground`]). It is that process's current
+/// image, so a program `exec`ed in the shell's place names itself (Linux reads
+/// argv[0], see [`foreground_process_name`]). `None` when another process
+/// group holds the foreground (a job the shell started: ssh, a nested shell)
+/// or the lookup fails. One PTY query of a known process, never a process
+/// scan.
+#[track_caller]
+pub fn foreground_own_program(pid: u32) -> Option<String> {
+    note_proc_scan();
+    let leader = foreground_process_group(pid)?;
+    if leader != pid && !crate::kinfo_proc::login_session_shell(pid, leader) {
+        return None;
+    }
+    process_name(leader)
+}
+
 /// The foreground lookups read the process table (`/proc`, proc_pidinfo,
 /// sysctl): one `proc_scan` per public call on a request thread
 /// (`request_path`), noted at its caller.
