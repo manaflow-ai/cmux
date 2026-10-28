@@ -38,6 +38,8 @@ import json, os, sys
 args = sys.argv[1:]
 url = next(a for a in args if a.startswith("http"))
 if "/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next" in url:
+    with open(os.environ["FAKE_LOG"], "a") as log:
+        log.write("run list\n")
     runs = []
     for item in filter(None, os.environ.get("FAKE_RUNS", "").split(",")):
         run_id, sha = item.split(":")
@@ -57,6 +59,8 @@ for arg in "$@"; do
     ls-remote) printf '%s\t%s\n' "$SHA" "$REF"; exit 0 ;;
     fetch)
       echo "fetch ${!#}" >> "$FAKE_LOG"
+      # A fetch that ignores SIGTERM ends only on SIGKILL.
+      [[ -z "${FAKE_FETCH_IGNORES_TERM:-}" ]] || trap '' TERM
       exec sleep "${FAKE_FETCH_SECONDS:-0}" ;;
   esac
 done
@@ -98,7 +102,7 @@ def write(path, body, executable=True):
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
 
 
-def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40):
+def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40, **fake):
     """Runs the inspect step; returns (returncode or None on a hang, outputs, stdout, fetches, seconds)."""
     with tempfile.TemporaryDirectory() as tmp:
         bin_dir = os.path.join(tmp, "bin")
@@ -116,7 +120,7 @@ def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40):
                    GITHUB_RUN_ID=RUN_ID, GH_TOKEN="x", STALE="false", DAEMON_POOL="blacksmith-32vcpu-ubuntu-2404",
                    GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log, FAKE_KEY=KEY, FAKE_LEGACY_KEY=LEGACY_KEY,
                    FAKE_RUNS=",".join(f"{run_id}:{sha}" for run_id, sha in runs),
-                   FAKE_FETCH_SECONDS=str(fetch_seconds), FAKE_KEY_SECONDS=str(key_seconds))
+                   FAKE_FETCH_SECONDS=str(fetch_seconds), FAKE_KEY_SECONDS=str(key_seconds), **fake)
         env["ELECTION_DEADLINE_SECONDS"] = str(deadline if deadline is not None
                                                else inspect_step()["env"].get("ELECTION_DEADLINE_SECONDS", 200))
         start = time.monotonic()
@@ -132,7 +136,10 @@ def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40):
             code = None
         seconds = time.monotonic() - start
         outputs = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
-        fetches = [line for line in open(log).read().splitlines() if line.startswith("fetch ")]
+        logged = open(log).read().splitlines()
+        fetches = [line for line in logged if line.startswith("fetch ")]
+        if "run list" not in logged:
+            fetches = None
         return code, outputs, stdout, fetches, seconds
 
 
@@ -152,7 +159,7 @@ def main():
     # Fast fetches: the lowest active run of the key owns it, as before.
     runs = [(480, "a" * 40), (420, "b" * 40), (450, "c" * 40)]
     code, out, stdout, fetches, _ = elect(runs, fetch_seconds=0, deadline=None)
-    _check(code == 0 and out.get("owner_run_id") == "420" and "stopped at its deadline" not in stdout and len(fetches) == 3,
+    _check(code == 0 and out.get("owner_run_id") == "420" and "stopped at its deadline" not in stdout and len(fetches or []) == 3,
            f"a quick election elects the lowest active run of the key ({code}, {out.get('owner_run_id')!r}, {stdout[-400:]!r})")
 
     # Slow fetches: the election stops at its deadline and keeps the owner it found.
@@ -160,25 +167,26 @@ def main():
     code, out, stdout, fetches, seconds = elect(runs, fetch_seconds=1, deadline=3)
     _check(code == 0 and seconds < 5.5 and "::warning::the owner election stopped at its deadline, 3 s into this step" in stdout,
            f"a slow election stops at its deadline and says so ({code}, {seconds:.1f} s, {stdout[-400:]!r})")
-    fetched = [str(run_id) for run_id, sha in runs if f"fetch {sha}" in fetches]
-    _check(0 < len(fetches) < len(runs) and out.get("owner_run_id") in fetched
+    fetched = [str(run_id) for run_id, sha in runs if f"fetch {sha}" in (fetches or [])]
+    _check(0 < len(fetches or []) < len(runs) and out.get("owner_run_id") in fetched
            and int(out.get("owner_run_id") or 0) <= int(fetched[0]),
            f"it keeps an owner among the runs it examined ({out.get('owner_run_id')!r}, fetched {fetched})")
 
     # A fetch or a key read that hangs ends at the deadline, and with no owner
     # found this run owns the key and builds (a duplicate build is fine).
-    for name, slow in (("fetch", {"fetch_seconds": 600}), ("tree key read", {"fetch_seconds": 0, "key_seconds": 600})):
+    for name, slow in (("fetch", {"fetch_seconds": 600}), ("tree key read", {"fetch_seconds": 0, "key_seconds": 600}),
+                       ("fetch that ignores SIGTERM", {"fetch_seconds": 600, "FAKE_FETCH_IGNORES_TERM": "1"})):
         code, out, stdout, fetches, seconds = elect([(410, "d" * 40), (405, "e" * 40)], deadline=3, **slow)
-        _check(code == 0 and seconds < 5.5,
+        _check(code == 0 and seconds < 7,
                f"a hanging {name} ends at the deadline instead of the job timeout ({code}, {seconds:.1f} s)")
         _check(code == 0 and out.get("owner_run_id") == "" and out.get("run_macos") == "true"
                and "::warning::the owner election stopped at its deadline" in stdout and "no owner found" in stdout,
                f"with no owner found by the deadline after a hanging {name}, this run builds the key ({out.get('owner_run_id')!r}, {out.get('run_macos')!r}, {stdout[-400:]!r})")
 
-    # A step that reaches the election past its deadline examines no candidate.
+    # A step that reaches the election past its deadline asks for nothing.
     code, out, stdout, fetches, seconds = elect([(410, "d" * 40)], fetch_seconds=0, deadline=0)
-    _check(code == 0 and not fetches and out.get("owner_run_id") == "" and "after 0 candidate runs" in stdout,
-           f"an election that starts past its deadline fetches nothing and this run builds ({fetches}, {stdout[-300:]!r})")
+    _check(code == 0 and fetches is None and out.get("owner_run_id") == "" and "after 0 candidate runs" in stdout,
+           f"an election that starts past its deadline reads no run list, fetches nothing, and this run builds ({fetches}, {stdout[-300:]!r})")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

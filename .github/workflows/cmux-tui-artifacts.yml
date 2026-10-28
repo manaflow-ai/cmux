@@ -315,7 +315,7 @@ jobs:
 
           if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
             current_key=""
-            if git -c "http.extraHeader=Authorization: Basic $authorization" \
+            if timeout --kill-after=2 30 git -c "http.extraHeader=Authorization: Basic $authorization" \
                 fetch --no-tags --depth=1 "${SERVER_URL}/${REPOSITORY}.git" "$remote_sha" >/dev/null 2>&1 \
               && git diff --quiet "$SOURCE_COMMIT" "$remote_sha" -- \
                 scripts/ci/cmux_tui_tree_key.py scripts/cmux-next/cmux-tui-tree-inputs.txt \
@@ -428,28 +428,33 @@ jobs:
           fi
           if [[ "$elect" == true && "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" == refs/heads/feat-cmux-next ]]; then
-            runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-              -u "x-access-token:$GH_TOKEN" \
-              -H 'Accept: application/vnd.github+json' \
-              "$API_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&per_page=100" \
-              2>/dev/null || true)"
+            # The election ends at a deadline: the run list, each fetch and
+            # each key read get what is left of it, and timeout's --kill-after
+            # ends a call that ignores SIGTERM. 2026-10-28: the authority
+            # answered HTTP 000 and this loop fetched one run's commit after
+            # another until the job timeout killed it (run 40650195591, commit
+            # a09b77c1). GitHub calls that cancelled and nothing re-runs it, so
+            # the commit never built its tree and nightly-next could not
+            # promote it. At the deadline the election keeps the lowest owner
+            # it found, and with none this run owns the key and builds: a
+            # duplicate build is acceptable, a lost one is not. SECONDS counts
+            # whole seconds, so a call may end up to 3 s past the deadline.
+            examined=0
+            election_left() {
+              local left=$(( ELECTION_DEADLINE_SECONDS - SECONDS ))
+              (( left > ${1:-30} )) && left="${1:-30}"
+              echo "$left"
+            }
+            runs_json=""
+            left="$(election_left 15)"
+            if (( left >= 1 )); then
+              runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time "$left" \
+                -u "x-access-token:$GH_TOKEN" \
+                -H 'Accept: application/vnd.github+json' \
+                "$API_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&per_page=100" \
+                2>/dev/null || true)"
+            fi
             if [[ -n "$runs_json" ]]; then
-              # The election has a deadline, and each fetch and key read is
-              # bounded by what is left of it. 2026-10-28: the authority answered
-              # HTTP 000 and this loop fetched one run's commit after another
-              # until the job timeout killed it (run 40650195591, commit
-              # a09b77c1). GitHub calls that cancelled and nothing re-runs it, so
-              # the commit never built its tree and nightly-next could not
-              # promote it. At the deadline the election keeps the lowest owner
-              # it found, and with none this run owns the key and builds: a
-              # duplicate build is acceptable, a lost one is not. SECONDS counts
-              # whole seconds, so a call may end up to a second past it.
-              examined=0
-              election_left() {
-                local left=$(( ELECTION_DEADLINE_SECONDS - SECONDS ))
-                (( left > 30 )) && left=30
-                echo "$left"
-              }
               while IFS=$'\t' read -r candidate_id candidate_sha; do
                 [[ -n "$candidate_id" && -n "$candidate_sha" ]] || continue
                 [[ "$candidate_id" == "$RUN_ID" ]] && continue
@@ -458,24 +463,24 @@ jobs:
                 left="$(election_left)"
                 (( left >= 1 )) || break
                 examined=$(( examined + 1 ))
-                if timeout "$left" git -c "http.extraHeader=Authorization: Basic $authorization" \
+                if timeout --kill-after=2 "$left" git -c "http.extraHeader=Authorization: Basic $authorization" \
                     fetch --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate_sha" >/dev/null 2>&1 \
                   && left="$(election_left)" && (( left >= 1 )) \
-                  && candidate_key="$(timeout "$left" python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
+                  && candidate_key="$(timeout --kill-after=2 "$left" python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
                   && [[ "$candidate_key" == "$key" ]] \
                   && [[ "$candidate_id" =~ ^[0-9]+$ ]] \
                   && (( candidate_id < owner_run_id )); then
                   owner_run_id="$candidate_id"
                 fi
               done < <(python3 -c 'import json,sys; [print("{}\t{}".format(run.get("id", ""), run.get("head_sha", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") != "completed"]' <<<"$runs_json")
-              if (( SECONDS >= ELECTION_DEADLINE_SECONDS )); then
-                if [[ "$owner_run_id" == "$RUN_ID" ]]; then
-                  elected="no owner found, so this run owns the key and builds it"
-                else
-                  elected="keeping the lowest owner found, run $owner_run_id"
-                fi
-                echo "::warning::the owner election stopped at its deadline, ${ELECTION_DEADLINE_SECONDS} s into this step, after $examined candidate runs; $elected"
+            fi
+            if (( SECONDS >= ELECTION_DEADLINE_SECONDS )); then
+              if [[ "$owner_run_id" == "$RUN_ID" ]]; then
+                elected="no owner found, so this run owns the key and builds it"
+              else
+                elected="keeping the lowest owner found, run $owner_run_id"
               fi
+              echo "::warning::the owner election stopped at its deadline, ${ELECTION_DEADLINE_SECONDS} s into this step, after $examined candidate runs; $elected"
             fi
           fi
           # The same commit pushed to two branches at once (a lane branch,
