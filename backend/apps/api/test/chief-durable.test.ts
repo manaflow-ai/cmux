@@ -219,7 +219,7 @@ describe("Cloud Chief D (pi-durable)", { timeout: 120_000 }, () => {
     const runs = async () => (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${conv}`, token)).json.value?.runs as Array<any> ?? []
     await say(token, conv, "p1", "tool:stop {}")
     for (let i = 0; i < 300 && !(await runs()).some((r) => r.status === "done"); i++) [await fireAlarm(convDO), i % 10 === 9 ? await fireAlarm(brain) : undefined, await sleep(20)]
-    await settle(conv, chief.id, brain)
+    // Read at once: 5 s later the reply ledger starts a retry turn for the unanswered message (the NO_REPLY case).
     // No model request after stop: the run has no talk step and posted nothing.
     expect((await history(token, conv)).filter((m) => m.author === chief.id)).toHaveLength(0)
     const run = (await runs()).at(-1)
