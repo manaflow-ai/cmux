@@ -42,8 +42,10 @@ struct SessionSnapshotRestoreNormalizer {
                     report.droppedPanelCount += workspace.panels.count + (workspace.dock?.panels.count ?? 0)
                     continue
                 }
+                var fallbackBudgetCharged = false
                 if workspace.panels.isEmpty {
                     panelBudget -= 1
+                    fallbackBudgetCharged = true
                 } else {
                     workspace.panels = admittedPanels(
                         workspace.panels,
@@ -55,6 +57,7 @@ struct SessionSnapshotRestoreNormalizer {
                         // A duplicate-only workspace still causes TabManager
                         // to create its fallback terminal.
                         panelBudget -= 1
+                        fallbackBudgetCharged = true
                     }
                 }
                 let normalized = layouts.normalize(workspace.layout, panelIDs: workspace.panels.map(\.id))
@@ -63,6 +66,12 @@ struct SessionSnapshotRestoreNormalizer {
                     panelBudget += normalized.droppedPanelIDs.count
                     workspace.panels.removeAll { normalized.droppedPanelIDs.contains($0.id) }
                     report.droppedPanelCount += normalized.droppedPanelIDs.count
+                }
+                if workspace.panels.isEmpty && !fallbackBudgetCharged {
+                    // Layout admission can remove every panel from an
+                    // otherwise non-empty workspace. Restore still creates
+                    // its fallback terminal, so charge it after normalization.
+                    panelBudget -= 1
                 }
                 if let dock = workspace.dock {
                     workspace.dock = normalizedDock(
