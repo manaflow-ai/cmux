@@ -14,11 +14,13 @@ error line to compare are never excused. One base red then no longer freezes
 every pull request into that base (2026-10-07: four base reds, and the PRs
 fixing them deadlocked on each other's reds).
 
-A test helper that dies on a signal names different in-flight tests and
-crashed-thread frames each run, so its crash lines are not compared: the
-base's job must have died on the same signal, which makes the crash the
-base's (2026-10-09: a base SIGTRAP refused every feat-cmux-next PR). Failed
-steps and any test red before the crash are still compared.
+A job that runs tests is judged per test by scripts/ci/test_reds.py, the one
+classifier for "red on the base, so not ours" (2026-10-28: cmux#26346 landed
+with its own test helper crash because the job was red on the base too). A
+failing test the base's run does not fail is the head's; a crash (signal,
+abort, EXC_*, Fatal error) is the head's whatever the base shows; and a run
+whose per-test results are cut short (no summary, ended early, stuck) is the
+head's, since nothing in it can be compared.
 """
 from __future__ import annotations
 
@@ -32,6 +34,9 @@ _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file_
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
 GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+_spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
+test_reds = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(test_reds)
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # Jobs that only report the run's other jobs: judged by those jobs, never by themselves.
@@ -140,6 +145,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        own = test_reds.read(head_log)
+        if own.crashes or own.truncated:
+            raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
+                          + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed&per_page=20")
@@ -163,22 +172,20 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
-        head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        if not head_tests and not head_errors:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
-        if missing := sorted(head_crash - crash_signals(base_log)):
-            raise Refused(f"'{name}': the test helper died on signal {', '.join(missing)}, "
-                          f"and {base} run {base_run['id']} did not")
+        verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
+        if verdict is not None and verdict.own:
+            raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        crash = [f"the test helper died on signal {signal}" for signal in sorted(head_crash)]
-        what = "; ".join(crash + sorted(head_tests)) or "; ".join(sorted(head_errors))
+        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit

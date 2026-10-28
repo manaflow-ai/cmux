@@ -1,0 +1,118 @@
+"""scripts/ci/test_reds.py: a red test job is the base's only when every failing test fails on the base too, and a
+crash or a cut-short run is never the base's."""
+import importlib.util
+import json
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("test_reds", ROOT / "scripts/ci/test_reds.py")
+reds = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(reds)
+
+FIXTURES = ROOT / "tests/fixtures/test_reds"
+# cmux#26346's head 1caa870b, run 40620080851 (attempt 3, job 122609320390), and the feat-cmux-next run its swift
+# test red was compared with (40626248565, job 122611913105, at 94455680). Excerpts of the real job logs: the test
+# results, the crash and the job's error lines.
+HEAD_26346 = FIXTURES / "26346-head-run-40620080851.log"
+BASE_26346 = FIXTURES / "26346-base-run-40626248565.log"
+
+
+def log(*lines):
+    return "\n".join(f"2026-10-28T03:40:35.1790820Z {line}" for line in lines)
+
+
+def failed(name):
+    return f"✘ Test {name} recorded an issue at X.swift:1:2: Expectation failed"
+
+
+SUMMARY = "✔ Test run with 40 tests in 3 suites passed after 1.0 seconds."
+ABORT = ("error: Process '/x/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest' exited with "
+         "unexpected signal code 6")
+
+
+class Replay26346(unittest.TestCase):
+    def test_the_26346_head_is_its_own_red_for_its_crash(self):
+        verdict = reds.classify(HEAD_26346.read_text(), BASE_26346.read_text(), "cmux-next swift test",
+                                "feat-cmux-next run 40626248565")
+        self.assertTrue(verdict.own)
+        self.assertEqual(verdict.reasons[0],
+                         "HomeTypeToFocusTests.aPaneFocusShortcutFromAnotherPaneThenTypingFillsTheBox crashed (signal 6)")
+        # The base crashed the same way (the intro was on the base by then): still the head's.
+        self.assertTrue(reds.read(BASE_26346.read_text()).crashes)
+        self.assertIn("3 failing test(s) pass or do not run on feat-cmux-next run 40626248565", verdict.reasons[-1])
+
+    def test_the_command_line_exits_1_and_names_the_crash(self):
+        done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/test_reds.py"), "classify", "--head",
+                               str(HEAD_26346), "--base", str(BASE_26346), "--json"], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertTrue(json.loads(done.stdout)["own"])
+        self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
+
+
+class PerTest(unittest.TestCase):
+    def test_the_same_test_failing_on_both_sides_is_a_base_red(self):
+        verdict = reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), failed("b()"), SUMMARY))
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["a()"])
+
+    def test_a_new_failing_test_is_the_heads_own(self):
+        verdict = reds.classify(log(failed("a()"), failed("c()"), SUMMARY), log(failed("a()"), SUMMARY))
+        self.assertTrue(verdict.own)
+        self.assertIn("pass or do not run on the base: c()", verdict.reasons[0])
+
+    def test_a_crash_on_both_sides_is_still_the_heads_own(self):
+        both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
+        verdict = reds.classify(both, both)
+        self.assertTrue(verdict.own)
+        self.assertEqual(verdict.reasons, ["the test process crashed (signal 6)"])
+
+    def test_truncated_output_is_the_heads_own(self):
+        cut = log(failed("a()"), '##[error]no "Test run with" summary line (crash, kill or truncation); swift test '
+                  "exited 1, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL")
+        verdict = reds.classify(cut, log(failed("a()"), SUMMARY))
+        self.assertTrue(verdict.own)
+        self.assertIn("per-test results are not whole", verdict.reasons[0])
+
+    def test_no_base_log_excuses_nothing(self):
+        self.assertTrue(reds.classify(log(failed("a()"), SUMMARY), None).own)
+
+    def test_an_unreadable_head_log_is_the_heads_own(self):
+        self.assertTrue(reds.classify(None, log(failed("a()"))).own)
+
+    def test_a_job_that_runs_no_tests_is_not_judged_here(self):
+        self.assertIsNone(reds.classify(log("error: cannot find 'x' in scope"), log("error: cannot find 'x' in scope")))
+
+    def test_crash_words_in_source_listings_and_passing_test_names_are_not_crashes(self):
+        quiet = log("[12/40] Compiling CmuxNextHome CrashReporter.swift", " 3 | /// A caught signal returns to its "
+                    "default action", "✔ Test aCrashEndsTheApp() passed after 0.1 seconds.", failed("a()"), SUMMARY)
+        self.assertFalse(reds.read(quiet).crashes)
+        self.assertFalse(reds.classify(quiet, log(failed("a()"), SUMMARY)).own)
+
+    def test_xctest_and_fatal_error_crashes_count(self):
+        for line in ("Restarting after unexpected exit, crash, or test timeout in FooTests.testBar(); summary will "
+                     "include totals from previous launches.",
+                     "Fatal error: Unexpectedly found nil while unwrapping an Optional value",
+                     "Thread 0 Crashed:: EXC_BAD_ACCESS (SIGSEGV)"):
+            with self.subTest(line):
+                self.assertTrue(reds.classify(log(line), log(line)).own)
+
+
+class Demangle(unittest.TestCase):
+    def test_a_word_substituted_test_name(self):
+        self.assertEqual(reds.demangle_test("$s16CmuxNextAppTests015HomeTypeToFocusD0V05aPaneh19ShortcutFromAnotherI21"
+                                            "ThenTypingFillsTheBoxyyAC9ContainerOYaKFTQ0_"),
+                         ("HomeTypeToFocusTests", "aPaneFocusShortcutFromAnotherPaneThenTypingFillsTheBox"))
+
+    def test_a_literal_test_name(self):
+        self.assertEqual(reds.demangle_test("$s16CmuxNextAppTests015HomeChiefRosterD0V35noSegmentedControlFloatsOver"
+                                            "TheChatyyF"), ("HomeChiefRosterTests", "noSegmentedControlFloatsOverTheChat"))
+
+    def test_a_frame_outside_a_tests_module_is_not_a_test(self):
+        self.assertIsNone(reds.demangle_test("$s12CmuxNextHome0C12FirstRunViewC12applySpacing"))
+
+
+if __name__ == "__main__":
+    unittest.main()

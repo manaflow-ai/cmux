@@ -1328,13 +1328,16 @@ class Controller:
         if log is None:
             return {name}
         steps, tests, errors = base_red_excuse.signature(job, log)
-        crashes = base_red_excuse.crash_signals(log)
-        if not tests and not errors and not crashes:
+        # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
+        # this job's id, no base failure can match it, whatever the base shows.
+        own = base_red_excuse.test_reds.read(log)
+        if own.crashes or own.truncated:
+            return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
+        if not tests and not errors:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
             return {name}
         parts = {f"{name}: step {step}" for step in steps} | {f"{name}: test {test}" for test in tests}
-        parts |= {f"{name}: crash signal {signal}" for signal in crashes}
         if not tests:
             parts |= {f"{name}: error {error}" for error in errors}
         return parts
