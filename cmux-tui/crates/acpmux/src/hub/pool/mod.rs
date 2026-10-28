@@ -811,6 +811,7 @@ impl Hub {
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
         #[cfg(debug_assertions)]
         self.adopt_report(&p);

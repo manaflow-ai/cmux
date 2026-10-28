@@ -461,6 +461,18 @@ impl Hub {
         let (child, adopted) = match attached {
             Attached::Ready(child, adopted, _) => (child, adopted),
             Attached::Incompatible { min, max, host_build } => {
+                // Its replay is never read, so what it kept while no daemon was attached is
+                // unknown: under MDM's off it counts as full access, now and at any later off
+                // (`unjudged_host`), and ends by its nonce. A host whose end fails stays held and
+                // is never reached (`FullAccessEnd::StillRunning`). With MDM unset it runs on,
+                // unadoptable, as before (#26337).
+                session.floor.unjudged_host.store(true, Ordering::SeqCst);
+                let ended = off.off()
+                    && self.end_managed_full_access(session).await == FullAccessEnd::Ended;
+                if ended {
+                    hold.take();
+                    return Ok(());
+                }
                 self.mark_unadoptable(
                     session,
                     json!({"hostProtocol": [min, max], "hostBuild": host_build}),
@@ -1648,6 +1660,7 @@ impl Hub {
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
         let attached = ChildAgent::attach_hosted(
             &meta.harness,

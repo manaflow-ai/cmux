@@ -52,6 +52,11 @@ pub(crate) struct FloorState {
     /// check counts it as full access until the end succeeds or a new host starts (review 51 of
     /// #23322).
     pub(super) full_access_end_pending: AtomicBool,
+    /// A host a restart left answered that it cannot speak to this build
+    /// (`Attached::Incompatible`): its replay is never read, so what it moved to while no daemon
+    /// was attached is unknown. Under MDM's off every check counts it as full access until its
+    /// host is proven gone or a new host starts (#26337).
+    pub(super) unjudged_host: AtomicBool,
     /// Full-access mode or option reports of the session's own harness that the tap logged and
     /// the inbound loop has not applied yet (`session_tap`, `on_update`). The full-access bound
     /// counts them at once (`FullAccessView::of_session`), so `child_for` never hands out an
