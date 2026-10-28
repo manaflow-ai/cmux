@@ -456,6 +456,7 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
 import { BtwAside } from "./aside/BtwAside";
+import { supportsBtwInline } from "./btwCapability";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -9374,10 +9375,10 @@ function AcpmuxPane() {
                   async (question, sessionId) => {
                     // Older daemons ignore `inline` and would leave a real side session running.
                     // Gate the new reply shape on the daemon capability; legacy /btw remains safe.
-                    if (client.capabilities?.has("btw-inline-v1") !== true) {
+                    if (!supportsBtwInline(client.capabilities)) {
                       const side = await client.btw(question, sessionId);
                       await postNative("chat.sideChat", { sessionId: side });
-                      return "Opened a side session for this question.";
+                      return translate("sideQuestion.opened");
                     }
                     return callNative<string>("chat.btw.inline", { question, sessionId });
                   },
