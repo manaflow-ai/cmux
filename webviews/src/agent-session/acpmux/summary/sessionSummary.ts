@@ -153,10 +153,12 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
       );
     }
-  // Match GitHub links by repository/number after removing query and fragment suffixes. A
-  // mutation can return `/pull/N#issuecomment-…`; that suffix must not turn the changed PR into a
-  // generic URL source.
-  const knownPullRequests = new Map(pullRequests.map((pr) => [`${pr.repo.toLowerCase()}#${pr.number}`, pr]));
+  // Match canonical GitHub links after removing query and fragment suffixes. Keep a separate
+  // identity set so an issue-form link for a PR the chat changed cannot resurrect it as a Source.
+  const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
+  const changedIdentities = new Set(
+    pullRequests.filter((pr) => pr.changed || pr.opened).map((pr) => `${pr.repo.toLowerCase()}#${pr.number}`),
+  );
   const addUrls = (text: string, order: number) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
@@ -166,16 +168,10 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (reference) {
         const [, owner, repo, path, number] = reference;
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
-        const byIdentity = knownPullRequests.get(`${owner}/${repo}`.toLowerCase() + `#${number}`);
-        // An /issues/N link remains an issue unless the transcript independently proved that
-        // exact record as an issue; a bare `repo#N` mention may otherwise promote it to a PR.
+        const identity = `${owner}/${repo}`.toLowerCase() + `#${number}`;
         const known =
-          path === "pull"
-            ? byIdentity
-            : byIdentity?.kind === "issue" || byIdentity?.changed || byIdentity?.opened
-              ? byIdentity
-              : undefined;
-        if (known?.changed || known?.opened) continue;
+          knownPullRequests.get(canonical) ?? knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
+        if (known?.changed || known?.opened || (path === "issues" && changedIdentities.has(identity))) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(
           {
