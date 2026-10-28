@@ -255,5 +255,30 @@ import SwiftUI
         let workspace = try #require(source.listedWorkspace)
         for tab in workspace.tabs where tab.kind == .browser { #expect(source.existingBrowser(tab.id) == nil) }
     }
+
+    /// Review round 3 (HIGH): a picture drawn before a Mac-recorded image
+    /// arrived (no bytes yet, so the new key cannot be drawn) must not stand
+    /// in: the card shows the live preview. A drawable newer key may show an
+    /// older picture of the same layout; another layout never.
+    @Test func olderPictureNeverHidesALoadingImage() {
+        var done = AgentTurn(id: "t1", prompt: "p", promptAt: Date(timeIntervalSince1970: 0))
+        done.status = .completed
+        let drawn = AgentCardRasterKey(turns: [done], colorScheme: .dark, page: CGSize(width: 402, height: 874),
+                                       visibleHeight: 566, topInset: 70, bottomInset: 110, scale: 1.32)
+        #expect(drawn.mayShow(drawn))
+        var withImage = done
+        withImage.attachments = [AgentAttachment(kind: .image, name: "mac.png")]
+        var loading = drawn
+        loading.turns = [done, withImage]
+        #expect(!loading.mayShow(drawn))
+        var newer = drawn
+        var next = done
+        next.prompt = "q"
+        newer.turns = [done, next]
+        #expect(newer.mayShow(drawn))
+        var light = newer
+        light.colorScheme = .light
+        #expect(!light.mayShow(drawn))
+    }
 }
 #endif

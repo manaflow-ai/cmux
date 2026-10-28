@@ -319,6 +319,11 @@ struct TabOverview<Source: TabsDataSource>: View {
         return cards
     }
 
+    /// An unbuilt card's accessibility element, named as its built card is.
+    private func standIn(_ tab: TabsKitTab, rect: CGRect, pinned: Bool) -> CardStandIn {
+        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab", rect: rect) { [onSelect] in onSelect(tab.id) }
+    }
+
     /// A card kept built outside the band: a gesture or the zoom owns it.
     private func holds(_ id: String) -> Bool {
         id == hiddenTabId || id == dragging || id == swipes.menuCard || swipes.isRaised(id)
@@ -330,11 +335,13 @@ struct TabOverview<Source: TabsDataSource>: View {
     @ViewBuilder private func gridCardView(_ card: GridCard) -> some View {
         let id = card.tab.id
         if card.departed == nil, card.index < layout.pinned {
-            ResidentCard(slot: residency.slot(id), held: holds(id)) { pinnedCardView(card.tab, index: card.index) }
+            ResidentCard(slot: residency.slot(id), held: holds(id),
+                         standIn: standIn(card.tab, rect: layout.card(card.index), pinned: true)) { pinnedCardView(card.tab, index: card.index) }
                 .zIndex(Double(card.index))
                 .transition(.opacity)
         } else {
-            ResidentCard(slot: residency.slot(id), held: card.departed != nil || holds(id)) { tabCardView(card) }
+            ResidentCard(slot: residency.slot(id), held: card.departed != nil || holds(id),
+                         standIn: standIn(card.tab, rect: card.departed?.rect ?? layout.card(card.index), pinned: false)) { tabCardView(card) }
                 // Explicit stacking in grid order: cards crossing in a reflow
                 // keep their order.
                 .zIndex(swipes.isDeparting(id) ? 20_000 : swipes.isRaised(id) ? 10_000 : Double(card.index))
