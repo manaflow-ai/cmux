@@ -171,8 +171,9 @@ export const threadOf = (m: Message, messages: ReadonlyArray<Message>): string |
 /**
  * The thread a reply to `message` goes in: its `thread_root`, else up the replies without one to the first
  * message that answers none (the Home page's rule, model.ts `withThreadRoots`). Every message it can return
- * has no `thread_root`, so the owner takes it as a root; a chain that leaves the loaded messages or loops
- * stops at the last one loaded. Null when `message` itself is not loaded.
+ * has no `thread_root`, so the owner takes it as a root. Null when the root is unknown: `message` is not
+ * loaded, or the chain leaves the loaded messages or loops (the last one loaded answers another, so the
+ * clients never draw it as a root).
  */
 export const rootOf = (message: string, messages: ReadonlyArray<Message>): string | null => {
   const byId = new Map(messages.map((m) => [m.id, m]))
@@ -181,9 +182,9 @@ export const rootOf = (message: string, messages: ReadonlyArray<Message>): strin
     if (at.thread_root) return at.thread_root
     seen.add(at.id)
     const up = at.reply_to?.message_id
-    const next = up === undefined || seen.has(up) ? undefined : byId.get(up)
-    if (!next) return at.id
-    at = next
+    if (up === undefined) return at.id
+    if (seen.has(up)) return null
+    at = byId.get(up)
   }
   return null
 }
@@ -212,11 +213,13 @@ export const oneLine = (kind: string): boolean => kind === "chief" || kind === S
  * `threadRoot` is the answered message's thread (`threadOf`). The owner takes a
  * `reply_to` with a `thread_root` only when the root is the answered message's own (home-core apply:
  * "a named root must be the parent's own"), so with a root `threadOf` derived (`ownRoot` false: the
- * message answers another without naming a thread) the reply names the thread alone: it shows in that
- * thread, never at the top level, and is not refused.
+ * message answers another without naming a thread, a teammate's inline reply in a shared chief's line
+ * too) the reply names the thread alone: it shows in that thread, never at the top level, and is not
+ * refused. When that thread is unknown (its root is not loaded), the reply answers the message alone,
+ * and each client puts it in the thread it puts that message in.
  */
 export const replyTarget = (kind: string, message: string, threadRoot: string | null, ownRoot = true): { reply_to?: string; thread_root?: string } => {
-  if (threadRoot && !ownRoot) return { thread_root: threadRoot }
+  if (!ownRoot) return threadRoot ? { thread_root: threadRoot } : { reply_to: message }
   if (kind === SHARED_CHIEF) return { reply_to: message, ...(threadRoot ? { thread_root: threadRoot } : {}) }
   if (kind === "chief" || kind === "dm") return threadRoot ? { reply_to: message, thread_root: threadRoot } : {}
   return { reply_to: message, thread_root: threadRoot ?? message }

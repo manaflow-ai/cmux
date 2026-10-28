@@ -67,10 +67,10 @@ describe("threadOf and rootOf", () => {
     expect(threadOf(msg(5, answers("msg_4")), messages)).toBe("msg_1")
   })
 
-  it("stops at the last loaded message, and in a loop", () => {
+  it("is unknown when the chain leaves the loaded messages or loops", () => {
     expect(rootOf("msg_9", messages)).toBeNull()
-    expect(rootOf("msg_7", [msg(7, answers("msg_6"))])).toBe("msg_7")
-    expect(rootOf("msg_7", [msg(7, answers("msg_8")), msg(8, answers("msg_7"))])).toBe("msg_8")
+    expect(rootOf("msg_7", [msg(7, answers("msg_6"))])).toBeNull()
+    expect(rootOf("msg_7", [msg(7, answers("msg_8")), msg(8, answers("msg_7"))])).toBeNull()
   })
 })
 
@@ -99,6 +99,10 @@ describe("the Chief's reply, as the owner commits it", () => {
 
   it("threads a channel answer under a top-level question", () => {
     expect(answer("group", byId.get("msg_1")!)).toEqual({ reply_to: "msg_1", thread_root: "msg_1" })
+  })
+
+  it("answers a reply whose thread is not loaded without naming a thread, in every kind", () => {
+    for (const kind of ["chief", "dm", "group", SHARED_CHIEF]) expect(replyTarget(kind, "msg_7", null, false)).toEqual({ reply_to: "msg_7" })
   })
 
   it("rows from before own_root keep the old target (the root is the message's own)", () => {
