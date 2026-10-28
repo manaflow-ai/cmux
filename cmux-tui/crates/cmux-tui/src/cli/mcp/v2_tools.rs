@@ -548,6 +548,13 @@ impl V2Tool {
                         }
                         // The wire's decimal string from a JSON number.
                         _ if decimal && value.is_u64() => Value::String(value.to_string()),
+                        _ if decimal
+                            && value
+                                .as_f64()
+                                .is_some_and(|n| n >= 0.0 && n.fract() == 0.0 && n < 1e19) =>
+                        {
+                            Value::String(format!("{}", value.as_f64().unwrap_or_default() as u64))
+                        }
                         _ => value.clone(),
                     };
                     params.insert(name.clone(), value);

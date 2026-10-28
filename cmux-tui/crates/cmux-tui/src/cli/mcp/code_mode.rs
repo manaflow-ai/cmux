@@ -69,8 +69,9 @@ const DOCS_MAX_LIMIT: usize = 30;
 /// Further matching names a docs answer lists without schemas.
 const DOCS_MORE_NAMES: usize = 24;
 
-/// Arguments every change or every read takes, explained once in
-/// [`INSTRUCTIONS`]; a docs answer lists them by name only.
+/// Optional arguments every change or read takes (an idempotency key, a
+/// revision precondition, a session or machine route); a docs answer lists
+/// them by name only, in `alsoTakes`.
 const COMMON_ARGUMENTS: [&str; 5] =
     ["idempotency_key", "expected_revision", "correlation_key", "session", "machine"];
 /// Selector arguments, whose long shared description [`INSTRUCTIONS`] gives.
@@ -87,9 +88,9 @@ const BOILERPLATE: [&str; 5] = [
 ];
 
 pub(super) const INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors (workspace, screen, pane, tab, terminal) take a \
-    public id (ws_…, pane_…, tab_…, term_…), a unique prefix, <session>:<id>, an exact name, \
-    `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
+    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
+    term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
+    also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
     other cmux servers (cua_*, secrets_*, sessions_*, subsessions_*, forum_*) come with their \
     rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
     in_progress, retry with the key from the error; another server's call that fails \
@@ -230,7 +231,10 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .split(|c: char| c.is_whitespace() || matches!(c, '_' | '.' | '-'))
         .filter(|t| !t.is_empty() && !STOP_WORDS.contains(t))
         .collect::<Vec<_>>();
-    let needed = terms.len().div_ceil(2).max(1);
+    if terms.is_empty() {
+        return json!({"query": query, "families": families(tools)});
+    }
+    let needed = terms.len().div_ceil(2);
     let mut scored = tools
         .iter()
         .filter_map(|tool| {
@@ -285,7 +289,7 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
 /// Up to five tool names for a name no tool has: what a docs search for
 /// its words finds, daemon tools first.
 pub(super) fn nearest_names(tools: &[Value], name: &str) -> Vec<String> {
-    search(tools, name, 5)["tools"]
+    search(tools, &name.to_lowercase(), 5)["tools"]
         .as_array()
         .into_iter()
         .flatten()
@@ -299,6 +303,18 @@ pub(super) fn nearest_names(tools: &[Value], name: &str) -> Vec<String> {
 /// selector, idempotency and protocol text in every tool). The call is
 /// still checked against the full schema.
 fn compact(tool: &Value) -> Value {
+    // Only cmux's own tools share this text; another server's tool (a
+    // sub-session's `session`, say) keeps its full descriptor.
+    let own = tool["description"].as_str().is_some_and(|description| {
+        description.contains("(cmux.protocol/2 `") || description.contains("cmux app action `")
+    });
+    if !own {
+        return tool.clone();
+    }
+    let required = tool["inputSchema"]["required"]
+        .as_array()
+        .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>())
+        .unwrap_or_default();
     let mut description = tool["description"].as_str().unwrap_or_default().to_owned();
     for sentence in BOILERPLATE {
         description = description.replace(sentence, "");
@@ -315,12 +331,13 @@ fn compact(tool: &Value) -> Value {
     let mut properties = Map::new();
     let mut common = Vec::new();
     for (name, property) in schema["properties"].as_object().into_iter().flatten() {
-        if COMMON_ARGUMENTS.contains(&name.as_str()) {
+        if COMMON_ARGUMENTS.contains(&name.as_str()) && !required.contains(name) {
             common.push(name.clone());
             continue;
         }
         let mut property = property.clone();
         if SELECTORS.contains(&name.as_str())
+            && !required.contains(name)
             && let Some(object) = property.as_object_mut()
         {
             object.remove("description");

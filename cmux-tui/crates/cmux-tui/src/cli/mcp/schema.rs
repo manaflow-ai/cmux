@@ -161,14 +161,14 @@ fn primitive(expression: &Value) -> Value {
         "int32" => json!({ "type": "integer", "minimum": i32::MIN, "maximum": i32::MAX }),
         "float64" => json!({ "type": "number" }),
         // The wire takes a decimal string (a u64 is past JSON's safe
-        // integers); agents send numbers, so both are accepted (v2_tools.rs
-        // `plan`). tests/tool-evals: `terminal_wait {timeout_ms: 10000}`
-        // failed validation.
+        // integers). Agents send numbers, so `plan` (v2_tools.rs) takes a
+        // whole JSON number too (tests/tool-evals: `terminal_wait
+        // {timeout_ms: 10000}` failed). The type stays one string: some
+        // clients refuse a type array.
         "decimal" => json!({
-            "type": ["integer", "string"],
-            "minimum": 0,
+            "type": "string",
             "pattern": "^(0|[1-9][0-9]{0,19})$",
-            "description": "A whole number (a decimal string also works).",
+            "description": "A whole number, as a decimal string; a JSON number is also taken.",
         }),
         "base64" => json!({ "type": "string", "contentEncoding": "base64" }),
         _ => json!({}),

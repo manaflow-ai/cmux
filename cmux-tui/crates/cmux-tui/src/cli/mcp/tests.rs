@@ -39,6 +39,8 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// `Backend::identity` fails, as with no app on the socket.
+    identity_fails: bool,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     /// The app's `computer_use.status` through `Backend::app_caller`; no
@@ -331,6 +333,9 @@ impl Backend for Fake {
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "caller"}));
+        if self.identity_fails {
+            return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
+        }
         Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
     }
 
@@ -1649,3 +1654,22 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
+
+/// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
+/// the app's `browser.open_split` cannot run without the app (review of the
+/// no-app placement fallback, 2026-10-27).
+#[test]
+fn open_url_without_an_app_stays_on_the_daemon() {
+    let fake = Fake { identity_fails: true, ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    server
+        .call(&json!({"name": "workspace_open_url",
+                        "arguments": {"url": "https://example.com"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|sent| sent["method"] == "browser.open_split"), "{sent:?}");
+    assert!(
+        sent.iter().any(|sent| sent["request"]["operation"] == "workspace.open_url"),
+        "{sent:?}"
+    );
+}

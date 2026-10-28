@@ -52,7 +52,11 @@ impl<B: Backend> Server<B> {
         }
         let identity = match self.backend.identity() {
             Ok(identity) => identity,
-            Err(_) => self.daemon_identity(),
+            // No app: a terminal still goes beside the chat, from the
+            // daemon's own layout. A link keeps the daemon's
+            // `workspace.open_url`, since `browser.open_split` needs the app.
+            Err(_) if terminal => self.daemon_identity(),
+            Err(_) => None,
         };
         let Some(placement) =
             identity.and_then(|identity| crate::cli::beside::placement(&identity))
