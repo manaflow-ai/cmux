@@ -16,7 +16,10 @@
 #   Written write-once by cmux-tui-artifacts.yml (mark-tree-commits) on every
 #   feat-cmux-next push or dispatch run whose tree is published and
 #   daemon-tested, for each first-parent commit in the last 40 of the run's
-#   commit (the run's own included) whose tree is ready.
+#   commit (the run's own included) whose tree is ready, and for the same window
+#   from the branch tip: a run that publishes a tree late (a takeover after the
+#   owner's publish failed) marks the newer commits that share it, whose own
+#   runs found it unpublished and ended (the 2026-10-28 promote waited on them).
 #   Backfill: gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next
 #
 # Usage:
@@ -27,9 +30,12 @@
 #   tree-commit-marker.sh tree-ready <key>   exit 0 published, verified and daemon-tested
 #                                            (prints publishedBy=), 1 not (a 404), 3 a read failure
 #                                            or an unverifiable tree
-#   tree-commit-marker.sh write [--window N] marks HEAD and its first-parent ancestors (default
-#                                            40) whose tree is ready; needs R2_ENDPOINT and the
-#                                            R2 AWS_* credentials
+#   tree-commit-marker.sh write [--window N] [--tip REV]
+#                                            marks HEAD and its first-parent ancestors (default
+#                                            40) whose tree is ready, and with --tip the same
+#                                            window from REV too (the branch tip: later commits
+#                                            that share a tree this run just published); needs
+#                                            R2_ENDPOINT and the R2 AWS_* credentials
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui).
 set -euo pipefail
 
@@ -113,16 +119,21 @@ tree_ready() { # <key>
 }
 
 write_markers() {
-  local window=40 rev key ready published code rrc marked=0 skipped=0
+  local window=40 tip="" rev key ready published code rrc marked=0 skipped=0
   # One readiness check per distinct key: $tmp/keys/<key> holds "ready <publisher>" or "no".
   mkdir -p "$tmp/keys"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --window) window="${2:-}"; shift 2 ;;
+      --tip) tip="${2:-}"; shift 2 ;;
       *) echo "error: unknown argument $1" >&2; exit 2 ;;
     esac
   done
   [[ "$window" =~ ^[1-9][0-9]?$ ]] || { echo "error: --window must be 1 to 99" >&2; exit 2; }
+  if [[ -n "$tip" ]]; then
+    tip="$(git -C "$repo_root" rev-parse --verify -q "$tip^{commit}")" \
+      || { echo "error: --tip names no commit in this checkout" >&2; exit 2; }
+  fi
   [[ -n "${R2_ENDPOINT:-}" ]] || { echo "error: R2_ENDPOINT is required to write markers" >&2; exit 2; }
   local run_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/runs/${GITHUB_RUN_ID:-local}"
   while read -r rev; do
@@ -168,7 +179,11 @@ PY
       echo "error: could not write the tree-commit marker of $rev" >&2
       exit 1
     fi
-  done < <(git -C "$repo_root" rev-list --first-parent -n "$window" HEAD)
+  done < <(
+    # HEAD's window, then the tip's, each commit once.
+    { git -C "$repo_root" rev-list --first-parent -n "$window" HEAD
+      [[ -z "$tip" ]] || git -C "$repo_root" rev-list --first-parent -n "$window" "$tip"
+    } | awk '!seen[$0]++')
   echo "tree-commit markers: $marked written, $skipped commits not ready or unreadable, window $window"
 }
 
@@ -179,6 +194,6 @@ case "$cmd" in
   daemon-tested) daemon_tested "${1:-}" ;;
   tree-ready) tree_ready "${1:-}" ;;
   write) write_markers "$@" ;;
-  -h|--help|"") sed -n '2,33p' "$0" ;;
+  -h|--help|"") sed -n '2,39p' "$0" ;;
   *) echo "error: unknown command $cmd" >&2; exit 2 ;;
 esac

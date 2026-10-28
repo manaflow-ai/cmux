@@ -502,6 +502,24 @@ rm -f "$cdn/tree/$okey/daemon-tests.json" "$cdn/tree-commits/$other.json"
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
   || fail "the writer must succeed when nothing is ready:" "$wout"
 [[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "a tree without its daemon tests must not be marked:" "$wout"
+# --tip: a run that publishes a tree late marks the newer branch commits sharing
+# it (their own runs ran before the tree existed and marked nothing). The run at
+# $head published its tree; $app, a later app-only commit, shares the key.
+rm -rf "$cdn/tree-commits"
+git_q -C "$src" checkout -q --detach "$head"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
+  || fail "the writer failed:" "$wout"
+[[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] \
+  || fail "without --tip the writer walks only HEAD's window:" "$wout"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip "$app" 2>&1) \
+  || fail "the writer with --tip failed:" "$wout"
+[[ -f "$cdn/tree-commits/$app.json" ]] || fail "--tip must mark a newer commit that shares the published tree:" "$wout"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["commit"]==sys.argv[2] and d["key"]==sys.argv[3], d' \
+  "$cdn/tree-commits/$app.json" "$app" "$(key "$head")" || fail "the tip's marker must name its own commit and the shared key"
+grep -q "1 written" <<<"$wout" || fail "--tip must write each commit once (HEAD was already marked):" "$wout"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --tip "$(printf 'f%.0s' {1..40})" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 2 ]] || fail "a --tip that names no commit is a usage error (exit 2), got $rc"
+git_q -C "$src" checkout -q --detach "$other"
 # check: 200 naming the commit, 404, and anything else (another commit, a 500) a read failure (3).
 printf '{"commit": "%s", "key": "%s", "publishedBy": "%s", "markedBy": "https://u"}\n' "$head" "$okey" "$other" > "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
