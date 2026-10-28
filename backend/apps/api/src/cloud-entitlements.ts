@@ -72,7 +72,8 @@ export class CloudEntitlementStore implements CloudEntitlements {
     const teams = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
     const [answer, grant] = await Promise.all([teams.inferencePlan(team, user, stackUser), teams.cloudVmPlan(team, stackUser)])
     if (!answer.ok || !grant.ok) return undefined
-    const own = cloudPlanId(answer.paid ? (answer.plan ?? null) : null, grant.vm_plan)
+    // The raw cmuxPlan, not the router's exact-match paid flag: classic normalizes it (" Max " is max) for machines.
+    const own = cloudPlanId(answer.plan ?? null, grant.vm_plan)
     return companyPlanKey(company, own) ?? (paidPlanLimits(own) ? own : null)
   }
 

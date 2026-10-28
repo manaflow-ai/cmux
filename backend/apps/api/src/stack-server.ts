@@ -64,13 +64,27 @@ export interface StackMember {
 const API = "https://api.stack-auth.com/api/v1"
 
 /**
- * `cmuxPlan` (or the operator's `cmuxVmPlan`) from client_read_only_metadata only: the server and web billing write it, a signed-in
+ * `cmuxPlan` from client_read_only_metadata only: the server and web billing write it, a signed-in
  * client cannot. client_metadata (client-writable) and server_metadata are never read for a plan.
  */
-const readOnlyPlan = (metadata: unknown, key: "cmuxPlan" | "cmuxVmPlan" = "cmuxPlan"): string | null => {
+const readOnlyPlan = (metadata: unknown): string | null => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
-  const plan = (metadata as Record<string, unknown>)[key]
+  const plan = (metadata as Record<string, unknown>).cmuxPlan
   return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
+}
+
+/**
+ * The operator's `cmuxVmPlan` from client_read_only_metadata only (cloud-plan.ts cloudPlanId), for
+ * Cloud machine limits. Classic Cloud lets any present value win over `cmuxPlan` (`cmuxVmPlan ??
+ * cmuxPlan`), and one that is not a usable plan id (blank, not a string) then restricts the record to
+ * free. So absent or null is null, a string up to 64 characters is kept as written (blank included),
+ * and any other present value is "" (a restriction).
+ */
+export const readVmPlanOverride = (metadata: unknown): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>).cmuxVmPlan
+  if (value === undefined || value === null) return null
+  return typeof value === "string" && value.length <= 64 ? value : ""
 }
 
 /**
@@ -159,7 +173,7 @@ export const stackServer = (
       // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
       const meta = r.server_metadata
       const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
-      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readOnlyPlan(r.client_read_only_metadata, "cmuxVmPlan"), vm_personal_tenant }
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readVmPlanOverride(r.client_read_only_metadata), vm_personal_tenant }
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
@@ -167,7 +181,7 @@ export const stackServer = (
     },
     getUserVmPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
-      return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata, "cmuxVmPlan")
+      return isGone(r) ? "user_gone" : readVmPlanOverride(r.client_read_only_metadata)
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []

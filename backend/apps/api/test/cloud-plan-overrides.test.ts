@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 // @ts-expect-error a Vite raw import of web's company domain list (the test runner bundles it; the Worker build never sees it)
 import webAccessText from "../../../../web/services/admin/access.ts?raw"
 import { storeVmPlan } from "../src/cloud-vm-plan.ts"
+import { readVmPlanOverride } from "../src/stack-server.ts"
 import { cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits } from "../src/domains/cloud-plan.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { storePlan } from "../src/inference/plan.ts"
@@ -72,6 +73,26 @@ describe("cloudPlanId: classic's billingPlanIdFromMetadata", () => {
     ["pro", "   ", "free"]
   ] as const)("cmuxPlan %s with cmuxVmPlan %s is %s", (plan, vm, want) => {
     expect(cloudPlanId(plan, vm)).toBe(want)
+  })
+
+  it.each([
+    [{}, null],
+    [{ cmuxVmPlan: null }, null],
+    [{ cmuxVmPlan: "pro" }, "pro"],
+    [{ cmuxVmPlan: "" }, ""],
+    [{ cmuxVmPlan: "  " }, "  "],
+    [{ cmuxVmPlan: 3 }, ""],
+    [{ cmuxVmPlan: "x".repeat(65) }, ""],
+    [null, null],
+    [[], null]
+  ] as const)("the sign-in record %j reads as cmuxVmPlan %j", (metadata, want) => {
+    expect(readVmPlanOverride(metadata)).toBe(want)
+  })
+
+  it("a blank or malformed cmuxVmPlan read from the record restricts a paid plan, as in classic", () => {
+    expect(cloudPlanId("pro", readVmPlanOverride({ cmuxVmPlan: "" }))).toBe("free")
+    expect(cloudPlanId("max", readVmPlanOverride({ cmuxVmPlan: 7 }))).toBe("free")
+    expect(cloudPlanId("pro", readVmPlanOverride({}))).toBe("pro")
   })
 
   it("the company domains are web's admin domains", () => {
@@ -162,6 +183,25 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
     const x = await person("grant-company-max", "max", null, "grant-company-max@cmux.com", true)
     expect(await planGet(x.t)).toMatchObject({ plan_id: "max", limits: { max_active: COMPANY_MAX_ACTIVE } })
     expect((await create(x.t, { cpu: 16, memory_mb: 32768, disk_mb: 65536 })).ok).toBe(true)
+  })
+
+  it("an empty cmuxVmPlan read from the sign-in service restricts a paid Pro", async () => {
+    const x = await person("grant-vm-empty", "pro", null)
+    await inDO(teamDO(x.team), async (i) => {
+      i.ctx.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0 WHERE id = 1`)
+      i.stack = { getUserPlan: async () => "pro", getUserVmPlan: async () => readVmPlanOverride({ cmuxVmPlan: "" }), getTeam: async () => null }
+    })
+    expect(await planGet(x.t)).toMatchObject({ plan_id: "none" })
+    expect(code(await create(x.t))).toBe("cloud.plan.required")
+  })
+
+  it("a padded cmuxPlan counts for machines as in classic, while the router's exact paid gate is unchanged", async () => {
+    const x = await person("grant-padded-max", " Max ", null, "grant-padded-max@manaflow.ai", true)
+    expect(await planGet(x.t)).toMatchObject({ plan_id: "max", limits: { max_active: COMPANY_MAX_ACTIVE } })
+    const y = await person("grant-padded-pro", " Pro ", null)
+    expect(await planGet(y.t)).toMatchObject({ plan_id: "pro" })
+    const answer = await (teamDO(y.team) as unknown as { inferencePlan(team: string, user: string, stackUser?: string): Promise<unknown> }).inferencePlan(y.team, userIdFor(testEnv.STACK_PROJECT_ID, "grant-padded-pro"), "grant-padded-pro")
+    expect(answer).toMatchObject({ ok: true, paid: false })
   })
 
   it("an unverified company address gets no grant", async () => {
