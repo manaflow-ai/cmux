@@ -11,10 +11,9 @@ import Testing
 /// different entry animation, which I don't like."
 ///
 /// The Update Ready card's highlights card used to grow out of the card on the `.appear` spring
-/// (the menu popup's scale-in, `openPopup`) and shrink back on close. A workspace or tab card
-/// fades in while it slides a few points away from its target on the `.panel` spring, and fades
-/// out without moving. These tests show both cards in real windows and compare what each one
-/// actually animates, so the two cannot drift apart again.
+/// (the menu popup's scale-in, `openPopup`) and shrink back on close. Update and tab cards
+/// keep the hover-card entrance slide and fade. Leo's 2026-10-28 request makes a workspace
+/// card appear at rest after its dwell instead. Both kinds still fade out without moving.
 @MainActor @Suite(.serialized) struct UpdateCardHoverParityTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
@@ -100,7 +99,7 @@ import Testing
         return window.convertToScreen(host.convert(host.card.frame, to: nil))
     }
 
-    @Test func theUpdateCardEntersExactlyLikeAWorkspaceCard() async throws {
+    @Test func theUpdateCardKeepsItsEntranceWhileAWorkspaceCardAppearsAtRest() async throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let h = try await make()
@@ -109,14 +108,16 @@ import Testing
 
         let workspace = workspaceCardEntrance(in: h.window)
         defer { workspace.panel.orderOut(nil) }
-        #expect(workspace.played.slideFrom != nil, "the workspace card played no entrance to compare with")
+        #expect(workspace.played.slideFrom == nil, "the workspace card must appear at rest after its dwell")
+        #expect(workspace.panel.alphaValue == 1, "the workspace card must appear fully visible")
 
         h.card.highlights = Highlights()
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first { $0 !== workspace.panel }, "no update hover card")
         let update = Played(popup)
         #expect(update.pureTranslation, "the update card scales in (its own popup entrance), not the hover cards' slide")
-        #expect(update == workspace.played, "the update card enters with \(update), a workspace card with \(workspace.played)")
+        #expect(update.slideFrom == HoverCardPanel.entryVector(for: .beside), "the update card lost its entrance slide")
+        #expect(update.spring != nil, "the update card lost its entrance spring")
     }
 
     @Test func theUpdateCardSitsAtTheWorkspaceCardsGap() async throws {
