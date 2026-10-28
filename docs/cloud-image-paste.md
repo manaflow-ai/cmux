@@ -61,8 +61,12 @@ rollout. Reconnect after updating so capabilities belong to the new connection.
   restart, the reaper checks the recorded directory/file inodes **and a random
   persistent ownership marker on the file**; inode reuse cannot claim a replacement.
   The temporary filesystem must support extended attributes; uploads fail closed
-  when that ownership proof cannot be stored. Expiry is twelve minutes from upload
-  creation (two to transfer, ten to read), reconciled by recurring recovery sweeps.
+  when that ownership proof cannot be stored. The receipt records an expiry that
+  every daemon of the user honours, since they share one per-UID namespace: twelve
+  minutes (two to transfer, ten to read) from upload creation, moved forward while
+  chunks arrive (an atomic rename of the small receipt, at most once every 30
+  seconds), and set to ten minutes from commit when the image is pasted. Expiry is
+  reconciled by recurring recovery sweeps.
   Sweeps continue across 64-entry batches and repeat every 30 seconds after a full
   pass. Transient cleanup failures retain the receipt and can be retried.
   A stopped VM cannot run cleanup; the deadline is reconciled when its daemon

@@ -38,7 +38,7 @@ impl WallClock {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct Receipt {
     version: u8,
     ownership: [u8; 16],
@@ -64,8 +64,13 @@ pub(crate) struct ImagePasteFile {
     name: CString,
     file: File,
     receipt: File,
+    record: Receipt,
     cleanup: bool,
 }
+
+/// Where a new receipt is written and synced before it is renamed over
+/// `.receipt`; only a crash between the two can leave it behind.
+const NEXT_RECEIPT: &CStr = c".receipt-next";
 
 impl ImagePasteFile {
     #[cfg(test)]
@@ -140,29 +145,30 @@ impl ImagePasteFile {
             }
             // openat returned a new, owned descriptor.
             let receipt = unsafe { File::from_raw_fd(receipt_fd) };
-            let mut owned = Self {
-                directory: directory.clone(),
-                directory_handle,
-                name,
-                file,
-                receipt,
-                cleanup: true,
-            };
             let mut ownership = [0u8; 16];
             getrandom::fill(&mut ownership)
                 .map_err(|_| std::io::Error::other("image ownership randomness unavailable"))?;
-            crate::image_paste_ownership::ImagePasteOwnership::mark(&owned.file, &ownership)?;
-            let metadata = Receipt {
+            let record = Receipt {
                 version: 2,
                 ownership,
                 directory_device: directory_metadata.dev(),
                 directory_inode: directory_metadata.ino(),
                 file_device: file_metadata.dev(),
                 file_inode: file_metadata.ino(),
-                name: owned.name.to_str().unwrap().to_owned(),
+                name: name.to_str().unwrap().to_owned(),
                 expires,
             };
-            serde_json::to_writer(&mut owned.receipt, &metadata)?;
+            let mut owned = Self {
+                directory: directory.clone(),
+                directory_handle,
+                name,
+                file,
+                receipt,
+                record,
+                cleanup: true,
+            };
+            crate::image_paste_ownership::ImagePasteOwnership::mark(&owned.file, &ownership)?;
+            serde_json::to_writer(&mut owned.receipt, &owned.record)?;
             owned.receipt.sync_all()?;
             owned.directory_handle.sync_all()?;
             Ok(owned)
@@ -175,6 +181,77 @@ impl ImagePasteFile {
 
     pub(crate) fn append(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         self.file.write_all(bytes)
+    }
+
+    /// Moves the durable expiry a recovery sweep in any daemon honours. The
+    /// new receipt is written and synced under a private name, then renamed
+    /// over `.receipt`, so a sweep reads the old receipt or the new one and
+    /// never a torn one. Only the small receipt is rewritten, never image bytes.
+    pub(crate) fn set_expiry(&mut self, expires: u64) -> std::io::Result<()> {
+        let (receipt_name, next_name) = (c".receipt", NEXT_RECEIPT);
+        if !self.entry_matches(receipt_name, &self.receipt) {
+            return Err(std::io::Error::other("temporary image receipt was replaced"));
+        }
+        if !self.remove_next_receipt() {
+            return Err(std::io::Error::other("stale image receipt cannot be removed"));
+        }
+        let parent = self.directory_handle.as_raw_fd();
+        // The directory descriptor pins this private directory; O_EXCL and
+        // O_NOFOLLOW refuse any entry that appeared at the private name.
+        let fd = unsafe {
+            libc::openat(
+                parent,
+                next_name.as_ptr(),
+                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                0o600,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // openat returned a new descriptor owned only by this File.
+        let mut next = unsafe { File::from_raw_fd(fd) };
+        let record = Receipt { expires, ..self.record.clone() };
+        let written = serde_json::to_writer(&mut next, &record)
+            .map_err(std::io::Error::from)
+            .and_then(|()| next.sync_all());
+        if let Err(error) = written {
+            let _ = self.cleanup_entry(next_name, &next);
+            return Err(error);
+        }
+        // Both names are single components of the pinned directory.
+        if unsafe { libc::renameat(parent, next_name.as_ptr(), parent, receipt_name.as_ptr()) } != 0
+        {
+            let error = std::io::Error::last_os_error();
+            let _ = self.cleanup_entry(next_name, &next);
+            return Err(error);
+        }
+        self.receipt = next;
+        self.record = record;
+        self.directory_handle.sync_all()
+    }
+
+    /// Removes a receipt a crash left at its private write name, but only one
+    /// that carries this file's ownership token. True when none remains.
+    fn remove_next_receipt(&self) -> bool {
+        let name = NEXT_RECEIPT;
+        // No symlink or blocking special-file open is permitted.
+        let fd = unsafe {
+            libc::openat(
+                self.directory_handle.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+            )
+        };
+        if fd < 0 {
+            return std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound;
+        }
+        // openat returned a new, owned descriptor.
+        let file = unsafe { File::from_raw_fd(fd) };
+        let owned = file.metadata().is_ok_and(|stat| stat.is_file() && stat.len() <= 1024)
+            && serde_json::from_reader::<_, Receipt>((&file).take(1025))
+                .is_ok_and(|record| record.ownership == self.record.ownership);
+        owned && self.cleanup_entry(name, &file)
     }
 
     pub(crate) fn header(&mut self) -> std::io::Result<Vec<u8>> {
@@ -300,7 +377,10 @@ impl ImagePasteFile {
             })?;
         let remaining = record.expires.saturating_sub(now).min(720);
         let deadline = Instant::now() + Duration::from_secs(remaining);
-        Some((deadline, Self { directory, directory_handle, name, file, receipt, cleanup: false }))
+        Some((
+            deadline,
+            Self { directory, directory_handle, name, file, receipt, record, cleanup: false },
+        ))
     }
 
     pub(crate) fn directory(&self) -> &std::path::Path {
@@ -317,10 +397,10 @@ impl ImagePasteFile {
         if !self.entry_matches(name, expected) {
             return false;
         }
-        let quarantine = CString::new(if name.to_bytes() == b".receipt" {
-            ".cleanup-receipt"
-        } else {
-            ".cleanup-image"
+        let quarantine = CString::new(match name.to_bytes() {
+            b".receipt" => ".cleanup-receipt",
+            b".receipt-next" => ".cleanup-receipt-next",
+            _ => ".cleanup-image",
         })
         .unwrap();
         let parent = self.directory_handle.as_raw_fd();
@@ -356,6 +436,7 @@ impl ImagePasteFile {
             _ => (), // Ownership changed or the file is already gone; preserve replacements.
         }
         let _ = self.cleanup_entry(&CString::new(".receipt").unwrap(), &self.receipt);
+        let _ = self.remove_next_receipt();
         if self.directory_matches() {
             let _ = fs::remove_dir(&self.directory);
         }

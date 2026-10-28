@@ -91,3 +91,27 @@ fn cloud_image_paste_recovery_retries_an_interrupted_quarantine() {
     assert!(!quarantine.exists());
     assert!(!directory.exists());
 }
+
+#[test]
+fn cloud_image_paste_receipt_rewrite_removes_only_an_owned_leftover() {
+    let mut file = ImagePasteFile::create("png").unwrap();
+    let directory = file.directory().to_owned();
+    let receipt = || -> Receipt {
+        serde_json::from_reader(File::open(directory.join(".receipt")).unwrap()).unwrap()
+    };
+    // A crash between writing the next receipt and renaming it leaves an
+    // owned copy at the private write name; the next rewrite replaces it.
+    fs::copy(directory.join(".receipt"), directory.join(".receipt-next")).unwrap();
+    file.set_expiry(42).unwrap();
+    assert_eq!(receipt().expires, 42);
+    assert!(!directory.join(".receipt-next").exists());
+    // A file at that name without this upload's token is never removed.
+    fs::write(directory.join(".receipt-next"), "user file").unwrap();
+    assert!(file.set_expiry(43).is_err());
+    assert_eq!(receipt().expires, 42);
+    assert!(file.remove_owned());
+    assert_eq!(fs::read_to_string(directory.join(".receipt-next")).unwrap(), "user file");
+    fs::remove_file(directory.join(".receipt-next")).unwrap();
+    fs::remove_dir(&directory).unwrap();
+    file.cleanup = false;
+}

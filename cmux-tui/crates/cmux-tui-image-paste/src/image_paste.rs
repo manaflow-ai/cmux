@@ -3,7 +3,6 @@
 //! chunks, and only the number of uploads is limited, never their size.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -18,9 +17,10 @@ pub(crate) const IMAGE_TTL: Duration = Duration::from_secs(600);
 /// How long an upload may go without an accepted chunk before it expires.
 /// Each chunk restarts it, so a large image on a slow link still finishes.
 const UPLOAD_TTL: Duration = Duration::from_secs(120);
-/// The most often a chunk rewrites the durable receipt's expiry. Well below
-/// the receipt's 600 s margin over the in-memory upload deadline, so a sweep
-/// in any daemon sharing the storage never finds a live upload expired.
+/// The most often a chunk rewrites the durable receipt's expiry. A refresh
+/// writes `now + UPLOAD_TTL + IMAGE_TTL`, so the receipt outlasts the
+/// in-memory upload deadline by IMAGE_TTL minus this (570 s): a sweep in any
+/// daemon sharing the storage never finds a live upload expired.
 const RECEIPT_REFRESH: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, Eq)]
@@ -42,6 +42,8 @@ struct Upload {
     delivery_in_flight: bool,
     cleanup_pending: bool,
     deadline: Instant,
+    /// When the durable receipt's expiry was last written, on `clock`.
+    receipt_written: u64,
 }
 
 #[derive(Default)]
@@ -65,7 +67,7 @@ pub struct ImagePasteStore {
     clock: WallClock,
     /// The temporary directory holding the per-UID storage, when not the
     /// system one.
-    temporary: Option<PathBuf>,
+    temporary: Option<std::path::PathBuf>,
 }
 
 impl Default for ImagePasteStore {
@@ -179,8 +181,8 @@ impl ImagePasteStore {
             Some(temporary) => ImagePasteStorage::at(temporary),
             None => ImagePasteStorage::open(),
         };
-        // Two minutes to upload plus ten minutes for the agent to read.
-        let expires = self.clock.now() + (UPLOAD_TTL + IMAGE_TTL).as_secs();
+        let now = self.clock.now();
+        let expires = Self::upload_expiry(now);
         let file = storage
             .and_then(|storage| ImagePasteFile::create_in(&storage, extension, expires))
             .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
@@ -197,6 +199,7 @@ impl ImagePasteStore {
                 delivery_in_flight: false,
                 cleanup_pending: false,
                 deadline: Instant::now() + UPLOAD_TTL,
+                receipt_written: now,
             },
         );
         self.shared.changed.notify_one();
@@ -220,6 +223,19 @@ impl ImagePasteStore {
         let upload = Self::upload(&mut state, owner, id)?;
         anyhow::ensure!(!upload.committed && offset == upload.received, "image-invalid-offset");
         anyhow::ensure!(bytes.len() <= upload.size - upload.received, "image-size-limit");
+        // The in-memory deadline below only guards this daemon. Every daemon
+        // of the user sweeps the shared storage by the durable receipt, so it
+        // must cover this upload too. Refresh it before accepting the bytes,
+        // so a failure leaves the offset unchanged, and at most once per
+        // RECEIPT_REFRESH, so a fast upload is not one fsync per chunk.
+        let now = self.clock.now();
+        if now >= upload.receipt_written.saturating_add(RECEIPT_REFRESH.as_secs()) {
+            upload
+                .file
+                .set_expiry(Self::upload_expiry(now))
+                .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
+            upload.receipt_written = now;
+        }
         upload.file.append(&bytes).map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         upload.received += bytes.len();
         upload.deadline = Instant::now() + UPLOAD_TTL;
@@ -245,6 +261,12 @@ impl ImagePasteStore {
         let path = upload.file.path().map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         let path = path.to_str().ok_or_else(|| anyhow::anyhow!("image-storage-unavailable"))?;
         let quoted = format!("'{}'", path.replace('\'', "'\\''"));
+        // A crash after this point leaves recovery to remove the image: give
+        // the agent its full reading time from now, not from upload creation.
+        upload
+            .file
+            .set_expiry(self.clock.now().saturating_add(IMAGE_TTL.as_secs()))
+            .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         // Input delivery can fail after a partial write. Retain the readable file
         // until TTL and never automatically retry an ambiguous paste.
         upload.committed = true;
@@ -270,6 +292,14 @@ impl ImagePasteStore {
         Self::reap(&mut state, Instant::now());
         self.shared.changed.notify_one();
         result
+    }
+
+    /// The durable expiry of an upload whose receipt is written at `now`:
+    /// its whole transfer window, then the reading time after a commit there.
+    /// The receipt is refreshed while chunks arrive, so it never falls behind
+    /// the in-memory deadline by more than RECEIPT_REFRESH.
+    fn upload_expiry(now: u64) -> u64 {
+        now.saturating_add((UPLOAD_TTL + IMAGE_TTL).as_secs())
     }
 
     pub fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {
