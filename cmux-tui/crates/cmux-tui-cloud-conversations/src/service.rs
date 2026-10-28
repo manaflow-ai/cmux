@@ -36,6 +36,28 @@ pub struct RangeReply {
     pub body: Vec<u8>,
 }
 
+/// The body of an attachment `PUT`: small bytes (a derived image), or a
+/// staged file of `len` bytes that the backend streams from disk, so an
+/// original of any size never sits in memory.
+#[derive(Debug)]
+pub enum PutBody {
+    Bytes(Vec<u8>),
+    File { file: std::fs::File, len: u64 },
+}
+
+impl PutBody {
+    pub fn len(&self) -> u64 {
+        match self {
+            Self::Bytes(bytes) => bytes.len() as u64,
+            Self::File { len, .. } => *len,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// A transport failure before a reply arrived.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransportError(pub String);
@@ -98,10 +120,25 @@ pub trait CloudBackend: Send + Sync {
         &self,
         url: &str,
         headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, headers, body);
         Err(TransportError("this cloud backend sends no PUT requests".into()))
+    }
+    /// Mint one direct part URL using the slot credential, never the lease bearer.
+    fn attachment_part_url(&self, url: &str, number: u64) -> Result<HttpReply, TransportError> {
+        let _ = (url, number);
+        Err(TransportError("direct attachment slots are unsupported".into()))
+    }
+    /// Upload to a presigned part URL and retain its response ETag.
+    fn put_with_etag(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: PutBody,
+    ) -> Result<(HttpReply, Option<String>), TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("direct attachment uploads are unsupported".into()))
     }
     /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
     /// a signed attachment URL is its own credential.

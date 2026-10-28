@@ -10,6 +10,7 @@
 //! WebSocket seam. The cmux-tui binary installs the real backend
 //! (reqwest + tokio-tungstenite); tests install a scripted one.
 
+mod attachment_multipart;
 mod attachments;
 mod contract;
 mod error;
@@ -30,8 +31,8 @@ pub use host_replica::{
     HostReplicaParams, HostSource, valid_host_id,
 };
 pub use service::{
-    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RangeReply,
-    RequestPermit, ServiceOptions, TransportError, WireRecv,
+    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, PutBody,
+    RangeReply, RequestPermit, ServiceOptions, TransportError, WireRecv,
 };
 pub use session::SessionParams;
 pub use stream::CloudEvent;

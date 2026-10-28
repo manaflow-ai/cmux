@@ -10,13 +10,13 @@ use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{mutation_data, require_conversation};
-use super::service::{CloudConversations, RangeReply, TransportError};
+use super::service::{CloudConversations, PutBody, RangeReply, TransportError};
 
 /// Largest ranged read in one call (the local owner's read cap).
 pub const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The owner's `value` of an `{ok, value}` route reply (refusals as cloud errors).
-fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
+pub(super) fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
     mutation_data(reply).map(|mut data| data["value"].take())
 }
 
@@ -31,7 +31,11 @@ fn is_loopback(url: &url::Url) -> bool {
 /// A URL the owner returned: on the lease's origin when `same_origin`;
 /// otherwise `https` and not loopback (a presigned object URL), unless the
 /// lease itself is a loopback development Worker.
-fn transport_url(raw: &str, api_origin: &str, same_origin: bool) -> Result<url::Url, CloudError> {
+pub(super) fn transport_url(
+    raw: &str,
+    api_origin: &str,
+    same_origin: bool,
+) -> Result<url::Url, CloudError> {
     let bad = |why: &str| CloudError::Unavailable(format!("the owner returned {why}"));
     let url = url::Url::parse(raw).map_err(|_| bad("a malformed URL"))?;
     if url.origin().ascii_serialization() == api_origin {
@@ -59,6 +63,7 @@ impl CloudConversations {
         require_conversation(conversation)?;
         let mut body = declaration.clone();
         body["conversation"] = json!(conversation);
+        body["multipart"] = json!(true);
         route_value(self.post("/v1/home/attachments/intent", &body)?)
     }
 
@@ -93,14 +98,14 @@ impl CloudConversations {
         Ok(url.to_string())
     }
 
-    /// `PUT` bytes to a slot URL the owner returned (`same_origin`: a Worker
+    /// `PUT` a body to a slot URL the owner returned (`same_origin`: a Worker
     /// slot on the lease's origin; else a presigned object URL). A Worker slot
     /// answers `{ok, value}`; an object store answers no JSON (`Null` on 2xx).
     pub fn attachment_put(
         &self,
         url: &str,
         headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
         same_origin: bool,
     ) -> Result<Value, CloudError> {
         transport_url(url, &self.api_origin()?, same_origin)?;
