@@ -111,8 +111,6 @@ export function Combobox({
     shell: "parent",
   });
   const [value, setValue] = useState(defaultValue);
-  const [pinnedActive, setPinnedActive] = useState<number | null>(null);
-  const releasedToResults = useRef(false);
   // Only Return and Tab read the highlighted row, so it is a ref, not state: a highlight change
   // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
   // itself (data-highlighted).
@@ -172,58 +170,6 @@ export function Combobox({
     if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
-    if (hasPinned && !typed.trim() && pinnedSuggestions!.length > 0) {
-      if (event.key === "Enter" && pinnedActive === null) {
-        // Base UI owns Enter while a result is highlighted.
-      } else if (["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.preventBaseUIHandler?.();
-          onSubmit(pinnedSuggestions![pinnedActive!]!);
-          setPinnedActive(null);
-          releasedToResults.current = false;
-          return;
-        }
-        const direction = event.key === "ArrowDown" ? 1 : -1;
-        if (pinnedActive === null && releasedToResults.current && direction > 0) {
-          // Stay in the result list while moving down; Base UI handles this key.
-        } else if (pinnedActive === null && releasedToResults.current && direction < 0) {
-          event.preventDefault();
-          event.preventBaseUIHandler?.();
-          setPinnedActive(pinnedSuggestions!.length - 1);
-          releasedToResults.current = false;
-          return;
-        } else if (pinnedActive === null) {
-          event.preventDefault();
-          event.preventBaseUIHandler?.();
-          setPinnedActive(direction > 0 ? 0 : pinnedSuggestions!.length - 1);
-          highlightedRef.current = pinnedSuggestions![direction > 0 ? 0 : pinnedSuggestions!.length - 1];
-          onHighlight?.(pinnedSuggestions![direction > 0 ? 0 : pinnedSuggestions!.length - 1]!, "keyboard");
-          return;
-        } else if (
-          (direction > 0 && pinnedActive === pinnedSuggestions!.length - 1) ||
-          (direction < 0 && pinnedActive === 0)
-        ) {
-          event.preventDefault();
-          event.preventBaseUIHandler?.();
-          setPinnedActive(null);
-          releasedToResults.current = true;
-          return;
-        } else {
-          event.preventDefault();
-          event.preventBaseUIHandler?.();
-          const next = (pinnedActive + direction + pinnedSuggestions!.length) % pinnedSuggestions!.length;
-          setPinnedActive(next);
-          highlightedRef.current = pinnedSuggestions![next];
-          onHighlight?.(pinnedSuggestions![next]!, "keyboard");
-          return;
-        }
-      }
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-      setPinnedActive(null);
-      releasedToResults.current = false;
-    }
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
@@ -249,7 +195,6 @@ export function Combobox({
       const highlighted = highlightedRef.current;
       const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
       const completed = completionText?.(next) ?? next;
-      // A completed field is a normal Tab stop: keyboard users can reach actions beside the list.
       if (typed === completed) return;
       event.preventDefault();
       event.preventBaseUIHandler?.();
@@ -258,17 +203,14 @@ export function Combobox({
     }
   };
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
-  const renderOption = (item: string) => (
+  const renderOption = (item: string, index = enabledSuggestions.indexOf(item)) => (
     <Autocomplete.Item
       key={item}
+      index={index}
       value={item}
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
-      className={cx(
-        "ui-combobox-item",
-        itemClassName,
-        pinnedSuggestions?.indexOf(item) === pinnedActive ? "data-[highlighted]:bg-hover" : undefined,
-      )}
+      className={cx("ui-combobox-item", itemClassName)}
       render={hasPinned ? <div /> : <li />}
       onPointerDownCapture={() => {
         // A new gesture cannot inherit a press whose click was cancelled outside.
@@ -307,7 +249,11 @@ export function Combobox({
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
-      {hasPinned && <div className="ui-combobox-pinned">{pinnedSuggestions!.map(renderOption)}</div>}
+      {hasPinned && (
+        <div className="ui-combobox-pinned">
+          {pinnedSuggestions!.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
+        </div>
+      )}
       {hasPinned ? (
         <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
           <Autocomplete.Collection>
@@ -349,10 +295,6 @@ export function Combobox({
       autoHighlight={autoHighlight}
       onItemHighlighted={(item, details) => {
         highlightedRef.current = item as string | undefined;
-        if (item && !pinnedSuggestions?.includes(item as string)) {
-          releasedToResults.current = true;
-          setPinnedActive(null);
-        }
         onHighlight?.(item as string | undefined, details.reason);
       }}
     >
