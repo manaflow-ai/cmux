@@ -45,24 +45,40 @@ struct SplitSlowDaemonKeepsPaneTests {
                            _ press: () -> Void) async throws {
         let pid = try #require(services.daemon.identity?.pid)
         let before = Set(content.panes.keys)
-        #expect(kill(pid, SIGSTOP) == 0)
-        let work = services.registry.capturingWork(press)
-        let shown = Set(content.panes.keys).subtracting(before)
-        try? await Task.sleep(for: deadline + .seconds(1)) // test-only: past the reply deadline
-        #expect(kill(pid, SIGCONT) == 0)
-        var failures: [String] = []
-        for task in work { if let failure = await task.value { failures.append(failure.message) } }
-
+        @MainActor func newPanes() -> Int { content.panes.keys.filter { !before.contains($0) }.count }
         @MainActor func confirmed() -> Bool {
             content.panes.contains { !before.contains($0.key) && $0.value.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } }
         }
-        try? await PasswordManagerRouteTests.until({ confirmed() }, within: .seconds(20))
-        // A pane taken back late would leave here.
-        try? await Task.sleep(for: .seconds(1)) // test-only
-        let new = Set(content.panes.keys).subtracting(before)
+        #expect(kill(pid, SIGSTOP) == 0)
+        let work = services.registry.capturingWork(press)
+        let shown = newPanes()
+        // The shown pane must never leave, not only be back at the end: the daemon's pane can come
+        // back under the same public id after a take-back. Sampled while the daemon is stopped past
+        // the reply deadline, then until the daemon's pane is confirmed and a second longer.
+        var fewest = shown
+        @MainActor func sample(for duration: Duration, until done: () -> Bool = { false }) async {
+            let end = ContinuousClock.now + duration
+            while ContinuousClock.now < end, !done() {
+                fewest = min(fewest, newPanes())
+                try? await Task.sleep(for: .milliseconds(20)) // test-only: sampling the shown panes
+            }
+            fewest = min(fewest, newPanes())
+        }
+        await sample(for: deadline + .seconds(1))
+        #expect(kill(pid, SIGCONT) == 0)
+        let finished = Task { @MainActor in
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            return failures
+        }
+        await sample(for: .seconds(20), until: confirmed)
+        await sample(for: .seconds(1))
+        let failures = await finished.value
+        let new = content.panes.keys.filter { !before.contains($0) }
 
-        #expect(shown.count == 1, "the press showed \(shown.count) panes")
-        #expect(confirmed(), "the new pane left: \(new)")
+        #expect(shown == 1, "the press showed \(shown) panes")
+        #expect(fewest == 1, "the shown pane left after the press (fewest new panes: \(fewest))")
+        #expect(confirmed(), "the new pane is not the daemon's: \(new)")
         #expect(new.count == 1, "panes after the press: \(new)")
         #expect(failures.isEmpty, "failed: \(failures)")
     }

@@ -60,8 +60,8 @@ public struct NewColumnCommand: Sendable {
         // target is read once, so every send is the same creation (its fingerprint names it).
         let send = daemon.intendNow("new-pane-right", intent, transaction: transaction) { connection in
             let target = await target()
-            return try await DaemonConnection.retryingLateStarts("new-pane-right") {
-                try await connection.newColumn(beside: target, left: left, width: width, options: sent)
+            return try await connection.creatingShown("new-pane-right", sent) {
+                try await connection.newColumn(beside: target, left: left, width: width, options: $0)
             }
         }
         return {
