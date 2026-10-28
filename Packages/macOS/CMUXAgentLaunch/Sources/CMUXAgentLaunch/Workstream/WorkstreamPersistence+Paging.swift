@@ -13,7 +13,7 @@ extension WorkstreamPersistence {
         try loadPage(endingBefore: endOffset, limit: limit, oversizedRowRecoveryDepth: 0)
     }
 
-    private func loadPage(
+    func loadPage(
         endingBefore endOffset: UInt64?,
         limit: Int,
         oversizedRowRecoveryDepth: Int,
