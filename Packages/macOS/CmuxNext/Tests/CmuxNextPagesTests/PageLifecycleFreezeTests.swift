@@ -40,7 +40,7 @@ struct PageLifecycleFreezeTests {
     private func chromiumView() async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = tab.bounds
         tab.addSubview(view)
@@ -252,7 +252,7 @@ struct PageLifecycleFreezeTests {
         let counter = HookCounter()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [PageRoute(prefix: "test.", provider: counter)],
                                             chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = tab.bounds
         tab.addSubview(view)

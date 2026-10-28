@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextWakeups
 
@@ -19,11 +19,15 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
+    /// What pages in a pane do while it springs, given to each pane host as it is made
+    /// (`RestingPlacement.pageResizing`); nil: they resize with the pane.
+    var pageSpringResizing: PageSpringResizing? { get }
 }
 
 extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+    public var pageSpringResizing: PageSpringResizing? { nil }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
@@ -56,6 +60,9 @@ final class LayoutViewContext {
     /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
     /// it started ends.
     var userMotionEnded: () -> Void = {}
+    /// A screen's render-server springs all landed, a pan held across the landing or not: the visibility pass
+    /// narrows to the rest (`LayoutRootView.updateVisibilityIfPlanChanged`).
+    var renderSpringsLanded: () -> Void = {}
     /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
     /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
     /// frames then (`ScreenContentView.pansOnContainer`).
@@ -157,7 +164,8 @@ final class LayoutViewContext {
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content, holdsContentInMotion: { [weak self] in self?.holdsContentInMotion() ?? false })
+        let host = PaneHostView(pane: pane, content: content, holdsContentInMotion: { [weak self] in self?.holdsContentInMotion() ?? false },
+                                pageResizing: provider?.pageSpringResizing)
         hosts[pane] = host
         return host
     }

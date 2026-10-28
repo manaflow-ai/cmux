@@ -159,10 +159,10 @@ pub(super) struct ReadTarget {
 #[cfg(unix)]
 pub(super) fn read_target(path: &Path, folder: &Path) -> Option<ReadTarget> {
     use std::os::unix::fs::MetadataExt;
-    let real = std::fs::canonicalize(path).ok()?;
-    let m = std::fs::metadata(&real).ok()?;
-    let root = std::fs::canonicalize(folder).ok();
-    let home = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok());
+    let real = cmux_blocking::fs::canonicalize(path).ok()?;
+    let m = cmux_blocking::fs::metadata(&real).ok()?;
+    let root = cmux_blocking::fs::canonicalize(folder).ok();
+    let home = dirs::home_dir().and_then(|h| cmux_blocking::fs::canonicalize(h).ok());
     let inside = m.is_file()
         && m.nlink() == 1
         && root.as_ref().is_some_and(|r| {
@@ -184,8 +184,12 @@ pub(super) fn read_target(_path: &Path, _folder: &Path) -> Option<ReadTarget> {
 #[cfg(unix)]
 pub(super) fn open_read_target(t: &ReadTarget) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let file =
-        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&t.real)?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = cmux_blocking::scoped_blocking_call(
+        "fs::open_with",
+        cmux_blocking::BlockingKind::Fs,
+        || std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&t.real),
+    )?;
     let m = file.metadata()?;
     if !m.is_file() {
         return Err(std::io::Error::other("not a regular file"));
@@ -212,18 +216,26 @@ pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(target)?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let mut file = cmux_blocking::scoped_blocking_call(
+        "fs::open_with",
+        cmux_blocking::BlockingKind::Fs,
+        || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(target)
+        },
+    )?;
     let m = file.metadata()?;
     if !m.is_file() || m.nlink() != 1 {
         return Err(std::io::Error::other("not a regular file with one link"));
     }
-    let named = std::fs::symlink_metadata(target)?;
-    if std::fs::canonicalize(target)? != target || (named.dev(), named.ino()) != (m.dev(), m.ino())
+    let named = cmux_blocking::fs::symlink_metadata(target)?;
+    if cmux_blocking::fs::canonicalize(target)? != target
+        || (named.dev(), named.ino()) != (m.dev(), m.ino())
     {
         return Err(std::io::Error::other("the file changed since it was approved"));
     }
@@ -244,7 +256,7 @@ pub(super) fn write_approved(_target: &Path, _content: &[u8]) -> std::io::Result
 /// existing link is refused), and with the parent folder resolved, so the
 /// question names the real path.
 pub(super) fn write_target(path: &Path) -> Result<PathBuf, String> {
-    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+    if cmux_blocking::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
         return Err(format!(
             "{} is a symlink; a remote turn never writes through one",
             path.display()
@@ -258,15 +270,15 @@ pub(super) fn write_target(path: &Path) -> Result<PathBuf, String> {
     let mut existing = parent.to_path_buf();
     let mut rest = Vec::new();
     // A dangling link counts as existing: resolving it then fails.
-    while std::fs::symlink_metadata(&existing).is_err() {
+    while cmux_blocking::fs::symlink_metadata(&existing).is_err() {
         let Some(last) = existing.file_name().map(|n| n.to_owned()) else { break };
         rest.push(last);
         if !existing.pop() {
             break;
         }
     }
-    let mut out =
-        std::fs::canonicalize(&existing).map_err(|e| format!("{}: {e}", existing.display()))?;
+    let mut out = cmux_blocking::fs::canonicalize(&existing)
+        .map_err(|e| format!("{}: {e}", existing.display()))?;
     out.extend(rest.into_iter().rev());
     out.push(name);
     Ok(out)

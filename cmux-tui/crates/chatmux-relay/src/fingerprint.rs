@@ -274,11 +274,18 @@ pub const CUTE_WORDS: [&str; 256] = [
 /// `word-word-NN` from SHA-256 of the base64url SPKI public key string:
 /// bytes 0 and 1 index `CUTE_WORDS`, byte 2 mod 100 is the two-digit suffix.
 pub fn derive_cute_code(relay_public_key: &str) -> String {
-    let digest = Sha256::digest(relay_public_key.as_bytes());
-    let first = CUTE_WORDS[usize::from(digest[0])];
-    let second = CUTE_WORDS[usize::from(digest[1])];
-    let number = digest[2] % 100;
+    let digest: [u8; 32] = Sha256::digest(relay_public_key.as_bytes()).into();
+    let [first, second, number, ..] = digest;
+    let (first, second, number) = (cute_word(first), cute_word(second), number % 100);
     format!("{first}-{second}-{number:02}")
+}
+
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: CUTE_WORDS has 256 entries, one for every u8 value"
+)]
+fn cute_word(byte: u8) -> &'static str {
+    CUTE_WORDS[usize::from(byte)]
 }
 
 #[cfg(test)]

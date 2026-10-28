@@ -27,7 +27,7 @@ extension BrowserHibernation {
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame,
-                             audible: object["sound"] == true || busy.audio)
+                             audible: object["sound"] == true || busy.audio, heldWebLock: busy.webLock, openIndexedDB: busy.indexedDB)
         } catch {
             return unanswered(tab)
         }
@@ -86,6 +86,7 @@ extension BrowserHibernation {
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
         candidate.hasBackgroundActivity = activity.contains(key)
+        candidate.discardAttempted = discardAttempts.contains(key)
         if let audible {
             // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
             candidate.isAudible = (tab as? any BrowserAudibleReporting)?.isAudible == true
@@ -98,12 +99,43 @@ extension BrowserHibernation {
     /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
     /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
     /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
-    /// page) drops the old page's watch. A Chromium page follows its tab's node (``followVisibility(_:_:)``).
+    /// page) drops the old page's watch. A Chromium page follows its tab's node (``followVisibility(_:_:)``) and
+    /// reports its crashed subframes (``subframeDidCrash(_:)``).
     func pageDidMount(_ key: String, _ page: any BrowserTab) {
         followVisibility(key, page)
+        crashedSubframes[key] = nil
+        if discardsCrashedSubframes, let page = page as? any BrowserSubframeCrashReporting {
+            page.onSubframeCrash = { [weak self] in self?.subframeDidCrash(key) }
+        }
         guard let audible else { return }
         guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
         audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
+    }
+
+    /// A frame of page `key` crashed in another renderer (``BrowserSubframeCrashReporting``): its document holds a
+    /// sad frame until it reloads or navigates. Hidden now or at its next hide, the page is discarded
+    /// (``discardCrashedSubframe(_:)``), so it shows again reloaded whole and its renderers' memory goes; a shown
+    /// page keeps its sad frame. Chrome's DiscardPageWithCrashedSubframePolicy
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc) checks at the
+    /// crash and at each visibility change (OnIsVisibleChanged).
+    func subframeDidCrash(_ key: String) {
+        guard discardsCrashedSubframes, let tab = cache?.browsers[key]?.tab else { return }
+        crashedSubframes[key] = tab.state.documentGeneration
+        discardCrashedSubframe(key)
+    }
+
+    /// Hidden page `key` holds a crashed frame in its current document: it is discarded for
+    /// ``DiscardReason/crashedSubframe``, a discard cmux starts, so the probe, the lead rule, `beforeunload` and the
+    /// person's choices (`browser.hibernation` off, a pin, Never Hibernate This Site) still keep it.
+    func discardCrashedSubframe(_ key: String) {
+        guard let crashed = crashedSubframes[key], let cache, let tab = cache.browsers[key]?.tab else { return }
+        guard tab.state.documentGeneration == crashed else {
+            crashedSubframes[key] = nil
+            return
+        }
+        guard setting.isEnabled, cache.lifecycle.phase(key) == .mountedHidden, !probing.contains(key) else { return }
+        cache.trace(key, "discard (\(DiscardReason.crashedSubframe.rawValue))")
+        prepare(key, for: .crashedSubframe)
     }
 
     /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.
@@ -114,12 +146,19 @@ extension BrowserHibernation {
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
     /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
     func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
-        if askedBeforeUnload.contains(key) { return true }
-        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+        if discardAttempts.contains(key) { return true }
+        return (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.asksBeforeUnload()
         }) ?? true
-        if asks { askedBeforeUnload.insert(key) }
-        return asks
+    }
+
+    /// Hidden page `key`'s discard was tried and did not finish (`why`): it stays until shown
+    /// (`DiscardRule.discardAttempted`, Chrome's `DiscardAttemptMarker` of page_discarding_helper.cc), and the
+    /// replan gives its slot to the next candidate now.
+    func discardFailed(_ key: String, _ why: CannotDiscardReason) {
+        discardAttempts.mark(key)
+        cache?.trace(key, "discard attempted (\(why.rawValue))")
+        replan()
     }
 }
 

@@ -4,8 +4,10 @@
 // every component) over the mock provider and reports, per scenario, the wall time from the
 // gesture to the settled page, React's own render time (Profiler actualDuration), how many
 // components rendered, and how many settings reads (cmux.settings.list) the gesture cost.
-// Prints one `SETTINGS_BENCH {json}` line per scenario.
+// Prints one `SETTINGS_BENCH {json}` line per scenario. With PERF_RESULT_DIR set it also writes each
+// scenario's raw samples as result-v1 (`web.settings.<scenario>.<field>`, the perf lab's webviews story).
 import { afterAll, expect, test } from "bun:test";
+import { perfSeries, recordPerfResults } from "../../../scripts/perf-result.mjs";
 import { installDom } from "./testDom";
 
 type Fiber = {
@@ -55,17 +57,24 @@ function walk(fiber: Fiber | null): void {
 const enabled = process.env.CMUX_SETTINGS_BENCH === "1";
 const iterations = Number(process.env.CMUX_SETTINGS_BENCH_N ?? 40);
 
+/** Every scenario's raw samples, written once after the bench (also when a later scenario fails). */
+const perfSeriesList: ReturnType<typeof perfSeries>[] = [];
+
 const restore = installDom();
-afterAll(() => restore());
+afterAll(() => {
+  restore();
+  if (perfSeriesList.length > 0) recordPerfResults({ story: "webviews", engine: "none", series: perfSeriesList });
+});
 const { act, Profiler, createElement } = await import("react");
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { settle } = await import("./testing");
 const { SettingsPage } = await import("./components/SettingsPage");
+const { createSectionLoader } = await import("./lazySections");
 const { createMockClient } = await import("./mockProvider");
 const { SettingsStore } = await import("./store");
 const { setLocale } = await import("./strings");
 const { homes } = await import("./categories");
-const { THEME_KEY } = await import("./components/ThemeStudio");
+const { THEME_KEY } = await import("./cardRows");
 const { withMockTiming } = await import("./mockTiming");
 // The same fresh React DOM copy testing.tsx loads (it sees the jsdom and the hook above).
 const { fileURLToPath } = await import("node:url");
@@ -96,6 +105,7 @@ async function mount(path: string, latency = 0): Promise<Page> {
   // `latency`: every call answers after that many ms, as the app's bridge does (mockTiming.ts).
   const client = latency ? withMockTiming(mock.client, new URLSearchParams({ latency: String(latency) })) : mock.client;
   const store = new SettingsStore(client);
+  const sections = createSectionLoader();
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -115,7 +125,7 @@ async function mount(path: string, latency = 0): Promise<Page> {
               firstFrame = { at: performance.now(), react: renderMs - mountReactStart, rows };
           },
         },
-        createElement(SettingsPage, { store, history }),
+        createElement(SettingsPage, { store, sections, history }),
       ),
     );
   });
@@ -128,6 +138,7 @@ async function mount(path: string, latency = 0): Promise<Page> {
     unmount() {
       act(() => root.unmount());
       container.remove();
+      sections.dispose();
       store.dispose();
       mock.close();
     },
@@ -138,17 +149,29 @@ type Sample = {
   wall: number;
   react: number;
   rendered: number;
-  rows: number;
+  /** Undefined when the scenario never drew a frame with rows (an open with no first frame). */
+  rows?: number;
   lists: number;
-  /** Opening only: ms to the first commit that draws rows (the first frame), React ms until then. */
+  /**
+   * Opening only: ms to the first commit that draws rows (the first frame), React ms until then;
+   * undefined when no commit drew rows.
+   */
   firstFrame?: number;
   firstFrameReact?: number;
 };
 
-function stats(name: string, samples: Sample[]) {
+/**
+ * Prints a scenario's summary and keeps its raw samples; `unmeasured` fields hold placeholder zeros.
+ * A sample's undefined field was not observed: it is left out of the summary and of the series.
+ */
+function stats(name: string, samples: Sample[], unmeasured: (keyof Sample)[] = []) {
   const pick = (field: keyof Sample) => {
-    const sorted = samples.map((sample) => sample[field] ?? 0).sort((a, b) => a - b);
+    const sorted = samples
+      .map((sample) => sample[field])
+      .filter((value): value is number => value !== undefined)
+      .sort((a, b) => a - b);
     const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
+    if (sorted.length === 0) return null;
     return { p50: +at(0.5).toFixed(2), p95: +at(0.95).toFixed(2), max: +sorted.at(-1)!.toFixed(2) };
   };
   const out = {
@@ -159,12 +182,22 @@ function stats(name: string, samples: Sample[]) {
     componentsRendered: pick("rendered"),
     settingRowsRendered: pick("rows"),
     settingsListReads: pick("lists"),
-    ...(samples[0]?.firstFrame === undefined
+    ...(samples.every((sample) => sample.firstFrame === undefined)
       ? {}
       : { firstFrameMs: pick("firstFrame"), firstFrameReactMs: pick("firstFrameReact") }),
   };
   // A notice line: run-webviews-tests.sh shows a passing file's notices.
   console.log(`::notice::SETTINGS_BENCH ${JSON.stringify(out)}`);
+  const raw = (field: keyof Sample) => (unmeasured.includes(field) ? [] : samples.map((sample) => sample[field]));
+  perfSeriesList.push(
+    perfSeries(`web.settings.${name}.wall`, "ms", raw("wall")),
+    perfSeries(`web.settings.${name}.react`, "ms", raw("react")),
+    perfSeries(`web.settings.${name}.components_rendered`, "count", raw("rendered")),
+    perfSeries(`web.settings.${name}.setting_rows`, "count", raw("rows")),
+    perfSeries(`web.settings.${name}.settings_list_reads`, "count", raw("lists")),
+    perfSeries(`web.settings.${name}.first_frame`, "ms", raw("firstFrame")),
+    perfSeries(`web.settings.${name}.first_frame_react`, "ms", raw("firstFrameReact")),
+  );
   return out;
 }
 
@@ -245,18 +278,26 @@ test.skipIf(!enabled)(
           wall: performance.now() - start,
           react: renderMs - before,
           rendered: 0,
-          // Opening: the rows the first frame drew.
-          rows: frame?.rows ?? 0,
+          // Opening: the rows the first frame drew. A mount that never drew rows has no first
+          // frame; it is counted in no_first_frame, not recorded as a 0 ms frame of 0 rows.
+          rows: frame?.rows,
           lists: page.lists(),
-          firstFrame: (frame?.at ?? start) - start,
-          firstFrameReact: frame?.react ?? 0,
+          firstFrame: frame ? frame.at - start : undefined,
+          firstFrameReact: frame?.react,
         });
         expect(
           page.container.querySelector("[data-row-key]") ?? page.container.querySelector(".section"),
         ).not.toBeNull();
         page.unmount();
       }
-      stats(`open.${section}`, samples);
+      stats(`open.${section}`, samples, ["rendered"]);
+      perfSeriesList.push(
+        perfSeries(
+          `web.settings.open.${section}.no_first_frame`,
+          "count",
+          samples.map((sample) => (sample.firstFrame === undefined ? 1 : 0)),
+        ),
+      );
     }
 
     // Search: one keystroke at a time through "font size", then clearing it.
@@ -343,8 +384,16 @@ test.skipIf(!enabled)(
           });
           await settle();
         }
-        stats(`section.switch.${mode}`, samples);
-        const shownIncomplete = samples.filter((sample) => sample.rows > 0).length;
+        // `rows` is the shown-incomplete flag here (1 when the section drew before its buttons).
+        stats(`section.switch.${mode}`, samples, ["react", "rendered", "rows", "firstFrameReact"]);
+        perfSeriesList.push(
+          perfSeries(
+            `web.settings.section.switch.${mode}.shown_incomplete`,
+            "count",
+            samples.map((sample) => sample.rows),
+          ),
+        );
+        const shownIncomplete = samples.filter((sample) => (sample.rows ?? 0) > 0).length;
         console.log(
           `::notice::SETTINGS_BENCH ${JSON.stringify({ scenario: `section.switch.${mode}.incomplete`, n: samples.length, shownIncomplete })}`,
         );

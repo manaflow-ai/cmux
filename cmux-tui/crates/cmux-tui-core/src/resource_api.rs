@@ -17,6 +17,7 @@ pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v
 use anyhow::Context;
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId, ResourceError,
     ResourceOperation, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
@@ -302,8 +303,8 @@ fn machine_snapshot(context: &LocalResourceContext, catalog: bool) -> Value {
     if catalog {
         // Strict older SDKs reject these fields, even on a local record.
         // The reader opts in; this metadata grants no execution authority.
-        machine["platform"] = machine_platform();
-        machine["capabilities"] = machine_capabilities();
+        machine.insert("platform", machine_platform());
+        machine.insert("capabilities", machine_capabilities());
     }
     machine
 }
@@ -400,14 +401,9 @@ fn require_absent(
     kind: &str,
     message: &str,
 ) -> Result<(), ResourceError> {
-    if selector.is_none() {
-        Ok(())
-    } else {
-        Err(ResourceError::selector_invalid(
-            kind,
-            selector.as_deref().expect("checked selector presence"),
-            message,
-        ))
+    match selector.as_deref() {
+        None => Ok(()),
+        Some(selector) => Err(ResourceError::selector_invalid(kind, selector, message)),
     }
 }
 
@@ -451,7 +447,9 @@ pub(crate) fn public_terminal_snapshot(
         }
     };
     let durable_size = |field: &str, fallback: u16| {
-        durable.launch_spec[field]
+        durable
+            .launch_spec
+            .field(field)
             .as_u64()
             .and_then(|value| u16::try_from(value).ok())
             .filter(|value| *value > 0)
@@ -476,10 +474,10 @@ pub(crate) fn public_terminal_snapshot(
         // This is a coalesced output revision, not the resource revision. It
         // lets external observers skip a full screen read when the PTY did
         // not change.
-        terminal["stream_revision"] = json!(revision.to_string());
+        terminal.insert("stream_revision", json!(revision.to_string()));
     }
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
-        terminal["cwd"] = json!(cwd);
+        terminal.insert("cwd", json!(cwd));
     }
     let running = durable.lifecycle == TerminalLifecycle::Running;
     let mut extra = Map::new();
@@ -507,11 +505,13 @@ pub(crate) fn public_terminal_snapshot(
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
     if !extra.is_empty() {
-        terminal["extra"] = Value::Object(extra);
+        terminal.insert("extra", Value::Object(extra));
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
-        terminal["exit"] =
-            durable.exit.clone().context("exited terminal omitted its durable outcome")?;
+        terminal.insert(
+            "exit",
+            durable.exit.clone().context("exited terminal omitted its durable outcome")?,
+        );
     } else {
         debug_assert!(
             durable.exit.is_none(),
@@ -779,12 +779,12 @@ pub(crate) fn public_session_snapshot_at_cut<R>(
                     "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
-                    snapshot["terminal_id"] = json!(terminal_id);
+                    snapshot.insert("terminal_id", json!(terminal_id));
                 }
                 if let Some(subtitle) = notification.subtitle {
-                    snapshot["subtitle"] = json!(subtitle);
+                    snapshot.insert("subtitle", json!(subtitle));
                 }
-                snapshot["extra"] = json!({"source": notification.source.as_str()});
+                snapshot.insert("extra", json!({"source": notification.source.as_str()}));
                 snapshot
             })
             .collect::<Vec<_>>();
@@ -843,9 +843,12 @@ pub(crate) fn public_session_snapshot_at_cut<R>(
         });
         registry.read_state(|connection| {
             crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot["extra"] = json!({
-                "state": crate::state::store::state_snapshot(connection)?,
-            });
+            snapshot.insert(
+                "extra",
+                json!({
+                    "state": crate::state::store::state_snapshot(connection)?,
+                }),
+            );
             Ok(())
         })?;
         Ok((snapshot, journal_head, visit(state)))
