@@ -1,0 +1,215 @@
+/**
+ * Auto-sizing: a handed-off task gets its machine size from what it needs, so
+ * the person never picks a machine type (leo-workspace design/cloud-work-mode.md,
+ * "Auto-sizing"). Pure: no I/O, no clock.
+ *
+ * It is the fleet's sizing model (manaflow-ai/cmuxterm-hq build-fleet), over
+ * cloud machine shapes:
+ * - A task's need is a grant from a declarative table (TASK_NEEDS), keyed by
+ *   what the fleet measured for the same kind of work (ci_step_mem.go grants,
+ *   cpubudget class defaults, codex-lane-hosts profiles).
+ * - Once the same repo and task kind has measured runs, their peaks replace the
+ *   table: p95 of the peak plus a 20% margin, rounded up to whole GiB, the
+ *   controller's rule for memory grants.
+ * - The machine is the smallest shape that covers every need, from the one
+ *   shape ladder (images/sizes.ts) cut to the plan's sizes.
+ */
+import { VM_IMAGE_SIZES, type VmImageSize } from "./images/sizes";
+
+export const AUTOSIZE_TASK_KINDS = ["chat", "build", "test"] as const;
+export type AutosizeTaskKind = (typeof AUTOSIZE_TASK_KINDS)[number];
+
+export const AUTOSIZE_TOOLCHAINS = ["swift", "rust", "node", "unknown"] as const;
+export type AutosizeToolchain = (typeof AUTOSIZE_TOOLCHAINS)[number];
+
+/** What a task needs on top of the agent session: memory in MiB and busy cores. */
+export type AutosizeNeed = { readonly memoryMb: number; readonly cpus: number; readonly why: string };
+
+const GIB = 1024;
+
+/**
+ * The agent session itself (agent, acpmux, the guest's own services). The
+ * fleet's light-step grant: lints, pins and webview steps measured under 1 GiB
+ * and are granted 2 GiB, on 2 cores (cpubudget ClassDefault "light"). The
+ * codex-lane-hosts sample agrees: 3-4 agent lanes used about 2 GiB in all.
+ */
+export const AUTOSIZE_SESSION_NEED: AutosizeNeed = { memoryMb: 2 * GIB, cpus: 2, why: "fleet light-step grant" };
+
+/**
+ * A task's need beyond the session, by kind and toolchain. Memory is the
+ * fleet's measured grant for the same work (ci_step_mem.go, p95 of measured
+ * peak growth plus 20%); cores are the fleet's: light work 2
+ * (cpubudget ClassDefault), a compile or test run 8 (codex-lane-hosts: any
+ * build selects e2-standard-8). A chat (agent turns, reads, edits) is light
+ * work whatever the repo.
+ */
+export const TASK_NEEDS: Readonly<Record<Exclude<AutosizeTaskKind, "chat">, Readonly<Record<AutosizeToolchain, AutosizeNeed>>>> = {
+  build: {
+    swift: { memoryMb: 13 * GIB, cpus: 8, why: "check-release-compile.sh grant" },
+    rust: { memoryMb: 15 * GIB, cpus: 8, why: "cmux-tui-rust-check.sh grant" },
+    node: { memoryMb: 2 * GIB, cpus: 2, why: "light-step grant (webview, lint)" },
+    unknown: { memoryMb: 8 * GIB, cpus: 8, why: "isolated-step grant" },
+  },
+  test: {
+    swift: { memoryMb: 11 * GIB, cpus: 8, why: "package-test-lane.sh grant" },
+    rust: { memoryMb: 15 * GIB, cpus: 8, why: "cmux-tui-rust-check.sh grant" },
+    node: { memoryMb: 2 * GIB, cpus: 2, why: "light-step grant (webview, lint)" },
+    unknown: { memoryMb: 8 * GIB, cpus: 8, why: "isolated-step grant" },
+  },
+};
+export const CHAT_NEED: AutosizeNeed = { memoryMb: 0, cpus: 0, why: "agent turns only" };
+
+/** A repo's toolchain from the file names at its root; the first match wins (a Swift app with a webview is a Swift build). */
+export const TOOLCHAIN_MARKERS: readonly { readonly toolchain: Exclude<AutosizeToolchain, "unknown">; readonly files: readonly RegExp[] }[] = [
+  { toolchain: "rust", files: [/^Cargo\.toml$/] },
+  { toolchain: "swift", files: [/^Package\.swift$/, /\.xcodeproj$/, /\.xcworkspace$/] },
+  { toolchain: "node", files: [/^package\.json$/] },
+];
+
+/**
+ * Disk a checkout needs per MiB of repo: the checkout, its git objects, its
+ * dependencies and build output. Not measured yet; a run's measured peak disk
+ * replaces it as soon as one exists.
+ */
+export const DISK_PER_REPO_MB = 4;
+/** The fleet's margin over a measured p95 peak (ci_step_mem.go). */
+export const MEASURED_MARGIN = 1.2;
+/** The newest runs a pick reads; older ones describe an older repo. */
+export const MAX_MEASURED_RUNS = 20;
+
+/** One earlier run of the same repo and task kind, as its machine recorded it. */
+export type MeasuredRun = {
+  /** The shape it ran on. */
+  readonly vcpus: number;
+  readonly memoryMb: number;
+  /** Its peaks; absent when no sample reached the control plane. */
+  readonly peakMemoryMb?: number;
+  /** Mean busy cores over the run (cores x cpu%). Peaks of a 250 ms sample say little about cores. */
+  readonly meanBusyCpus?: number;
+  readonly peakDiskMb?: number;
+  /** It ran short: out of memory or disk. The next pick goes above the shape it had. */
+  readonly ranShort?: boolean;
+};
+
+export type AutosizeInput = {
+  readonly taskKind: AutosizeTaskKind;
+  readonly repo?: { readonly sizeMb?: number; readonly rootFiles?: readonly string[] };
+  readonly gpu?: boolean;
+  /** Newest first. */
+  readonly measuredRuns?: readonly MeasuredRun[];
+  /** The memory sizes the plan may create (entitlements memoryOptionsMbForPlan). */
+  readonly planMemoryOptionsMb: readonly number[];
+};
+
+export type AutosizePick = {
+  readonly ok: true;
+  readonly size: VmImageSize;
+  /** The hand-off's size fields (backend handoffs: size {vcpus, memoryGb, pick, reason}). */
+  readonly vcpus: number;
+  readonly memoryGb: number;
+  readonly pick: string;
+  readonly reason: string;
+  /** No shape the plan allows covers the need; the largest it allows was picked. */
+  readonly capped: boolean;
+};
+export type AutosizeRefusal = { readonly ok: false; readonly code: "gpu_unavailable" | "no_plan_sizes"; readonly message: string };
+
+export const shapeLabel = (size: Pick<VmImageSize, "cpu" | "memoryMb">) => `${size.cpu} vCPU · ${Math.round(size.memoryMb / GIB)} GB`;
+
+export function toolchainFromRootFiles(files: readonly string[] | undefined): AutosizeToolchain {
+  for (const marker of TOOLCHAIN_MARKERS) {
+    if (files?.some((file) => marker.files.some((pattern) => pattern.test(file)))) return marker.toolchain;
+  }
+  return "unknown";
+}
+
+/** Nearest-rank p95 (with fewer than 20 values, the largest). */
+const p95 = (values: readonly number[]) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]!;
+const withMargin = (mb: number) => Math.ceil((mb * MEASURED_MARGIN) / GIB) * GIB;
+
+/** Need from measured runs, per axis that has measurements; null axes fall back to the table. */
+function measuredNeed(runs: readonly MeasuredRun[]) {
+  const pick = (values: (number | undefined)[]) => {
+    const known = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0);
+    return known.length ? p95(known) : null;
+  };
+  // A run that ran short used all it had and wanted more: count it as needing the next shape up.
+  const memory = pick(runs.map((run) => (run.ranShort ? run.memoryMb + 1 : run.peakMemoryMb)));
+  const cpus = pick(runs.map((run) => run.meanBusyCpus));
+  const disk = pick(runs.map((run) => run.peakDiskMb));
+  return {
+    memoryMb: memory === null ? null : withMargin(memory),
+    cpus: cpus === null ? null : Math.ceil(cpus * MEASURED_MARGIN),
+    diskMb: disk === null ? null : withMargin(disk),
+  };
+}
+
+/**
+ * Picks the machine for a task: the smallest shape the plan allows that covers
+ * its memory, cores and disk. The reason is one line for the chat header,
+ * e.g. "4 vCPU · 16 GB, picked from 3 earlier runs".
+ */
+export function pickMachineSize(input: AutosizeInput): AutosizePick | AutosizeRefusal {
+  if (input.gpu) return { ok: false, code: "gpu_unavailable", message: "No cloud machine has a GPU yet." };
+  const allowed = VM_IMAGE_SIZES.filter((size) => input.planMemoryOptionsMb.includes(size.memoryMb));
+  if (allowed.length === 0) return { ok: false, code: "no_plan_sizes", message: "The plan offers no machine size." };
+
+  const toolchain = toolchainFromRootFiles(input.repo?.rootFiles);
+  const task = input.taskKind === "chat" ? CHAT_NEED : TASK_NEEDS[input.taskKind][toolchain];
+  const tableMemoryMb = AUTOSIZE_SESSION_NEED.memoryMb + task.memoryMb;
+  const tableCpus = Math.max(AUTOSIZE_SESSION_NEED.cpus, task.cpus);
+  const repoMb = input.repo?.sizeMb !== undefined && Number.isFinite(input.repo.sizeMb) && input.repo.sizeMb > 0 ? input.repo.sizeMb : 0;
+  const tableDiskMb = repoMb * DISK_PER_REPO_MB;
+
+  const runs = (input.measuredRuns ?? []).slice(0, MAX_MEASURED_RUNS);
+  const measured = measuredNeed(runs);
+  const measuredAxes = [measured.memoryMb, measured.cpus, measured.diskMb].some((v) => v !== null);
+  const need = {
+    memoryMb: measured.memoryMb ?? tableMemoryMb,
+    cpus: Math.max(1, measured.cpus ?? tableCpus),
+    diskMb: measured.diskMb ?? tableDiskMb,
+  };
+
+  const fits = allowed.find((size) => size.memoryMb >= need.memoryMb && size.cpu >= need.cpus && size.storageMb >= need.diskMb);
+  const size = fits ?? allowed[allowed.length - 1]!;
+  const basis = measuredAxes
+    ? `picked from ${runs.length} earlier run${runs.length === 1 ? "" : "s"}`
+    : input.taskKind === "chat"
+      ? "picked for agent turns"
+      : `picked for a ${toolchain === "unknown" ? "" : `${toolchain[0]!.toUpperCase()}${toolchain.slice(1)} `}${input.taskKind}`;
+  const reason = `${shapeLabel(size)}, ${basis}${fits ? "" : ", the largest your plan allows"}`;
+  return {
+    ok: true,
+    size,
+    vcpus: size.cpu,
+    memoryGb: size.memoryMb / GIB,
+    pick: size.name,
+    reason,
+    capped: !fits,
+  };
+}
+
+/** The create body's `autosize` field, validated; null when absent, a string when invalid (the field error). */
+export function parseAutosizeRequest(value: unknown): { readonly taskKind: AutosizeTaskKind; readonly repo?: AutosizeInput["repo"]; readonly gpu: boolean } | null | string {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return "`autosize` must be an object.";
+  const v = value as Record<string, unknown>;
+  const taskKind = v.taskKind ?? "chat";
+  if (typeof taskKind !== "string" || !(AUTOSIZE_TASK_KINDS as readonly string[]).includes(taskKind)) {
+    return `\`autosize.taskKind\` must be one of ${AUTOSIZE_TASK_KINDS.join(", ")}.`;
+  }
+  if (v.gpu !== undefined && typeof v.gpu !== "boolean") return "`autosize.gpu` must be a boolean.";
+  let repo: AutosizeInput["repo"];
+  if (v.repo !== undefined) {
+    if (v.repo === null || typeof v.repo !== "object" || Array.isArray(v.repo)) return "`autosize.repo` must be an object.";
+    const r = v.repo as Record<string, unknown>;
+    if (r.sizeMb !== undefined && (typeof r.sizeMb !== "number" || !Number.isFinite(r.sizeMb) || r.sizeMb < 0 || r.sizeMb > 16 * 1024 * 1024)) {
+      return "`autosize.repo.sizeMb` must be a non-negative number of MiB.";
+    }
+    if (r.rootFiles !== undefined && (!Array.isArray(r.rootFiles) || r.rootFiles.length > 500 || r.rootFiles.some((f) => typeof f !== "string" || f.length > 255))) {
+      return "`autosize.repo.rootFiles` must be at most 500 file names.";
+    }
+    repo = { sizeMb: r.sizeMb as number | undefined, rootFiles: r.rootFiles as string[] | undefined };
+  }
+  return { taskKind: taskKind as AutosizeTaskKind, repo, gpu: v.gpu === true };
+}
