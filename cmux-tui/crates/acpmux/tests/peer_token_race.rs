@@ -266,3 +266,39 @@ fn a_remote_with_no_token_stays_remote_after_a_bounded_number_of_reads() {
     assert_eq!(later["attempts"], first["attempts"], "the link did not reconnect: {later}");
     assert_eq!(pair.reads(), 8, "reads of a remote with no token");
 }
+
+/// Both the config read and a configured-token tunnel preserve the SSH failure class.
+#[test]
+fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
+    for (index, (diagnostic, expected)) in [
+        ("ssh: Could not resolve hostname example.invalid: Name or service not known", "DNS"),
+        ("user@example.invalid: Permission denied (publickey).", "Permission denied"),
+        ("Host key verification failed.", "Host key verification failed"),
+        ("ssh: connect to host example.invalid port 22: Connection timed out", "timed out"),
+    ].into_iter().enumerate() {
+        for configured in [false, true] {
+            let tag = format!("ssh-reason-{index}-{configured}");
+            let dir = tempfile::tempdir().unwrap();
+            let script = dir.path().join("ssh");
+            std::fs::write(&script, format!(
+                "#!/usr/bin/env python3\nimport sys\nsys.stderr.write({diagnostic:?} + '\\nsecret-do-not-publish\\n')\nsys.exit(255)\n"
+            )).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let daemon = start(&tag, json!({}), false, Some(dir.path()));
+            let mut params = json!({"name":"box", "url":"ssh://box.invalid", "wait":true});
+            if configured {
+                params["token"] = json!("dummy");
+                params["peerToken"] = json!("a".repeat(64));
+            }
+            let added = unix(&daemon.home, "_acpmux/peer_add", params);
+            assert!(added.get("error").is_none(), "{added}");
+            let listing = daemon_env::acpmux(&daemon.home)
+                .args(["host", "ls"]).output().unwrap();
+            assert!(listing.status.success(), "host ls failed");
+            let text = String::from_utf8_lossy(&listing.stdout);
+            assert!(text.contains(expected), "missing {expected}: {text}");
+            assert!(!text.contains("secret-do-not-publish"), "untrusted stderr leaked");
+        }
+    }
+}

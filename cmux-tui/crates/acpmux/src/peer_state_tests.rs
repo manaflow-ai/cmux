@@ -266,3 +266,25 @@ async fn the_time_a_request_waits_in_the_queue_counts_toward_its_deadline() {
     assert_eq!(started.elapsed(), Duration::from_secs(60), "queue time not counted");
     let _keep = taker.await.unwrap();
 }
+
+/// A peer absent for a day stays visible but stops making minute-by-minute attempts.
+#[tokio::test(start_paused = true)]
+async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
+    let (tx, mut notices) = mpsc::channel(64);
+    // Invalid WebSocket URL fails without network I/O or a real SSH process.
+    let peer = Peer::new("gone", "invalid://peer", None, None, tx);
+    peer.with_link(|link| {
+        link.down(crate::store::now_ms() - 86_400_001, Duration::ZERO);
+    });
+    let running = tokio::spawn(peer.clone().run());
+    let (_, _, first) = notices.recv().await.unwrap();
+    assert!(matches!(first, PeerNotice::Disconnected(_)));
+    let early = tokio::time::timeout(Duration::from_secs(120), notices.recv()).await;
+    peer.stop();
+    running.await.unwrap();
+    assert!(early.is_err(), "a day-old outage retried within two minutes");
+    let refusal = tokio::time::timeout(
+        Duration::from_millis(1), peer.request(method::SESSION_NEW, json!({})),
+    ).await.expect("a parked peer refuses immediately").unwrap_err();
+    assert_eq!(reason(&refusal), Some("peer_unreachable"));
+}
