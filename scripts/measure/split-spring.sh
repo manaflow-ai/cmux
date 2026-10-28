@@ -43,6 +43,9 @@
 #                   (scripts/cmux-next/first-5s-typing.py through split-spring-terminal.py; --apps-sha256=A,B measures
 #                   fleet builds; its sender reports its own lateness, `--self-check` checks it with no app).
 #   --suite=bench-idle  idle wakeups and CPU (scripts/cmux-next/bench_idle.py; its options follow, e.g. --scenarios=...).
+#   --suite=responsive-scroll  run scripts/cmux-next/responsive-scroll-live.py (p03-rendering-110: a 50 ms main stall
+#                   during momentum still scrolls the sidebar and the palette results, feature responsiveScrolling on
+#                   and off); it exits 1 when the check fails. Real input needs the Accessibility grant as above.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -63,6 +66,7 @@ for arg in "$@"; do
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --suite=input-latency) bench_script=scripts/cmux-next/input-latency-bench.py ;;
     --suite=scroll-jank) bench_script=scripts/cmux-next/scroll-jank-bench.py ;;
+    --suite=responsive-scroll) bench_script=scripts/cmux-next/responsive-scroll-live.py ;;
     *) args+=("$arg") ;;
   esac
 done

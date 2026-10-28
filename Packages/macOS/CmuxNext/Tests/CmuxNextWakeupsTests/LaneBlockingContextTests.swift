@@ -4,11 +4,11 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// A BackgroundWork `.files` or `.system` item runs with its thread marked a lane (`LaneScheduler`), Chrome's
+/// A BackgroundWork `.files`, `.system` or `.bulkFiles` item runs with its thread marked a lane (`LaneScheduler`), Chrome's
 /// `MayBlock()` task: the blocking detector allows its seams (plans/cmux-next/chrome-parity/p02-threads.md, task
 /// 005), except a wait on a sync primitive (task 119). A `.cpu` item may not block (LaneWrongLaneTests, task 015).
 @Suite(.timeLimit(.minutes(1))) struct LaneBlockingContextTests {
-    @Test(arguments: [BlockingLane.files, .system])
+    @Test(arguments: [BlockingLane.files, .system, .bulkFiles])
     func aSeamInsideWorkRunRecordsNothing(lane: BlockingLane) async throws {
         let table = BlockingViolationTable(mode: .record, poolMode: .record)
         let work = BackgroundWork(label: "test.lane-context")

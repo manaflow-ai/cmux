@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The pickers fold a repository's worktrees under one row (`project.list` `repos`): the host reads
 /// each folder's repository from Git's own small files, never by running `git`, and never reads a
@@ -329,7 +330,7 @@ struct AgentPaneProjectRepoTests {
         defer { fixture.remove() }
         try checkout(fixture)
         let worktree = fixture.home + "/wt/cmux/picker"
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.onListProjects = { _ in [worktree] }
         let value = (await model.respond(to: .listProjects(nil)))["value"] as? [String: Any]
         #expect(value?["projects"] as? [String] == [worktree])
