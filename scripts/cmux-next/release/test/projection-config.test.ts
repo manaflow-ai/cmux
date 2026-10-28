@@ -21,6 +21,8 @@ const neededBindings = (vars: Record<string, string>): Array<string> => {
   // The compare runs while either side is MySQL and reads both databases.
   if (primaryMysql || vars.PROJECTION_SHADOW === "mysql") for (const b of ["HYPERDRIVE", "PS_MYSQL_RO"]) need.add(b)
   if (!primaryMysql || vars.PROJECTION_SHADOW === "postgres" || vars.PROJECTION_READS !== "mysql") need.add("HYPERDRIVE")
+  // Postgres reads (home.search; the feed sweep falls back to it) while reads are not MySQL only.
+  if (vars.PROJECTION_READS !== "mysql") need.add("HYPERDRIVE_RO")
   return [...need].sort()
 }
 
@@ -37,8 +39,8 @@ describe("projection switches in wrangler.jsonc", () => {
   }
 
   it("a MySQL switch without the PlanetScale bindings is refused", () => {
-    expect(neededBindings({})).toEqual(["HYPERDRIVE"])
-    expect(neededBindings({ PROJECTION_SHADOW: "mysql", PROJECTION_READS: "shadow" })).toEqual(["HYPERDRIVE", "PS_MYSQL", "PS_MYSQL_RO"])
+    expect(neededBindings({})).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO"])
+    expect(neededBindings({ PROJECTION_SHADOW: "mysql", PROJECTION_READS: "shadow" })).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO", "PS_MYSQL", "PS_MYSQL_RO"])
     expect(neededBindings({ PROJECTION_PRIMARY: "mysql", PROJECTION_READS: "mysql", PROJECTION_SHADOW: "postgres", CREDITS_MIRROR: "mysql" })).toEqual(["HYPERDRIVE", "PS_MYSQL", "PS_MYSQL_RO"])
     // The compare still reads Postgres while MySQL is the primary, until the Postgres path is removed (step 8).
     expect(neededBindings({ PROJECTION_PRIMARY: "mysql", PROJECTION_READS: "mysql" })).toEqual(["HYPERDRIVE", "PS_MYSQL", "PS_MYSQL_RO"])

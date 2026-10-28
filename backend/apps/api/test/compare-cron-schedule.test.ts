@@ -67,7 +67,7 @@ describe("the 15-minute cron", () => {
     })
     vi.spyOn(console, "log").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
-    await run({ ...(env as object), ENVIRONMENT: "staging", PROJECTION_PRIMARY: undefined, PROJECTION_SHADOW: undefined, STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key" })
+    await run(production({ ENVIRONMENT: "staging", STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key" }))
     expect(calls.some((u) => u.startsWith("https://api.stripe.com/"))).toBe(true)
   })
 })
