@@ -37,7 +37,7 @@
 // (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
@@ -48,6 +48,14 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
+import {
+  clearQueuedEdit,
+  keepQueuedEdit,
+  newQueuedEdit,
+  queuedEditMatches,
+  readQueuedEdits,
+  type QueuedEditDraft,
+} from "./queuedEditDrafts";
 import { AuthorChip } from "./multiplayer/Faces";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -136,6 +144,7 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
 export function ComposerQueue({
   queue,
   chat,
+  ready = true,
   paused,
   pauseReason,
   t,
@@ -150,6 +159,8 @@ export function ComposerQueue({
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
   chat?: string;
+  /// The daemon finished reading this chat; provisional empty queues cannot discard saved edits.
+  ready?: boolean;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
   /// That turn's error (queuePause.ts), which the paused note names.
@@ -182,7 +193,17 @@ export function ComposerQueue({
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
-    setDropped(new Set());
+    const entry = queue.find((entry) => entry.id === id);
+    const held = id ? savedEdits.current.get(id) : undefined;
+    draft.current = entry
+      ? { id: entry.id, value: held && queuedEditMatches(held, entry) ? held : newQueuedEdit(entry) }
+      : undefined;
+    if (draft.current) {
+      touched.current.add(draft.current.id);
+      savedEdits.current.set(draft.current.id, draft.current.value);
+      keepQueuedEdit(chat, draft.current.id, draft.current.value);
+    }
+    setDropped(new Set(draft.current?.value.droppedImages));
     setEditingId(id);
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
@@ -194,7 +215,63 @@ export function ComposerQueue({
       return next;
     });
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
-  const draft = useRef<{ id: string; original: string; text: string }>(undefined);
+  const draft = useRef<{ id: string; value: QueuedEditDraft }>(undefined);
+  const savedEdits = useRef(new Map<string, QueuedEditDraft>());
+  const touched = useRef(new Set<string>());
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const remember = (entry: QueuedEntry, text: string, removed = dropped) => {
+    const value = newQueuedEdit(entry, text, [...removed]);
+    // Keep the baseline from when editing began, even if a snapshot changed in this event turn.
+    if (draft.current?.id === entry.id) {
+      value.originalPrompt = draft.current.value.originalPrompt;
+      value.originalImages = draft.current.value.originalImages;
+    }
+    draft.current = { id: entry.id, value };
+    savedEdits.current.set(entry.id, value);
+    keepQueuedEdit(chat, entry.id, value);
+    return value;
+  };
+  const forget = useCallback(
+    (id: string, value: QueuedEditDraft | undefined) => {
+      if (!value) return;
+      if (savedEdits.current.get(id)?.revision === value.revision) savedEdits.current.delete(id);
+      clearQueuedEdit(chat, id, value.revision);
+    },
+    [chat],
+  );
+  useEffect(() => {
+    if (!chat || !ready) return;
+    let current = true;
+    void readQueuedEdits(chat).then((saved) => {
+      if (!current) return;
+      for (const [id, value] of Object.entries(saved)) {
+        // A keystroke/open editor while the read was in flight always wins.
+        if (touched.current.has(id)) {
+          // A stale read must not reopen an edit the person explicitly discarded while it waited.
+          if (!savedEdits.current.has(id)) clearQueuedEdit(chat, id, value.revision);
+          continue;
+        }
+        if (savedEdits.current.has(id) || draft.current?.id === id) continue;
+        const entry = queueRef.current.find((entry) => entry.id === id);
+        if (!entry || !queuedEditMatches(value, entry)) {
+          clearQueuedEdit(chat, id, value.revision);
+          continue;
+        }
+        savedEdits.current.set(id, value);
+        if (!draft.current) {
+          draft.current = { id, value };
+          setDropped(new Set(value.droppedImages));
+          setEditingId(id);
+          // A restored edit below a folded queue must be visible.
+          setUnfolded(true);
+        }
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [chat, ready]);
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
@@ -225,16 +302,28 @@ export function ComposerQueue({
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
     });
+    if (ready)
+      for (const [id, value] of savedEdits.current) {
+        if (id !== editing && !queue.some((entry) => entry.id === id && queuedEditMatches(value, entry)))
+          forget(id, value);
+      }
     // The edited prompt left, or turned out to be a teammate's (its authored record came in while
     // the editor was open): the editor closes, and what was typed goes back to the composer.
-    if (editing && !queue.some((entry) => entry.id === editing && entry.author === undefined)) {
+    if (
+      ready &&
+      editing &&
+      draft.current?.id === editing &&
+      !queue.some((entry) => entry.id === editing && queuedEditMatches(draft.current!.value, entry))
+    ) {
       const open = draft.current;
-      if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim(), editing);
+      if (open?.id === editing && open.value.text.trim() && open.value.text !== open.value.originalPrompt)
+        onLost?.(open.value.text.trim(), editing);
+      forget(editing, open?.value);
       draft.current = undefined;
       setDropped(new Set());
       setEditingId(undefined);
     }
-  }, [queue, editing, onLost]);
+  }, [queue, ready, editing, onLost, forget]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
   // height does (a prompt opened to its whole text, its images read).
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
@@ -436,27 +525,36 @@ export function ComposerQueue({
     });
   // The open edit ends unsaved, its images all kept; focus goes back to its row.
   const cancel = (index: number) => {
+    if (draft.current) forget(draft.current.id, draft.current.value);
     draft.current = undefined;
     setEditing(undefined);
     focusRow(index);
   };
   const save = (entry: QueuedEntry, text: string) => {
-    if (entry.author !== undefined) return cancel(shown.indexOf(entry));
+    const held = draft.current?.id === entry.id ? draft.current.value : newQueuedEdit(entry);
+    const live = queueRef.current.find((candidate) => candidate.id === entry.id);
+    if (!live || !queuedEditMatches(held, live)) return cancel(shown.indexOf(entry));
     const images = entry.images ?? [];
     const kept = images.filter((image) => !dropped.has(image.id));
-    draft.current = undefined;
-    setEditing(undefined);
-    focusRow(shown.indexOf(entry));
     const next = text.trim();
-    // Text alone keeps every image; an image removed sends the ones left.
     const removed = kept.length < images.length;
-    if (!next || (next === entry.prompt && !removed) || !onChange) return;
+    if (!next || (next === entry.prompt && !removed) || !onChange) return cancel(shown.indexOf(entry));
+    const saved = remember(entry, text);
+    draft.current = undefined;
+    setEditingId(undefined);
+    setDropped(new Set());
+    focusRow(shown.indexOf(entry));
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
-    void onChange(entry.id, edit).then((ok) => {
-      if (!ok) onLost?.(next, entry.id);
-    });
+    // The local edit remains durable until the daemon acknowledges it. Never retry this RPC on
+    // restore: its prompt may have run or been edited elsewhere while this page was gone.
+    void onChange(entry.id, edit)
+      .then((ok) => {
+        forget(entry.id, saved);
+        if (!ok) onLost?.(next, entry.id);
+      })
+      .catch(() => undefined);
   };
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
@@ -633,9 +731,9 @@ export function ComposerQueue({
       {!entry.next && <span className="acpmux-hidden-label">{t("composer.queued")}</span>}
       {editing === entry.id ? (
         <QueuedEdit
-          entry={entry}
           label={t("composer.queueEdit")}
-          onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
+          text={draft.current?.id === entry.id ? draft.current.value.text : entry.prompt}
+          onInput={(text) => remember(entry, text)}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
       ) : (
@@ -667,10 +765,18 @@ export function ComposerQueue({
         }
         t={t}
         read={readImage}
-        onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}
+        onRemove={
+          editing === entry.id
+            ? (id) => {
+                const removed = new Set(dropped).add(id);
+                setDropped(removed);
+                remember(entry, draft.current?.id === entry.id ? draft.current.value.text : entry.prompt, removed);
+              }
+            : undefined
+        }
         onLeave={
           editing === entry.id
-            ? () => save(entry, draft.current?.id === entry.id ? draft.current.text : entry.prompt)
+            ? () => save(entry, draft.current?.id === entry.id ? draft.current.value.text : entry.prompt)
             : undefined
         }
         onCancel={editing === entry.id ? () => cancel(index) : undefined}
@@ -776,13 +882,13 @@ export function ComposerQueue({
 /// A queued prompt's text, edited in its row: Return saves (it keeps its place), Shift-Return adds
 /// a line, Esc cancels. A textarea, so a prompt's lines stay lines.
 function QueuedEdit({
-  entry,
   label,
+  text,
   onInput,
   onDone,
 }: {
-  entry: QueuedEntry;
   label: string;
+  text: string;
   onInput(text: string): void;
   /// The new text, or undefined when cancelled.
   onDone(text: string | undefined): void;
@@ -812,7 +918,7 @@ function QueuedEdit({
       className="acpmux-queued-edit"
       aria-label={label}
       rows={1}
-      defaultValue={entry.prompt}
+      defaultValue={text}
       onInput={(event) => {
         fit();
         onInput(event.currentTarget.value);

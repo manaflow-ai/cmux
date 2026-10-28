@@ -47,6 +47,14 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            AgentPaneTailCache.handles(method: method) {
             return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
         }
+        // Draft text is private view state, shared by both page hosts and never logged.
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentPaneQueuedEdits.methods.contains(method) {
+            let params = JSONValue(foundation: body["params"] ?? [:]) ?? .null
+            // task-owner: this one request owns the native reply; the store orders its disk work.
+            Task { replyHandler(await Self.queuedEditReply(method, params: params), nil) }
+            return
+        }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
            let json = JSONValue(foundation: value), let view {

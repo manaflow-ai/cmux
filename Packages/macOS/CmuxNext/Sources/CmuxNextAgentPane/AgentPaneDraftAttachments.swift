@@ -23,11 +23,14 @@ public final class AgentPaneDraftAttachments {
     /// One chat's files: a composer full of images (10 of at most 5 MB, `attachments.ts`) fits.
     public var maximumBytes = 64 * 1024 * 1024
     let directory: URL?
+    /// Unacknowledged queue edits use the same app-stable draft root.
+    public let queuedEdits: AgentPaneQueuedEdits
     /// Each chat's last queued read or write: the next one waits for it, so they run in the order
     /// the page asked, a later small write never overtaking an earlier large one.
     private var queue: [String: Task<Void, Never>] = [:]
 
     public init(directory: URL?, work: BackgroundWork = BackgroundWork()) {
+        queuedEdits = AgentPaneQueuedEdits(directory: directory, work: work)
         self.directory = directory?.appending(path: Self.directoryName, directoryHint: .isDirectory)
     }
 

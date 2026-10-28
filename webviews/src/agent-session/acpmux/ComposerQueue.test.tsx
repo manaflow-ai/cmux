@@ -10,6 +10,8 @@ import { ComposerQueue } from "./ComposerQueue";
 import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 import { queueingOn, setQueueing } from "./queueing";
+import { webSwapHold, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
+import { newQueuedEdit, settleQueuedEditWrites } from "./queuedEditDrafts";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -75,8 +77,8 @@ const queue = [
 ];
 
 async function render(
-  onChange: (id: string, edit: QueueEdit) => Promise<boolean>,
-  onRemove: (id: string) => Promise<boolean>,
+  onChange: (id: string, edit: QueueEdit) => Promise<boolean> = async () => true,
+  onRemove: (id: string) => Promise<boolean> = async () => true,
 ) {
   const container = installDom();
   await act(async () => {
@@ -122,8 +124,8 @@ function menuItem(label: string) {
 /** Return on a row edits it in place, as the ⋯ menu's Edit message does. */
 async function startEdit(container: HTMLElement, id: string) {
   const row = container.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
-  row.focus();
   await act(async () => {
+    row.focus();
     row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
 }
@@ -782,4 +784,293 @@ test("an edit pulled back while its images load, from a row that turned out a te
   await act(async () => reads.splice(0).forEach((read) => read("data:image/png;base64,QQ==")));
   await settle();
   expect(touched).toEqual([]);
+});
+
+function draftHost(readDelay?: Promise<void>, rejectedWrites = 0, rejectText?: string) {
+  const saved = new Map<string, Record<string, any>>();
+  Object.assign(dom!.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage({ method, params }: { method: string; params: Record<string, any> }) {
+            const key = `${params.sessionId}/${params.promptId}`;
+            if (method === "chat.queuedEditDrafts.set") {
+              if (rejectedWrites > 0 && (!rejectText || params.draft.text === rejectText)) {
+                rejectedWrites -= 1;
+                throw new Error("transient native refusal");
+              }
+              saved.set(key, structuredClone(params.draft));
+            }
+            if (method === "chat.queuedEditDrafts.clear" && saved.get(key)?.revision === params.revision)
+              saved.delete(key);
+            const value =
+              method === "chat.queuedEditDrafts.get"
+                ? Object.fromEntries(
+                    [...saved]
+                      .filter(([key]) => key.startsWith(`${params.sessionId}/`))
+                      .map(([key, value]) => [key.slice(params.sessionId.length + 1), structuredClone(value)]),
+                  )
+                : null;
+            const reply = { ok: true, value };
+            return method === "chat.queuedEditDrafts.get" && readDelay ? readDelay.then(() => reply) : reply;
+          },
+        },
+      },
+    },
+  });
+  return saved;
+}
+
+async function typeQueueEdit(container: HTMLElement, text: string) {
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    field.value = text;
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  return field;
+}
+
+async function relaunchQueue(
+  container: HTMLElement,
+  queue: Parameters<typeof ComposerQueue>[0]["queue"],
+  onChange: Parameters<typeof ComposerQueue>[0]["onChange"] = async () => true,
+) {
+  await act(async () => root!.unmount());
+  dom!.reconfigure({ url: "http://new-build.local/agent-pane" });
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ComposerQueue queue={queue} chat="c" t={t} onChange={onChange} />);
+  });
+}
+
+test("a queued edit typed before quit restores across build origins with its image removals, without sending", async () => {
+  const container = installDom();
+  const kept = draftHost();
+  const pictured = [
+    {
+      id: "p-1",
+      prompt: "original",
+      images: [
+        { id: SHOT_A, mimeType: "image/png" },
+        { id: SHOT_B, mimeType: "image/png" },
+      ],
+    },
+  ];
+  const edits: QueueEdit[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={pictured}
+        chat="c"
+        t={t}
+        onChange={async (_, edit) => {
+          edits.push(edit);
+          return true;
+        }}
+      />,
+    );
+  });
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "my unfinished correction");
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-queued-image-remove")!.click());
+  expect(kept.size).toBe(1);
+  await relaunchQueue(container, pictured, async (_, edit) => {
+    edits.push(edit);
+    return true;
+  });
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("my unfinished correction");
+  expect(thumbnails(container)).toHaveLength(1);
+  expect(thumbnails(container)[0]?.closest<HTMLElement>("[data-image-id]")?.dataset.imageId).toBe(SHOT_B);
+  expect(edits).toEqual([]);
+});
+
+test("a refused native save retries once per swap or quit and keeps the newest edit", async () => {
+  const container = await render();
+  const kept = draftHost(undefined, 2, "retry the newest text");
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "retry the newest text");
+  expect(kept.size).toBe(1);
+  expect([...kept.values()][0]?.text).toBe("first");
+  expect(webSwapHold()).toBe("composer.queue-edit-unsaved");
+  await settle();
+  expect([...kept.values()][0]?.text).toBe("first");
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(1);
+  expect([...kept.values()][0]?.text).toBe("retry the newest text");
+  (dom!.window.document.activeElement as HTMLElement).blur();
+  container.setAttribute(WEB_SWAP_KEPT_TEXT, "");
+  expect(webSwapHold()).toBeNull();
+});
+
+test.each(["normal", "refused", "in-flight"])("Escape never revives a %s saved edit", async (mode) => {
+  const container = await render(),
+    kept = draftHost(undefined, mode === "refused" ? 1 : 0, "discard this revision");
+  let release: () => void = () => {};
+  if (mode === "in-flight") {
+    const host = dom!.window.webkit!.messageHandlers!.agentSession!,
+      post = host.postMessage.bind(host);
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    host.postMessage = (message: any) =>
+      message.method === "chat.queuedEditDrafts.set" ? waiting.then(() => post(message)) : post(message);
+  }
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "discard this revision");
+  if (mode === "refused") expect([...kept.values()][0]?.text).toBe("first");
+  await act(async () =>
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  await act(async () => release());
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(0);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector("textarea")).toBeNull();
+});
+
+test("a saved edit remains recoverable until queue_edit acknowledges it; that acknowledgement clears it", async () => {
+  let acknowledge: (ok: boolean) => void = () => {};
+  const container = await render(
+    () =>
+      new Promise<boolean>((resolve) => {
+        acknowledge = resolve;
+      }),
+    async () => true,
+  );
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "pending save");
+  await act(async () => field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(kept.size).toBe(1);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("pending save");
+  await act(async () => acknowledge(true));
+  expect(kept.size).toBe(0);
+});
+
+test("a removed, steered or newer daemon prompt never revives or resends a saved edit", async () => {
+  const container = await render();
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "stale correction");
+  await relaunchQueue(container, [{ id: "p-1", prompt: "newer daemon text" }, queue[1]!]);
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(container.textContent).toContain("newer daemon text");
+  expect(kept.size).toBe(0);
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "another correction");
+  await relaunchQueue(container, [{ id: "p-1", prompt: "newer daemon text", next: true }]);
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(kept.size).toBe(0);
+  await relaunchQueue(container, queue);
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "removed correction");
+  await relaunchQueue(container, [queue[1]!]);
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(kept.size).toBe(0);
+});
+
+test.each(["typing", "discard"])("an older queue_edit acknowledgement cannot erase newer %s", async (mode) => {
+  let acknowledge: (ok: boolean) => void = () => {};
+  const container = await render(
+    () =>
+      new Promise<boolean>((resolve) => {
+        acknowledge = resolve;
+      }),
+    async () => true,
+  );
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  const first = await typeQueueEdit(container, "first save");
+  await act(async () => first.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await startEdit(container, "p-1");
+  const newer = await typeQueueEdit(container, "newer unfinished edit");
+  if (mode === "discard") {
+    const host = dom!.window.webkit!.messageHandlers!.agentSession!,
+      post = host.postMessage.bind(host);
+    let refuse = true;
+    host.postMessage = (message: any) => {
+      if (message.method === "chat.queuedEditDrafts.clear" && refuse) {
+        refuse = false;
+        throw Error("refused clear");
+      }
+      return post(message);
+    };
+    await act(async () =>
+      newer.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+  }
+  await act(async () => acknowledge(true));
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(mode === "discard" ? 0 : 1);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+    mode === "discard" ? undefined : "newer unfinished edit",
+  );
+});
+
+test.each(["removed", "steered"])("an inactive recovered edit clears when its row is %s", async (mode) => {
+  const container = installDom(),
+    kept = draftHost();
+  for (const entry of queue) kept.set(`c/${entry.id}`, newQueuedEdit(entry, `edit ${entry.id}`));
+  const draw = (rows: Parameters<typeof ComposerQueue>[0]["queue"]) =>
+    root!.render(<ComposerQueue queue={rows} chat="c" ready t={t} onChange={async () => true} />);
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("edit p-1");
+  await act(async () => draw(mode === "removed" ? [queue[0]!] : [queue[0]!, { ...queue[1]!, next: true }]));
+  expect(kept.has("c/p-2")).toBe(false);
+  await act(async () => draw(queue));
+  await startEdit(container, "p-2");
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("second");
+});
+test("a provisional empty queue cannot discard a saved edit before the daemon attaches", async () => {
+  const container = await render();
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "survive attach");
+  await act(async () =>
+    root!.render(<ComposerQueue queue={[]} chat="c" ready={false} t={t} onChange={async () => true} />),
+  );
+  expect(kept.size).toBe(1);
+  await act(async () => root!.unmount());
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ComposerQueue queue={[]} chat="c" ready={false} t={t} onChange={async () => true} />);
+  });
+  expect(kept.size).toBe(1);
+  await act(async () => root!.render(<ComposerQueue queue={queue} chat="c" ready t={t} onChange={async () => true} />));
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("survive attach");
+});
+
+test("a late native read cannot replace newer typing or revive its explicit discard", async () => {
+  const container = installDom();
+  let release: () => void = () => {};
+  const kept = draftHost(
+    new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  );
+  kept.set("c/p-1", {
+    revision: "old",
+    originalPrompt: "first",
+    originalImages: [],
+    text: "old edit",
+    droppedImages: [],
+  });
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ComposerQueue queue={queue} chat="c" t={t} onChange={async () => true} />);
+  });
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "fresh typing");
+  await act(async () =>
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  await act(async () => release());
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(kept.size).toBe(0);
 });
