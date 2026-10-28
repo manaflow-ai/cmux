@@ -7,6 +7,7 @@
 
 pub mod prompt;
 mod record;
+pub mod tools;
 
 pub use record::{Record, render_record};
 
@@ -93,4 +94,16 @@ pub fn render_system(profile_json: &str, engine: &str, tools_json: &str) -> Resu
         flag("profile_tool"),
         flag("chiefs_tool"),
     ))
+}
+
+/// A memory tool answered with no effect outside the memory (stub).
+pub fn call_pure(
+    _name: &str,
+    _args_json: &str,
+    _ctx_json: &str,
+    _memory: &optchat_core::Memory,
+    _store: &dyn optchat_core::Store,
+    _dates: &dyn Fn(u64) -> Option<String>,
+) -> Result<String, String> {
+    Err("not yet".into())
 }
