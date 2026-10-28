@@ -237,16 +237,20 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         // retained across interrupted reads, just as identify does.
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
         match connection.by_ref().take(available as u64).read_until(b'\n', &mut line) {
-            Ok(_)
-                if line.len() > super::identify::RESPONSE_LIMIT || !line.ends_with(b"\n") =>
-            {
+            Ok(_) if line.len() > super::identify::RESPONSE_LIMIT || !line.ends_with(b"\n") => {
                 // Malformed input is not evidence authorizing replacement.
                 return Probe::Answered;
             }
             Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
             Ok(_) => return Probe::Answered,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) if is_timeout(&error) => {}
+            Err(error) if is_timeout(&error) && line.is_empty() => {}
+            Err(error) if is_timeout(&error) => {
+                // A partial protocol line is evidence of a live peer, not a
+                // silent owner. Never replace a same-user process merely
+                // because it sent malformed data and then stalled.
+                return Probe::Answered;
+            }
             Err(_) => return Probe::Answered,
         }
     }
