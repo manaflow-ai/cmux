@@ -107,11 +107,12 @@ public final class LinkRouter {
         NSWorkspace.shared.openInBackground(file)
     }
 
-    /// A folder opens in Finder; a package (an app, a bundle) and a file show selected in their
+    /// A folder opens in Finder; a package (an app, a bundle), anything else that could run
+    /// (``LinkMenu/runs(_:isDirectory:)``, symlinks resolved) and a file show selected in their
     /// folder, never launched.
     public func showInFinder(_ url: URL, reveal: Bool = false) {
         if recordsInstead("finder:" + url.path) { return }
-        if reveal || (try? url.resourceValues(forKeys: [.isPackageKey]).isPackage) == true {
+        if reveal || LinkMenu.runs(url, isDirectory: true) {
             NSWorkspace.shared.revealInBackground([url])
         } else {
             NSWorkspace.shared.openInBackground(url)

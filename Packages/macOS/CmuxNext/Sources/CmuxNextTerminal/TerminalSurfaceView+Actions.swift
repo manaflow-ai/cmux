@@ -32,8 +32,14 @@ extension TerminalSurfaceView {
                 return delegate.terminalSession(session, openLink: text)
             }
             guard let url = Self.url(from: text) else { return false }
-            // Never on this thread: Ghostty holds the renderer lock here.
-            NSWorkspace.shared.openInBackground(url)
+            // Never on this thread: Ghostty holds the renderer lock here. A file from terminal
+            // output is untrusted (Ghostty 1.4.0, f9e8ef02d): it shows in Finder, never opens,
+            // as the delegate's default does (`TerminalSessionDelegate.terminalSession(_:open:)`).
+            if url.isFileURL {
+                NSWorkspace.shared.revealInBackground([url])
+            } else {
+                NSWorkspace.shared.openInBackground(url)
+            }
         case .mouseShape(let shape):
             // Over a link with Command held the hand stays (TerminalLinkPointer).
             let cursor = Self.cursor(for: shape)

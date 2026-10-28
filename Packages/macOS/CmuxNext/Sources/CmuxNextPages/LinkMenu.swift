@@ -180,12 +180,33 @@ public struct LinkMenu {
         return UTType(filenameExtension: ext, conformingTo: isDirectory ? .package : .data) ?? .data
     }
 
-    /// Whether opening `file` in its default app would run something: an app or another
-    /// package, or an executable file.
-    public static func runs(_ file: URL, isDirectory: Bool) -> Bool {
-        if (try? file.resourceValues(forKeys: [.isPackageKey]).isPackage) == true { return true }
-        return !isDirectory && FileManager.default.isExecutableFile(atPath: file.path)
+    /// Whether opening `file` in its default app could run something: an app or another package,
+    /// an executable file, a script, or a file Launch Services hands to an app that runs or
+    /// dispatches it (``runningExtensions``). The target is classified after symlinks, so a
+    /// harmless name cannot hide an app (Ghostty 1.4.0 `UntrustedURL`, f9e8ef02d). A target
+    /// that cannot be read runs nothing.
+    public nonisolated static func runs(_ file: URL, isDirectory: Bool) -> Bool {
+        if runningExtensions.contains(file.pathExtension.lowercased()) { return true }
+        // A right-click or a Cmd-click classifies one path (a readlink walk and one stat), as before.
+        let target = file.standardizedFileURL.resolvingSymlinksInPath()
+        if runningExtensions.contains(target.pathExtension.lowercased()) { return true }
+        guard let values = try? target.blockingResourceValues(forKeys: [.isPackageKey, .contentTypeKey, .isDirectoryKey, .isExecutableKey])
+        else { return false }
+        if values.isPackage == true { return true }
+        if let type = values.contentType, runningTypes.contains(where: { type.conforms(to: $0) }) { return true }
+        return (values.isDirectory ?? isDirectory) == false && values.isExecutable == true
     }
+
+    /// Extensions Launch Services opens in an app that runs or dispatches them, with or without
+    /// the execute bit (a `.command` runs in Terminal, a `.webloc` opens its URL, a `.pkg` starts
+    /// Installer): Ghostty 1.4.0's `UntrustedURL.unsafePathExtensions`.
+    nonisolated static let runningExtensions: Set<String> = [
+        "action", "app", "applescript", "class", "command", "desktop", "inetloc", "jar", "mobileconfig",
+        "mpkg", "pkg", "scpt", "terminal", "tool", "url", "webloc", "workflow",
+    ]
+
+    /// Content types whose default app runs them, for files with no or a misleading extension.
+    nonisolated static let runningTypes: [UTType] = [.application, .executable, .script]
 
     /// The link rows with this Mac's browsers. When the browsers are not kept yet, Open In ▸ shows the Loading row and
     /// waits for them (its item fills in, or leaves the menu when there are none).
