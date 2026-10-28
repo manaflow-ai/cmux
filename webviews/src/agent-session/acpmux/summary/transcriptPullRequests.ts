@@ -68,7 +68,7 @@ const NAMED_REF = /(?<![\w/.#-])([\w][\w.-]*)( ?)#(\d+)\b/g;
 const BARE_REF = /(?<![\w/.#&-])#(\d+)\b/g;
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
 const PAYLOAD_VALUE =
-  /(?:--body(?:-file)?|--title|-b|-t)(?:=|\s+)(?:"(?:[^"\\]|\\.)*"|'(?:[^']|\\'\\')*'|(?:(?:\\[^\s]|[^\\\s;&|]))+)/g;
+  /(?:--body(?:-file)?|--title|-b|-t)(?:=|\s+)(?:"(?:[^"\\]|\\.)*"|'(?:[^']|\\'\\')*'|(?:(?:\\[^\s]|[^\\\s;&|()]))+)/g;
 /// A heredoc's body (`<<EOF` … `EOF`, `<<'EOF'`, `<<-EOF`), up to its terminator line; the rest
 /// of the opening line stays (it is often the command that reads it). Never `<<<` or a shift.
 const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2(?=[ \t]*(?:\n|$))/g;

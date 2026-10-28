@@ -4,7 +4,7 @@ type Status = boolean | undefined;
 const invert = (value: Status): Status => (value === undefined ? undefined : !value);
 
 export function shellCommands(text: string): string[] {
-  const tokens = text.match(/&&|\|\||\$\(|[;\n&|()]|(?:(?:\\[^\s]|(?!\$\()[^\s;&|()]))+/g) ?? [];
+  const tokens = text.match(/&&|\|\||\$\(|[;\n&|(){}]|(?:(?:\\[^\s]|(?!\$\()[^\s;&|(){}]))+/g) ?? [];
   const commands: string[] = [];
   let at = 0;
   const list = (active: boolean, stops: readonly string[], depth: number): Status => {
@@ -85,9 +85,13 @@ export function shellCommands(text: string): string[] {
       at++;
       status = list(active, [")"], depth);
       if (tokens[at] === ")") at++;
+    } else if (tokens[at] === "{") {
+      at++;
+      status = list(active, ["}"], depth);
+      if (tokens[at] === "}") at++;
     } else {
       const words: string[] = [];
-      while (at < tokens.length && ![";", "\n", "&", "&&", "||", "|", "(", ")"].includes(tokens[at]!)) {
+      while (at < tokens.length && ![";", "\n", "&", "&&", "||", "|", "(", ")", "{", "}"].includes(tokens[at]!)) {
         if (tokens[at] === "$(") {
           at++;
           list(active, [")"], depth);

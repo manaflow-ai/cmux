@@ -680,6 +680,12 @@ const shellRegressionCases: [string, string, number[]][] = [
   ["unmatched if continuation", "if false; then true; fi && gh pr merge 41 -R acme/app", [41]],
   ["conditional merge", "if true; then gh pr merge 41 -R acme/app --squash; fi", [41]],
   ["subshell merge", "(gh pr merge 41 -R acme/app --squash)", [41]],
+  [
+    "payload preserves closing parenthesis",
+    "false && (gh pr edit 41 -R acme/app --title x); gh pr merge 42 -R acme/app",
+    [42],
+  ],
+  ["brace group merge", "true && { gh pr merge 41 -R acme/app; }", [41]],
   ["fallback after skipped and", "false && echo no || gh pr merge 41 -R acme/app", [41]],
   ["false and chain", "false && echo skipped && gh pr merge 41 -R acme/app; true", []],
   ["false and true fallback", "false && true || gh pr merge 41 -R acme/app", [41]],
@@ -822,6 +828,12 @@ test("ambiguous create output never invents opened PRs", () => {
     ),
   );
   expect(sessionPullRequests(rows)).toEqual([]);
+});
+test("brace group create attributes its output", () => {
+  const rows = toolsRows(
+    shell("true && { gh pr create -R acme/app --title created; }", "https://github.com/acme/app/pull/8\n"),
+  );
+  expect(sessionPullRequests(rows)).toMatchObject([{ repo: "acme/app", number: 8, opened: true, changed: true }]);
 });
 
 test("escaped payload separators stay inside one shell command", () => {
