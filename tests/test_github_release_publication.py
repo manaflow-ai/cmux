@@ -656,12 +656,16 @@ class FakeReleases:
         self.table = {release["id"]: dict(release) for release in releases}
         self.stored = assets
         self.calls = []
+        self.stale = {}  # releases a lagging list still shows after DELETE
 
     def releases(self):
-        return [dict(release) for release in self.table.values()]
+        return [dict(release) for release in [*self.table.values(), *self.stale.values()]]
 
     def assets(self, release_id):
-        return {name: {"name": name, "state": "uploaded"} for name in self.stored.get(release_id, [])}
+        stored = self.stored.get(release_id, [])
+        # A name maps to its own bytes unless the test gives (name, digest).
+        entries = [entry if isinstance(entry, tuple) else (entry, f"sha256:{entry}") for entry in stored]
+        return {name: {"name": name, "state": "uploaded", "digest": digest, "size": 1} for name, digest in entries}
 
     def request(self, method, url, *, body=None, **_):
         path = urlsplit(url).path.removeprefix("/repos/o/r/releases")
@@ -676,6 +680,8 @@ class FakeReleases:
             raise publisher.RequestError("HTTP 404", status=404)
         release_id = int(path.strip("/"))
         if method == "DELETE":
+            if release_id not in self.table:
+                raise finalize.RequestError("HTTP 404", status=404)
             self.table.pop(release_id)
             return None
         if method == "PATCH":
@@ -695,10 +701,10 @@ class AdoptTests(unittest.TestCase):
         empty = {"id": 2, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": False, "prerelease": False}
         return FakeReleases([draft, empty, *extra], {1: self.NAMES, **(extra_assets or {})})
 
-    def adopt(self, client, release_id=1, dry_run=False):
+    def adopt(self, client, release_id=1, dry_run=False, generate_notes=True):
         args = finalize.argparse.Namespace(
             tag="v1.2.3", release_id=release_id, expect_asset=list(self.NAMES), expect_count=2,
-            name=None, target_commitish=None, body_file=None, generate_notes=True,
+            name=None, target_commitish=None, body_file=None, generate_notes=generate_notes,
             prerelease="false", make_latest="true", dry_run=dry_run)
         finalize.adopt(client, args)
 
@@ -720,9 +726,23 @@ class AdoptTests(unittest.TestCase):
         self.assertEqual(sorted(client.table), [1, 2])
         self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
 
-    def test_a_release_with_assets_is_never_deleted(self):
+    def test_a_release_with_its_own_assets_is_never_deleted(self):
+        for own in (["notes.txt"], [("cmux-macos.dmg", "sha256:other")]):
+            client = self.client(extra_assets={2: own})
+            with self.assertRaisesRegex(RuntimeError, "releases 2 for v1.2.3 are drafts or have assets"):
+                self.adopt(client)
+            self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_a_release_holding_copies_of_draft_assets_is_replaced(self):
+        # v0.65.2.2 was hand-repaired by copying two DMGs from the draft.
         client = self.client(extra_assets={2: ["cmux-macos.dmg"]})
-        with self.assertRaisesRegex(RuntimeError, "releases 2 for v1.2.3 are drafts or have assets"):
+        self.adopt(client)
+        self.assertEqual(list(client.table), [1])
+        self.assertFalse(client.table[1]["draft"])
+
+    def test_an_asset_without_a_digest_is_not_assumed_a_copy(self):
+        client = self.client(extra_assets={2: [("cmux-macos.dmg", None)]})
+        with self.assertRaisesRegex(RuntimeError, "releases 2 for"):
             self.adopt(client)
         self.assertEqual(sorted(client.table), [1, 2])
 
@@ -748,6 +768,45 @@ class AdoptTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "missing cmux-macos.dmg"):
             self.adopt(client)
         self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_a_lagging_release_list_does_not_strand_the_tag(self):
+        client = self.client()
+        client.stale[2] = dict(client.table[2])
+        self.adopt(client)
+        self.assertFalse(client.table[1]["draft"])
+        self.assertEqual(client.table[1]["tag_name"], "v1.2.3")
+
+    def test_a_release_already_deleted_is_tolerated(self):
+        client = self.client()
+        client.stale[2] = client.table.pop(2)
+        self.adopt(client)
+        self.assertFalse(client.table[1]["draft"])
+
+    def test_a_draft_already_on_the_tag_skips_the_tag_move(self):
+        client = self.client()
+        client.table[1]["tag_name"] = "v1.2.3"
+        self.adopt(client)
+        self.assertFalse(client.table[1]["draft"])
+        tag_moves = [body for method, _, body in client.calls if method == "PATCH" and "tag_name" in body]
+        self.assertEqual(tag_moves, [])
+
+    def test_without_a_notes_flag_the_deleted_release_s_notes_are_kept(self):
+        client = self.client()
+        client.table[2]["body"] = "Full Changelog"
+        self.adopt(client, generate_notes=False)
+        self.assertEqual(client.table[1]["body"], "Full Changelog")
+
+    def test_an_already_published_release_points_at_publish(self):
+        client = self.client()
+        self.adopt(client)
+        with self.assertRaisesRegex(RuntimeError, "finish it with `publish`"):
+            self.adopt(client)
+
+    def test_adopt_parses_from_the_command_line(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/finalize-release.py"), "adopt", "--help"],
+            capture_output=True, text=True, check=True)
+        self.assertIn("--dry-run", result.stdout)
 
 
 if __name__ == "__main__":

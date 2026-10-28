@@ -8,7 +8,8 @@ publish-release-assets.py staged and reported.
 
 `adopt` repairs a tag that is already in that state (v0.65.2, v0.65.2.2, both
 tagged from a checkout whose release workflow still published by tag): it
-deletes the empty published release, moves the tag onto the staged draft and
+deletes the published duplicate (empty, or holding only copies of draft
+assets), moves the tag onto the staged draft and
 publishes the draft through `publish`.
 """
 from __future__ import annotations
@@ -36,9 +37,11 @@ def release(client, release_id: int) -> dict:
     return client.request("GET", f"{client.api_url}/repos/{client.repo}/releases/{release_id}")
 
 
-def refuse_other_releases(client, tag: str, release_id: int) -> None:
+def refuse_other_releases(client, tag: str, release_id: int, deleted: frozenset = frozenset()) -> None:
+    # `deleted` holds releases adopt just removed: the list can still show them
+    # for a moment, and failing then would leave the tag with no release.
     others = sorted(int(entry["id"]) for entry in client.releases()
-                    if entry.get("tag_name") == tag and int(entry["id"]) != release_id)
+                    if entry.get("tag_name") == tag and int(entry["id"]) not in {release_id, *deleted})
     if others:
         raise RuntimeError(
             f"Release {release_id} is staged for {tag}, but other releases exist for the same tag "
@@ -89,10 +92,10 @@ def patch(client, release_id: int, fields: dict) -> dict:
                           body=json.dumps(fields).encode())
 
 
-def publish(client, args) -> None:
+def publish(client, args, deleted: frozenset = frozenset()) -> None:
     staged = release(client, args.release_id)
     check_release(staged, args.release_id, args.tag)
-    refuse_other_releases(client, args.tag, args.release_id)
+    refuse_other_releases(client, args.tag, args.release_id, deleted)
     check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
 
     fields: dict = {}
@@ -136,20 +139,39 @@ def adopt(client, args) -> None:
     current = staged.get("tag_name") or ""
     owned = current == args.tag or (current.startswith("untagged-") and staged.get("name") == args.tag)
     if int(staged.get("id", 0)) != args.release_id or not staged.get("draft") or not owned:
-        raise RuntimeError(f"Release {args.release_id} is not a staged draft for tag {args.tag}")
-    check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
+        hint = ""
+        if current == args.tag and not staged.get("draft"):
+            # A failed check after the draft went public leaves nothing to adopt.
+            hint = "; it is already published, so finish it with `publish`"
+        raise RuntimeError(f"Release {args.release_id} is not a staged draft for tag {args.tag}{hint}")
+    staged_assets = check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
     others = [entry for entry in client.releases()
               if entry.get("tag_name") == args.tag and int(entry["id"]) != args.release_id]
-    # Only an empty published release is the publish-by-tag duplicate. A draft
-    # or a release with assets may be someone's real release, so leave it.
+    # Only a published release with nothing of its own is the publish-by-tag
+    # duplicate: empty, or holding only byte-identical copies of draft assets
+    # (a hand repair of the download links). A draft or a release with any
+    # other asset may be someone's real release, so leave it.
+    def copy_of_staged(asset: dict) -> bool:
+        source = staged_assets.get(asset.get("name"))
+        return bool(source and asset.get("digest") and asset.get("digest") == source.get("digest")
+                    and asset.get("size") == source.get("size"))
+
     keep = sorted(int(entry["id"]) for entry in others
-                  if entry.get("draft") or client.assets(int(entry["id"])))
+                  if entry.get("draft")
+                  or not all(map(copy_of_staged, client.assets(int(entry["id"])).values())))
     if keep:
         raise RuntimeError(
             f"Refusing to adopt release {args.release_id}: releases {', '.join(map(str, keep))} for "
-            f"{args.tag} are drafts or have assets. Resolve them by hand.")
-    empty = sorted(int(entry["id"]) for entry in others)
-    print(f"Adopting draft {args.release_id} for {args.tag}; replacing empty published releases: "
+            f"{args.tag} are drafts or have assets that are not copies of the draft's. "
+            f"Resolve them by hand.")
+    empty = sorted({int(entry["id"]) for entry in others})
+    # Without a notes flag the draft keeps the deleted release's notes.
+    carried = {}
+    if args.body_file is None and not args.generate_notes:
+        bodies = [entry.get("body") for entry in others if entry.get("body")]
+        if bodies:
+            carried["body"] = bodies[0]
+    print(f"Adopting draft {args.release_id} for {args.tag}; replacing published duplicates: "
           f"{', '.join(map(str, empty)) or 'none'}", flush=True)
     if args.dry_run:
         return
@@ -159,10 +181,12 @@ def adopt(client, args) -> None:
         except RequestError as error:
             if error.status != 404:
                 raise
-        print(f"Deleted empty release {release_id} for {args.tag}", flush=True)
+        print(f"Deleted duplicate release {release_id} for {args.tag}", flush=True)
     if current != args.tag:
-        patch(client, args.release_id, {"tag_name": args.tag})
-    publish(client, args)
+        carried["tag_name"] = args.tag
+    if carried:
+        patch(client, args.release_id, carried)
+    publish(client, args, frozenset(empty))
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
