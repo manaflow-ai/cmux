@@ -399,7 +399,16 @@ async function callModel(body) {
   }
 }
 
+/** PTYs in use on this Mac (macOS caps them at kern.tty.ptmx_max, 511 by default). */
+function ptysInUse() {
+  if (process.platform !== "darwin") return 0;
+  return readdirSync("/dev").filter((f) => /^ttys\d+$/.test(f)).length;
+}
+const PTY_LIMIT = Number(arg("pty-limit", "485"));
+
 async function runSample(testCase, surface, index) {
+  // The person's own cmux shares the PTY cap: a sample starts only while enough stay free.
+  while (ptysInUse() > PTY_LIMIT) await new Promise((r) => setTimeout(r, 5000));
   const dir = join(OUT, surface, testCase.id, `s${index}`);
   mkdirSync(dir, { recursive: true });
   const name = `te${process.pid}-${(jobSeq++).toString(36)}`;
