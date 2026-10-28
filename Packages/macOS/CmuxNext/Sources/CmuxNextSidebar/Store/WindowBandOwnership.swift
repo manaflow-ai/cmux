@@ -63,19 +63,23 @@ public nonisolated struct WindowBandOwnership: Equatable, Sendable {
     }
 
     /// One pass over the document's `items`. Each item keeps its owner; a workspace item follows the window that
-    /// lists its workspace (`liveOwner`). An unowned item goes to `acting` (the window the last local change was
-    /// made in), else to the window that lists one of its workspaces, else to `front`. The items of a normal window
-    /// that is no longer registered go to `front`; an incognito window's stay hidden. Returns whether anything changed.
+    /// lists its workspace (`liveOwner`). An unowned item new since the last pass goes to `acting` (the window the
+    /// local change that added it was made in); any other unowned one to the window that lists one of its
+    /// workspaces, else to `front`. The items of a normal window that is no longer registered go to `front` (kept
+    /// while no normal window is open); an incognito window's stay hidden. Returns whether anything changed.
     @discardableResult
     public mutating func adopt(_ items: [SidebarDocProjection.WindowItem], registered: Set<String>, incognito windows: Set<String> = [],
                                acting: String? = nil, front: String?,
                                liveOwner: (SidebarDocProjection.WindowItem) -> String?) -> Bool {
         let before = self
         incognito.formUnion(windows)
-        for window in Array(byWindow.keys) where !registered.contains(window) && !incognito.contains(window) {
-            for item in byWindow[window] ?? [] { assign(item, to: front) }
+        if let front {
+            for window in Array(byWindow.keys) where !registered.contains(window) && !incognito.contains(window) {
+                for item in byWindow[window] ?? [] { assign(item, to: front) }
+            }
         }
         let acting = acting.flatMap { registered.contains($0) ? $0 : nil }
+        let known = present ?? Set(items.map(\.id)) // the first pass adopts what was there: no item is new
         for item in items {
             let isWorkspace = item.ref?.kind == LayoutItemRef.workspaceKind
             guard isWorkspace || owners[item.id] == nil else { continue }
@@ -83,7 +87,7 @@ public nonisolated struct WindowBandOwnership: Equatable, Sendable {
             if isWorkspace, let live {
                 if owners[item.id] != live { assign(item.id, to: live) }
             } else if owners[item.id] == nil {
-                assign(item.id, to: acting ?? live ?? front)
+                assign(item.id, to: (known.contains(item.id) ? nil : acting) ?? live ?? front)
             }
         }
         present = Set(items.map(\.id))

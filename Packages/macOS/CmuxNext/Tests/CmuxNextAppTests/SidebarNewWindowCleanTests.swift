@@ -137,10 +137,18 @@ import Testing
         bands.adopt(later.windowItems, registered: ["A", "B"], front: "B") { _ in nil } // back (Undo)
         #expect(bands.owner(of: "itm_url_a") == "A")
         #expect(bands.items(of: "A").contains("itm_url_a"))
+        // A stale acting window takes no item that was already there (the first pass adopts what it finds).
+        var stale = WindowBandOwnership()
+        stale.adopt(later.windowItems, registered: ["A", "B"], acting: "B", front: "A") { _ in nil }
+        #expect(stale.items(of: "B").isEmpty, "a stale acting window took items: \(stale.items(of: "B"))")
+        // With no normal window open, a closed window's items wait with it.
+        stale.adopt(later.windowItems, registered: ["I"], incognito: ["I"], front: nil) { _ in nil }
+        #expect(stale.items(of: "A").contains("itm_url_a"))
         var incognito = WindowBandOwnership()
+        incognito.adopt(base.windowItems, registered: ["A", "I"], incognito: ["I"], front: "A") { _ in nil }
         incognito.adopt(later.windowItems, registered: ["A", "I"], incognito: ["I"], acting: "I", front: "A") { _ in nil }
         incognito.adopt(later.windowItems, registered: ["A"], front: "A") { _ in nil } // the incognito window closed
-        #expect(incognito.items(of: "A").isEmpty, "a normal window took the incognito window's pins: \(incognito.items(of: "A"))")
+        #expect(!incognito.items(of: "A").contains("itm_url_a"), "a normal window took the incognito window's pins: \(incognito.items(of: "A"))")
         #expect(incognito.hidden(in: "A").contains("itm_url_a"))
     }
 

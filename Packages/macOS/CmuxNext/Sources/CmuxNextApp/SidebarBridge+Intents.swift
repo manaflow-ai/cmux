@@ -17,10 +17,7 @@ extension SidebarBridge {
         let registry = services.windows.registry
         registry.bandEditWindow = state.id
         defer { registry.bandEditWindow = nil }
-        if case let .layout(.itemMove(id, _, _)) = intent, registry.bands.owner(of: id.rawValue) != state.id {
-            registry.bands.assign(id.rawValue, to: state.id)
-            services.windows.recordSaver.scheduleSave()
-        }
+        if case let .layout(.itemMove(id, _, _)) = intent { services.windows.takeBandItems([id.rawValue], into: state.id) }
         // A group's fold is view state: this window shows it now, on that group's rows only, then tells the
         // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
         if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,

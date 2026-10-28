@@ -318,8 +318,10 @@ public final class SidebarDocStore {
         } catch {
             throw refused(SidebarDocStrings.unavailable)
         }
-        if redraws { bump() }
-        onLocalChange()
+        if redraws {
+            bump()
+            onLocalChange() // a fold adds nothing
+        }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)

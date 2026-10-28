@@ -483,13 +483,24 @@ extension WindowManager {
         registry.actingBandWindow = registry.bandEditWindow ?? active?.state.id
     }
 
+    /// Items moved in window `id`'s sidebar (a drag from another window's) belong to it now.
+    func takeBandItems(_ items: [String], into id: String) {
+        let moving = items.filter { registry.bands.owner(of: $0).map { $0 != id } ?? false }
+        guard !moving.isEmpty else { return }
+        for item in moving { registry.bands.assign(item, to: id) }
+        recordSaver.scheduleSave()
+    }
+
     /// One ownership pass (`WindowBandOwnership.adopt`); a change is saved in the window records.
     func adoptBands(_ items: [SidebarDocProjection.WindowItem]) {
         let value = registry.value, refs = WorkspaceLayoutRefs(machines: services.machines)
         var memberIDs: [SidebarDocWorkspaceRef: String]?
         let machines = services.machines
         var bands = registry.bands
-        let changed = bands.adopt(items, registered: Set(value.windows.map(\.id)), incognito: value.incognito, acting: registry.actingBandWindow,
+        // The acting window names the items of one local change: used once, then cleared.
+        let acting = registry.actingBandWindow
+        registry.actingBandWindow = nil
+        let changed = bands.adopt(items, registered: Set(value.windows.map(\.id)), incognito: value.incognito, acting: acting,
                                   front: value.mostRecentOpen()) { item in
             if let ref = item.ref { return refs.workspaceID(for: ref).flatMap(value.owner(of:)) }
             guard !item.members.isEmpty else { return nil }

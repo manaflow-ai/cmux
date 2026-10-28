@@ -247,6 +247,16 @@ final class SidebarBridge {
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.docDrag?.hiddenItems = hidden // another window's groups and links (#26632)
+        if let id = state?.id, let drop = model.docDrag?.drop {
+            // A drop in this sidebar makes or moves its items here, whichever window is key (#26632).
+            let windows = services.windows
+            model.docDrag?.drop = { items, target in
+                windows.registry.bandEditWindow = id
+                defer { windows.registry.bandEditWindow = nil }
+                windows.takeBandItems(items, into: id)
+                drop(items, target)
+            }
+        }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
