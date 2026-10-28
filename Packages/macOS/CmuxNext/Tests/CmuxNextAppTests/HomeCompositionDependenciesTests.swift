@@ -35,10 +35,10 @@ struct HomeCompositionDependenciesTests {
         let roster = cell.cloud ? HomeCloudChiefs(hosted: CloudChief(id: "agent_fixture", displayName: "Chief", isDefault: true,
                                                                     mainConversation: source.id.rawValue, rev: 1)) : HomeCloudChiefs()
         let harnesses = cell.harness == "none" ? [:] : ["claude": cell.harness == "signed-in"]
-        services.homeComposition = HomeCompositionDependencies(
+        services.homeComposition = (HomeCompositionDependencies(
             source: source, me: snapshot.me.id, user: user, stackProjectID: "fixture-project",
             chiefHome: ChiefHome(root: root, isolated: true), caches: root.appending(path: "caches"),
-            cloudChiefs: roster, harnesses: harnesses)
+            harnesses: harnesses), roster)
         let home = services.home
         #expect(home.chief.home.root == root)
         #expect(home.chief.home.isolated)

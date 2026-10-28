@@ -193,9 +193,9 @@ final class HomeService {
     init(services: AppServices, chiefHome: ChiefHome? = nil) {
         self.services = services
         #if DEBUG || CMUX_BENCH_HOOKS
-        composition = services.homeComposition
+        composition = services.homeComposition?.inputs
         chief = ChiefConversationOwner(home: chiefHome ?? composition?.chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
-        if let composition { cloudChiefs = composition.cloudChiefs; cloudChiefsRead = true }
+        if let fixture = services.homeComposition { cloudChiefs = fixture.chiefs; cloudChiefsRead = true }
         #else
         chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
         #endif
@@ -469,5 +469,46 @@ extension HomeService {
             guard let self else { return }
             armReplyTimer(HomeChiefName.select(from: conversations))
         }
+    }
+}
+
+extension HomeService {
+    var compositionSource: any HomeSource {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.source }
+        #endif
+        return homeRouter
+    }
+
+    var compositionParticipant: ParticipantID {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.me }
+        #endif
+        return homeSource.me.id
+    }
+
+    /// The same account mapping used by Home's pins and recipient directory.
+    var compositionAccount: String? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition {
+            return composition.account
+        }
+        #endif
+        let auth = services.cloud.auth
+        return auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) }
+    }
+
+    func listedHarnesses() async -> [String] {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.harnesses.keys.sorted() }
+        #endif
+        return (try? await services.agentHarnesses.listed())?.sorted() ?? []
+    }
+
+    func checkHarness(_ id: String) async -> Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.harnesses[id] == true }
+        #endif
+        return (try? await services.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true
     }
 }
