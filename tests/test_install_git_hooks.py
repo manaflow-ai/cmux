@@ -844,6 +844,26 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
 
+    def test_refresh_replaces_a_copy_installed_from_a_commit_feat_cmux_next_never_got(self):
+        # setup.sh in an agent's worktree stamps its unpushed (later rebased away) commit: that commit never becomes
+        # an ancestor of feat-cmux-next, so an ancestor-only rule kept its unreviewed checks on every later push.
+        old, new = self.stale_install()
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        self.git("checkout", "-q", "--", ".")
+        self.git("checkout", "-q", "-b", "side", old)
+        rule.write_text("RULE = 'local, never landed'\n")
+        self.commit_all("local rule")
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(),
+                         "RULE = 'local, never landed'\n")
+        self.git("checkout", "-q", new)
+        rule.write_text("RULE = 'newest'\n")
+        newest = self.commit_all("newest rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newest)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'newest'\n")
+
     def test_post_merge_rejects_lookalike_github_url(self):
         marker = self.root / "untrusted-installer-ran"
         installer = self.repo / INSTALLER
