@@ -32,10 +32,24 @@ final class CardResidency {
     private var ticking = false
     /// Cards built so far (tests and the rig's log).
     private(set) var builds = 0
-    /// Building ahead started (true) or finished (false).
+    /// Building ahead or moving started (true) or both ended (false).
     var onBusyChanged: (Bool) -> Void = { _ in }
-    private(set) var busy = false {
-        didSet { if busy != oldValue { onBusyChanged(busy) } }
+    private var building = false { didSet { publishBusy() } }
+    /// The offset changed within the last `restFrames` frames: any scroll,
+    /// a finger's, a deceleration's or one set from code (which the scroll
+    /// phase does not report).
+    private var moving = false { didSet { publishBusy() } }
+    private(set) var busy = false
+    private let motionClock = FrameClock()
+    private var stillFrames = 0
+    /// Frames without an offset change before the grid counts as at rest.
+    static let restFrames = 6
+
+    private func publishBusy() {
+        let now = building || moving
+        guard now != busy else { return }
+        busy = now
+        onBusyChanged(now)
     }
 
     func slot(_ id: String) -> CardSlot {
@@ -56,6 +70,17 @@ final class CardResidency {
     func scrolled(to offset: CGFloat) {
         guard abs(offset - self.offset) > 0.5 else { return }
         self.offset = offset
+        stillFrames = 0
+        if !moving {
+            moving = true
+            motionClock.start { [weak self] _ in
+                guard let self else { return false }
+                self.stillFrames += 1
+                guard self.stillFrames >= Self.restFrames else { return true }
+                self.moving = false
+                return false
+            }
+        }
         // A card on screen is never shown blank: built in this frame (the
         // grid scrolled to reveal the zooming card, or a fling outran the
         // building ahead).
@@ -101,11 +126,11 @@ final class CardResidency {
     private func tick() {
         guard !ticking, nextToBuild() != nil else { return }
         ticking = true
-        busy = true
+        building = true
         clock.start { [weak self] _ in
             guard let self, let id = self.nextToBuild() else {
                 self?.ticking = false
-                self?.busy = false
+                self?.building = false
                 return false
             }
             self.build(id)
