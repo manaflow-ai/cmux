@@ -571,13 +571,14 @@ export class SubagentFold {
     this.own.set(id, entries);
     const update = entry.update;
     let streaming = update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk";
+    let replySettled = false;
     if (streaming && textFromContent(update?.content)) {
       if (update?.sessionUpdate === "agent_message_chunk") this.pendingReplySummaries.add(id);
       // The first thought can settle a reply; subsequent thought deltas keep its summary cached.
       if (update?.sessionUpdate === "agent_thought_chunk" && this.pendingReplySummaries.delete(id)) streaming = false;
     }
     if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
-      if (this.pendingReplySummaries.delete(id)) streaming = false;
+      replySettled = this.pendingReplySummaries.delete(id);
       const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       const call = String(update.toolCallId ?? `tool-${entry.event.seq}`);
       const settled =
@@ -587,6 +588,7 @@ export class SubagentFold {
       tools.set(call, settled ?? false);
       this.viewTools.set(id, tools);
     }
+    if (replySettled) streaming = false;
     if (!streaming) this.bumpViewRevision(id);
     this.bump(id);
   }

@@ -149,7 +149,8 @@ function sources(
   const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
-      const reference = GITHUB_REFERENCE_URL.exec(url);
+      const normalizedUrl = url.split(/[?#]/, 1)[0]!;
+      const reference = GITHUB_REFERENCE_URL.exec(normalizedUrl);
       const label = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
       if (reference) {
         const [, owner, repo, path, number] = reference;
