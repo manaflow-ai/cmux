@@ -1,5 +1,6 @@
 @testable import CmuxMobileShell
 import Testing
+import Foundation
 
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -107,6 +108,43 @@ struct MobileSSHConnectionAttemptTests {
         retryGate.complete(9)
         #expect(try await retry.value == 9)
         #expect(harness.published == [9])
+    }
+
+    @Test func canceledJumpHostAlsoReleasesItsDependentAttempt() async throws {
+        let attempts = MobileSSHConnectionAttempts<Int>()
+        let jumpID = UUID()
+        let targetID = UUID()
+        let gate = SSHConnectionAttemptGate()
+        var starts = gate.started.makeAsyncIterator()
+        var failedHosts: [UUID] = []
+        var published: [Int] = []
+        var discarded: [Int] = []
+        let target = Task {
+            try await attempts.connection(
+                hostID: targetID,
+                connect: {
+                    try await attempts.connection(
+                        hostID: jumpID,
+                        connect: { try await gate.connect() },
+                        discard: { discarded.append($0) },
+                        connected: { published.append($0) },
+                        failed: { _ in failedHosts.append(jumpID) }
+                    )
+                },
+                discard: { discarded.append($0) },
+                connected: { published.append($0) },
+                failed: { _ in failedHosts.append(targetID) }
+            )
+        }
+        await starts.next()
+        attempts.cancel(hostID: jumpID)
+        gate.complete(1)
+        await expectSuperseded(target)
+        #expect(!attempts.isConnecting(hostID: jumpID))
+        #expect(!attempts.isConnecting(hostID: targetID))
+        #expect(failedHosts == [targetID])
+        #expect(published.isEmpty)
+        #expect(discarded == [1])
     }
 
     private func expectSuperseded(_ task: Task<Int, any Error>) async {

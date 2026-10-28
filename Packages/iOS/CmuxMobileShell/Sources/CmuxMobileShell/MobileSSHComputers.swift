@@ -900,8 +900,14 @@ public final class MobileSSHComputers {
                 self.restoreBrowserProxy(hostID: hostID)
             },
             failed: { error in
-                // Jump-host failures must update that host as well as its caller.
-                self.fail(hostID: hostID, error)
+                // This callback runs only while the attempt owns the host. A
+                // canceled jump-host attempt also releases its dependent host.
+                if error is MobileSSHConnectionAttemptSuperseded {
+                    self.statusByHost[hostID] = .idle
+                    self.publish(host: host)
+                } else {
+                    self.fail(hostID: hostID, error)
+                }
             }
         )
         // Disconnect can run after publication but before a waiter resumes.
