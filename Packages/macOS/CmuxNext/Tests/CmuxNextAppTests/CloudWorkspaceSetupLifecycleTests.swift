@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import Testing
@@ -92,6 +93,81 @@ private final class CloudSignInTestGate {
 
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct CloudSignedOutCreationContinuationTests {
+    @Test func creationEffectOwnsPostAuthWorkAndPreservesResult() async throws {
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "test.create", title: "Create", category: .other)])
+        let gate = CloudSignInTestGate()
+        var starts = 0
+        registry.bindEffect("test.create") { _ in
+            ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled"), authorize: { nil }) {
+                starts += 1
+                registry.track(result: Task {
+                    _ = await gate.wait()
+                    return .success(["machine_id": .string("created"), "pending": .bool(true)])
+                })
+                return nil
+            }
+        }
+        let captured = registry.capturingRun { registry.perform("test.create") }
+        #expect(starts == 0, "creation cannot start inside the synchronous handler")
+        #expect(captured.results.count == 1)
+        await gate.waitUntilRequested()
+        #expect(starts == 1)
+        gate.resolve(true)
+        for work in captured.work { #expect(await work.value == nil) }
+        let result = try #require(captured.results.first)
+        guard case .success(let fields) = await result.value else {
+            Issue.record("creation result was lost")
+            return
+        }
+        #expect(fields["machine_id"] == .string("created"))
+        #expect(fields["pending"] == .bool(true))
+    }
+
+    @Test(arguments: ["window closed", "cloud unavailable"])
+    func postAuthDestinationFailureReachesRegistry(reason: String) async throws {
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "test.create", title: "Create", category: .other)])
+        let handoff = CloudSignedOutCreationContinuation()
+        var creations = 0
+        registry.bindEffect("test.create") { _ in
+            let expected = handoff.reserve()
+            return ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled"), authorize: {
+                let signedIn = await handoff.perform(expected: expected, signIn: { true }, resume: {})
+                return signedIn ? nil : ActionWorkFailure("sign-in failed")
+            }) {
+                guard reason.isEmpty else { return ActionWorkFailure(refusal: .unavailable, reason: reason) }
+                creations += 1
+                return nil
+            }
+        }
+        let captured = registry.capturingRun { registry.perform("test.create") }
+        for work in captured.work { #expect(await work.value?.message == reason) }
+        #expect(creations == 0)
+        #expect(!handoff.isPending)
+    }
+
+    @Test func cancellingCreationEffectCancelsItsTrackedWork() async throws {
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "test.create", title: "Create", category: .other)])
+        let gate = CloudSignInTestGate()
+        var child: ActionWork?
+        registry.bindEffect("test.create") { _ in
+            ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled")) {
+                let task: ActionWork = Task {
+                    _ = await gate.wait()
+                    return Task.isCancelled ? ActionWorkFailure("cancelled") : nil
+                }
+                child = task
+                registry.track(task)
+                return nil
+            }
+        }
+        let work = registry.capturingWork { registry.perform("test.create") }
+        await gate.waitUntilRequested()
+        for task in work { task.cancel() }
+        gate.resolve(true)
+        for task in work { #expect(await task.value != nil) }
+        #expect(try #require(child).isCancelled)
+    }
+
     @Test func registryOwnsSignInAndReportsFailure() async throws {
         let handoff = CloudSignedOutCreationContinuation()
         let registry = ActionRegistry(catalog: [ActionDescriptor(id: "test.create", title: "Create", category: .other)])
@@ -259,5 +335,25 @@ struct CloudSignedOutCreationContinuationTests {
         await pending.value
         #expect(resumes == 0)
         #expect(!handoff.isPending)
+    }
+}
+
+/// Tests own their auth tasks; production work is started by ActionRegistry.
+@MainActor
+private extension CloudSignedOutCreationContinuation {
+    func replace(signIn: @escaping @MainActor () async -> Bool,
+                 resume: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        let expected = reserve()
+        return Task { _ = await perform(expected: expected, signIn: signIn, resume: resume) }
+    }
+
+    func effect(signIn: @escaping @MainActor () async -> Bool,
+                resume: @escaping @MainActor () -> Void) -> ActionEffect {
+        let expected = reserve()
+        // action-wait-allow: exercise the registry-owned authentication wait.
+        return .waiting(.network) {
+            let resumed = await self.perform(expected: expected, signIn: signIn, resume: resume)
+            return resumed ? nil : ActionWorkFailure("sign-in failed")
+        }
     }
 }

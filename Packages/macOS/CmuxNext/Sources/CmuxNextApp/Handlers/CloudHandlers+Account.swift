@@ -15,7 +15,7 @@ import CmuxNextWakeups
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
-        CloudMachineCreationAction(context: context).bind(into: registry, reason: reason)
+        bindMachineCreation(into: registry, context: context, reason: reason)
         bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil

@@ -40,6 +40,58 @@ enum CloudHandlers {
         assert(bound, "\(id) is not in the action catalog")
     }
 
+    static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
+        let signedOutCreation = cloud.signedOutCreation
+        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
+            let request = try CloudHandlers.newMachineRequest(invocation)
+            let actionOrigin = CloudHandlers.origin(of: invocation)
+            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            let start: @MainActor () -> ActionWorkFailure? = {
+                guard cloud.isSignedIn else { return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst) }
+                if let reason = cloud.unavailableReason { return ActionWorkFailure(refusal: .unavailable, reason: reason) }
+                if let window, context.services.windows.controller(for: window.id) == nil {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
+                }
+                if request.isDefault, actionOrigin == .user, window != nil {
+                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+                    return nil
+                }
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
+                                         askedBy: invocation.callerAgentSession)
+                guard request.isDefault else {
+                    CloudHandlers.createRequested(request, flow: flow, window: window, context)
+                    return nil
+                }
+                CloudHandlers.reportCreatedMachine(flow.start(in: window, existing: nil), context)
+                return nil
+            }
+            guard !cloud.isSignedIn else {
+                signedOutCreation.cancel()
+                return ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), start: start)
+            }
+            guard actionOrigin == .user else {
+                return .refused(CloudStrings.signInFirst)
+            }
+            let expected = signedOutCreation.reserve()
+            return ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), authorize: {
+                let authorized = await signedOutCreation.perform(expected: expected,
+                    signIn: { await cloud.auth.signIn() }, resume: {})
+                guard authorized, cloud.isSignedIn else {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst)
+                }
+                if let reason = cloud.unavailableReason {
+                    return ActionWorkFailure(refusal: .unavailable, reason: reason)
+                }
+                if let window, context.services.windows.controller(for: window.id) == nil {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
+                }
+                return nil
+            }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
+        }
+        assert(bound, "newCloudMachine is not in the action catalog")
+    }
+
     // MARK: Resolution
 
     /// The Cloud machine an invocation acts on.
