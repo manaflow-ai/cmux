@@ -663,9 +663,10 @@ class FakeReleases:
 
     def assets(self, release_id):
         stored = self.stored.get(release_id, [])
-        # A name maps to its own bytes unless the test gives (name, digest).
-        entries = [entry if isinstance(entry, tuple) else (entry, f"sha256:{entry}") for entry in stored]
-        return {name: {"name": name, "state": "uploaded", "digest": digest, "size": 1} for name, digest in entries}
+        # A name maps to its own bytes unless the test gives (name, digest[, size]).
+        entries = [(*entry, 1)[:3] if isinstance(entry, tuple) else (entry, f"sha256:{entry}", 1) for entry in stored]
+        return {name: {"name": name, "state": "uploaded", "digest": digest, "size": size}
+                for name, digest, size in entries}
 
     def request(self, method, url, *, body=None, **_):
         path = urlsplit(url).path.removeprefix("/repos/o/r/releases")
@@ -679,6 +680,8 @@ class FakeReleases:
                     return dict(release)
             raise publisher.RequestError("HTTP 404", status=404)
         release_id = int(path.strip("/"))
+        if method == "GET" and release_id not in self.table:
+            raise finalize.RequestError("HTTP 404", status=404)
         if method == "DELETE":
             if release_id not in self.table:
                 raise finalize.RequestError("HTTP 404", status=404)
@@ -727,7 +730,8 @@ class AdoptTests(unittest.TestCase):
         self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
 
     def test_a_release_with_its_own_assets_is_never_deleted(self):
-        for own in (["notes.txt"], [("cmux-macos.dmg", "sha256:other")]):
+        for own in (["notes.txt"], [("cmux-macos.dmg", "sha256:other")],
+                    [("cmux-macos.dmg", "sha256:cmux-macos.dmg", 2)], ["cmux-macos.dmg", "notes.txt"]):
             client = self.client(extra_assets={2: own})
             with self.assertRaisesRegex(RuntimeError, "releases 2 for v1.2.3 are drafts or have assets"):
                 self.adopt(client)
@@ -739,6 +743,59 @@ class AdoptTests(unittest.TestCase):
         self.adopt(client)
         self.assertEqual(list(client.table), [1])
         self.assertFalse(client.table[1]["draft"])
+
+    def test_a_release_already_holding_every_draft_asset_is_left_serving(self):
+        # v0.65.2.2 ended up hand-repaired with all 12 assets: adopt must not
+        # delete a working release.
+        client = self.client(extra_assets={2: list(self.NAMES)})
+        with self.assertRaisesRegex(RuntimeError, "already holds every asset"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_refused_delete_that_answers_404_stops_before_publishing(self):
+        client = self.client()
+        original = client.request
+
+        def refusing(method, url, **kwargs):
+            if method == "DELETE":
+                client.calls.append((method, url, None))
+                raise finalize.RequestError("HTTP 404", status=404)
+            return original(method, url, **kwargs)
+
+        client.request = refusing
+        with self.assertRaisesRegex(RuntimeError, "still exists after DELETE"):
+            self.adopt(client)
+        self.assertTrue(client.table[1]["draft"])
+
+    def test_a_new_release_on_the_tag_still_blocks_publish(self):
+        client = self.client()
+        client.stale[2] = dict(client.table[2])
+        newcomer = {"id": 4, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": False, "prerelease": False}
+        original = client.request
+
+        def appearing(method, url, **kwargs):
+            result = original(method, url, **kwargs)
+            if method == "DELETE":
+                client.table[4] = dict(newcomer)
+            return result
+
+        client.request = appearing
+        with self.assertRaisesRegex(RuntimeError, r"ids 4\)"):
+            self.adopt(client)
+
+    def test_notes_flags_stop_the_old_notes_being_carried(self):
+        client = self.client()
+        client.table[2]["body"] = "Full Changelog"
+        self.adopt(client)
+        self.assertEqual(client.table[1]["body"], "notes")
+
+    def test_carried_notes_are_written_before_the_delete(self):
+        client = self.client()
+        client.table[2]["body"] = "Full Changelog"
+        self.adopt(client, generate_notes=False)
+        writes = [(method, path) for method, path, _ in client.calls if method != "GET"]
+        self.assertEqual(writes[:2], [("PATCH", "/1"), ("DELETE", "/2")])
 
     def test_an_asset_without_a_digest_is_not_assumed_a_copy(self):
         client = self.client(extra_assets={2: [("cmux-macos.dmg", None)]})

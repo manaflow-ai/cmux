@@ -156,36 +156,55 @@ def adopt(client, args) -> None:
         return bool(source and asset.get("digest") and asset.get("digest") == source.get("digest")
                     and asset.get("size") == source.get("size"))
 
+    held = {int(entry["id"]): client.assets(int(entry["id"])) for entry in others}
     keep = sorted(int(entry["id"]) for entry in others
-                  if entry.get("draft")
-                  or not all(map(copy_of_staged, client.assets(int(entry["id"])).values())))
+                  if entry.get("draft") or not all(map(copy_of_staged, held[int(entry["id"])].values())))
     if keep:
         raise RuntimeError(
             f"Refusing to adopt release {args.release_id}: releases {', '.join(map(str, keep))} for "
             f"{args.tag} are drafts or have assets that are not copies of the draft's. "
             f"Resolve them by hand.")
-    empty = sorted({int(entry["id"]) for entry in others})
+    # A release that already serves every draft asset needs no repair, and
+    # deleting it would take working downloads offline; drop the draft instead.
+    complete = sorted(release_id for release_id, assets in held.items() if set(staged_assets) <= set(assets))
+    if complete:
+        raise RuntimeError(
+            f"Release {', '.join(map(str, complete))} for {args.tag} already holds every asset of draft "
+            f"{args.release_id}; nothing to adopt. Delete the draft instead.")
+    empty = sorted(held)
     # Without a notes flag the draft keeps the deleted release's notes.
     carried = {}
     if args.body_file is None and not args.generate_notes:
-        bodies = [entry.get("body") for entry in others if entry.get("body")]
+        bodies = [entry.get("body") for entry in sorted(others, key=lambda entry: int(entry["id"]))
+                  if entry.get("body")]
         if bodies:
             carried["body"] = bodies[0]
     print(f"Adopting draft {args.release_id} for {args.tag}; replacing published duplicates: "
-          f"{', '.join(map(str, empty)) or 'none'}", flush=True)
+          f"{', '.join(map(str, empty)) or 'none'}"
+          f"{'; carrying their notes' if carried else ''}", flush=True)
     if args.dry_run:
         return
+    # Notes go onto the draft before anything is deleted, so a failure cannot lose them.
+    if carried:
+        patch(client, args.release_id, carried)
     for release_id in empty:
         try:
             client.request("DELETE", f"{client.api_url}/repos/{client.repo}/releases/{release_id}")
         except RequestError as error:
             if error.status != 404:
                 raise
+        # A 404 can also mean the request was refused; confirm the release is gone
+        # before publish stops counting it as a duplicate.
+        try:
+            release(client, release_id)
+        except RequestError as error:
+            if error.status != 404:
+                raise
+        else:
+            raise RuntimeError(f"Release {release_id} for {args.tag} still exists after DELETE")
         print(f"Deleted duplicate release {release_id} for {args.tag}", flush=True)
     if current != args.tag:
-        carried["tag_name"] = args.tag
-    if carried:
-        patch(client, args.release_id, carried)
+        patch(client, args.release_id, {"tag_name": args.tag})
     publish(client, args, frozenset(empty))
 
 
