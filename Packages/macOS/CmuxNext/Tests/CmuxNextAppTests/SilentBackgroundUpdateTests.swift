@@ -143,12 +143,14 @@ import Testing
         #expect(updater.availableButton == nil)
     }
 
-    /// Automatic download and install is opt-in on every channel (Leo 2026-10-27: "ask before the
-    /// download + install step, and likewise for the reboot"): the dogfood apps ask as stable does.
-    @Test func automaticDownloadsAreOptInOnEveryChannel() {
+    /// Automatic download is opt-in where prod is (Leo 2026-10-27: "to make it more like how it'd
+    /// be in prod"), and on where Leo asked to be opted in (2026-10-26: "Opt in to automatically
+    /// download. I want to be optted in"): stable, RC and tagged DEV ask before the download;
+    /// NIGHTLY and the tip app download it. Both ask before the relaunch, on every channel.
+    @Test func automaticDownloadsAreOptInOnStableAndOnInNightly() {
         #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
         #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault, "the NIGHTLY app Leo runs is not opted in")
         #expect(!UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 

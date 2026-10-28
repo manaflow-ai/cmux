@@ -3,8 +3,10 @@
 // are generated from schemas/settings/source/updates.json (Schema/SettingsSchema+Updates*.generated.swift,
 // cx-d5b5d); this file only parses.
 
-/// `updates.*` in cmux.json (R114): automatic checks, downloads and
-/// install on quit are on by default; every step can be turned off.
+/// `updates.*` in cmux.json (R114): automatic checks are on by default and automatic downloads
+/// follow the channel (``SettingsBuildDefaults/channel(downloadsAutomatically:)``: on for NIGHTLY
+/// and the tip app, off where prod is); install on quit is off. Every step can be turned off, and
+/// the relaunch always waits for Restart to Update.
 public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// The release ring this Mac follows in the cmux NEXT appcast (release rings).
     public var channel = UpdatesSettings.channelDefault

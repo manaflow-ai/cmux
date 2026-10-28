@@ -7,8 +7,9 @@ import Foundation
 /// `updates.installOnQuit` is off. A pure value: the App feeds events and
 /// performs the effects.
 ///
-/// Without the automatic-install opt-in (`updates.downloadAutomatically`, off by default on
-/// every channel) the flow asks twice, as Sparkle's own UI does: a found update waits on the
+/// Without the automatic-install opt-in (`updates.downloadAutomatically`, off by default where
+/// prod is: ``UpdateTrack/downloadsAutomaticallyByDefault``) the flow asks twice, as Sparkle's own
+/// UI does: a found update waits on the
 /// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
 /// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
 /// until Restart to Update (``UpdateFlowEvent/installRequested``). Hide, or no answer, never

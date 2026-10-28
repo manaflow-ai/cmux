@@ -417,8 +417,8 @@ import CmuxNextWakeupsTestSupport
         #expect(s.sockets[1].closed && s.updater.releasePush.task == nil && !s.updater.releasePushRetry.isScheduled)
     }
 
-    /// Without the automatic-install opt-in (the default on every channel, Leo 2026-10-27: "ask
-    /// before the download + install step"), a release push still checks at once, and the found
+    /// Without the automatic-install opt-in (an explicit off, or the default where prod is, Leo
+    /// 2026-10-27: "ask before the download + install step"), a release push still checks at once, and the found
     /// build asks: the update-found step (the titlebar's Update Available), nothing downloaded,
     /// nothing staged, no relaunch.
     @Test func withoutTheOptInAPushChecksAndTheFoundUpdateAsks() async throws {

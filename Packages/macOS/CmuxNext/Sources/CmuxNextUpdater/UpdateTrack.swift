@@ -22,18 +22,30 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
         return false
     }
 
-    /// `updates.downloadAutomatically` for an install that never set it: off on every channel, so
-    /// NIGHTLY, the tip app and DEV ask as stable does (Leo 2026-10-27: "and the whole check for
-    /// updates thing, we can do it more properly to ask before the download + install step, and
-    /// likewise for the reboot... to make it more like how it'd be in prod"). A found update waits
-    /// on the Update Available step; its Update downloads it, and the staged update waits on the
-    /// Update Ready card for Restart to Update. Turning the setting on is the opt-in to automatic
-    /// download; the relaunch still waits for Restart to Update (the nightly restart policy, which
-    /// keeps the idle install off). Stable and RC were
-    /// already off (claude-sr2 2026-10-26, relaying Leo: "maybe better as an opt in for normal users").
+    /// `updates.downloadAutomatically` for an install that never set it.
+    ///
+    /// Off where prod is, so stable and RC ask before the download (Leo, relayed 2026-10-26:
+    /// "maybe better as an opt in for normal users"; Leo 2026-10-27: "and the whole
+    /// check for updates thing, we can do it more properly to ask before the download + install
+    /// step, and likewise for the reboot... to make it more like how it'd be in prod"). A found
+    /// update waits on the Update Available step and its Update downloads it. A tagged DEV build
+    /// is off too: it never runs Sparkle against a public feed, only the read-only probe.
+    ///
+    /// On for NIGHTLY and the tip app, the dogfood builds, which Leo asked to be opted in on
+    /// (2026-10-26: "I don't want to have to click check for updates to get the update. I just
+    /// want the update. Opt in to automatically download. I want to be optted in"): a found update
+    /// downloads by itself, with no click.
+    ///
+    /// Either way the relaunch still waits for Restart to Update on the Update Ready card: the
+    /// download setting never installs (``UpdaterService/configure(checkAutomatically:checkInterval:downloadAutomatically:metered:ring:idleInstall:)``
+    /// keeps the idle install off whatever it says), so Leo's "likewise for the reboot" holds on
+    /// every channel. This is the channel's default only: it fills the effective settings through
+    /// ``SettingsBuildDefaults/channel(downloadsAutomatically:)``, never the shared file, and an
+    /// explicit value in cmux.json always wins.
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {
-        case .stable, .rc, .nightly, .development: false
+        case .nightly: true
+        case .stable, .rc, .development: false
         }
     }
 }

@@ -4,12 +4,16 @@ import Testing
 
 /// Leo 2026-10-27: "and the whole check for updates thing, we can do it more properly to ask
 /// before the download + install step, and likewise for the reboot... to make it more like how
-/// it'd be in prod". On every channel (stable, NIGHTLY, the tip app, DEV) a found update asks
-/// before it downloads (the update-found step: Update / Release Notes / Hide), and the downloaded
-/// update asks before the relaunch (the Update Ready card: Restart to Update / Hide). Hide, or no
-/// answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (the nightly
-/// restart policy keeps it off by default). The automatic-download opt-in
-/// (`updates.downloadAutomatically`) only skips the first ask.
+/// it'd be in prod". On every channel (stable, NIGHTLY, the tip app, DEV) both steps exist: a
+/// found update asks before it downloads (the update-found step: Update / Release Notes / Hide),
+/// and the downloaded update asks before the relaunch (the Update Ready card: Restart to Update /
+/// Hide). Hide, or no answer, never relaunches; a quit installs it only with
+/// `updates.installOnQuit` on (the nightly restart policy keeps it off by default).
+///
+/// The automatic-download opt-in (`updates.downloadAutomatically`) only ever skips the first ask.
+/// Its channel default is off where prod is (stable, RC, tagged DEV) and on for NIGHTLY and the
+/// tip app (Leo 2026-10-26: "Opt in to automatically download. I want to be optted in"), so these
+/// tests pass `optIn:` explicitly wherever they exercise one side of it.
 @MainActor @Suite(.serialized) struct UpdateAsksBeforeInstallTests {
     nonisolated static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
                                                         minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
@@ -47,22 +51,45 @@ import Testing
         return (updater, effects)
     }
 
-    @Test func everyChannelAsksByDefault() {
+    /// The channel default: stable, RC and tagged DEV ask before the download, as prod does;
+    /// NIGHTLY and the tip app are opted in (Leo 2026-10-26: "Opt in to automatically download. I
+    /// want to be optted in"). Every channel still asks before the relaunch
+    /// (``theChannelDefaultStillAsksBeforeTheRelaunch``).
+    @Test func theChannelDefaultIsOptInWhereProdIsAndOnInNightly() {
         for track in UpdateTrack.allCases {
-            #expect(!track.downloadsAutomaticallyByDefault, "\(track) downloads and installs by itself by default")
+            #expect(track.downloadsAutomaticallyByDefault == (track == .nightly), "\(track)'s channel default")
         }
         for identity in Self.channels {
             let (updater, _) = Self.make(identity)
-            #expect(!updater.automaticUpdates && !updater.downloadsFoundUpdates,
-                    "\(identity.track) (tip \(identity.isTipBuild)) downloads found updates by default")
+            let expected = identity.track.downloadsAutomaticallyByDefault
+            #expect(updater.automaticUpdates == expected && updater.downloadsFoundUpdates == expected,
+                    "\(identity.track) (tip \(identity.isTipBuild)) does not follow its channel default")
         }
+    }
+
+    /// The NIGHTLY and tip default downloads the found update by itself, and the staged update
+    /// still waits on the Update Ready card: Leo 2026-10-26 ("I don't want to have to click check
+    /// for updates to get the update. I just want the update. Opt in to automatically download. I
+    /// want to be optted in") and Leo 2026-10-27 ("likewise for the reboot") both hold.
+    @Test(arguments: [UpdateAsksBeforeInstallTests.nightly, UpdateAsksBeforeInstallTests.tip])
+    func theChannelDefaultStillAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
+        let (updater, effects) = Self.make(identity)
+        #expect(updater.downloadsFoundUpdates, "\(identity.track) (tip \(identity.isTipBuild)) is not opted in by default")
+        updater.debugIndicatorPhase = .available(version: "2.0.0")
+        updater.debugIndicatorPhase = .downloading(.starting)
+        updater.debugIndicatorPhase = .ready(version: "2.0.0")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(effects.installs == 0, "\(identity.track): the opted-in default relaunched without a click")
+        #expect(updater.readyCard != nil, "\(identity.track): the opted-in default did not ask before the relaunch")
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
     }
 
     /// Found, nobody asked (a scheduled check, the fast check, a release push): the titlebar's
     /// Update Available asks, and nothing downloads until its click.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func aFoundUpdateAsksBeforeItDownloads(identity: UpdateBuildIdentity) {
-        let (updater, effects) = Self.make(identity)
+        let (updater, effects) = Self.make(identity, optIn: false)
         updater.debugIndicatorPhase = .checking
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         #expect(updater.availableButton == UpdateAvailableButton(version: "2.0.0"), "\(identity.track): the found update did not ask")
@@ -75,7 +102,7 @@ import Testing
     /// relaunch. Only Restart to Update installs and relaunches.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func checkForUpdatesAsksBeforeTheDownloadAndBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
-        let (updater, effects) = Self.make(identity)
+        let (updater, effects) = Self.make(identity, optIn: false)
         updater.send(.checkRequested)
         updater.debugIndicatorPhase = .checking
         #expect(updater.card == .checking)
@@ -110,7 +137,7 @@ import Testing
     /// pending installer and the next check offers the update again.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func laterNeverRelaunches(identity: UpdateBuildIdentity) async throws {
-        let (updater, effects) = Self.make(identity)
+        let (updater, effects) = Self.make(identity, optIn: false)
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         updater.downloadClicked()
         updater.debugIndicatorPhase = .downloading(.starting)
@@ -148,7 +175,7 @@ import Testing
     /// A repeated or late Update (pressed again while the download runs, or after it staged) never
     /// turns into Restart to Update: the staged update still asks.
     @Test func aRepeatedUpdateNeverAsksToRelaunch() async throws {
-        let (updater, effects) = Self.make(Self.nightly)
+        let (updater, effects) = Self.make(Self.nightly, optIn: false)
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         updater.performCardAction(.update)
         updater.debugIndicatorPhase = .downloading(.starting)
@@ -165,7 +192,7 @@ import Testing
     /// The update sheet (no sidebar showing the cards) asks the same way: its found step offers
     /// Update, which only downloads.
     @Test func theSheetsFoundStepOnlyDownloads() {
-        let (updater, effects) = Self.make(Self.nightly)
+        let (updater, effects) = Self.make(Self.nightly, optIn: false)
         #expect(UpdateSheetButton.update.title == UpdaterStrings.update && !UpdateSheetButton.update.dismisses)
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         UpdateSheetModel(service: updater).perform(.update)

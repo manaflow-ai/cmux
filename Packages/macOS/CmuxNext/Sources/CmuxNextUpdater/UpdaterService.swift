@@ -13,7 +13,8 @@ import Observation
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
 /// user-driver steps are the sidebar's cards. Without the automatic-install opt-in
-/// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
+/// (`updates.downloadAutomatically`, off by default on stable, RC and tagged DEV, on for NIGHTLY
+/// and the tip app: ``UpdateTrack/downloadsAutomaticallyByDefault``) a found update is the
 /// update-found step (the notice card after Check for Updates, else the titlebar's Update
 /// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
 /// it, updates download by themselves and the Update Ready card still asks before the relaunch.

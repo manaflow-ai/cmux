@@ -177,8 +177,8 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1)
     }
 
-    /// Without the automatic-install opt-in (the default on every channel since Leo 2026-10-27:
-    /// "ask before the download + install step") the fast check still reads the feed; its check
+    /// Without the automatic-install opt-in (an explicit off, or the default where prod is since
+    /// Leo 2026-10-27: "ask before the download + install step") the fast check still reads the feed; its check
     /// ends on the update-found step, which asks, and nothing reads again until it is answered.
     @Test(arguments: [TipUpdateCheckTests.tip, TipUpdateCheckTests.nightly])
     func withoutTheOptInTheFastCheckStillFindsTheUpdateAndAsks(identity: UpdateBuildIdentity) async throws {
