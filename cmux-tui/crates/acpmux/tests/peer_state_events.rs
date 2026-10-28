@@ -75,6 +75,79 @@ fn states(notes: &[Value]) -> Vec<&str> {
     notes.iter().map(|n| n["state"].as_str().unwrap_or("?")).collect()
 }
 
+/// An unforced reconnect with `wait` (the app's pick or send) of a peer still in its handshake
+/// waits for that handshake to finish: it neither answers at once (the caller would then send to
+/// a peer that is not connected yet) nor replaces the link. The peer here answers `initialize`
+/// only when the test lets it, and takes one connection: a replaced link would never connect.
+#[tokio::test]
+async fn an_unforced_waiting_reconnect_waits_for_the_handshake_in_progress() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        drop(listener);
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        let mut answer_rx = Some(answer_rx);
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
+            let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                continue;
+            };
+            let reply = if m == method::INITIALIZE {
+                if let Some(gate) = answer_rx.take() {
+                    let _ = gate.await;
+                }
+                Message::ok(
+                    id,
+                    json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                        "version": "0", "build": "test", "origin": "peer", "features": []}}}),
+                )
+            } else {
+                Message::ok(id, json!({}))
+            };
+            if ws.send(Ws::Text(reply.to_line().into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let a = hub();
+    let (tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(a.clone(), in_rx, out_tx));
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "peer-state-test"}});
+    tx.send(Message::request(1, method::INITIALIZE, hello).to_line()).await.unwrap();
+    reply(&mut rx, 1).await;
+    tx.send(Message::request(2, method::MUX_WATCH, json!({"enabled": true})).to_line())
+        .await
+        .unwrap();
+    reply(&mut rx, 2).await;
+
+    let url = format!("ws://127.0.0.1:{port}");
+    a.add_peer("b", &url, Some("tok".into()), None, false).await.unwrap();
+    // Degraded: the WebSocket is open and the peer has not answered `initialize`.
+    let open = notes(&mut rx, "b", Duration::from_secs(20), Some("degraded")).await;
+    assert_eq!(states(&open).last(), Some(&"degraded"), "{open:?}");
+
+    let reconnecting = a.clone();
+    let reconnect =
+        tokio::spawn(async move { reconnecting.reconnect_peer_with("b", true, false).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!reconnect.is_finished(), "an unforced waiting reconnect answered mid-handshake");
+
+    answer_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), reconnect)
+        .await
+        .expect("the reconnect answers once the handshake finished")
+        .unwrap()
+        .unwrap();
+    assert_eq!(a.peers()[0]["connected"], true, "the link it waited for is up, not replaced");
+}
+
 #[tokio::test]
 async fn a_watcher_hears_each_peer_state_change_once() {
     // B serves WebSocket; A reaches it through a TCP relay this test drops to cut the link.

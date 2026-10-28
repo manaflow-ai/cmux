@@ -5,7 +5,9 @@
 //! (`peer_link.rs`).
 
 use crate::no_panic::LockExt;
-use crate::peer_link::{Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE};
+use crate::peer_link::{
+    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -1039,10 +1041,11 @@ impl Peer {
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
-                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                     ticks += 1;
                     if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
@@ -1122,10 +1125,11 @@ impl Peer {
                         self.on_wire.lock_or_recover().insert(key);
                     }
                     let text = line.trim_end_matches('\n').to_owned();
-                    match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                 }
             }
@@ -1188,6 +1192,17 @@ fn connect_timed_out(after: Duration) -> String {
 
 fn stopped_reading(budget: Duration) -> String {
     format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+}
+
+/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// passed, else the send budget.
+fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
+    match wake_probe {
+        Some(probe) if probe <= tokio::time::Instant::now() => {
+            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+        }
+        _ => stopped_reading(budget),
+    }
 }
 
 /// The default WebSocket port of an `ssh://` peer.

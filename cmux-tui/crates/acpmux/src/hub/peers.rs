@@ -216,13 +216,19 @@ impl Hub {
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
-        // A ready link, or a handshake younger than the connect deadline, is left to finish.
-        let young = crate::peer_link::LinkTimings::from_env().connect;
-        let open = self.peer(name).is_some_and(|running| {
-            running.link().keeps_on_reconnect(crate::store::now_ms(), young)
-        });
-        if open && !force {
-            return Ok(());
+        // A ready link, or a handshake younger than the connect deadline, is left to finish; with
+        // `wait`, an unfinished handshake is waited for as a new attempt would be. Subscribed before
+        // the link is read, so a handshake that settles in between is still heard.
+        if !force && let Some(running) = self.peer(name) {
+            let mut settled = running.settled();
+            let link = running.link();
+            let young = crate::peer_link::LinkTimings::from_env().connect;
+            if link.keeps_on_reconnect(crate::store::now_ms(), young) {
+                if wait && !link.is_ready() {
+                    let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+                }
+                return Ok(());
+            }
         }
         let mut settled = self.start_peer(name, &peer);
         if wait {

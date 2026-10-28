@@ -140,6 +140,17 @@ impl SleepWatch {
 /// (its ssh tunnel and TCP connection often died while the computer slept).
 pub const WAKE_PROBE: Duration = Duration::from_secs(10);
 
+/// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
+/// probe's deadline when that comes first, so a write to a link that died while the computer
+/// slept never holds the probe past it. Generic over the clock so a test can pass plain instants.
+pub fn write_deadline<I>(now: I, budget: Duration, wake_probe: Option<I>) -> I
+where
+    I: Copy + Ord + std::ops::Add<Duration, Output = I>,
+{
+    let end = now + budget;
+    wake_probe.map_or(end, |probe| probe.min(end))
+}
+
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
 pub fn jitter() -> f64 {
     let mut b = [0u8; 4];
@@ -386,6 +397,17 @@ mod tests {
         let mut watch = SleepWatch::new(2_000_000, start);
         assert_eq!(watch.check_at(1_000_000, start + Duration::from_secs(5)), None);
         assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(10)), None);
+    }
+
+    #[test]
+    fn a_write_during_a_wake_probe_gives_up_at_the_probes_deadline() {
+        let now = std::time::Instant::now();
+        let budget = Duration::from_secs(80);
+        assert_eq!(write_deadline(now, budget, None), now + budget);
+        let probe = now + WAKE_PROBE;
+        assert_eq!(write_deadline(now, budget, Some(probe)), probe);
+        // A probe further off than the budget leaves the budget.
+        assert_eq!(write_deadline(now, Duration::from_secs(5), Some(probe)), now + Duration::from_secs(5));
     }
 
     const STABLE: Duration = Duration::from_secs(60);
