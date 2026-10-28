@@ -94,10 +94,15 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
 }
 
 /// `identify`'s capabilities for connection `client`: [`identify_capabilities`]
-/// plus the framed IPC ones its connection may be granted ([`IpcCapability::offered`]).
+/// plus the framed IPC ones its connection may be granted ([`IpcCapability::offered`]),
+/// and with frames, that this daemon reads a REQUEST frame's trace flow
+/// ([`frame_dispatch::REQUEST_FLOW_CAPABILITY`]).
 pub(super) fn identify_capabilities_for(mux: &Mux, client: u64) -> Vec<&'static str> {
     let mut ipc: Vec<_> =
         mux.control_clients.ipc_offer(client).into_iter().map(IpcCapability::name).collect();
+    if ipc.contains(&IpcCapability::Frames.name()) {
+        ipc.push(frame_dispatch::REQUEST_FLOW_CAPABILITY);
+    }
     hide_for_tests(&mut ipc);
     let mut capabilities = identify_capabilities(mux);
     capabilities.extend(ipc);

@@ -102,7 +102,7 @@ final class ReplySlot: Sendable {
             }
             return result
         }
-        if let done { span.end(LineTransport.RequestOutcome(done)) }
+        if let done { span.end(done) }
     }
 
     /// First resolution wins; later ones are ignored.
@@ -115,7 +115,7 @@ final class ReplySlot: Sendable {
                 return (waiter: waiter, span: state.span)
             }
         guard let resolved else { return }
-        resolved.span?.end(LineTransport.RequestOutcome(result))
+        resolved.span?.end(result)
         resolved.waiter?.resume(with: result)
     }
 
@@ -147,12 +147,8 @@ extension LineTransport {
             let slot = ReplySlot()
             slots.append(slot)
             // A failed submit resolves the slot itself.
-            submit(.reply(cmd: line.cmd.wire, slot), deadline: groupDeadline) { id in
-                let data = try line.body(id)
-                // Each slot ends its own `daemon.request` slice, as ``request(cmd:timeout:_:)``'s does.
-                beginRequestSpan(line.cmd, id: id, slot: slot)
-                return data
-            }
+            // Each slot ends its own `daemon.request` slice, as ``request(cmd:timeout:_:)``'s does.
+            submit(.reply(cmd: line.cmd.wire, slot), deadline: groupDeadline, traced: line.cmd) { id in try line.body(id) }
         }
         var results: [Result<Response, any Error>] = []
         for slot in slots {

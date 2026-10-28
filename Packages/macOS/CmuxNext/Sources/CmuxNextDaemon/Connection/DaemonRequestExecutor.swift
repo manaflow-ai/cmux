@@ -6,6 +6,10 @@ import Foundation
 /// when the daemon listed its method as answered on frames (``FramedRequests``); its reply is the same JSON
 /// either way. Every other command stays a line, so no request is refused for its encoding and none is sent
 /// twice. Other callers of the transport (v2 resource envelopes, raw lines) stay lines.
+///
+/// While the `daemon` trace category is on, a framed request carries its `daemon.request` flow, so the daemon's
+/// arrival and reply join the app's send and receive as one flow (p05-ipc-180, plans/cmux-next/trace.md "Daemon
+/// request flows"); off, the frame carries no flow.
 struct DaemonRequestExecutor: Sendable {
     let transport: LineTransport
 

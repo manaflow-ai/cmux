@@ -3364,7 +3364,64 @@ def request_flow_summary(request_records):
             unlinked.append(f"0x{flow:x}")
     return {"request_flow_linked": round(100.0 * linked / requests, 1) if requests else None,
             "request_flows": {"requests": requests, "linked": linked, "round_trips": round_trips,
-                              "unlinked": unlinked[:10]}}
+                              "unlinked": unlinked[:10]},
+            "request_round_trip": request_round_trip_ms(request_round_trips(request_records))}
+
+
+# A framed daemon request's round trip (p05-ipc-180): the REQUEST frame carries the app's flow id, so the daemon's
+# arrival and reply carry it too. In time order: the app's send (flow-out), the daemon's arrival (flow-in), the
+# daemon's reply (flow-out), the app's reply-receive (flow-in). A line request has only the app's send until the
+# daemon derives the flow itself (p09-observability-103).
+REQUEST_HOPS = (("s", "send"), ("f", "receive"), ("s", "reply"), ("f", "reply received"))
+REQUEST_LEGS = (("to_daemon_ms", 0, 1), ("in_daemon_ms", 1, 2), ("to_app_ms", 2, 3), ("round_trip_ms", 0, 3))
+
+
+def request_round_trips(request_records):
+    """The requests whose records are one round trip across two processes: {flow: [the four records in time order,
+    each with its `step` name from REQUEST_HOPS]}. A flow with any other shape (a line request's lone send, a
+    request the daemon never answered, an id two requests share) is not a round trip and is left out."""
+    trips = {}
+    for flow, rows in request_flows(request_records).items():
+        if [r["ph"] for r in rows] != [ph for ph, _ in REQUEST_HOPS]:
+            continue
+        app, daemon = rows[0].get("pid"), rows[1].get("pid")
+        if app == daemon or [r.get("pid") for r in rows] != [app, daemon, daemon, app]:
+            continue
+        trips[flow] = [dict(row, step=name) for row, (_, name) in zip(rows, REQUEST_HOPS)]
+    return trips
+
+
+def request_round_trip_ms(trips):
+    """pct() rows over the round trips: the app's send to the daemon's arrival, the arrival to the reply, the reply
+    to the app's receive, and the whole round trip; None for each without round trips."""
+    legs = {name: [(rows[end]["at_us"] - rows[start]["at_us"]) / 1000 for rows in trips.values()]
+            for name, start, end in REQUEST_LEGS}
+    return {name: pct(values) for name, values in legs.items()}
+
+
+def request_flow_events(trips, tracks, lane_names):
+    """One slice per step of each round trip on a `daemon request` track of the step's process, from the step to the
+    next one (the last step 1 us long), chained by Perfetto flow arrows as flow_events chains a key press: the app's
+    send -> the daemon's arrival -> its reply -> the app's receive."""
+    events, lanes = [], collections.defaultdict(Lanes)
+    for flow, rows in sorted(trips.items(), key=lambda kv: kv[1][0]["at_us"]):
+        for index, row in enumerate(rows):
+            start = round(row["at_us"], 3)
+            end = round(rows[index + 1]["at_us"] if index + 1 < len(rows) else row["at_us"] + 1.0, 3)
+            pid = row["pid"]
+            lane = lanes[pid].place(start, max(end, start + 1.0))
+            tid = tracks.tid(pid, ("daemon request", lane))
+            lane_names[(pid, tid)] = "daemon request" + (f" {lane + 1}" if lane else "")
+            event = {"ph": "X", "pid": pid, "tid": tid, "ts": start, "dur": round(max(end - start, 1.0), 3),
+                     "name": f"{REQUEST_FLOW_NAME} {row['step']}", "cat": "daemon.request", "bind_id": f"0x{flow:x}",
+                     "args": {"flow": f"0x{flow:x}", "thread": row.get("tid"),
+                              "to_next_ms": round((end - start) / 1000, 3)}}
+            if index + 1 < len(rows):
+                event["flow_out"] = True
+            if index:
+                event["flow_in"] = True
+            events.append(event)
+    return events
 
 
 def clock_report(flows, request_records):
@@ -4334,6 +4391,7 @@ def build(out):
                        "cat": "driver", "name": item["name"], "args": item.get("args") or {}})
     events += input_latency_events(input_slots, app_pid, tracks, lane_names, input_links)
     events += flow_events(key_flows, tracks, lane_names, frozenset(flow for flow, _ in input_links.values()))
+    events += request_flow_events(request_round_trips(request_records), tracks, lane_names)
     for pid in {r["pid"] for r in key_records + request_records if r.get("pid")}:
         roles.setdefault(pid, (known.get(pid) or {}).get("role") or "bundle-other")
     # Metadata: names and order.
@@ -4762,6 +4820,12 @@ def summary_text(s):
     if requests.get("requests"):
         lines.append(f"Daemon request flows: {requests['linked']} of {requests['requests']} linked "
                      f"({s.get('request_flow_linked')}%), {requests['round_trips']} round trips")
+        trip = s.get("request_round_trip") or {}
+        rows = [(name, trip.get(name)) for name, _, _ in REQUEST_LEGS]
+        if any(row for _, row in rows):
+            lines.append("  framed round trips (ms p50/p95/p99/max): " + "; ".join(
+                f"{name[:-3].replace('_', ' ')} " + "/".join(str(row[key]) for key in PERCENTILE_KEYS)
+                for name, row in rows if row))
     latency = s.get("input_latency") or {}
     if latency.get("slots") or latency.get("unplaced"):
         lines.append(f"Input latency, generated -> presented (ms p50/p95/p99/max): {latency['slots']} slots; not folded "
@@ -4809,9 +4873,11 @@ def summary_text(s):
 # ---------------------------------------------------------------- Perfetto import check
 
 # The tracks that must import as their own thread tracks, by name prefix (the synthetic tracks build() names).
-IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans", "key flow", "input latency", "ring ")
+IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans", "key flow", "input latency", "daemon request",
+                 "ring ")
 IMPORT_QUERY_FLOWS = """
-select count(*) as flows from flow f join slice s on s.id = f.slice_out where s.category in ('key.flow', 'input.latency.stage')
+select count(*) as flows from flow f join slice s on s.id = f.slice_out
+where s.category in ('key.flow', 'input.latency.stage', 'daemon.request')
 """
 IMPORT_QUERY_TRACKS = """
 select p.pid as pid, t.tid as tid, t.name as name, count(s.id) as slices
@@ -4876,12 +4942,14 @@ def check_import(out, trace_processor):
             continue
     stats = run_query(trace_processor, trace, IMPORT_QUERY_STATS)
     # Each key-press chain of n hop slices is n - 1 arrows (flow_out on all but the last, flow_in on all but the first);
-    # a chain linked from an EventLatency slot is n, its first arrow leaving the slot's dispatch stage.
+    # a chain linked from an EventLatency slot is n, its first arrow leaving the slot's dispatch stage. A framed
+    # daemon request's round trip (request_flow_events) is 3.
     want_flows = sum(1 for e in events if e.get("flow_out"))
     got_flows = int((run_query(trace_processor, trace, IMPORT_QUERY_FLOWS) or [{"flows": 0}])[0].get("flows") or 0)
     problems, tracks = [], []
     if got_flows != want_flows:
-        problems.append(f"{want_flows} key-flow and input-latency arrows in the JSON, {got_flows} imported")
+        problems.append(f"{want_flows} key-flow, input-latency and daemon-request arrows in the JSON, "
+                        f"{got_flows} imported")
     for key, name in sorted(names.items(), key=lambda kv: str(kv)):
         if not (name or "").startswith(IMPORT_TRACKS):
             continue
@@ -5654,11 +5722,11 @@ def check_import_with_a_fake_trace_processor():
         write_fake(good, no_stats)
         ok, report = check_import(out, fake)
         assert ok and report["tracks_by_kind"] == {"signposts": 1, "watchdog stalls": 1, "daemon spans": 1, "key flow": 1,
-                                                   "input latency": 1, "ring": 1}, report
+                                                   "input latency": 1, "daemon request": 0, "ring": 1}, report
         assert report["flows"] == {"json": 2, "imported": 2}, report["flows"]
         write_fake(good, no_stats, '"flows"\n1\n')
         ok, report = check_import(out, fake)
-        assert not ok and report["problems"] == ["2 key-flow and input-latency arrows in the JSON, 1 imported"], report
+        assert not ok and report["problems"] == ["2 key-flow, input-latency and daemon-request arrows in the JSON, 1 imported"], report
         write_fake(good.replace('"input latency",3', '"input latency",2'), no_stats)
         ok, report = check_import(out, fake)
         assert not ok and "input latency: 3 slices in the JSON, 2 imported" in report["problems"][0], report["problems"]
@@ -5967,6 +6035,42 @@ def check_clock_order_and_percentiles():
     assert linked["request_flow_linked"] == 66.7 and linked["request_flows"]["round_trips"] == 1, linked
     assert linked["request_flows"]["unlinked"] == ["0x2"], linked
     assert request_flow_summary([])["request_flow_linked"] is None
+
+
+def check_request_round_trips():
+    """p05-ipc-180: a framed request's four flow records (the app's send, the daemon's arrival, its reply, the app's
+    receive) join as one round trip, drawn as one chain of 4 slices and 3 arrows across the two processes, with
+    per-leg percentiles; a line request's lone send, an unanswered request and a flow whose steps are out of order
+    are not round trips."""
+    app_pid, daemon_pid = 10, 20
+    split, line, lost, odd = 0x51, 0x52, 0x53, 0x54
+    records = [request_record(split, "s", 100, app_pid), request_record(split, "f", 160, daemon_pid),
+               request_record(split, "s", 400, daemon_pid), request_record(split, "f", 450, app_pid),
+               request_record(line, "s", 500, app_pid),
+               request_record(lost, "s", 600, app_pid), request_record(lost, "f", 610, daemon_pid),
+               request_record(odd, "s", 700, app_pid), request_record(odd, "f", 710, daemon_pid),
+               request_record(odd, "s", 720, app_pid), request_record(odd, "f", 730, daemon_pid)]
+    trips = request_round_trips(records)
+    assert list(trips) == [split], trips
+    assert [r["step"] for r in trips[split]] == ["send", "receive", "reply", "reply received"], trips
+    names = {}
+    events = request_flow_events(trips, SyntheticTracks(set()), names)
+    assert [(e["pid"], e["name"]) for e in events] == [
+        (app_pid, "daemon.request send"), (daemon_pid, "daemon.request receive"),
+        (daemon_pid, "daemon.request reply"), (app_pid, "daemon.request reply received")], events
+    assert all(e["bind_id"] == f"0x{split:x}" and e["cat"] == "daemon.request" for e in events), events
+    assert sum(1 for e in events if e.get("flow_out")) == 3 and sum(1 for e in events if e.get("flow_in")) == 3
+    assert not events[0].get("flow_in") and not events[-1].get("flow_out")
+    assert [e["dur"] for e in events] == [60.0, 240.0, 50.0, 1.0], events
+    assert set(names.values()) == {"daemon request"}, names
+    legs = request_flow_summary(records)["request_round_trip"]
+    assert legs["to_daemon_ms"]["max"] == 0.06 and legs["in_daemon_ms"]["max"] == 0.24, legs
+    assert legs["to_app_ms"]["max"] == 0.05 and legs["round_trip_ms"] == {"n": 1, "p50": 0.35, "p95": 0.35,
+                                                                       "p99": 0.35, "max": 0.35}, legs
+    assert request_round_trip_ms({}) == {name: None for name, _, _ in REQUEST_LEGS}
+    text = summary_text({"request_flows": request_flow_summary(records)["request_flows"],
+                         "request_flow_linked": 75.0, "request_round_trip": legs})
+    assert "framed round trips (ms p50/p95/p99/max): to daemon 0.06/0.06/0.06/0.06" in text, text
 
 
 def key_flow_ndjson(events):
@@ -6762,7 +6866,8 @@ SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_b
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
               check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
-              check_flow_gaps_warn, check_percentiles, check_clock_order_and_percentiles, check_clock_command,
+              check_flow_gaps_warn, check_percentiles, check_clock_order_and_percentiles, check_request_round_trips,
+              check_clock_command,
               check_focus_quiet_terminal, check_launch_trace, check_input_latency_slices,
               check_input_tables_match_the_swift, check_ring_reads_the_golden_file, check_ring_parse,
               check_exact_flows, check_mixed_flows, check_chromium_join, check_key_flow_codes_match_the_swift,

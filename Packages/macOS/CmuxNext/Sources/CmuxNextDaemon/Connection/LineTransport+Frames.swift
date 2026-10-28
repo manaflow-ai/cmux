@@ -26,10 +26,11 @@ extension LineTransport {
         }
     }
 
-    /// What goes on the wire for request `id`: a REQUEST frame when `framing` frames `cmd`, else its line.
-    static func message(_ payload: Data, id: UInt64, cmd: String, framing: FramedRequests?) -> Data {
-        if let method = framing?.method(for: cmd, bodyBytes: payload.count) {
-            return FramedRequests.requestFrame(payload, requestID: id, method: method)
+    /// What goes on the wire for request `id`: a REQUEST frame of `method` (carrying trace flow `flow`, 0: none)
+    /// when the connection frames it (``FramedRequests/method(for:bodyBytes:)``), else its line.
+    static func message(_ payload: Data, id: UInt64, method: MethodAttributes?, flow: UInt64) -> Data {
+        if let method {
+            return FramedRequests.requestFrame(payload, requestID: id, method: method, flow: flow)
         }
         var line = payload
         line.append(0x0A)

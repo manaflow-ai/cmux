@@ -317,6 +317,23 @@ import Testing
         #expect(frame.dropFirst(16) == body)
     }
 
+    /// A traced REQUEST frame (p05-ipc-180) sets the FLOW flag and puts the flow id, 8 bytes little endian, between
+    /// the header and the line; its length counts both. Flow 0 is the untraced frame, byte for byte.
+    @Test func aTracedRequestFrameCarriesItsFlowBeforeTheLine() {
+        let body = Data(#"{"cmd":"wire-bulk","id":7}"#.utf8)
+        let method = Self.attributes(0x0101, "wire-bulk", .bulk)
+        let frame = FramedRequests.requestFrame(body, requestID: 7, method: method, flow: 0x0102_0304_0506_0708)
+        let length = UInt8(body.count + FramedRequests.flowIDBytes)
+        #expect(Array(frame.prefix(16)) == [0xFF, 16, 0, 0, length, 0, 0, 0, 7, 0, 0, 0, 0x01, 0x01, 2, FramedRequests.flowFlag])
+        #expect(Array(frame.dropFirst(16).prefix(8)) == [8, 7, 6, 5, 4, 3, 2, 1])
+        #expect(frame.dropFirst(24) == body)
+        #expect(FramedRequests.requestFrame(body, requestID: 7, method: method, flow: 0)
+            == FramedRequests.requestFrame(body, requestID: 7, method: method))
+        #expect(FramedRequests.flowFlag == 0x04, "cmux-ipc CallFlags::FLOW")
+        #expect(FramedRequests.hasRoomForFlow(bodyBytes: Int(FrameHeader.maxPayloadCap) - 8))
+        #expect(!FramedRequests.hasRoomForFlow(bodyBytes: Int(FrameHeader.maxPayloadCap) - 7))
+    }
+
     /// A reply's 32-bit id maps back to the latest request id with those low bits, across the wrap.
     @Test func replyIDsMapBackAcrossTheWrap() {
         let wrap = UInt64(1) << 32

@@ -28,6 +28,10 @@ final class WireDaemon: Sendable {
         var framed: Bool
         var methodID: UInt16?
         var priority: UInt8?
+        /// The trace flow a REQUEST frame carried (FLOW flag, p05-ipc-180); nil without one.
+        var flow: UInt64?
+        /// A REQUEST frame's request id.
+        var requestID: UInt32?
         var revisions = false
         var apiRevision: UInt32?
         var capabilities: [String] = []
@@ -142,9 +146,16 @@ final class WireDaemon: Sendable {
                 reply = ["id": request["id"] ?? NSNull(), "ok": false, "error": "unknown field", "error_code": "bad_request"]
             }
             return Self.write(Self.json(reply), to: client)
-        case .frame(let header, let body):
+        case .frame(let header, let payload):
             let methodID = UInt16(header[12]) | UInt16(header[13]) << 8
-            guard session.framesGranted, header[1] == 16, header[2] == 0, header[3] == 0, header[15] == 0,
+            let requestID = header[8..<12].reversed().reduce(UInt32.zero) { $0 << 8 | UInt32($1) }
+            // The FLOW flag puts the 8-byte little-endian flow id in front of the body (frame_dispatch.rs `split_flow`).
+            let traced = header[15] == FramedRequests.flowFlag
+            let flowBytes = traced ? FramedRequests.flowIDBytes : 0
+            let flow: UInt64? = traced && payload.count >= flowBytes
+                ? payload[0..<flowBytes].reversed().reduce(UInt64.zero) { $0 << 8 | UInt64($1) } : nil
+            let body = Array(payload.dropFirst(flowBytes))
+            guard session.framesGranted, header[1] == 16, header[2] == 0, header[3] == 0, header[15] == 0 || flow != nil,
                   let method = script.table.v12(MethodID(rawValue: methodID)),
                   method.priority.rawValue == header[14],
                   let request = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any],
@@ -158,7 +169,8 @@ final class WireDaemon: Sendable {
                 refusedFrames.withLock { $0 += 1 }
             } else {
                 self.seen.withLock {
-                    $0.append(Seen(connection: connection, cmd: method.name, framed: true, methodID: methodID, priority: header[14]))
+                    $0.append(Seen(connection: connection, cmd: method.name, framed: true, methodID: methodID, priority: header[14],
+                                   flow: flow, requestID: requestID))
                 }
             }
             let reply: [String: Any] = refused
@@ -166,6 +178,7 @@ final class WireDaemon: Sendable {
                 : ["id": request["id"] ?? NSNull(), "ok": true, "data": answer(method.name, request: request, session: &session) ?? [String: Any]()]
             var frame = header
             frame[1] = refused ? 18 : 17
+            frame[15] = 0  // a reply echoes the call fields with no flags
             let payload = Self.json(reply)
             let length = UInt32(payload.count)
             for byte in 0..<4 { frame[4 + byte] = UInt8(truncatingIfNeeded: length >> (8 * UInt32(byte))) }
@@ -179,7 +192,9 @@ final class WireDaemon: Sendable {
         case "identify":
             if request["revisions"] != nil, script.revision == nil { return nil }
             var offers = script.offers
-            if let declared = session.declared, declared != script.revision { offers.removeAll { $0 == WireNegotiation.framesCapability } }
+            if let declared = session.declared, declared != script.revision {
+                offers.removeAll { $0 == WireNegotiation.framesCapability || $0 == WireNegotiation.requestFlowCapability }
+            }
             var identity: [String: Any] = ["app": "cmux-tui", "protocol": 12, "generation": "wire-test", "capabilities": offers]
             if request["revisions"] as? Bool == true, let revision = script.revision {
                 identity["api_revision"] = revision

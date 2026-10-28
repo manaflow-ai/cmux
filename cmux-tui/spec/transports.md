@@ -200,6 +200,15 @@ flow `0x04`, urgent `0x08` and more `0x10`; MORE marks a message cut into
 chunks, the boundary where higher-priority frames may go first. Kinds 1-9 and
 11 never use stream 0.
 
+A REQUEST with the flow flag carries its trace flow id (p05-ipc-180): the
+payload's first 8 bytes are the id, little endian, and the request's body
+follows them. The daemon records the id at the request's arrival and at its
+reply, which joins the client's trace of the request to the daemon's
+([trace.md](../../plans/cmux-next/trace.md#daemon-request-flows)). The reply
+carries no flags. A flagged payload shorter than 8 bytes is a bad message
+(`flow_truncated`). A daemon that reads the flag offers `ipc-request-flow-v1`
+in `identify` beside `ipc-frames-v2`; a client sets it only on such a daemon.
+
 The receiver validates the header as soon as its 16 bytes arrive, before it
 reads or allocates the payload. A bad magic byte, an unassigned kind,
 priority or flag bit, a length over the limit, terminal data on stream 0, a

@@ -51,6 +51,22 @@
 //! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
 //! `DispatchNonBlockingEvent`).
 //!
+//! A traced REQUEST (p05-ipc-180) sets [`CallFlags::FLOW`] and puts its
+//! trace flow id, 8 bytes little endian, in front of its body. The reader
+//! takes it off before anything reads the body and records the request's
+//! arrival as a flow-in of `daemon.request`; the reply that answers it is
+//! that flow's flow-out. The app writes the flow-out at its send and the
+//! flow-in at its reply, so trace.py draws one flow app -> daemon -> app
+//! (plans/cmux-next/trace.md, "Daemon request flows"). This is Mojo's
+//! message trace id: the sender's flow at the write and the receiver's at
+//! the dispatch name one id carried with the message
+//! (chromium mojo/public/cpp/bindings/lib/message.cc, `GetTraceId`;
+//! mojo/public/cpp/bindings/lib/connector.cc, `Connector::DispatchMessage`).
+//! A request without the flag costs one branch; a flagged payload shorter
+//! than the id is a bad message. `identify` offers
+//! [`REQUEST_FLOW_CAPABILITY`] beside frames, so a client sets FLOW only on
+//! a daemon that reads it.
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`]; the routes move to the method table in
@@ -72,6 +88,7 @@ use cmux_ipc::{
     Aux, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, MAX_FRAME_PAYLOAD,
     MethodAttrs, MethodId, MethodTables, Payload, PriorityHint,
 };
+use cmux_trace::{trace_flow_in, trace_flow_out};
 use serde::{Deserialize, Deserializer, de::IgnoredAny};
 use serde_json::json;
 
@@ -90,6 +107,14 @@ use super::{
 /// The `error_code` of the ERROR reply to a method that answers only lines.
 pub(super) const METHOD_NOT_FRAMED: &str = "method_not_framed";
 
+/// The bytes of a traced request's flow id, in front of its body.
+pub(super) const FLOW_ID_BYTES: usize = 8;
+
+/// Offered in `identify` beside frames: this daemon reads a REQUEST frame's
+/// FLOW flag and flow id. A client sets FLOW only when the daemon offers it,
+/// since a daemon from before p05-ipc-180 would read the id as the body.
+pub(super) const REQUEST_FLOW_CAPABILITY: &str = "ipc-request-flow-v1";
+
 /// The in-flight table is swept of answered requests when it reaches this
 /// size, then at twice what the sweep left.
 const SWEEP_MIN: usize = 64;
@@ -104,22 +129,28 @@ pub(super) struct FrameCall {
     /// The stream this request opens (an opener on stream S): its reply
     /// binds or ends it.
     opens: Option<Arc<StreamEndpoint>>,
+    /// The trace flow its REQUEST carried (0: none); its reply is the
+    /// flow's flow-out.
+    flow: u64,
 }
 
 impl FrameCall {
-    /// A request that opens no stream.
+    /// A request that opens no stream and carries no flow (tests).
+    #[cfg(test)]
     pub(super) fn new(stream: u16, call: CallAux) -> Self {
-        Self::opening(stream, call, None)
+        Self::opening(stream, call, None, 0)
     }
 
-    /// A request that opens `opens` when it is an opener (p05-ipc-087).
-    fn opening(stream: u16, call: CallAux, opens: Option<Arc<StreamEndpoint>>) -> Self {
+    /// A request that opens `opens` when it is an opener (p05-ipc-087),
+    /// carrying trace flow `flow` (0: none).
+    fn opening(stream: u16, call: CallAux, opens: Option<Arc<StreamEndpoint>>, flow: u64) -> Self {
         FrameCall {
             stream,
             call: CallAux { flags: CallFlags::empty(), ..call },
             answered: AtomicBool::new(false),
             cancellation: Arc::default(),
             opens,
+            flow,
         }
     }
 
@@ -158,9 +189,14 @@ impl FrameCall {
         self.answered.load(Ordering::Acquire)
     }
 
-    /// True once: for the reply that answers it.
+    /// True once: for the reply that answers it, which a traced request's
+    /// flow leaves with.
     pub(super) fn claim_reply(&self) -> bool {
-        !self.answered.swap(true, Ordering::AcqRel)
+        let claimed = !self.answered.swap(true, Ordering::AcqRel);
+        if claimed && self.flow != 0 {
+            trace_flow_out!(daemon, "daemon.request", self.flow, self.call.method_id);
+        }
+        claimed
     }
 
     /// Fired by its CANCEL frame.
@@ -202,6 +238,9 @@ pub(super) enum CallRefusal {
     CancelMismatch { request_id: u32, method_id: u16 },
     /// A CANCEL with a payload.
     CancelPayload { request_id: u32 },
+    /// A REQUEST whose FLOW flag promises a flow id its payload is too
+    /// short to hold.
+    FlowTruncated { method_id: u16, len: usize },
     /// An INPUT frame from a remote-relay client, which writes no terminal.
     RemoteInput { stream: u16 },
 }
@@ -220,6 +259,7 @@ impl CallRefusal {
             CallRefusal::DuplicateRequest { .. } => "duplicate_request",
             CallRefusal::CancelMismatch { .. } => "cancel_mismatch",
             CallRefusal::CancelPayload { .. } => "cancel_payload",
+            CallRefusal::FlowTruncated { .. } => "flow_truncated",
             CallRefusal::RemoteInput { .. } => "remote_input",
         }
     }
@@ -262,6 +302,11 @@ impl fmt::Display for CallRefusal {
             CallRefusal::CancelPayload { request_id } => {
                 write!(f, "cancel of request {request_id} has a payload")
             }
+            CallRefusal::FlowTruncated { method_id, len } => write!(
+                f,
+                "method {method_id:#06x} sets FLOW with a payload of {len} bytes, \
+                 under the {FLOW_ID_BYTES}-byte flow id"
+            ),
             CallRefusal::RemoteInput { stream } => {
                 write!(f, "INPUT on stream {stream} from a remote-relay client")
             }
@@ -339,6 +384,7 @@ impl RequestFrames {
     ) -> Result<bool, ConnectionBadMessage> {
         let method = self.method(call).map_err(ConnectionBadMessage::Call)?;
         request_flags(method, call.flags).map_err(ConnectionBadMessage::Call)?;
+        let (flow, payload) = split_flow(call, payload).map_err(ConnectionBadMessage::Call)?;
         if let Some(max) = method.max_bytes
             && payload.len() > usize::try_from(max).unwrap_or(usize::MAX)
         {
@@ -355,17 +401,20 @@ impl RequestFrames {
         let stream = header.stream();
         let lane = self.streams.request_lane(stream, method).map_err(ConnectionBadMessage::Call)?;
         self.admit(call.request_id).map_err(ConnectionBadMessage::Call)?;
+        if flow != 0 {
+            trace_flow_in!(daemon, "daemon.request", flow, call.method_id);
+        }
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
         // the body parses below and on its line's path count toward it.
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
         if !served_on_frames(self.tables, method) {
-            let call = Arc::new(FrameCall::new(stream, call));
+            let call = Arc::new(FrameCall::opening(stream, call, None, flow));
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
         names_method(body, method).map_err(ConnectionBadMessage::Call)?;
         let opens =
             matches!(lane, RequestLane::Open).then(|| self.streams.announce(stream, connection));
-        let frame_call = Arc::new(FrameCall::opening(stream, call, opens));
+        let frame_call = Arc::new(FrameCall::opening(stream, call, opens, flow));
         let writer = connection.writer.replying_to(frame_call.clone());
         self.in_flight.insert(call.request_id, frame_call.clone());
         match lane {
@@ -516,6 +565,19 @@ fn request_flags(method: &MethodAttrs, flags: CallFlags) -> Result<(), CallRefus
     Ok(())
 }
 
+/// A REQUEST's trace flow and its body: with [`CallFlags::FLOW`], the
+/// payload's first [`FLOW_ID_BYTES`] are the flow id, little endian, and the
+/// rest is the body; without it, no flow and the whole payload.
+fn split_flow(call: CallAux, payload: &[u8]) -> Result<(u64, &[u8]), CallRefusal> {
+    if !call.flags.contains(CallFlags::FLOW) {
+        return Ok((0, payload));
+    }
+    let Some((id, body)) = payload.split_first_chunk::<FLOW_ID_BYTES>() else {
+        return Err(CallRefusal::FlowTruncated { method_id: call.method_id, len: payload.len() });
+    };
+    Ok((u64::from_le_bytes(*id), body))
+}
+
 /// The members of a body that name its method.
 #[derive(Deserialize)]
 struct BodyHead<'a> {
@@ -566,3 +628,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "input_frames_tests.rs"]
 mod input_frames_tests;
+
+#[cfg(all(test, unix))]
+#[path = "frame_flow_tests.rs"]
+mod flow_tests;

@@ -185,12 +185,12 @@ final class LineTransport: Sendable {
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed) { id in
+        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed,
+               traced: cmd) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
             #endif
-            beginRequestSpan(cmd, id: id, slot: slot)
             return line
         }
         // A failed submit resolved the slot already.
@@ -232,11 +232,13 @@ final class LineTransport: Sendable {
     /// registration the waiter is resumed here; after it, `failAll` owns it. A `deadline` applies
     /// only to a waiter that awaits its reply.
     /// With `framed`, the request goes as a REQUEST frame when the connection frames its method
-    /// (``FramedRequests``), else as a line.
+    /// (``FramedRequests``), else as a line. With `traced`, a `.reply` waiter's request opens its
+    /// `daemon.request` slice (``beginRequestSpan(_:id:slot:framed:)``) before it is written, and a REQUEST frame
+    /// carries its flow.
     /// Returns the request id once the waiter is registered.
     @discardableResult
     func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, framed: Bool = false,
-                _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+                traced: DaemonCommandName? = nil, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -252,6 +254,12 @@ final class LineTransport: Sendable {
             }
             let payload: Data
             do { payload = try body(id) } catch { return error }
+            let method = framing?.method(for: waiter.cmd, bodyBytes: payload.count)
+            var flow: UInt64 = 0
+            if let traced, case .reply(_, let slot) = waiter {
+                let carries = method != nil && framing?.carriesFlow(bodyBytes: payload.count) == true
+                flow = beginRequestSpan(traced, id: id, slot: slot, framed: carries)
+            }
             let stamp = recorder?.requestSent(waiter.cmd)
             let timed: (deadline: DeadlineHeap.Deadline, now: Duration)? =
                 if let deadline, case .reply = waiter { (deadline: deadline, now: elapsed()) } else { nil }
@@ -263,7 +271,7 @@ final class LineTransport: Sendable {
                 }
             }
             submittedID = id
-            let message = Self.message(payload, id: id, cmd: waiter.cmd, framing: framing)
+            let message = Self.message(payload, id: id, method: method, flow: flow)
             writeFailure = socket.fd >= 0 ? writer.write(message)?.description : "socket closed"
             if writeFailure == nil { recorder?.lineWritten(bytes: message.count) }
             return nil

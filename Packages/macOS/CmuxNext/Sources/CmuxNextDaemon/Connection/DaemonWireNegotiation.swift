@@ -19,6 +19,9 @@ struct WireNegotiation {
     /// The daemon's grant names (cmux-tui capabilities.rs, `IpcCapability::name`).
     static let framesCapability = "ipc-frames-v2"
     static let streamsCapability = "attach-streams-v1"
+    /// Offered beside frames by a daemon that reads a REQUEST frame's trace flow (frame_dispatch.rs
+    /// `REQUEST_FLOW_CAPABILITY`, p05-ipc-180); an older daemon would read the flow id as the body.
+    static let requestFlowCapability = "ipc-request-flow-v1"
 
     /// The API revision this build's wire types speak: the last revision of cmux-tui/spec/api-compat.json, or
     /// its `base` while it lists none (cmux-api-compat `Schema::current`). DaemonHandshakeTests reads the file
@@ -85,7 +88,8 @@ struct WireNegotiation {
                   daemon.supports(WireNegotiation.framesCapability),
                   daemon.sdkSchemaDigest == WireNegotiation.digestText(schema.identity.sdkSchemaDigest),
                   let served = daemon.framedMethods, !served.isEmpty else { return nil }
-            return FramedRequests(table: schema.table, served: Set(served.map { MethodID(rawValue: $0) }))
+            return FramedRequests(table: schema.table, served: Set(served.map { MethodID(rawValue: $0) }),
+                                  readsFlow: daemon.supports(WireNegotiation.requestFlowCapability))
         }
     }
 }

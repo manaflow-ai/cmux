@@ -13,6 +13,12 @@ import CmuxNextTrace
 /// pair, even across a reconnect. The begin's `arg0` is the ``DaemonCommandName`` id; the end's `arg0` the
 /// ``RequestOutcome``. A flow-out at the send carries the request's flow (``requestFlow(seed:requestID:)``), with
 /// the async id in its `arg0`.
+///
+/// A request sent as a REQUEST frame carries that flow in the frame (``FramedRequests/requestFrame(_:requestID:method:flow:)``,
+/// p05-ipc-180), so the daemon writes the flow's flow-in at the arrival and its flow-out at the reply, and the
+/// daemon's answer is the flow-in here, with the async id in its `arg0`: one flow app -> daemon -> app, the way a
+/// Mojo message's trace id joins its send, its dispatch and its response
+/// (mojo/public/cpp/bindings/lib/message.cc, `GetTraceId`). A line carries no flow, so it gets no flow-in.
 extension LineTransport {
     /// How a traced request ended: its `daemon.request` end record's `arg0`.
     enum RequestOutcome: UInt64 {
@@ -36,11 +42,25 @@ extension LineTransport {
     struct RequestSpan: Sendable {
         let trace: TraceRuntime
         let asyncID: UInt64
+        /// The flow its REQUEST frame carried to the daemon; 0 for a line.
+        var framedFlow: UInt64 = 0
 
-        func end(_ outcome: RequestOutcome) {
+        /// Ends the slice with `result`'s outcome. The daemon's answer to a framed request (a reply or an
+        /// `ok:false` error) is its flow's flow-in first; a timeout or a lost connection got no answer.
+        func end(_ result: Result<Response, any Error>) {
             let name = SignpostName.daemonRequest
+            if framedFlow != 0, Self.answered(result) {
+                trace.flowIn(name, flow: framedFlow, arg0: asyncID)
+            }
             trace.writeEnd(name: name.rawValue, categoryBit: name.traceCategory.traceBit, phase: .asyncEnd, flags: .asyncID,
-                           arg0: outcome.rawValue, arg1: asyncID)
+                           arg0: RequestOutcome(result).rawValue, arg1: asyncID)
+        }
+
+        /// Whether the daemon answered: a reply, or its `ok:false` error.
+        private static func answered(_ result: Result<Response, any Error>) -> Bool {
+            guard case .failure(let error) = result else { return true }
+            guard case .command? = error as? DaemonError else { return false }
+            return true
         }
     }
 
@@ -74,11 +94,17 @@ extension LineTransport {
     }
 
     /// Writes the AB and the flow-out of request `id` and hands `slot` the slice to end when it resolves; nothing
-    /// when the daemon category is off. Call it before the line is written, so no reply can resolve the slot first.
-    func beginRequestSpan(_ name: DaemonCommandName, id: UInt64, slot: ReplySlot) {
+    /// when the daemon category is off. Call it before the message is written, so no reply can resolve the slot
+    /// first. `framed`: the request goes as a REQUEST frame that can carry its flow.
+    ///
+    /// - Returns: The flow for the frame to carry: the request's flow when it is traced and `framed`, else 0.
+    func beginRequestSpan(_ name: DaemonCommandName, id: UInt64, slot: ReplySlot, framed: Bool = false) -> UInt64 {
         let asyncID = traceConnection | (id & Self.requestIDMask)
-        guard trace.asyncBegin(.daemonRequest, id: asyncID, arg0: UInt64(truncatingIfNeeded: name.id)) else { return }
-        trace.flowOut(.daemonRequest, flow: Self.requestFlow(seed: traceFlowSeed, requestID: id), arg0: asyncID)
-        slot.arm(RequestSpan(trace: trace, asyncID: asyncID))
+        guard trace.asyncBegin(.daemonRequest, id: asyncID, arg0: UInt64(truncatingIfNeeded: name.id)) else { return 0 }
+        let flow = Self.requestFlow(seed: traceFlowSeed, requestID: id)
+        trace.flowOut(.daemonRequest, flow: flow, arg0: asyncID)
+        let framedFlow = framed ? flow : 0
+        slot.arm(RequestSpan(trace: trace, asyncID: asyncID, framedFlow: framedFlow))
+        return framedFlow
     }
 }

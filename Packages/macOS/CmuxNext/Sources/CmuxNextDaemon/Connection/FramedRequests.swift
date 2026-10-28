@@ -24,10 +24,13 @@ struct FramedRequests: Sendable {
     let table: MethodTable
     /// The methods the daemon answers on frames (`framed_methods`).
     let served: Set<MethodID>
+    /// The daemon reads a REQUEST frame's trace flow (it offered ``WireNegotiation/requestFlowCapability``).
+    let readsFlow: Bool
 
-    init(table: MethodTable, served: Set<MethodID>) {
+    init(table: MethodTable, served: Set<MethodID>, readsFlow: Bool = false) {
         self.table = table
         self.served = served
+        self.readsFlow = readsFlow
     }
 
     /// The method to frame `cmd` as, or nil to send it as a line: a JSON v12 command of the table that the
@@ -39,18 +42,41 @@ struct FramedRequests: Sendable {
         return bodyBytes <= Int(truncatingIfNeeded: bound) ? method : nil
     }
 
+    /// The call flag of a REQUEST that carries its trace flow (cmux-ipc `CallFlags::FLOW`).
+    static let flowFlag: UInt8 = 1 << 2
+    /// The bytes of that flow id, little endian, in front of the body (frame_dispatch.rs `FLOW_ID_BYTES`).
+    static let flowIDBytes = 8
+
+    /// Whether a REQUEST frame of a `bodyBytes` body has room for the flow id within the frame's payload bound.
+    static func hasRoomForFlow(bodyBytes: Int) -> Bool {
+        bodyBytes <= Int(truncatingIfNeeded: FrameHeader.maxPayloadCap) - flowIDBytes
+    }
+
+    /// Whether a REQUEST frame of a `bodyBytes` body to this daemon carries its flow: the daemon reads it and
+    /// the frame has room.
+    func carriesFlow(bodyBytes: Int) -> Bool {
+        readsFlow && Self.hasRoomForFlow(bodyBytes: bodyBytes)
+    }
+
     /// One REQUEST frame on stream 0: the 16-byte header (cmux-ipc frame.rs `Aux::Call`: request id u32,
-    /// method id u16, the table's priority, no flags), then `body`.
-    static func requestFrame(_ body: Data, requestID: UInt64, method: MethodAttributes) -> Data {
-        var frame = Data(capacity: FrameHeader.byteCount + body.count)
+    /// method id u16, the table's priority, the flags), then the payload. With a nonzero `flow` (the request's
+    /// `daemon.request` flow, LineTransport+RequestTrace.swift) the flags are ``flowFlag`` and the payload is the
+    /// flow id, 8 bytes little endian, then `body` (p05-ipc-180): the daemon records the flow at the request's
+    /// arrival and at its reply. With none, or a body too large to carry it, there are no flags and the payload
+    /// is `body`. Pass a flow only to a daemon that reads it (``carriesFlow(bodyBytes:)``).
+    static func requestFrame(_ body: Data, requestID: UInt64, method: MethodAttributes, flow: UInt64 = 0) -> Data {
+        let traced = flow != 0 && hasRoomForFlow(bodyBytes: body.count)
+        let length = body.count + (traced ? flowIDBytes : 0)
+        var frame = Data(capacity: FrameHeader.byteCount + length)
         frame.append(FrameHeader.magic)
         frame.append(requestKind)
         append(UInt16.zero, to: &frame)
-        append(UInt32(truncatingIfNeeded: body.count), to: &frame)
+        append(UInt32(truncatingIfNeeded: length), to: &frame)
         append(UInt32(truncatingIfNeeded: requestID), to: &frame)
         append(method.id.rawValue, to: &frame)
         frame.append(method.priority.rawValue)
-        frame.append(0)
+        frame.append(traced ? flowFlag : 0)
+        if traced { append(flow, to: &frame) }
         frame.append(body)
         return frame
     }

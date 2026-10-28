@@ -211,6 +211,37 @@ Limits: the frame's commit is the app's Core Animation commit. The display's own
 has no mark here. The probe follows one press at a time: a key typed before the last echo landed closes the
 open press as unfinished (`--key-interval` keeps keys apart).
 
+### Daemon request flows
+
+A daemon request is followed app -> daemon -> app on the `daemon.request` flow of its request
+(`FNV-1a 64(app pid, request id)`, LineTransport+RequestTrace.swift). A request the app sends as a REQUEST frame
+(p05-ipc-092) carries that flow in the frame (p05-ipc-180): its call flags set FLOW (`0x04`) and the payload starts
+with the flow id, 8 bytes little endian, before the request's JSON body (cmux-tui/spec/transports.md). The app
+sets it only when its `daemon` trace category is on and the daemon's `identify` offered `ipc-request-flow-v1`
+beside frames (a daemon from before would read the id as the body), so a request with tracing off is the frame it
+was before and the daemon's check is one branch. The daemon's reader takes the id off before anything reads the body
+(frame_dispatch.rs `split_flow`; a FLOW payload shorter than 8 bytes is `bad_message` `flow_truncated`) and writes:
+
+| Step | Process, thread | Record |
+|---|---|---|
+| `send` | app, the caller's thread (`LineTransport.submit`) | flow-out, arg0 the `daemon.request` slice's async id |
+| `receive` | daemon, the connection's reader (`RequestFrames::request`, once the request is admitted) | flow-in, arg0 the method id |
+| `reply` | daemon, the thread that answers (`FrameCall::claim_reply`, the REPLY or ERROR frame) | flow-out, arg0 the method id |
+| `reply received` | app, the reader thread (the request's `ReplySlot` resolves) | flow-in, arg0 the async id |
+
+A reply or an `ok:false` error ends with the app's flow-in; a timeout or a closed connection got no answer and
+writes none. `trace.py` joins the four records of one flow across the two processes as one round trip
+(`request_round_trips`) and draws it on `daemon request` tracks of the app and the daemon: four slices, each from
+its step to the next, joined by three Perfetto flow arrows. A split is one such chain from the app's send to its
+reply. The summary adds `request_round_trip`: p50/p95/p99/max in ms of the app's send to the daemon's arrival
+(`to_daemon_ms`), the arrival to the reply (`in_daemon_ms`), the reply to the app's receive (`to_app_ms`) and the
+whole round trip (`round_trip_ms`). A line request carries no flow, so it has only the app's send until the daemon
+derives the flow itself (p09-observability-103); it counts in `request_flows` as unlinked and draws no chain.
+
+Record it through the Release rings (`trace.py record --app "$NX_APP" --release ...`: `trace.start` turns on
+every recording category, `daemon` included, in the app and the daemon), then read the chain in `trace.json.gz` and
+the legs with `trace.py summary OUT`.
+
 ## How to open it
 
 1. Go to https://ui.perfetto.dev and click "Open trace file", or drag `trace.json.gz` onto the page.
@@ -322,8 +353,10 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   and, in bits 40-63, a per-connection scope that the process never hands out again
   (`TraceRuntime.nextAsyncScope`), so a reconnect cannot pair with an old connection's slice. At the
   send a flow-out carries the flow `FNV-1a 64(app pid as 4 bytes LE, request id as 8 bytes LE)` in
-  arg1 and the async id in arg0; the daemon's flow-in from `LOCAL_PEERPID` is task 103. A request
-  sent without waiting (`sendNoReply`) has no slice.
+  arg1 and the async id in arg0; the daemon's flow-in from `LOCAL_PEERPID` is task 103. A request sent
+  as a REQUEST frame carries the flow to the daemon, which writes its own flow-in and flow-out, and the app
+  writes the flow-in of its answer ("Daemon request flows", p05-ipc-180). A request sent without waiting
+  (`sendNoReply`) has no slice.
 - `cef.pump` (category `cef`, closed by p09-observability-032) is one thread slice (B/E) per
   `CefDoMessageLoopWork` pass of the in-process pump (`CEFMessagePump`). A writer records it only
   while `task` (bit 12) is on as well as `cef`, so a recording has every pass and the black box has
