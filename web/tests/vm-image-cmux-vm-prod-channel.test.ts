@@ -372,8 +372,6 @@ describe("promote step on production", () => {
       expect(`${result.stdout}${result.stderr}`).not.toContain("s3cr3t-key");
       return readFileSync(record, "utf8").trim().split("\n");
     };
-    // Every other command the step runs (mktemp, chmod, mkdir, tee) sees none of them either.
-    expect(existsSync(path.join(dir, "leaks")) ? readFileSync(path.join(dir, "leaks"), "utf8") : "").toBe("");
     // account-check sees none of the test profile or the token; promote.ts (the compat gate) gets them.
     expect(await run("production", "agent@example.com")).toEqual([
       "argv scripts/cmux-vm-image/prod-copy.ts account-check",
@@ -387,6 +385,8 @@ describe("promote step on production", () => {
     ]);
     // dev: no account check, and nothing of production's reaches promote.ts.
     expect(await run("dev", "leak@example.com")).toEqual([`argv ../images/cmux-vm/promote.ts --channel dev --snapshot ${ID(300)} --var CLOUD_FREESTYLE_SNAPSHOT`, "0", "600", "email= password= token="]);
+    // Every other command the step runs (mktemp, chmod, mkdir, tee, rm) saw none of them either.
+    expect(existsSync(path.join(dir, "leaks")) ? readFileSync(path.join(dir, "leaks"), "utf8") : "").toBe("");
   });
 
   test("the diff carries channels/production.json for production, as a new file the first time", async () => {
