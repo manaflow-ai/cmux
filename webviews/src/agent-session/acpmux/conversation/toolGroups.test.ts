@@ -198,7 +198,7 @@ test("kindless observational MCP calls preserve recorded bodies without trusting
         try {
           expect(group.send.text).toBe("recorded MCP body\n");
         } catch (error) {
-          throw new Error(`${fields.title} (${name}): ${error}`);
+          throw new Error(`${fields.title} (${name}): ${String(error)}`);
         }
       }
     }

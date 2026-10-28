@@ -268,7 +268,7 @@ describe("acpmuxSend", () => {
       try {
         expect(read(command)).toBeUndefined();
       } catch (error) {
-        throw new Error(`${command}: ${error}`);
+        throw new Error(`${command}: ${String(error)}`);
       }
     }
   });
