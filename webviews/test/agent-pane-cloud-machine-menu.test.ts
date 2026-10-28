@@ -63,6 +63,8 @@ function rows(
     () => ({ ...state }),
     async (session) => {
       calls.push(["(turn ended?)", session]);
+      // A stop that took: the chat's turn no longer runs.
+      if (stops) state.running = false;
       return stops;
     },
   );
