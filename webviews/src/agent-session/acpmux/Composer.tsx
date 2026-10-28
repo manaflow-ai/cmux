@@ -1902,7 +1902,7 @@ export function Composer({
                             planMode: {
                               id: plan.id,
                               name: planChoice.name,
-                              description: planning ? "Return to the normal editing mode" : "Plan without editing",
+                              description: t("picker.planHint"),
                             },
                           }
                         : {}),
