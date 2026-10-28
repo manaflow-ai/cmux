@@ -31,11 +31,16 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// What the page captures (a browser tab using the camera or microphone); the row
+        /// merges its tabs' (`SidebarWorkspaceCapture.merge`).
+        public var capture: SidebarWorkspaceCapture?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil,
+                    capture: SidebarWorkspaceCapture? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.capture = capture
         }
     }
 
@@ -192,6 +197,7 @@ public struct SidebarMapping {
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
+        row.capture = SidebarWorkspaceCapture.merge(tabs.lazy.map { browserFaces[$0.id]?.capture })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.refusal.captureNeedsPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only a loaded browser tab can stop its camera and microphone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラとマイクを停止できるのは読み込み済みのブラウザタブだけです"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن فقط لعلامة تبويب متصفح محمّلة إيقاف الكاميرا والميكروفون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "samo učitana kartica preglednika može zaustaviti kameru i mikrofon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kun en indlæst browserfane kan stoppe sit kamera og sin mikrofon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nur ein geladener Browser-Tab kann Kamera und Mikrofon stoppen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solo una pestaña del navegador cargada puede detener su cámara y micrófono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seul un onglet de navigateur chargé peut arrêter sa caméra et son micro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solo una scheda del browser caricata può interrompere fotocamera e microfono"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែផ្ទាំងកម្មវិធីរុករកដែលបានផ្ទុកប៉ុណ្ណោះ ដែលអាចបញ្ឈប់កាមេរ៉ា និងមីក្រូហ្វូន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로드된 브라우저 탭만 카메라와 마이크를 중지할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bare en innlastet nettleserfane kan stoppe kameraet og mikrofonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tylko wczytana karta przeglądarki może zatrzymać kamerę i mikrofon"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "só uma aba do navegador carregada pode parar a câmera e o microfone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "остановить камеру и микрофон может только загруженная вкладка браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะแท็บเบราว์เซอร์ที่โหลดแล้วเท่านั้นที่หยุดกล้องและไมโครโฟนได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yalnızca yüklenmiş bir tarayıcı sekmesi kamerasını ve mikrofonunu durdurabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "зупинити камеру й мікрофон може лише завантажена вкладка браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chỉ thẻ trình duyệt đã tải mới có thể dừng camera và micrô"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有已加载的浏览器标签页才能停止其摄像头和麦克风"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有已載入的瀏覽器分頁才能停止其相機和麥克風"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noTabCaptures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no tab is using the camera or microphone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラやマイクを使用中のタブはありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد علامة تبويب تستخدم الكاميرا أو الميكروفون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nijedna kartica ne koristi kameru ili mikrofon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ingen fane bruger kameraet eller mikrofonen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein Tab verwendet die Kamera oder das Mikrofon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ninguna pestaña está usando la cámara ni el micrófono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucun onglet n’utilise la caméra ou le micro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nessuna scheda sta usando fotocamera o microfono"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានផ្ទាំងណាកំពុងប្រើកាមេរ៉ា ឬមីក្រូហ្វូនទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라나 마이크를 사용 중인 탭이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ingen fane bruker kameraet eller mikrofonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "żadna karta nie używa kamery ani mikrofonu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nenhuma aba está usando a câmera ou o microfone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ни одна вкладка не использует камеру или микрофон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีแท็บใดใช้กล้องหรือไมโครโฟน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kamerayı veya mikrofonu kullanan sekme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "жодна вкладка не використовує камеру чи мікрофон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "không có thẻ nào đang dùng camera hoặc micrô"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有标签页正在使用摄像头或麦克风"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有分頁正在使用相機或麥克風"
+          }
+        }
+      }
+    },
     "handlers.refusal.browserFindClosesWithEscape": {
       "extractionState": "manual",
       "localizations": {

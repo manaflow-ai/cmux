@@ -88,6 +88,18 @@ enum Strings {
     static var notificationsMuted: String {
         String(localized: "sidebar.workspace.notificationsMuted", defaultValue: "Notifications muted", bundle: .module)
     }
+    /// The row's red camera or microphone (Chrome's recording indicator): its click shows the tab.
+    static var showCapturingTab: String {
+        String(localized: "sidebar.capture.showTab", defaultValue: "Show Tab Using Camera or Microphone", bundle: .module)
+    }
+    /// The red mark's tooltip and VoiceOver label: what the workspace's tabs use.
+    static func capturingTab(_ capture: SidebarWorkspaceCapture) -> String {
+        switch (capture.camera, capture.microphone) {
+        case (true, true): String(localized: "sidebar.capture.cameraAndMicrophone", defaultValue: "A tab is using your camera and microphone", bundle: .module)
+        case (true, false): String(localized: "sidebar.capture.camera", defaultValue: "A tab is using your camera", bundle: .module)
+        default: String(localized: "sidebar.capture.microphone", defaultValue: "A tab is using your microphone", bundle: .module)
+        }
+    }
     static var muteTabs: String { String(localized: "sidebar.audio.muteTabs", defaultValue: "Mute Tabs in Workspace", bundle: .module) }
     static var unmuteTabs: String { String(localized: "sidebar.audio.unmuteTabs", defaultValue: "Unmute Tabs in Workspace", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }

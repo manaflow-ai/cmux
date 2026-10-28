@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextBrowserTabs
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -68,6 +69,9 @@ final class BrowserTabService {
     var keepsState: @MainActor (TabModel) -> Bool
     /// `set-frontend-browser-history`. Returns false when the command failed.
     var storeHistory: @MainActor (DaemonService, SurfaceID, FrontendBrowserHistory) async -> Bool
+    /// Tells the tab's daemon what its page captures (`set-frontend-browser-media`): the
+    /// `media` field of `browser.list` (the CLI, MCP, Chief). False when it was not sent.
+    var storeCapture: @MainActor (DaemonService, SurfaceID, BrowserCapture) async -> Bool
     /// `get-frontend-browser-history`; nil when there is none or the daemon
     /// does not store it.
     var fetchHistory: @MainActor (DaemonService, SurfaceID) async -> FrontendBrowserHistory?
@@ -104,6 +108,8 @@ final class BrowserTabService {
     let offTheRecord: OffTheRecordProfiles
     /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
     var emulationFollowers: [String: Task<Void, Never>] = [:]
+    /// Per tab: the daemon hears what the page captures (`trackCapture`).
+    var captureFollowers: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -158,6 +164,13 @@ final class BrowserTabService {
             }
         }
         keepsState = { _ in false }
+        storeCapture = { daemon, surface, capture in
+            guard daemon.supports(DaemonCapability.frontendBrowserMedia.rawValue) else { return false }
+            return await daemon.run(SetFrontendBrowserMediaRequest.command) { connection in
+                _ = try await connection.request(SetFrontendBrowserMediaRequest(surface: surface, camera: capture.contains(.camera),
+                                                                              microphone: capture.contains(.microphone)))
+            }
+        }
         storeHistory = { daemon, surface, history in
             guard daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) else { return false }
             return await daemon.run(SetFrontendBrowserHistoryRequest.command) { connection in
@@ -354,6 +367,7 @@ final class BrowserTabService {
         // A stand-in has no daemon record to write back to: the daemon's tab tracks the page it adopts.
         guard !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         trackEmulation(page, id: tab.id)
+        trackCapture(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, updateState = updateState, settled = settled, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
@@ -447,6 +461,21 @@ final class BrowserTabService {
         }
     }
 
+    /// Follows what page `page` of tab `id` captures (``BrowserTabState/capture``) and tells the
+    /// tab's daemon each change (`storeCapture`), so `cmux browser list` names the tab that uses
+    /// the camera or microphone. Incognito pages report too: the field names no address.
+    func trackCapture(_ page: any BrowserTab, id: String) {
+        captureFollowers.removeValue(forKey: id)?.cancel()
+        let storeCapture = storeCapture
+        captureFollowers[id] = Task { @MainActor [weak self, weak page] in
+            var reported = BrowserCapture()
+            for await capture in ObservationStream({ [weak page] in page?.state.capture ?? [] }) where capture != reported {
+                guard let self, let tab = self.tabModel(id) else { continue }
+                if await storeCapture(self.daemonForTab(tab), tab.surface, capture) { reported = capture }
+            }
+        }
+    }
+
     /// The page was released: stop writing.
     func untrack(_ key: String) {
         writers.removeValue(forKey: key)?.cancel()
@@ -454,6 +483,7 @@ final class BrowserTabService {
         historyFetches.removeValue(forKey: key)?.cancel()
         historyStarts.forget(key)
         emulationFollowers.removeValue(forKey: key)?.cancel()
+        captureFollowers.removeValue(forKey: key)?.cancel()
     }
 
     /// Sends every page change still waiting out the write-back delay, so

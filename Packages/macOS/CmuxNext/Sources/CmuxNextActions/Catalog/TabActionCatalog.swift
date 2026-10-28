@@ -386,6 +386,24 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab mute-others"
             ),
             ActionDescriptor(
+                id: "tab.stopMediaCapture",
+                title: String(localized: "action.tab.stopMediaCapture", defaultValue: "Stop Camera and Microphone", bundle: .module),
+                keywords: ["tab", "camera", "microphone", "mic", "recording", "capture", "stop", "privacy"], category: .tab,
+                symbol: "video.slash", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab stop-capture"
+            ),
+            ActionDescriptor(
+                id: "tab.blockMediaCapture",
+                title: String(localized: "action.tab.blockMediaCapture", defaultValue: "Block Camera and Microphone for This Site", bundle: .module),
+                keywords: ["tab", "camera", "microphone", "mic", "permission", "revoke", "block", "site", "privacy"], category: .tab,
+                symbol: "hand.raised", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab block-capture"
+            ),
+            ActionDescriptor(
+                id: "browser.showCapturingTab",
+                title: String(localized: "action.browser.showCapturingTab", defaultValue: "Show Tab Using Camera or Microphone", bundle: .module),
+                keywords: ["tab", "camera", "microphone", "mic", "recording", "capture", "find", "which", "privacy"], category: .tab,
+                symbol: "video", surfaces: [.palette], targets: [.workspace], cliName: "tab show-capturing"
+            ),
+            ActionDescriptor(
                 id: "disconnectRemoteTab",
                 title: String(localized: "action.disconnectRemoteTab", defaultValue: "Disconnect SSH Tab", bundle: .module),
                 keywords: ["tab", "ssh", "remote"], category: .tab, symbol: "bolt.horizontal", surfaces: [.contextMenu],

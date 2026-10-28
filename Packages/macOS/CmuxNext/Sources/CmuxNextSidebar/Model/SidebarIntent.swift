@@ -55,6 +55,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The row's speaker was clicked: mute the workspace's tabs that play
     /// sound, or unmute its muted tabs (`SidebarWorkspaceAudio`). No local change.
     case toggleWorkspaceAudio(WorkspaceID)
+    /// The row's red camera or microphone was clicked: show the workspace's tab that
+    /// captures (`SidebarWorkspaceCapture`). No local change.
+    case showCapturingTab(WorkspaceID)
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)

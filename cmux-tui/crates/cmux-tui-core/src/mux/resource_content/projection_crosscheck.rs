@@ -96,7 +96,9 @@ fn stable_value(change: &Value) -> Value {
     let mut value = change["value"].clone();
     let volatile: &[&str] = match change["resource"].as_str() {
         Some("terminal") => &["stream_revision", "title", "cols", "rows", "cwd", "extra"],
-        Some("browser") => &["title", "loading", "status", "error", "frames_stalled", "size"],
+        Some("browser") => {
+            &["title", "loading", "status", "error", "frames_stalled", "media", "size"]
+        }
         _ => &[],
     };
     if let Some(fields) = value.as_object_mut() {
