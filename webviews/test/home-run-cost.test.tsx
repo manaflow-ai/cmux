@@ -88,3 +88,36 @@ test("the run sheet labels its dollar figure as API prices and says what it is",
   expect(cost?.textContent).not.toBe("$0.04");
   expect(cost?.getAttribute("title")).toBe(strings.t("run.cost.hint"));
 });
+
+
+// Messages remain reachable when the run is folded and after unrelated tool steps.
+test("a folded Chief run keeps outgoing messages and incoming reports visible", async () => {
+  const container = installDom();
+  const text = "Please verify the result. ".repeat(30) + "Keep this last sentence.";
+  const base = { at: 1, rev: 1, attachments: [], links: [] };
+  const steps = [
+    { ...base, id: "tool:tell", seq: 1, kind: "tool", status: "done", tool: {
+      name: "mcp__optchat__tell", title: "Tell a1", input: { id: "a1", message: text }, files: [],
+    } },
+    { ...base, id: "report:a1:1:0", seq: 2, kind: "note", text: "[a1] Verified the result. All checks passed." },
+    ...[3, 4, 5, 6].map(seq => ({ ...base, id: `tool:${seq}`, seq, kind: "tool", status: "done", tool: {
+      name: "Bash", input: { command: "pwd" }, files: [],
+    } })),
+  ];
+  await render(container, <RunCard entry={{ run: { ...run, stepCount: steps.length } as never, steps: steps as never, complete: true }} strings={strings} onOpen={() => {}} onLoad={() => {}} />);
+  expect(container.querySelector(".lg-run-toggle")?.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelectorAll(".cv-agentmsg").length).toBe(2);
+  expect(container.textContent).toContain("Verified the result.");
+  const message = container.querySelector('[data-direction="sent"]')!;
+  await act(async () => (message.querySelector(".cv-agentmsg__toggle") as HTMLElement).click());
+  expect(message.textContent).toContain("Keep this last sentence.");
+  await act(async () => (container.querySelector(".lg-run-toggle") as HTMLElement).click());
+  expect(container.querySelectorAll('[data-direction="sent"]').length).toBe(1);
+});
+
+test("a folded restored Chief run loads its messages without opening", async () => {
+  const container = installDom();
+  const loaded: unknown[] = [];
+  await render(container, <RunCard entry={{ ...entry, complete: false }} strings={strings} onOpen={() => {}} onLoad={r => loaded.push(r.id)} />);
+  expect(loaded).toEqual([run.id]);
+});

@@ -178,3 +178,14 @@ test("a short message never erases its receipt's words, and a recipient named li
   ).toBe("queued");
   expect(messageDelivery(done("Message not delivered to not"), say("hi", "not"))).toBe("failed");
 });
+
+
+test("Chief tell keeps the entire message and only recognizes its own tool", () => {
+  const message = "Please verify the result. ".repeat(30) + "Keep this last sentence.";
+  for (const name of ["tell", "optchat.tell", "mcp__optchat__tell"])
+    expect(agentMessage(call(name, { id: "a1", message }))).toEqual({ channel: "agent", to: "a1", text: message });
+  expect(agentMessage(call("optchat", { server: "optchat", tool: "tell", arguments: { id: "a1", message } })))
+    .toEqual({ channel: "agent", to: "a1", text: message });
+  expect(agentMessage(call("mcp__other__tell", { id: "a1", message }))).toBeUndefined();
+  expect(agentMessage(call("tell", { message }))).toBeUndefined();
+});

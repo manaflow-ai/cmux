@@ -143,6 +143,7 @@ pub struct Owner {
     pub no_link_previews: bool,
     /// Every run record summary the brain appended (`run_append`'s run).
     pub runs: Vec<Value>,
+    pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
 }
@@ -432,8 +433,10 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
-    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
-        self.0.lock().unwrap().runs.push(run);
+    fn run_append(&mut self, conversation: &str, run: Value, steps: Vec<Value>) -> Result<(), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.run_steps.push((conversation.to_owned(), run.clone(), steps));
+        owner.runs.push(run);
         Ok(())
     }
 
