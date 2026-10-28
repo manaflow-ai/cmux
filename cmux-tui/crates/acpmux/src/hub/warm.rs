@@ -2,6 +2,49 @@
 
 use super::*;
 
+/// Which app launches may still warm one chat. Each launch names its warms and its cleanup
+/// stops with one token. A warm RPC can reach the daemon after that launch's cleanup stopped
+/// the chat (it was detached when the app quit); it must start nothing. Any other launch,
+/// including one after a launch that never ran its cleanup (a crash), still warms the chat.
+#[derive(Default)]
+pub(crate) struct LaunchWarmFence {
+    /// The launch that last warmed the chat: a stop without a token retires it.
+    current: Option<String>,
+    /// Launches whose cleanup stopped the chat, oldest first.
+    retired: std::collections::VecDeque<String>,
+}
+
+impl LaunchWarmFence {
+    /// Launches are rare and a late warm comes within one quit, so a few suffice.
+    const RETIRED_KEPT: usize = 16;
+
+    /// Whether a warm from `token` may start the chat: not once its launch's cleanup ran.
+    pub(crate) fn admit(&mut self, token: &str) -> bool {
+        if self.retired.iter().any(|retired| retired == token) {
+            return false;
+        }
+        self.current = Some(token.to_owned());
+        true
+    }
+
+    /// A launch cleanup stopped the chat: `token`'s later warms are stale. Without a token
+    /// (an older app), the launch that last warmed it is retired.
+    pub(crate) fn retire(&mut self, token: Option<&str>) {
+        let Some(token) = token.map(str::to_owned).or_else(|| self.current.clone()) else {
+            return;
+        };
+        if self.current.as_ref() == Some(&token) {
+            self.current = None;
+        }
+        if !self.retired.contains(&token) {
+            if self.retired.len() == Self::RETIRED_KEPT {
+                self.retired.pop_front();
+            }
+            self.retired.push_back(token);
+        }
+    }
+}
+
 impl Hub {
     /// Starts one live child per recent project without creating or selecting
     /// sessions. Used by the desktop pane while its composer is painting, so no
@@ -50,16 +93,11 @@ impl Hub {
         let mut failed = Vec::new();
         for session in candidates {
             if let Some(token) = launch_token {
-                let mut current =
-                    session.launch_warm_token.lock().unwrap_or_else(|e| e.into_inner());
-                if session.launch_warm_invalidated.load(Ordering::SeqCst) {
-                    *current = Some(token.to_owned());
-                    session.launch_warm_invalidated.store(false, Ordering::SeqCst);
-                } else if current.as_deref().is_some_and(|value| value != token) {
+                let admitted =
+                    session.launch_warm.lock().unwrap_or_else(|e| e.into_inner()).admit(token);
+                if !admitted {
                     failed.push(json!({"sessionId": session.id, "error": {"code": -32800, "message": "stale launch warm"}}));
                     continue;
-                } else if current.is_none() {
-                    *current = Some(token.to_owned());
                 }
             }
             // An explicit Stop before the census is an intentional skip; do not reopen it.
@@ -114,13 +152,7 @@ impl Hub {
         };
         // An idle pass finishes marking hibernation before this stop; none starts during it.
         let _using = session.harness_use.read().await;
-        if let Some(current) =
-            session.launch_warm_token.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
-        {
-            if launch_token.is_none() || launch_token == Some(current) {
-                session.launch_warm_invalidated.store(true, Ordering::SeqCst);
-            }
-        }
+        session.launch_warm.lock().unwrap_or_else(|e| e.into_inner()).retire(launch_token);
         let closed = session.status() == SessionStatus::Closed;
         let stops = session.stops.fetch_add(1, Ordering::SeqCst) + 1;
         session.closing.store(true, Ordering::SeqCst);
@@ -182,5 +214,29 @@ impl Hub {
         })
         .await;
         matches!(level, Ok(Ok(crate::trust::Level::Trusted)))
+    }
+}
+
+#[cfg(test)]
+mod launch_warm_fence_tests {
+    use super::LaunchWarmFence;
+
+    #[test]
+    fn launch_token_fence_retires_the_last_warm_on_a_stop_without_a_token() {
+        let mut fence = LaunchWarmFence::default();
+        assert!(fence.admit("a"));
+        fence.retire(None);
+        assert!(!fence.admit("a"));
+        assert!(fence.admit("b"));
+    }
+
+    #[test]
+    fn launch_token_fence_keeps_only_the_newest_retired_launches() {
+        let mut fence = LaunchWarmFence::default();
+        for n in 0..=LaunchWarmFence::RETIRED_KEPT {
+            fence.retire(Some(&n.to_string()));
+        }
+        assert!(fence.admit("0"), "the oldest retired launch is forgotten");
+        assert!(!fence.admit(&LaunchWarmFence::RETIRED_KEPT.to_string()));
     }
 }

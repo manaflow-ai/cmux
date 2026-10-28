@@ -22,12 +22,8 @@ pub struct Session {
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
     pub(super) harness_use: tokio::sync::RwLock<()>,
-    /// The app launch that warmed this chat (`warm.rs`): a warm from another launch is stale
-    /// and starts nothing, so a detached warm cannot reopen a chat a newer launch owns.
-    pub(super) launch_warm_token: StdMutex<Option<String>>,
-    /// Set by a launch cleanup's stop of that launch's warm: the next launch takes the chat
-    /// over with its own token instead of being refused as stale.
-    pub(super) launch_warm_invalidated: AtomicBool,
+    /// Which app launches may still warm this chat (`warm.rs` `LaunchWarmFence`).
+    pub(super) launch_warm: StdMutex<super::warm::LaunchWarmFence>,
     /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
     pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
