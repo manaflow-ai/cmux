@@ -70,7 +70,7 @@ import Testing
         let bg = srgb(Fixture.background)
         let blue = srgb(Fixture.outgoing)
         // Inside the bubble, clear of the text: the background, not a blue fill.
-        let inside = bmp.rgb(CGPoint(x: box.minX + 14, y: box.midY - 6))
+        let inside = bmp.rgb(CGPoint(x: box.minX + 3, y: box.midY))
         #expect(distance(inside, bg) <= 12, "my root is filled \(inside); it should be an outline on \(bg)")
         // On the outline at the left end: full blue.
         let edge = bmp.rgb(CGPoint(x: box.minX + 0.5, y: box.midY))
