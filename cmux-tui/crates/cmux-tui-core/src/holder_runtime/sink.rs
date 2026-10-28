@@ -100,7 +100,17 @@ pub(crate) struct HolderSink {
     /// The flow that holder read took, for the parser's output of the same
     /// read ([`Self::take_echo_flow`]).
     echo_flow: crate::input_flow::InputFlowSlot,
+    /// Queues a run of the terminal's reader on its owner's read loop (H2):
+    /// set, the reader reads without blocking and every change wakes it
+    /// here instead of a reader thread waiting on `changed`.
+    waker: OnceLock<SinkWaker>,
+    /// Runs once with the terminal's end, instead of a thread blocked in
+    /// [`Self::wait_end`] (H2).
+    on_end: Mutex<Option<Box<dyn FnOnce(SinkEnd) + Send>>>,
 }
+
+/// What wakes a holder terminal's reader on the read loop.
+pub(crate) type SinkWaker = Box<dyn Fn() + Send + Sync>;
 
 /// Acknowledges to the holder that the parser read every byte before an
 /// offset.
@@ -238,7 +248,46 @@ impl HolderSink {
             acker: OnceLock::new(),
             input_flow: Default::default(),
             echo_flow: Default::default(),
+            waker: OnceLock::new(),
+            on_end: Mutex::new(None),
         })
+    }
+
+    /// Wakes whoever waits for this sink: a blocked reader or wait, the
+    /// reader's run on the read loop, and the end callback once the
+    /// terminal ended. The caller holds no lock of the sink.
+    fn signal(&self) {
+        self.changed.notify_all();
+        if let Some(waker) = self.waker.get() {
+            waker();
+        }
+        let ended = {
+            let state = self.state.lock().recover_poison();
+            state_end(&state)
+        };
+        if let Some(end) = ended {
+            let callback = self.on_end.lock().recover_poison().take();
+            if let Some(callback) = callback {
+                callback(end);
+            }
+        }
+    }
+
+    /// Reads from now on run on the read loop: `waker` queues one, and a
+    /// read with nothing to take returns `WouldBlock` instead of waiting.
+    /// Wakes the reader once, for what came before.
+    pub(crate) fn read_on_loop(&self, waker: SinkWaker) {
+        if self.waker.set(waker).is_ok() {
+            self.signal();
+        }
+    }
+
+    /// Runs `callback` once with the terminal's end (on the thread that
+    /// reports it, or here when it already ended), instead of a thread
+    /// waiting in [`Self::wait_end`].
+    pub(crate) fn on_end(&self, callback: Box<dyn FnOnce(SinkEnd) + Send>) {
+        *self.on_end.lock().recover_poison() = Some(callback);
+        self.signal();
     }
 
     /// The key press the last read echoes (0: none), once: the parser takes
@@ -362,7 +411,7 @@ impl HolderSink {
     /// can have sent a byte past a read it never published.
     pub(crate) fn cut_at(&self, at: u64) {
         self.state.lock().recover_poison().cut(at);
-        self.changed.notify_all();
+        self.signal();
     }
 
     /// An ADOPT goes to a holder that answers it with ADOPTED. When it
@@ -397,21 +446,21 @@ impl HolderSink {
         if let Some(cuts) = state.adoption.take() {
             state.cut(cuts.resume);
             drop(state);
-            self.changed.notify_all();
+            self.signal();
         }
     }
 
     /// The holder is gone for good: the reader drains and the wait ends lost.
     pub(crate) fn lose(&self) {
         self.state.lock().recover_poison().lost = true;
-        self.changed.notify_all();
+        self.signal();
     }
 
     /// End the reader and the wait without an end of the terminal: the
     /// daemon exits and the holder keeps the shell.
     pub(crate) fn detach(&self) {
         self.state.lock().recover_poison().detached = true;
-        self.changed.notify_all();
+        self.signal();
     }
 
     pub(crate) fn is_detached(&self) -> bool {
@@ -424,7 +473,7 @@ impl HolderSink {
     /// so already), so the acknowledgement for it goes out first. Also
     /// returns how many of the bytes, from the first, take no holder offset
     /// (a reopen seed, a prologue): they are not the shell's output.
-    fn read(&self, buf: &mut [u8]) -> (usize, usize) {
+    fn read(&self, buf: &mut [u8]) -> io::Result<(usize, usize)> {
         let ack = {
             let mut state = self.state.lock().recover_poison();
             state.confirm();
@@ -435,10 +484,14 @@ impl HolderSink {
         }
         let mut state = self.state.lock().recover_poison();
         while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
+            // On the read loop: the next change queues another run.
+            if self.waker.get().is_some() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
             state = self.changed.wait(state).recover_poison();
         }
         if state.detached {
-            return (0, 0);
+            return Ok((0, 0));
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
@@ -446,19 +499,17 @@ impl HolderSink {
         state.in_flight = n;
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
-        (n, unnumbered.min(n))
+        Ok((n, unnumbered.min(n)))
     }
 
     /// Block until the terminal ended, was lost or the daemon detached.
     pub(crate) fn wait_end(&self) -> SinkEnd {
         let mut state = self.state.lock().recover_poison();
-        while state.exit.is_none() && !state.detached && !state.lost {
+        loop {
+            if let Some(end) = state_end(&state) {
+                return end;
+            }
             state = self.changed.wait(state).recover_poison();
-        }
-        match (state.detached, state.exit) {
-            (true, _) => SinkEnd::Detached,
-            (false, Some(status)) => SinkEnd::Exited(status),
-            (false, None) => SinkEnd::Lost,
         }
     }
 }
@@ -512,7 +563,7 @@ impl TerminalSink for HolderSink {
         state.received = end;
         state.take_cut_at_received();
         drop(state);
-        self.changed.notify_all();
+        self.signal();
     }
 
     fn gap(&self, requested: u64, oldest: u64) {
@@ -524,7 +575,7 @@ impl TerminalSink for HolderSink {
             // A cut inside the gap or at its end: the gap's CAN covers it.
             state.cuts.retain(|cut| *cut > oldest);
             drop(state);
-            self.changed.notify_all();
+            self.signal();
         }
     }
 
@@ -549,7 +600,7 @@ impl TerminalSink for HolderSink {
         }
         state.snapshot_base = state.snapshot_base.max(base);
         drop(state);
-        self.changed.notify_all();
+        self.signal();
     }
 
     fn acks_itself(&self) -> bool {
@@ -563,13 +614,23 @@ impl TerminalSink for HolderSink {
         if let Some(at) = if continued { cuts.continued } else { cuts.fresh } {
             state.cut(at);
             drop(state);
-            self.changed.notify_all();
+            self.signal();
         }
     }
 
     fn exit(&self, status: ExitStatus, _end: u64) {
         self.state.lock().recover_poison().exit = Some(status);
-        self.changed.notify_all();
+        self.signal();
+    }
+}
+
+/// The end `state` records, if the terminal ended.
+fn state_end(state: &SinkState) -> Option<SinkEnd> {
+    match (state.detached, state.exit, state.lost) {
+        (true, _, _) => Some(SinkEnd::Detached),
+        (false, Some(status), _) => Some(SinkEnd::Exited(status)),
+        (false, None, true) => Some(SinkEnd::Lost),
+        (false, None, false) => None,
     }
 }
 
@@ -591,7 +652,7 @@ pub(super) struct SinkReader(pub(super) Arc<HolderSink>);
 #[cfg(test)]
 impl Read for SinkReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Ok(self.0.read(buf).0)
+        self.0.read(buf).map(|(n, _)| n)
     }
 }
 
@@ -631,10 +692,13 @@ fn copy_queued(buf: &mut [u8], queued: &VecDeque<u8>) -> usize {
 impl Read for SnapshottingReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(base) = self.sink.snapshot_due() {
-            let reached = (self.snapshot)(base);
+            // The snapshot goes to the holder over its link and may wait: a
+            // read worker leaves its slot to the other terminals meanwhile.
+            let reached =
+                crate::mux::terminal_work::read_loop::will_block(|| (self.snapshot)(base));
             self.sink.snapshot_taken(base, reached);
         }
-        let (n, unnumbered) = self.sink.read(buf);
+        let (n, unnumbered) = self.sink.read(buf)?;
         if n > unnumbered {
             if let Some(numbered) = buf.get(unnumbered..n) {
                 crate::debug_spans::output_marks(&self.terminal_id, numbered);
@@ -837,12 +901,16 @@ mod tests {
         sink.prepend(b"replayed screen");
         sink.data(0, b"$ ");
         let mut buf = [0u8; 8];
-        assert_eq!(sink.read(&mut buf), (8, 8), "the seed's first bytes");
+        assert_eq!(sink.read(&mut buf).unwrap(), (8, 8), "the seed's first bytes");
         let mut buf = [0u8; 64];
-        assert_eq!(sink.read(&mut buf), (9, 7), "the seed's rest, then the shell's prompt");
+        assert_eq!(
+            sink.read(&mut buf).unwrap(),
+            (9, 7),
+            "the seed's rest, then the shell's prompt"
+        );
         assert_eq!(&buf[7..9], b"$ ");
         sink.data(2, b"ls");
-        assert_eq!(sink.read(&mut buf), (2, 0), "only the shell's output");
+        assert_eq!(sink.read(&mut buf).unwrap(), (2, 0), "only the shell's output");
     }
 
     /// The replay race (holder item 1): a chunk the reader took but has not

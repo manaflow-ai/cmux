@@ -104,3 +104,59 @@ fn holder_terminals_read_on_the_owners_loop_and_end_without_a_thread_each() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A burst the reader takes in more than one run reaches the screen whole
+/// with nothing more arriving: a run that yields with bytes left queues its
+/// next run itself (a sink has no level readiness to do it).
+#[test]
+fn a_holder_burst_longer_than_one_run_is_read_to_its_end() {
+    let mux = Mux::new_for_test("holder-burst", SurfaceOptions::default());
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.subsec_nanos());
+    let dir = std::env::temp_dir().join(format!("holder-burst-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let service = stand_in_service(dir.join("h.sock"));
+    let (master, _program) = nonblocking_pty();
+    let terminal = stand_in_terminal(service, 1, master);
+    let geometry = PtyGeometry { cols: 40, rows: 4, cell_width: 8, cell_height: 16 };
+    let surface = Surface::spawn_local(
+        LocalSpawn {
+            id: FIRST_ID + 90,
+            opts: SurfaceOptions { cols: 40, rows: 4, ..SurfaceOptions::default() },
+            mux: Arc::downgrade(&mux),
+            terminal_public_id: None,
+            kitty_reservation: None,
+            initial_kitty_limits: KittyGraphicsLimits::disabled(),
+            resource_identity: None,
+            lifetime: PtyLifetime::DaemonOwned,
+            cell_pixels: (8, 16),
+            initial_geometry: geometry,
+            host_identity: None,
+        },
+        holder_local_launch(&terminal, Vec::new(), None).unwrap(),
+    )
+    .unwrap();
+    // Far more than READS_PER_RUN reads of 64 KiB, in one data call.
+    let mut burst = Vec::new();
+    let mut line = 0u32;
+    while burst.len() < 2 * 1024 * 1024 {
+        burst.extend_from_slice(format!("burst {line:07}\r\n").as_bytes());
+        line += 1;
+    }
+    burst.extend_from_slice(b"burst-end");
+    terminal.sink.data(0, &burst);
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
+        if text.contains("burst-end") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the burst stopped before its end:\n{text}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    terminal.sink.exit(ExitStatus::Exited(0), 0);
+    let pty = surface.as_pty().unwrap();
+    assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
+    let _ = std::fs::remove_dir_all(&dir);
+}

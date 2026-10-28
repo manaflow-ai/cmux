@@ -64,6 +64,9 @@ pub(crate) const READ_WORKER_THREAD: &str = "mux-terminal-read";
 pub(crate) enum ReadFlow {
     /// Watch the descriptor again.
     Continue,
+    /// More is ready now: run again after the other ready sources. A source
+    /// with no descriptor needs it (nothing level-triggered queues it).
+    Yield,
     /// The stream ended: stop watching, then [`ReadSource::finish`].
     Finished,
 }
@@ -184,7 +187,9 @@ enum Phase {
 }
 
 struct Entry {
-    fd: RawFd,
+    /// The watched descriptor; `None` for a source only its kick runs (a
+    /// holder terminal's sink, H2).
+    fd: Option<RawFd>,
     phase: Phase,
     /// `None` while a worker runs it.
     source: Option<Box<dyn ReadSource>>,
@@ -266,7 +271,9 @@ impl TerminalReads {
             }
             let token = state.next_token;
             state.next_token += 1;
-            state.entries.insert(token, Entry { fd, phase: Phase::Armed, source: Some(source) });
+            state
+                .entries
+                .insert(token, Entry { fd: Some(fd), phase: Phase::Armed, source: Some(source) });
             token
         };
         if shared.poller.add(fd, token).is_err() {
@@ -280,6 +287,27 @@ impl TerminalReads {
                 entry.and_then(|entry| entry.source).expect("an unwatched source is never running");
             return Err(source);
         }
+        Ok(ReadKick { shared: Arc::downgrade(shared), token })
+    }
+
+    /// Adds `source`, which has no descriptor: only the returned kick
+    /// queues a run of it (its producer kicks after each change, as
+    /// readiness would). Returns `source` when the loop cannot start.
+    pub(crate) fn register_kicked(
+        &self,
+        source: Box<dyn ReadSource>,
+    ) -> Result<ReadKick, Box<dyn ReadSource>> {
+        let Ok(shared) = self.shared() else { return Err(source) };
+        let mut state = shared.lock();
+        if !state.loop_started {
+            if spawn_loop(shared).is_err() {
+                return Err(source);
+            }
+            state.loop_started = true;
+        }
+        let token = state.next_token;
+        state.next_token += 1;
+        state.entries.insert(token, Entry { fd: None, phase: Phase::Armed, source: Some(source) });
         Ok(ReadKick { shared: Arc::downgrade(shared), token })
     }
 
@@ -405,17 +433,19 @@ impl Shared {
         )]
         let entry = state.entries.get_mut(&token).expect("a running source stays registered");
         match flow {
-            Ok(ReadFlow::Continue) => {
+            Ok(flow @ (ReadFlow::Continue | ReadFlow::Yield)) => {
                 entry.source = Some(source);
                 let fd = entry.fd;
-                if matches!(entry.phase, Phase::Running { again: true }) {
+                if flow == ReadFlow::Yield || matches!(entry.phase, Phase::Running { again: true })
+                {
                     entry.phase = Phase::Queued;
                     state.runnable.push_back(token);
                     return;
                 }
                 // Armed under the lock, so no kick can run it before its
-                // descriptor is watched again.
-                if self.poller.rearm(fd, token).is_ok() {
+                // descriptor is watched again. A kicked source is armed by
+                // its phase alone: its next kick queues it.
+                if fd.is_none_or(|fd| self.poller.rearm(fd, token).is_ok()) {
                     entry.phase = Phase::Armed;
                     return;
                 }
@@ -465,8 +495,8 @@ impl Shared {
             }
             (entry, done)
         };
-        if let Some(entry) = entry.as_ref() {
-            let _ = self.poller.delete(entry.fd);
+        if let Some(fd) = entry.as_ref().and_then(|entry| entry.fd) {
+            let _ = self.poller.delete(fd);
         }
         if done {
             let _ = self.poller.wake();

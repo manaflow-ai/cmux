@@ -410,7 +410,9 @@ pub(super) enum LocalReaper {
     /// A thread blocked until the far side ended (a holder terminal, a byte
     /// backend, a Windows child).
     Thread(std::thread::JoinHandle<()>),
-    /// The mux's reaper waits for the child (`cmux_threads::reaper`).
+    /// The mux's reaper waits for the child (`cmux_threads::reaper`), or
+    /// the far side reports its end itself (a holder terminal's sink, H2):
+    /// no thread of this terminal waits.
     #[cfg(unix)]
     Watched,
 }

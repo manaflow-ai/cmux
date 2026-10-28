@@ -3,10 +3,11 @@
 //!
 //! A direct PTY reads on its owner's one read loop (`TerminalReads`),
 //! not on a thread of its own: its descriptor's readiness queues a run, and
-//! a resize that drained the readiness kicks one. A holder or byte-backend
-//! terminal has no PTY descriptor in this process and keeps its blocking
-//! `surface-<id>-reader` thread, which follows the terminal's class
-//! (`surface/thread_qos.rs`); the shared read loop does not.
+//! a resize that drained the readiness kicks one. A holder terminal has no
+//! PTY descriptor in this process, but reads on the same loop too: its sink
+//! kicks a run after every change and its reads never block (H2). Only a
+//! byte-backend terminal keeps its blocking `surface-<id>-reader` thread,
+//! which follows the terminal's class (`surface/thread_qos.rs`).
 
 use std::io::Read;
 #[cfg(unix)]
@@ -28,6 +29,9 @@ pub(super) struct LocalReader {
     /// `None` for a holder or byte-backend terminal.
     #[cfg(unix)]
     fd: Option<RawFd>,
+    /// A holder terminal's sink: it kicks this reader's runs on the loop.
+    #[cfg(unix)]
+    sink: Option<Arc<crate::holder_runtime::HolderSink>>,
     /// Dropped last, after the end is published (or on a panic).
     _completion: ReaderCompletionGuard,
 }
@@ -56,6 +60,8 @@ impl LocalReader {
         let publisher = parser.publisher();
         #[cfg(unix)]
         let fd = parser.descriptor.as_ref().map(AsRawFd::as_raw_fd);
+        #[cfg(unix)]
+        let sink = parser.parsed_sink.clone();
         drop(parser);
         Self {
             surface,
@@ -64,6 +70,8 @@ impl LocalReader {
             publisher,
             #[cfg(unix)]
             fd,
+            #[cfg(unix)]
+            sink,
             _completion: completion,
         }
     }
@@ -89,6 +97,21 @@ impl LocalReader {
             output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).wake =
                 Some(kick.clone());
             kick.kick();
+            return Ok(TerminalReader::Looped);
+        }
+        // A holder terminal: its sink kicks the runs (H2).
+        #[cfg(unix)]
+        if let Some(sink) = self.sink.clone() {
+            let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
+            let registered = match owner {
+                Some(mux) => mux.terminal_reads().register_kicked(Box::new(self)),
+                None => TerminalReads::new().register_kicked(Box::new(self)),
+            };
+            let Ok(kick) = registered else {
+                anyhow::bail!("terminal {id}'s holder output cannot be read on the read loop");
+            };
+            // Wakes once for what the sink already holds.
+            sink.read_on_loop(Box::new(move || kick.kick()));
             return Ok(TerminalReader::Looped);
         }
         // Its own thread follows the terminal's class (surface/thread_qos.rs).
@@ -189,8 +212,11 @@ impl ReadSource for LocalReader {
                 Step::Ended => return ReadFlow::Finished,
             }
         }
-        // Yield to the other ready terminals; level readiness queues the rest.
-        ReadFlow::Continue
+        // Yield to the other ready terminals. A PTY's level readiness queues
+        // the rest; a holder sink's next kick may never come (the holder
+        // waits for the acknowledgement the next read sends), so it runs
+        // again after the others.
+        if self.fd.is_some() { ReadFlow::Continue } else { ReadFlow::Yield }
     }
 
     /// The end publishes the exit through the registry (sqlite), so it

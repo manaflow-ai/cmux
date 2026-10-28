@@ -340,12 +340,19 @@ pub(crate) fn holder_local_launch(
         reader: Box::new(reader),
         writer,
         killer: Box::new(HolderKiller(terminal.clone())),
-        end: LocalEnd::Wait(Box::new(move || {
-            let end = waited.sink.wait_end();
-            if end != SinkEnd::Detached {
-                waited.end();
-            }
-            terminal_end(end)
+        // The sink reports the end: no thread waits for it (H2). The holder
+        // is told on the work item that records the end, not on the link
+        // thread that reported it.
+        end: LocalEnd::Notify(Box::new(move |record| {
+            let sink = waited.sink.clone();
+            sink.on_end(Box::new(move |end| {
+                record(Box::new(move || {
+                    if end != SinkEnd::Detached {
+                        waited.end();
+                    }
+                    terminal_end(end)
+                }));
+            }));
         })),
         pid: u32::try_from(terminal.pid).ok(),
         command,
@@ -505,10 +512,14 @@ pub(crate) mod tests {
         });
         let launch = holder_local_launch(&terminal, Vec::new(), None).unwrap();
         sink.exit(ExitStatus::Exited(0), 0);
-        let LocalEnd::Wait(wait) = launch.end else {
+        let LocalEnd::Notify(register) = launch.end else {
             panic!("a holder terminal ends through its sink, not a child reaper")
         };
-        let _ = wait();
+        let (ended_tx, ended_rx) = std::sync::mpsc::channel();
+        register(Box::new(move |work| {
+            let _ = ended_tx.send(work());
+        }));
+        let _ = ended_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         assert!(terminal.ring.lock().unwrap().is_none(), "the ended terminal kept its segment");
         terminal.keep_ring(Some(segment()));
         assert!(terminal.ring.lock().unwrap().is_none(), "an ended terminal took a segment back");

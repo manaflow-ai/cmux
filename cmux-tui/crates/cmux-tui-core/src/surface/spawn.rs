@@ -27,7 +27,22 @@ pub(crate) enum LocalEnd {
     /// kills and reaps it.
     #[cfg(unix)]
     Child(PtyChildStartupGuard),
+    /// The far side reports its end: called once with the callback that
+    /// records it, which it runs once (from any thread) with the work that
+    /// finishes the far side and returns the end. That work and the record
+    /// run on a work item; no thread of this terminal waits (a holder
+    /// terminal's sink, H2).
+    #[cfg(unix)]
+    Notify(Box<dyn FnOnce(EndCallback) + Send>),
 }
+
+/// Finishes a terminal's far side after its end and returns the end.
+#[cfg(unix)]
+pub(crate) type EndWork = Box<dyn FnOnce() -> TerminalEnd + Send>;
+
+/// Records a terminal's end; see [`LocalEnd::Notify`].
+#[cfg(unix)]
+pub(crate) type EndCallback = Box<dyn FnOnce(EndWork) + Send>;
 
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
@@ -329,6 +344,11 @@ impl Surface {
                 watch_child_end(&surface, reaper_completion, child)?;
                 LocalReaper::Watched
             }
+            #[cfg(unix)]
+            LocalEnd::Notify(register) => {
+                notify_end(&surface, reaper_completion, register);
+                LocalReaper::Watched
+            }
         };
         *threads.reaper_thread.lock().recover_poison() = Some(reaper);
 
@@ -374,6 +394,36 @@ fn spawn_end_wait(
         close_local_terminal_master_after_exit(surface);
         error.into()
     })
+}
+
+/// Records the end the far side reports (`LocalEnd::Notify`). The report may
+/// come on any thread (a holder link's), so the record, a registry commit,
+/// runs on the owner's terminal work pool (inline only without one or with
+/// the pool full). The callback keeps the surface alive until the end, as a
+/// wait thread would. `completion` is the surface's reset `reaper_completion`.
+#[cfg(unix)]
+fn notify_end(
+    surface: &Arc<Surface>,
+    completion: Arc<ReaderCompletion>,
+    register: Box<dyn FnOnce(EndCallback) + Send>,
+) {
+    let ended = surface.clone();
+    register(Box::new(move |work| {
+        let owner = ended.as_pty().and_then(|pty| pty.mux.upgrade());
+        let record: Box<dyn FnOnce() + Send> = Box::new(move || {
+            let completion = ReaderCompletionGuard(completion);
+            let end = work();
+            record_local_end(&ended, end, completion);
+        });
+        match owner {
+            Some(owner) => {
+                if let Err(record) = owner.submit_terminal_work(record) {
+                    record();
+                }
+            }
+            None => record(),
+        }
+    }));
 }
 
 /// Hands the PTY child to the mux's reaper: its exit status is recorded on a
