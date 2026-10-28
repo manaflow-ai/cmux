@@ -124,8 +124,16 @@ const drainDrops = async (deps: AttachmentGcDeps, now: number): Promise<void> =>
  */
 export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: string): Promise<number> => {
   if (!deps.env.HOME_ATTACHMENTS) return 0
+  const openSlots = store.allSlots(deps.sql)
+  // Abort remote multipart uploads before forgetting their slot ids. Prefix deletion cannot
+  // discover incomplete parts, especially on self-hosted storage without lifecycle cleanup.
+  for (const slot of openSlots) {
+    if (slot.multipart_upload_id) {
+      await deps.env.HOME_ATTACHMENTS.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort()
+    }
+  }
   // Refunds first (idempotent by slot id): a failure throws before anything is forgotten, so a retry refunds again.
-  for (const slot of store.allSlots(deps.sql)) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+  for (const slot of openSlots) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
   const { records, slots } = store.forgetAll(deps.sql)
   // Also the slots forgetAll returns: one opened during the awaits above is refunded too (refunds are idempotent).
   for (const slot of slots) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)

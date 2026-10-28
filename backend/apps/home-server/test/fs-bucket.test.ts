@@ -5,6 +5,29 @@ import { join } from "node:path"
 import { FsBucket } from "../src/fs-bucket.ts"
 
 describe("self-hosted attachment bucket", () => {
+  it("keeps an accepted part when a concurrent replacement fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-race-"))
+    try {
+      const bucket = new FsBucket(root)
+      const upload = await bucket.createMultipartUpload("home/v1/race")
+      const failing = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          controller.error(new Error("failed attempt"))
+        }
+      })
+      const [failed, accepted] = await Promise.allSettled([
+        upload.uploadPart(1, failing),
+        upload.uploadPart(1, new Uint8Array([7, 8, 9]))
+      ])
+      expect(failed.status).toBe("rejected")
+      expect(accepted.status).toBe("fulfilled")
+      await expect(upload.complete([accepted.status === "fulfilled" ? accepted.value : { partNumber: 1, etag: "" }])).resolves.toMatchObject({ size: 3 })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("streams resumable multipart objects and keeps listing cursors valid across deletes", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {

@@ -193,11 +193,15 @@ export class FsBucket {
     if (!Number.isSafeInteger(partNumber) || partNumber <= 0 || partNumber > 10_000) throw new Error("invalid multipart part")
     this.readMultipart(uploadId)
     const partPath = this.multipartPath(uploadId) + `.part.${partNumber}`
+    const attemptPath = `${partPath}.attempt-${process.pid}-${Math.random().toString(36).slice(2)}`
     try {
-      const { etag } = await writeStream(partPath, bodyStream(value))
+      const { etag } = await writeStream(attemptPath, bodyStream(value))
+      // Publishing is one synchronous rename, so concurrent attempts cannot remove an
+      // already accepted part when a later attempt fails. The newest successful attempt wins.
+      renameSync(attemptPath, partPath)
       return { partNumber, etag }
     } catch (error) {
-      rmSync(partPath, { force: true })
+      rmSync(attemptPath, { force: true })
       throw error
     }
   }
