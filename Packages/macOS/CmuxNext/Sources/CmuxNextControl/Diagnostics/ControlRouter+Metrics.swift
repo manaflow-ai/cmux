@@ -1,31 +1,49 @@
 import CmuxNextCompat
-import CmuxNextMetrics
+public import CmuxNextMetrics
 public import CmuxNextSettings
 public import CmuxNextTrace
 public import Foundation
+import CmuxNextWakeups
 
 /// `metrics.snapshot` (`cmux metrics`, View Metrics; plans/cmux-next/chrome-parity/p09-observability.md task 065):
 /// the app's field histograms as JSON, read-only, served only while the `metricsView` feature is on.
 extension ControlRouter {
+    /// How long a `metrics.snapshot` request waits for a harvest before it reads the store: well under the control
+    /// plane's 2 s, and as long as the fork waits for Chromium's child processes (`FetchHistogramsAsynchronously`, 1 s).
+    public static let metricsHarvestLimit: Duration = .seconds(1)
+
     /// The `metrics.snapshot` method over `snapshot`'s store; its only parameter is `names`. Without `harvest` it
     /// runs on the snapshot lane from the last published snapshot, so it answers while the main thread is stalled.
     /// With `harvest` (Chromium's histograms, task 107) a request is a report trigger, as a chrome://histograms load
-    /// is one in Chrome (it fetches the child processes' histograms first): the async lane runs `harvest`, then the
-    /// read.
+    /// is one in Chrome (`HistogramSynchronizer` fetches the child processes' histograms first, with a timeout): the
+    /// async lane waits for `harvest` at most `harvestLimit`, then always reads the store. A harvest still running then
+    /// folds later and the next request shows it; the reply's `harvests` names whether it finished and its tally.
     ///
     /// - Parameters:
     ///   - snapshot: Reads the process's histograms (the app runtime's store by default; tests pass their own).
     ///   - enabled: Whether the `metricsView` feature is on; while it is off every request answers `unavailable`.
-    ///   - harvest: Folds other sources into the store before the read; nil folds nothing.
-    public static func metricsMethod(_ snapshot: MetricsSnapshot = MetricsSnapshot(), enabled: Bool,
-                                     harvest: (@Sendable () async -> Void)? = nil) -> ControlMethod {
+    ///   - harvest: Folds another source into the store before the read; nil folds nothing.
+    ///   - harvestLimit: The longest wait for `harvest`.
+    ///   - clock: The clock the wait runs on (tests inject their own).
+    public static func metricsMethod(_ snapshot: MetricsSnapshot = MetricsSnapshot(), enabled: Bool, harvest: MetricsHarvest? = nil,
+                                     harvestLimit: Duration = metricsHarvestLimit,
+                                     clock: any Clock<Duration> = ContinuousClock()) -> ControlMethod {
         guard let harvest else {
             return .snapshot(MetricsSnapshot.method) { call in try metricsJSON(snapshot, enabled: enabled, call: call) }.readingLastPublished()
         }
         return .async(MetricsSnapshot.method) { call in
             _ = try MetricsSnapshot.names(call.params)
-            if enabled { await harvest() }
-            return try metricsJSON(snapshot, enabled: enabled, call: call)
+            guard enabled else { return try metricsJSON(snapshot, enabled: enabled, call: call) }
+            let finished = await Deadline(harvestLimit, clock: clock).value("metrics.snapshot.harvest") { await harvest.run() } != nil
+            let tally = await harvest.tally()
+            let status: JSONValue = [
+                "finished": .bool(finished),
+                "tally": .object(tally.mapValues { JSONValue.number(Double($0)) }),
+            ]
+            let json = try metricsJSON(snapshot, enabled: enabled, call: call)
+            guard case .object(var members) = json else { return json }
+            members["harvests"] = .object([harvest.name: status])
+            return .object(members)
         }
     }
 

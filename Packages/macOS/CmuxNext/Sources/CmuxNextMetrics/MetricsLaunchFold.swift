@@ -120,7 +120,17 @@ public struct MetricsLaunchFold<Reader: MetricsLaunchReading>: Sendable {
         return outcome
     }
 
+    /// Deletes a launch file that does not decode (``Scan/unreadable``), with its companions.
+    public func discard(_ file: URL) throws(MetricsLaunchFoldError) {
+        try delete(file)
+    }
+
+    /// Deletes `file`, then its companions (``MetricsLaunchReading/companions(of:)``): a companion left behind is never
+    /// read without its file.
     private func delete(_ file: URL) throws(MetricsLaunchFoldError) {
         do { try FileManager.checked.removeItem(at: file) } catch { throw MetricsLaunchFoldError.undeleted(file) }
+        for companion in reader.companions(of: file) where FileManager.checked.fileExists(atPath: companion.path(percentEncoded: false)) {
+            try? FileManager.checked.removeItem(at: companion)
+        }
     }
 }

@@ -1,5 +1,6 @@
 @testable import CmuxNextMetrics
 import CmuxNextTrace
+import Foundation
 import Testing
 
 /// Chromium's own histograms in the app's store (p09-observability task 107): a harvested delta is kept on the heap in
@@ -58,6 +59,46 @@ import Testing
         #expect(Set(store.delta().histograms.map(\.name)) == ["main.turn", "chromium.Memory.Gpu.PrivateMemoryFootprint"])
         store.markLogged(store.delta())
         #expect(store.delta().isEmpty)
+    }
+
+    /// Chromium's recorder ends with the app: what a launch harvested and no report sent is saved beside its metrics
+    /// file at quit, and the next launch reports it in that launch's section, then deletes both files.
+    @Test func aHarvestedButUnsentDeltaReachesTheEarlierLaunchSection() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "chromium-saved-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let runtime = TraceRuntime(role: .app)
+        let store = Self.store()
+        #expect(store.attach(to: runtime))
+        #expect(!store.blockingSaveChromium(directory: folder), "on the heap: no earlier-launch section would carry it")
+        let path = try #require(store.adoptFile(directory: folder.path(percentEncoded: false)))
+        Metrics(runtime: runtime).record(.mainTurn, 1_000)
+        store.foldChromium(.keyPressedLatency, count: 3, sum: 30_000, buckets: [.init(minimum: 8_000, count: 2), .init(minimum: 12_000, count: 1)])
+        store.foldChromium(.gpuMemory, count: 1, sum: 80_000, buckets: [.init(minimum: 65_536, count: 1)])
+        // A report took the GPU sample: only the key presses are unsent.
+        var sent = store.delta()
+        sent.histograms = sent.histograms.filter { $0.name == "chromium.Memory.Gpu.PrivateMemoryFootprint" }
+        store.markLogged(sent)
+
+        #expect(store.blockingSaveChromium(directory: folder))
+        let file = URL(filePath: path)
+        let saved = MetricsStore.chromiumFile(of: file)
+        #expect(FileManager.default.fileExists(atPath: saved.path(percentEncoded: false)))
+
+        let fold = MetricsLaunchFold(directory: folder, current: folder.appending(path: "metrics-app-1.bin"),
+                                     reader: MetricsLaunchFileReader(role: .app))
+        let section = try #require(try fold.sections().sections.first)
+        #expect(section.file.lastPathComponent == file.lastPathComponent)
+        let key = try #require(section.contents.delta.histograms.first { $0.name == Self.keyName })
+        #expect(key.layout == .chromium && key.count == 3 && key.sum == 30_000)
+        #expect(key.buckets == [MetricsDelta.Bucket(index: 8_000, count: 2), MetricsDelta.Bucket(index: 12_000, count: 1)])
+        #expect(!section.contents.delta.histograms.contains { $0.name == "chromium.Memory.Gpu.PrivateMemoryFootprint" },
+                "a sample a report sent is never saved")
+        #expect(section.contents.delta.histograms.contains { $0.name == "main.turn" })
+
+        try fold.uploaded(section)
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: saved.path(percentEncoded: false)), "the saved block goes with its file")
     }
 
     @Test func anExpiredChromiumHistogramKeepsNothing() {

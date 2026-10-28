@@ -1982,6 +1982,13 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   `RegisterSource`), so cmux deletes nothing. The feature cannot be turned off: `ChromeMainDelegate::SandboxInitialized`
   calls `InstantiatePersistentHistograms` with persistence on, and the renderers' shared-memory histograms need that
   allocator (`RenderProcessHostImpl::CreateMetricsAllocator`).
+- Triggers wait at most 1 s for a harvest (`ControlRouter.metricsHarvestLimit`, an injected clock), then read the
+  store, as Chrome's `HistogramSynchronizer` serves what it has at its timeout: a late fold still lands in the store
+  for the next read. Before the engine is built a harvest answers `not_started` with no main-thread hop. The tally
+  shows as `harvests.chromium` in `metrics.snapshot` and `hang_reports.chromium_histograms` in `debug.shipping_mode`.
+- Chromium's recorder ends with the app: the quit's last save harvests once more (500 ms at most) and writes what no
+  report sent to `metrics-app-<pid>.chromium` beside the launch's metrics file; the next launch reports it in that
+  launch's section and deletes it with the file. A crash loses the samples after the last harvest.
 
 ### 108 WebKit content-process ends and Page unresponsive
 - Files: S/CmuxNextBrowser/WebKit/WebKitTab+Delegates.swift, S/CmuxNextPages/PageWebView+Lifecycle.swift, S/CmuxNextAgentPane/AgentPaneNavigation.swift, S/CmuxNextBrowser/CEF/CEFTab+Events.swift, S/CmuxNextBrowser/Core/BrowserTabStateMachine.swift.

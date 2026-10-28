@@ -43,6 +43,7 @@ enum WatchdogReporting {
             blackboxConsent: { [crashReporting = services.crashReporting] in crashReporting.hangReportsDecided($0) })
         let collector = hangReports.collector
         if let collector { services.crashReporting.attachHangReports(collector) }
+        services.quit.hangReports = hangReports  // the quit's last save keeps Chromium's histograms for the next launch
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
         // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
         if services.blocking.isCompiledIn {

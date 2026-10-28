@@ -43,6 +43,8 @@ final class QuitCoordinator {
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion and records its open field interval.
     weak var watchdog: MainThreadWatchdog?
+    /// The launch's hang reports (WatchdogReporting): the last save keeps Chromium's unsent histograms for the next launch.
+    weak var hangReports: HangReportsController?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
     let deadline = QuitDeadline()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -258,7 +260,10 @@ final class QuitCoordinator {
             // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
             // before the engines stop: nothing the user asked for comes after that (QuitSteps).
             // Nothing is written when nothing changed.
-            lastSave: { await services.home.flushCacheForQuit() },
+            lastSave: { [weak self] in
+                await services.home.flushCacheForQuit()
+                await self?.hangReports?.saveChromiumHistogramsForNextLaunch()  // while Chromium still answers (task 107)
+            },
             armDeadline: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it

@@ -73,8 +73,20 @@ public struct MetricsLaunchFileReader: MetricsLaunchReading {
             }
             return MetricsLaunchContents(id: image.sourceLaunchID, delta: image.delta())
         }
-        guard let contents else { throw MetricsLaunchFoldError.unreadable(file) }
+        guard var contents else { throw MetricsLaunchFoldError.unreadable(file) }
+        // The Chromium histograms the launch harvested and never sent, saved at its quit (task 107).
+        let chromium = ChromiumSavedHistograms.blockingRead(MetricsStore.chromiumFile(of: file), launch: contents.id)
+        if !chromium.isEmpty {
+            var delta = contents.delta
+            delta.histograms += chromium
+            contents = MetricsLaunchContents(id: contents.id, delta: delta)
+        }
         return contents
+    }
+
+    /// The launch's saved Chromium histograms (``MetricsStore/chromiumFile(of:)``), deleted with `file`.
+    public func companions(of file: URL) -> [URL] {
+        [MetricsStore.chromiumFile(of: file)]
     }
 }
 

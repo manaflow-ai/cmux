@@ -27,6 +27,8 @@ public final class ChromiumEngineSlot {
     private var pending: [(CEFEngine) -> Void] = []
     /// The engine once a reader built it; nil before.
     public private(set) var built: CEFEngine?
+    /// ``built`` is set, readable off the main thread (the histogram harvest's gate).
+    private nonisolated let builtFlag = ChromiumEngineBuiltFlag()
 
     /// - Parameters:
     ///   - launch: The launch's scheduler with feature `cefLaunchOrigin` on, else nil (``launchOrder``); `make` gives it to the engine.
@@ -50,6 +52,7 @@ public final class ChromiumEngineSlot {
         self.init(stores: engine.stores, waitDeadlines: engine.waitDeadlines, source: engine.runtimeSource,
                   launch: engine.launchDeferral.startup, make: { _, _, _ in engine }, stop: { await $0.shutdown() })
         built = engine
+        builtFlag.markBuilt()
     }
 
     /// The engine, built and wired on the first read. A read from inside `engineDidCreate` or ``whenBuilt(_:)``
@@ -58,6 +61,7 @@ public final class ChromiumEngineSlot {
         if let built { return built }
         let engine = make(stores, waitDeadlines, source)
         built = engine
+        builtFlag.markBuilt()
         engineDidCreate(engine)
         let waiting = pending
         pending = []
@@ -67,7 +71,7 @@ public final class ChromiumEngineSlot {
 
     /// Chromium's own histograms into the app's store at report triggers (``CEFHistogramHarvest``, p09-observability
     /// 107): one per slot, so hang reports and `metrics.snapshot` share its tally. It builds no engine.
-    public private(set) lazy var histograms = CEFHistogramHarvest(engine: self)
+    public private(set) lazy var histograms = CEFHistogramHarvest(engine: self, built: builtFlag)
 
     /// The engine's ``CEFEngine/unavailableReason``, answered without building it.
     public var unavailableReason: CEFUnavailableReason? { CEFEngine.unavailableReason(source: source) }

@@ -30,6 +30,13 @@ extension HangReportService {
         }
     }
 
+    /// Quitting, while reports are on: the Chromium histograms harvested and not sent yet are kept for the next
+    /// launch's report (``HangReportFieldSources/saveChromiumForNextLaunch()``).
+    public func saveChromiumForNextLaunch() async {
+        guard isEnabled else { return }
+        await fieldSources?.saveChromiumForNextLaunch()
+    }
+
     /// The report id of an outbox entry (its file is `<report id>.json`).
     static func reportID(of entry: URL) -> String {
         entry.deletingPathExtension().lastPathComponent

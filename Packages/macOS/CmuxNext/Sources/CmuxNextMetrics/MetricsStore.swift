@@ -203,7 +203,7 @@ public final class MetricsStore: Sendable {
     }
 
     /// The block at `address`, heap or file (always a valid image: this store wrote its header).
-    private func shadowImage(at address: UInt) -> MetricsImage? {
+    func shadowImage(at address: UInt) -> MetricsImage? {
         UnsafeMutableRawPointer(bitPattern: address).flatMap { MetricsImage(validating: $0, byteCount: byteCount) }
     }
 

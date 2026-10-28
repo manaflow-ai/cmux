@@ -105,8 +105,16 @@ public actor HangReportFieldSources {
     /// The earlier launches' sections, oldest first. A file that does not decode is deleted (it never will).
     public func earlierLaunches() -> [MetricsLaunchSection<MetricsLaunchContents>] {
         guard let fold, let scan = try? fold.sections() else { return [] }
-        for file in scan.unreadable { try? FileManager.checked.removeItem(at: file) }
+        for file in scan.unreadable { try? fold.discard(file) }
         return scan.sections
+    }
+
+    /// Quitting: the Chromium histograms harvested and not sent yet go beside this launch's metrics file
+    /// (``MetricsStore/blockingSaveChromium(directory:)``), so the next launch reports them in this launch's section.
+    /// Nothing without a launch-file folder or a file-backed store.
+    public func saveChromiumForNextLaunch() {
+        guard let metricsDirectory, let store else { return }
+        store.blockingSaveChromium(directory: metricsDirectory)
     }
 
     /// `section` is in a report the server took, or held nothing to send: its file is deleted, so it is never read

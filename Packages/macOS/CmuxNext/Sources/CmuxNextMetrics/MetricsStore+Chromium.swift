@@ -1,9 +1,13 @@
 import CmuxNextCompat
+public import Foundation
 
 /// Chromium's own histograms in the app's store (task 107): the deltas a harvest read from Chromium's
 /// `base::StatisticsRecorder` (the fork's `cmux_cef_histogram_snapshot`), added up per histogram in Chromium's
-/// buckets. They have no block in the metrics file: Chromium keeps its own numbers, so a crash loses only what
-/// was harvested and not yet sent. A delta lists them as ``HistogramID/Layout/chromium`` histograms whose bucket
+/// buckets, on the heap. Chromium's recorder ends with the app, so the quit harvests once more and
+/// ``blockingSaveChromium(directory:)`` writes what no report sent beside this launch's metrics file; the next launch
+/// reports it in this launch's section (``MetricsLaunchFileReader``), as Chrome's browser keeps its histograms in a
+/// BrowserMetrics file for the next run (components/metrics/persistent_histograms.cc). A crash loses what was
+/// recorded after the last harvest. A delta lists them as ``HistogramID/Layout/chromium`` histograms whose bucket
 /// index is the bucket's smallest sample, as the hang report wire sends them.
 extension MetricsStore {
     /// One Chromium bucket of a harvested delta: `count` samples from `minimum` up to Chromium's next bucket.
@@ -29,6 +33,75 @@ extension MetricsStore {
             state.chromium.add(id, count: count, sum: sum, buckets: buckets)
         }
         return true
+    }
+
+    /// `metrics-<role>-<pid>.chromium` beside the launch's metrics file `file`: the Chromium histograms that launch
+    /// harvested and never sent.
+    public static func chromiumFile(of file: URL) -> URL {
+        file.deletingPathExtension().appendingPathExtension("chromium")
+    }
+
+    /// Writes the Chromium histograms no report sent yet beside this launch's metrics file in `directory` (the folder
+    /// ``adoptFile(directory:)`` used), replacing an earlier write. False when nothing was written: the counters are on
+    /// the heap (no earlier-launch section would carry them), every sample was sent, or the write failed. Blocking file
+    /// work: the quit's files lane, never main.
+    @discardableResult
+    public func blockingSaveChromium(directory: URL) -> Bool {
+        guard isFileBacked else { return false }
+        let (launch, histograms) = shadow.withLock { state in
+            (shadowImage(at: state.address)?.sourceLaunchID, state.chromium.histograms(unloggedOnly: true))
+        }
+        guard let launch, !histograms.isEmpty,
+              let data = try? JSONEncoder().encode(ChromiumSavedHistograms(launch: launch, histograms: histograms)) else { return false }
+        let file = Self.chromiumFile(of: directory.appending(path: Self.fileName(role: role, pid: pid), directoryHint: .notDirectory))
+        do {
+            try data.blockingWrite(to: file, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
+/// The Chromium histograms a launch saved at quit (``MetricsStore/blockingSaveChromium(directory:)``), for the launch
+/// with id `launch` (``MetricsImage/sourceLaunchID``): a later launch that got the same pid has another id.
+struct ChromiumSavedHistograms: Codable, Sendable {
+    struct Histogram: Codable, Sendable {
+        var name: String
+        var count: UInt64
+        var sum: UInt64
+        /// (the bucket's smallest sample, its samples), ascending.
+        var buckets: [Bucket]
+    }
+
+    struct Bucket: Codable, Sendable {
+        var minimum: Int64
+        var count: UInt64
+    }
+
+    var launch: String
+    var histograms: [Histogram]
+
+    init(launch: String, histograms: [MetricsDelta.Histogram]) {
+        self.launch = launch
+        self.histograms = histograms.map { histogram in
+            Histogram(name: histogram.name, count: histogram.count, sum: histogram.sum,
+                      buckets: histogram.buckets.map { Bucket(minimum: Int64($0.index), count: $0.count) })
+        }
+    }
+
+    /// The saved histograms of the launch `launch` in `file`, as a delta lists them; none when the file is missing,
+    /// does not decode or is another launch's. Blocking file work.
+    static func blockingRead(_ file: URL, launch: String) -> [MetricsDelta.Histogram] {
+        guard let data = try? Data(blockingContentsOf: file),
+              let saved = try? JSONDecoder().decode(ChromiumSavedHistograms.self, from: data), saved.launch == launch else { return [] }
+        return saved.histograms.compactMap { histogram -> MetricsDelta.Histogram? in
+            guard ChromiumCounts.id(named: histogram.name) != nil, histogram.count > 0 else { return nil }
+            let buckets = histogram.buckets.filter { $0.count > 0 }
+                .map { MetricsDelta.Bucket(index: Int(clamping: max($0.minimum, 0)), count: $0.count) }
+            return MetricsDelta.Histogram(name: histogram.name, layout: .chromium, count: histogram.count, sum: histogram.sum,
+                                          buckets: buckets, entry: ChromiumCounts.entry)
+        }
     }
 }
 

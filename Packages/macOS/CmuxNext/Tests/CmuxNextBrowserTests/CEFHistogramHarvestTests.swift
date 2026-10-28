@@ -65,6 +65,49 @@ import Testing
         #expect(store.delta().isEmpty)
     }
 
+    /// The report triggers read the tally through ``CEFHistogramHarvest/metricsHarvest``: an old fork shows as
+    /// `unsupported` in `metrics.snapshot` and `debug.shipping_mode`, not as a Chromium with no samples.
+    @Test func theTriggersSeamNamesAnUnsupportedFork() async {
+        let harvest = CEFHistogramHarvest(snapshot: { _ in .failure(.unsupported) }, store: { Self.store() }).metricsHarvest
+        await harvest.run()
+        #expect(harvest.name == "chromium")
+        #expect(await harvest.tally()["unsupported"] == 1)
+        #expect(await harvest.tally()["folded"] == 0)
+    }
+
+    /// Before the engine is built nothing hops to the main thread: the harvest answers notStarted from the flag.
+    @Test func beforeChromiumRunsNothingIsAsked() async {
+        let asked = Asked()
+        let harvest = CEFHistogramHarvest(snapshot: { names in
+            asked.names.append(names)
+            return .success([])
+        }, isRunning: { false }, store: { Self.store() })
+        #expect(await harvest.harvest() == .failed(.notStarted))
+        #expect(asked.names.isEmpty)
+        #expect(await harvest.tally.notStarted == 1)
+    }
+
+    /// A trigger that stops waiting (its deadline passed, its task cancelled) does not stop the fold: the samples reach
+    /// the store when Chromium answers, so the next report or read has them.
+    @Test func aFoldOutlivesACancelledCaller() async throws {
+        let store = Self.store()
+        let (started, didStart) = AsyncStream.makeStream(of: Void.self)
+        let (answers, answer) = AsyncStream.makeStream(of: Void.self)
+        let harvest = CEFHistogramHarvest(snapshot: { _ in
+            didStart.yield()
+            for await _ in answers { break }
+            return .success([Self.keyPress])
+        }, store: { store })
+        let caller = Task { await harvest.harvest() }
+        for await _ in started { break }
+        caller.cancel()
+        answer.yield()
+        #expect(await caller.value == .folded(histograms: 1, samples: 3), "a cancelled caller does not cancel the fold")
+        let folded = try #require(store.delta().histograms.first { $0.name == "chromium.EventLatency.KeyPressed.TotalLatency" })
+        #expect(folded.count == 3)
+        #expect(await harvest.tally.folded == 1)
+    }
+
     @Test func noStoreAsksNothing() async {
         let asked = Asked()
         let harvest = CEFHistogramHarvest(snapshot: { names in

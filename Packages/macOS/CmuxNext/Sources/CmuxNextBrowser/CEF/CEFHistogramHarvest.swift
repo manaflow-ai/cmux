@@ -8,8 +8,12 @@ internal import CmuxNextTrace
 /// them to the store (``MetricsStore/foldChromium(_:count:sum:buckets:)``); the report then sends them with
 /// the app's own (``MetricsStore/delta()``), as Chrome's `HistogramSnapshotManager` sends deltas.
 ///
+/// The fold runs in a task of its own: a caller that stops waiting (``metricsHarvest``'s callers bound the wait, as
+/// Chrome's `HistogramSynchronizer` does) leaves it to finish into the store, and a harvest asked while one runs joins
+/// it. Before Chromium runs, a harvest answers ``CEFHistogramHarvestError/notStarted`` without a main-thread hop.
+///
 /// ```swift
-/// let harvest = CEFHistogramHarvest(engine: services.cache.chromium)
+/// let harvest = services.cache.chromium.histograms   // the engine slot's one harvest
 /// _ = await harvest.harvest()   // before a report reads the store
 /// ```
 public actor CEFHistogramHarvest {
@@ -24,8 +28,6 @@ public actor CEFHistogramHarvest {
         case failed(CEFHistogramHarvestError)
         /// The app has no metrics store: nothing was asked.
         case noStore
-        /// Another harvest was running; the next one takes these samples.
-        case busy
     }
 
     /// How often each outcome happened.
@@ -37,14 +39,13 @@ public actor CEFHistogramHarvest {
         public var refused = 0
         public var abandoned = 0
         public var noStore = 0
-        public var busy = 0
 
         public init() {}
 
         /// Each count under its snake_case name.
         public var byName: [String: UInt64] {
             ["folded": UInt64(folded), "samples": samples, "not_started": UInt64(notStarted), "unsupported": UInt64(unsupported),
-             "refused": UInt64(refused), "abandoned": UInt64(abandoned), "no_store": UInt64(noStore), "busy": UInt64(busy)]
+             "refused": UInt64(refused), "abandoned": UInt64(abandoned), "no_store": UInt64(noStore)]
         }
 
         mutating func count(_ outcome: Outcome) {
@@ -57,7 +58,6 @@ public actor CEFHistogramHarvest {
             case .failed(.refused): refused += 1
             case .failed(.abandoned): abandoned += 1
             case .noStore: noStore += 1
-            case .busy: busy += 1
             }
         }
     }
@@ -66,41 +66,55 @@ public actor CEFHistogramHarvest {
     public nonisolated static let allowlist: [String] = HistogramID.Chromium.allCases.map(\.rawValue)
 
     private let takeSnapshot: Snapshot
+    private let isRunning: @Sendable () -> Bool
     private let store: @Sendable () -> MetricsStore?
-    private var harvesting = false
+    /// The fold in progress; a harvest asked meanwhile joins it.
+    private var inFlight: Task<Outcome, Never>?
     /// Every outcome so far.
     public private(set) var tally = Tally()
 
     /// - Parameters:
     ///   - snapshot: Runs one snapshot (``CEFEngine/histogramSnapshot(names:)``; tests a fake).
+    ///   - isRunning: Whether Chromium runs now, read off the main thread; false answers notStarted without `snapshot`.
     ///   - store: The store the deltas go to.
-    public init(snapshot: @escaping Snapshot, store: @escaping @Sendable () -> MetricsStore?) {
+    public init(snapshot: @escaping Snapshot, isRunning: @escaping @Sendable () -> Bool = { true },
+                store: @escaping @Sendable () -> MetricsStore?) {
         takeSnapshot = snapshot
+        self.isRunning = isRunning
         self.store = store
     }
 
-    /// A harvest over the App's engine slot into the app runtime's store. It builds no engine: before a Chromium
-    /// need built one, a harvest is ``CEFHistogramHarvestError/notStarted``.
-    public init(engine slot: ChromiumEngineSlot) {
+    /// A harvest over the App's engine slot into the app runtime's store. It builds no engine: before a Chromium need
+    /// built one (`built`, read off the main thread), a harvest is ``CEFHistogramHarvestError/notStarted`` with no hop.
+    init(engine slot: ChromiumEngineSlot, built: ChromiumEngineBuiltFlag) {
         self.init(snapshot: { [weak slot] names in
             guard let engine = slot?.built else { return .failure(.notStarted) }
             return await engine.histogramSnapshot(names: names)
-        }, store: { MetricsStore.attached(to: TraceRuntime.shared) })
+        }, isRunning: { built.isBuilt }, store: { MetricsStore.attached(to: TraceRuntime.shared) })
     }
 
-    /// Asks Chromium for ``allowlist``'s new samples and folds them into the store; counts the outcome.
+    /// This harvest as the report triggers' seam (`metrics.snapshot`, hang reports), under the name `chromium`.
+    public nonisolated var metricsHarvest: MetricsHarvest {
+        MetricsHarvest(name: "chromium", run: { _ = await self.harvest() }, tally: { await self.tally.byName })
+    }
+
+    /// Asks Chromium for ``allowlist``'s new samples and folds them into the store; counts the outcome. Joins a fold
+    /// in progress. A caller that stops waiting does not stop the fold: its samples reach the store when it ends.
     @discardableResult
     public func harvest() async -> Outcome {
-        let outcome: Outcome
-        if harvesting {
-            outcome = .busy
-        } else if let store = store() {
-            harvesting = true
-            outcome = await fold(into: store)
-            harvesting = false
-        } else {
-            outcome = .noStore
-        }
+        if let inFlight { return await inFlight.value }
+        guard let store = store() else { return finish(.noStore) }
+        guard isRunning() else { return finish(.failed(.notStarted)) }
+        // task-owner: one fold, owned by the actor until it ends (the fork always sends its end call); it inherits
+        // the caller's priority and is not cancelled with the caller.
+        let running = Task { self.finish(await self.fold(into: store)) }
+        inFlight = running
+        return await running.value
+    }
+
+    /// Counts `outcome` and ends the fold in progress.
+    private func finish(_ outcome: Outcome) -> Outcome {
+        inFlight = nil
         tally.count(outcome)
         return outcome
     }

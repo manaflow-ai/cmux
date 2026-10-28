@@ -196,17 +196,27 @@ import Testing
         let count = Mutex(0)
     }
 
+    /// A router with only `metrics.snapshot` over `runtime`'s store and `harvest`, which it waits for at most `limit`.
+    private static func harvestingRouter(_ runtime: TraceRuntime, enabled: Bool = true, limit: Duration = ControlRouter.metricsHarvestLimit,
+                                         tally: [String: UInt64] = ["folded": 1],
+                                         _ harvest: @escaping @Sendable () async -> Void) -> ControlRouter {
+        let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(), configuration: .init(allowsDebugMethods: false))
+        router.register([ControlRouter.metricsMethod(MetricsSnapshot(runtime: runtime), enabled: enabled,
+                                                     harvest: MetricsHarvest(name: "chromium", run: harvest, tally: { tally }),
+                                                     harvestLimit: limit)])
+        return router
+    }
+
     /// With Chromium's harvest (p09-observability task 107) a request is a report trigger: the harvest folds
     /// Chromium's histograms in first, and `chromium.*` shows in Chromium's own buckets.
     @Test func aHarvestRunsBeforeTheReadAndChromiumHistogramsShow() async throws {
         let (runtime, store) = Self.recordingRuntime()
         let harvests = HarvestCount()
-        let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(), configuration: .init(allowsDebugMethods: false))
-        router.register([ControlRouter.metricsMethod(MetricsSnapshot(runtime: runtime), enabled: true, harvest: {
+        let router = Self.harvestingRouter(runtime) {
             harvests.count.withLock { $0 += 1 }
             store.foldChromium(.keyPressedLatency, count: 2, sum: 30_000,
                                buckets: [.init(minimum: 12_000, count: 1), .init(minimum: 16_000, count: 1)])
-        })])
+        }
         #expect(try #require(router.method(named: "metrics.snapshot")).lane == .async)
 
         let reply = try await Self.ask(router, ["names": ["chromium."]]).get()
@@ -217,16 +227,45 @@ import Testing
         #expect(key["layout"]?["kind"] == .string("chromium"))
         #expect(key["buckets"]?.arrayValue?.compactMap { $0["low"] } == [JSONValue(12_000), JSONValue(16_000)])
         #expect(key["p50"] == JSONValue(12_000) && key["max"] == JSONValue(16_000))
+        #expect(reply["harvests"]?["chromium"]?["finished"] == .bool(true))
+    }
+
+    /// A harvest that never answers (Chromium's UI thread or the main thread stalled) holds the request only for the
+    /// harvest limit: it then answers with the app's own histograms, well before the control plane's deadline, as
+    /// Chrome's HistogramSynchronizer serves what it has at its timeout.
+    @Test func aHarvestThatNeverAnswersStillServesTheAppsHistograms() async throws {
+        let (runtime, _) = Self.recordingRuntime()
+        Metrics(runtime: runtime).record(.mainTurn, 1_000)
+        let (never, release) = AsyncStream.makeStream(of: Void.self)
+        // Ignores the request's cancellation, as a stalled Chromium does: the wait is an unstructured task's.
+        let hung = Task { for await _ in never {} }
+        defer { release.finish() }
+        let router = Self.harvestingRouter(runtime, limit: .milliseconds(50)) { await hung.value }
+
+        let started = ContinuousClock.now
+        let reply = try await Self.ask(router).get()
+        #expect(ContinuousClock.now - started < .seconds(1), "answered at the harvest limit, not the control-plane deadline")
+        #expect(Self.histogram("main.turn", in: reply)?["count"] == JSONValue(1))
+        #expect(reply["harvests"]?["chromium"]?["finished"] == .bool(false))
+    }
+
+    /// An old fork or host mode answers no Chromium histograms: the reply names the harvest's tally, so `unsupported`
+    /// does not look like a Chromium with no samples or a feature that is off.
+    @Test func theHarvestTallyNamesAnUnsupportedChromium() async throws {
+        let (runtime, _) = Self.recordingRuntime()
+        let router = Self.harvestingRouter(runtime, tally: ["folded": 0, "unsupported": 1]) {}
+        let reply = try await Self.ask(router).get()
+        #expect(reply["harvests"]?["chromium"]?["tally"]?["unsupported"] == JSONValue(1))
+        #expect(reply["harvests"]?["chromium"]?["tally"]?["folded"] == JSONValue(0))
     }
 
     /// Off, the harvest never runs: nothing is read from Chromium for a request the feature refuses.
     @Test func aHarvestNeverRunsWhileTheFeatureIsOff() async {
         let (runtime, _) = Self.recordingRuntime()
         let harvests = HarvestCount()
-        let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(), configuration: .init(allowsDebugMethods: false))
-        router.register([ControlRouter.metricsMethod(MetricsSnapshot(runtime: runtime), enabled: false, harvest: {
+        let router = Self.harvestingRouter(runtime, enabled: false) {
             harvests.count.withLock { $0 += 1 }
-        })])
+        }
         guard case .failure(let error) = await Self.ask(router) else {
             Issue.record("served while off")
             return

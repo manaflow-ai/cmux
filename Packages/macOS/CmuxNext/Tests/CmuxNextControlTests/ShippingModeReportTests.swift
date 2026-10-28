@@ -17,14 +17,15 @@ import Testing
         #expect(json["pages_render_when_covered"] == .bool(false))
         #expect(json["sentry_should_start"] == .bool(true))
         let hangReports: JSONValue = ["available": .bool(true), "setting": .bool(true), "decision": .string("send"),
-                                      "enabled": .bool(true), "daemon_metrics_fold": .null]
+                                      "enabled": .bool(true), "daemon_metrics_fold": .null,
+                                      "chromium_histograms": .null]
         #expect(json["hang_reports"] == hangReports)
     }
 
     @Test func aBuildThatCannotSendReportsNulls() {
         let off = ShippingModeReport.HangReports(available: false, setting: nil, decision: nil, enabled: false)
         let expected: JSONValue = ["available": .bool(false), "setting": .null, "decision": .null, "enabled": .bool(false),
-                                   "daemon_metrics_fold": .null]
+                                   "daemon_metrics_fold": .null, "chromium_histograms": .null]
         #expect(off.json == expected)
     }
 
@@ -34,6 +35,15 @@ import Testing
                                                          daemonMetricsFold: ["folded": 2, "samples": 40, "missing": 1])
         let expected: JSONValue = ["folded": .number(2), "samples": .number(40), "missing": .number(1)]
         #expect(hangReports.json["daemon_metrics_fold"] == expected)
+    }
+
+    /// Task 107: an old fork or host mode answers no Chromium histograms; the harvest's tally says unsupported, so it
+    /// does not look like a Chromium with no samples.
+    @Test func theChromiumHarvestCountsShow() {
+        let hangReports = ShippingModeReport.HangReports(available: true, setting: true, decision: "send", enabled: true,
+                                                         chromiumHistograms: ["folded": 0, "unsupported": 2])
+        let expected: JSONValue = ["folded": .number(0), "unsupported": .number(2)]
+        #expect(hangReports.json["chromium_histograms"] == expected)
     }
 
     @Test func theMethodAnswersTheReadersState() async {

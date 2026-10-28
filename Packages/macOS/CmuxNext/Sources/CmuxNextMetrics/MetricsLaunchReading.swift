@@ -17,6 +17,13 @@ public protocol MetricsLaunchReading: Sendable {
     /// The contents of `file`. Throws ``MetricsLaunchFoldError/unreadable(_:)`` for a file whose header or
     /// buckets do not decode (a launch killed while the file was being made).
     func read(_ file: URL) throws(MetricsLaunchFoldError) -> Contents
+
+    /// The files beside `file` that hold more of its launch (deleted with it); none by default.
+    func companions(of file: URL) -> [URL]
+}
+
+extension MetricsLaunchReading {
+    public func companions(of file: URL) -> [URL] { [] }
 }
 
 /// Why a launch file could not be folded.

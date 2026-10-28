@@ -62,13 +62,18 @@ public struct ShippingModeReport: Sendable {
         /// Each outcome of the daemon metrics fold (task 062) by name, with its count this launch; nil where nothing
         /// is folded.
         public var daemonMetricsFold: [String: UInt64]?
+        /// Each outcome of the Chromium histogram harvest (task 107: `folded`, `unsupported` for an old fork or host
+        /// mode, `not_started`, ...) by name, with its count this launch; nil while feature chromiumHistograms is off.
+        public var chromiumHistograms: [String: UInt64]?
 
-        public init(available: Bool, setting: Bool?, decision: String?, enabled: Bool, daemonMetricsFold: [String: UInt64]? = nil) {
+        public init(available: Bool, setting: Bool?, decision: String?, enabled: Bool, daemonMetricsFold: [String: UInt64]? = nil,
+                    chromiumHistograms: [String: UInt64]? = nil) {
             self.available = available
             self.setting = setting
             self.decision = decision
             self.enabled = enabled
             self.daemonMetricsFold = daemonMetricsFold
+            self.chromiumHistograms = chromiumHistograms
         }
 
         var json: JSONValue {
@@ -78,6 +83,9 @@ public struct ShippingModeReport: Sendable {
                 "decision": decision.map(JSONValue.string) ?? .null,
                 "enabled": .bool(enabled),
                 "daemon_metrics_fold": daemonMetricsFold.map { counts in
+                    JSONValue.object(counts.mapValues { JSONValue.number(Double($0)) })
+                } ?? .null,
+                "chromium_histograms": chromiumHistograms.map { counts in
                     JSONValue.object(counts.mapValues { JSONValue.number(Double($0)) })
                 } ?? .null,
             ]

@@ -6,6 +6,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextMemory
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextWakeups
@@ -19,10 +20,8 @@ import Observation
 extension AppServices {
     /// Chromium's own histograms into the app's store (chromium.*, p09-observability 107), run at report triggers while
     /// the default-off feature chromiumHistograms is on; nil while it is off. Builds no engine.
-    var chromiumHistogramHarvest: (@Sendable () async -> Void)? {
-        guard features.isEnabled(.chromiumHistograms) else { return nil }
-        let harvest = cache.chromium.histograms
-        return { _ = await harvest.harvest() }
+    var chromiumHistogramHarvest: MetricsHarvest? {
+        features.isEnabled(.chromiumHistograms) ? cache.chromium.histograms.metricsHarvest : nil
     }
 
     /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
