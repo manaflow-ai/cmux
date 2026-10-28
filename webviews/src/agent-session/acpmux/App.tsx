@@ -43,6 +43,7 @@ import {
   isBeforeFooter,
   isLastFooter,
   QUEUED_MESSAGE,
+  WAITING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import {
@@ -50,6 +51,8 @@ import {
   SteerWaitingActions,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
+import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
+import { groupWaitingMessages, type WaitingGroups } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -1401,6 +1404,21 @@ const StartedSessionsRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
+/// Several other sessions' waiting messages as one card (conversation/WaitingMessagesCard.tsx): each
+/// message draws in it as its own row draws alone.
+const WaitingMessagesRow = memo(
+  function WaitingMessagesRow(props: RowProps) {
+    const renderMessage = (message: AcpmuxRow) =>
+      message.kind === QUEUED_MESSAGE ? (
+        <QueuedMessageRow {...props} row={message} />
+      ) : (
+        <MessageRow {...props} row={message} />
+      );
+    return <WaitingMessagesCard row={props.row} renderMessage={renderMessage} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -1425,6 +1443,7 @@ const defaultRegistry: NativeRegistry = {
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
+  [WAITING_MESSAGES]: WaitingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -1997,7 +2016,7 @@ function TranscriptContext({
 }
 
 export function VirtualTranscript({
-  rows,
+  rows: rowsIn,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2016,7 +2035,8 @@ export function VirtualTranscript({
   dock,
   queueWithdrawn,
   queueIds,
-  queuedTail,
+  queuedTail: queuedTailIn,
+  waitingSteers,
   focusComposer,
   openAt,
   onAnchor,
@@ -2058,6 +2078,9 @@ export function VirtualTranscript({
   /// The waiting agent messages at the rows' end (conversation/queuedMessages.ts), one array while
   /// the queue holds them.
   queuedTail?: readonly AcpmuxRow[];
+  /// The rows of the steers the agent has not read yet (snapshot `waitingSteers`): with the queued
+  /// tail, where other sessions' waiting messages draw as one card (conversation/waitingMessages.ts).
+  waitingSteers?: readonly string[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -2101,6 +2124,12 @@ export function VirtualTranscript({
   showMinimap?: boolean;
 }) {
   const t = useT();
+  // Other sessions' waiting messages, two or more in a run, as one card each run: the rows as drawn.
+  const waitingGroups = useRef<WaitingGroups | undefined>(undefined);
+  const { rows, tail: queuedTail } = useMemo(
+    () => (waitingGroups.current = groupWaitingMessages(rowsIn, queuedTailIn, waitingSteers, waitingGroups.current)),
+    [rowsIn, queuedTailIn, waitingSteers],
+  );
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -8739,6 +8768,7 @@ function AcpmuxPane() {
                                                   queueWithdrawn={snapshot.queueWithdrawn}
                                                   queueIds={quick ? undefined : queueIds}
                                                   queuedTail={queuedRows}
+                                                  waitingSteers={childRows ? undefined : snapshot.waitingSteers}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows

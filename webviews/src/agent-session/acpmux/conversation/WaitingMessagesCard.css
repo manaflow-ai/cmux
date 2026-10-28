@@ -1,0 +1,66 @@
+/* Several other sessions' waiting messages as one card (WaitingMessagesCard.tsx): its head is one
+   26px line in the received line's place and type, in `.cv-received`'s 2px margins (model.ts
+   estimates that): the chevron in the icon column, the count, the senders muted and cut with an
+   ellipsis, the quiet delivery note at the end. Open, the messages sit under it, each as its own
+   received card, in from the icon column. Never an opaque or bordered box, and nothing animates
+   in: only the chevron turns (`.cv-rotor`). */
+.cv-waiting {
+  margin: 2px 0;
+}
+.cv-waiting__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 26px;
+  padding-right: 28px;
+  color: var(--cv-text-dim);
+  white-space: nowrap;
+  user-select: none;
+}
+.cv-waiting__toggle {
+  all: unset;
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 26px;
+  cursor: pointer;
+}
+.cv-waiting__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  margin-right: -1.5px;
+}
+.cv-waiting__count {
+  flex: none;
+  color: var(--cv-text);
+}
+.cv-waiting__senders {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-waiting__sender + .cv-waiting__sender::before {
+  content: ", ";
+}
+.cv-waiting__toggle:hover,
+.cv-waiting__toggle:focus-visible {
+  color: var(--cv-text);
+}
+.cv-waiting__toggle:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.cv-waiting__messages {
+  margin-left: 22px;
+}
+.cv-waiting__messages[hidden] {
+  display: none;
+}

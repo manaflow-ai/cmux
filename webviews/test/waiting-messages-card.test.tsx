@@ -96,7 +96,11 @@ async function connect(steps: Step[]) {
 
 const doc = dom.window.document;
 const root = createRoot(doc.getElementById("root")!);
-async function draw(props: { rows: AcpmuxRow[]; queuedTail?: readonly AcpmuxRow[]; waitingSteers?: readonly string[] }) {
+async function draw(props: {
+  rows: AcpmuxRow[];
+  queuedTail?: readonly AcpmuxRow[];
+  waitingSteers?: readonly string[];
+}) {
   // On a page without the card the prop is only ignored: the test then reads N cards.
   const Transcript = VirtualTranscript as (props: Record<string, unknown>) => React.ReactElement;
   await act(async () => root.render(<Transcript {...props} onToggleActivity={() => {}} expanded={new Set()} />));
@@ -162,7 +166,11 @@ test("one steered message alone draws as before", async () => {
 
 const queuedAgent = (index: number) => {
   const text = `Lane ${index}: CI is green on #${24000 + index}.`;
-  return { id: `a${index}`, prompt: text, message: { name: `lane-${index}`, sessionId: `s-${index}`, text, raw: text } };
+  return {
+    id: `a${index}`,
+    prompt: text,
+    message: { name: `lane-${index}`, sessionId: `s-${index}`, text, raw: text },
+  };
 };
 
 test("messages queued behind the turn are one card that opens to their queued cards", async () => {
@@ -186,7 +194,13 @@ test("messages queued behind the turn are one card that opens to their queued ca
 
 test("grouping: runs of two or more of one kind, never mixed, and nothing changes without one", async () => {
   const { groupWaitingMessages } = await import(waitingModule);
-  const row = (id: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", ...fields });
+  const row = (id: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    version: 1,
+    at: 0,
+    kind: "user",
+    ...fields,
+  });
   const message = (id: string, name: string): AcpmuxRow =>
     row(id, {
       steer: "waiting",
@@ -209,7 +223,13 @@ test("grouping: runs of two or more of one kind, never mixed, and nothing change
   expect(none.rows).toBe(rows);
   const steers = ["m1", "m2", "own", "m3", "m4", "m5"];
   const grouped = groupWaitingMessages(rows, undefined, steers);
-  expect(grouped.rows.map((r: AcpmuxRow) => r.id)).toEqual(["summary", "turn", "waiting-step-m1", "own", "waiting-step-m3"]);
+  expect(grouped.rows.map((r: AcpmuxRow) => r.id)).toEqual([
+    "summary",
+    "turn",
+    "waiting-step-m1",
+    "own",
+    "waiting-step-m3",
+  ]);
   expect(grouped.rows[2].waiting.rows.map((r: AcpmuxRow) => r.id)).toEqual(["m1", "m2"]);
   expect(grouped.rows[4].waiting.rows.map((r: AcpmuxRow) => r.id)).toEqual(["m3", "m4", "m5"]);
   expect(grouped.rows[4].joined).toEqual(["m3", "m4", "m5"]);
