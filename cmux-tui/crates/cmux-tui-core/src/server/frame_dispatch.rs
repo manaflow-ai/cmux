@@ -33,6 +33,24 @@
 //! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
 //! frame (server/pending_handoff.rs).
 //!
+//! An INPUT frame (p05-ipc-078) is the raw bytes of a `send` on a stream:
+//! its header names the stream and the key press's flow id, its payload is
+//! the bytes. It is never parsed and never answered. It runs on the stream's
+//! sequence, after the stream's earlier items, and writes its surface's
+//! terminal the way `send` does, under the connection's cause. A failure is
+//! the stream's event `input-failed{stream, reason, bytes}`; while the
+//! terminal stays ended, later INPUT on the same open of the stream fails
+//! with no second event, and a write that reaches a terminal again (a
+//! respawned one) or a new open of the stream reports the next end again.
+//! INPUT obeys a line's gates: after a shutdown or a committed handoff it
+//! closes the connection, during a pending handoff it is refused with
+//! `daemon_handoff`, and from a remote-relay client it is a bad message
+//! (the relay denies by default). This is Chrome's
+//! `WidgetInputHandler`: input is a one-way message on the widget's own
+//! associated pipe, ordered with the widget's other messages, with no reply
+//! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
+//! `DispatchNonBlockingEvent`).
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`]; the routes move to the method table in
@@ -59,11 +77,15 @@ use serde_json::json;
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
 
+use super::cmd_terminal_io::InputFailure;
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
 use super::pending_streams::{ClientStreams, RequestLane, StreamEndpoint, post_request};
-use super::{Command, ConnectionCancellation, MessageWriter, Mux, handle_connection_frame_at};
+use super::{
+    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux,
+    handle_connection_frame_at,
+};
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
 pub(super) const METHOD_NOT_FRAMED: &str = "method_not_framed";
@@ -180,6 +202,8 @@ pub(super) enum CallRefusal {
     CancelMismatch { request_id: u32, method_id: u16 },
     /// A CANCEL with a payload.
     CancelPayload { request_id: u32 },
+    /// An INPUT frame from a remote-relay client, which writes no terminal.
+    RemoteInput { stream: u16 },
 }
 
 impl CallRefusal {
@@ -196,6 +220,7 @@ impl CallRefusal {
             CallRefusal::DuplicateRequest { .. } => "duplicate_request",
             CallRefusal::CancelMismatch { .. } => "cancel_mismatch",
             CallRefusal::CancelPayload { .. } => "cancel_payload",
+            CallRefusal::RemoteInput { .. } => "remote_input",
         }
     }
 }
@@ -236,6 +261,9 @@ impl fmt::Display for CallRefusal {
             ),
             CallRefusal::CancelPayload { request_id } => {
                 write!(f, "cancel of request {request_id} has a payload")
+            }
+            CallRefusal::RemoteInput { stream } => {
+                write!(f, "INPUT on stream {stream} from a remote-relay client")
             }
         }
     }
@@ -295,9 +323,7 @@ impl FrameLane for RequestFrames {
                 .cancel(&header, call, frame.payload().is_empty())
                 .map(|()| true)
                 .map_err(ConnectionBadMessage::Call),
-            (FrameKind::Input, None) if header.stream() != 0 => {
-                self.streams.input(frame).map(|()| true)
-            }
+            (FrameKind::Input, None) if header.stream() != 0 => self.input(frame, connection),
             (kind, _) => Err(ConnectionBadMessage::UnroutedKind { kind }),
         }
     }
@@ -358,6 +384,32 @@ impl RequestFrames {
                 connection.arrived,
             )),
         }
+    }
+
+    /// Queues an INPUT frame's bytes on its stream, behind the line's gates.
+    /// Nothing parses them and nothing answers them; a failure is the
+    /// stream's `input-failed`. `Ok(false)` closes the connection, as a
+    /// line's handler does after a shutdown or a committed handoff.
+    fn input(
+        &mut self,
+        frame: Frame,
+        connection: &FrameConnection<'_>,
+    ) -> Result<bool, ConnectionBadMessage> {
+        let mux = connection.mux;
+        // The gates of `handle_connection_frame_at`, in its order: no input
+        // runs after the shutdown acknowledgement.
+        if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+            return Ok(false);
+        }
+        let stream = frame.header().stream();
+        let (remote, cause) = mux.frame_client(connection.client);
+        if matches!(connection.transport, ClientTransport::Remote) || remote {
+            return Err(ConnectionBadMessage::Call(CallRefusal::RemoteInput { stream }));
+        }
+        // Refused without being written, as a line is while the handoff can
+        // still fail; the connection stays open.
+        let refused = mux.daemon_handoff_in_progress().then_some(InputFailure::DaemonHandoff);
+        self.streams.input(frame, cause, refused).map(|()| true)
     }
 
     fn cancel(
@@ -510,3 +562,7 @@ fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {
 #[cfg(all(test, unix))]
 #[path = "frame_dispatch_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "input_frames_tests.rs"]
+mod input_frames_tests;
