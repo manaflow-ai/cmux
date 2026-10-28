@@ -68,7 +68,7 @@ on:
         default: ''
         type: string
       promote_nightly_next_debounce:
-        description: Unused; every promotion is skipped when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS. Kept so older callers' dispatches stay valid.
+        description: Skip the promotion when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (set by the automatic request).
         required: false
         default: false
         type: boolean
@@ -475,12 +475,9 @@ jobs:
   # Moves the protected branch `nightly-next` (the cmux-next NIGHTLY track,
   # which publishes from its own push run) to a feat-cmux-next commit. Runs
   # only here on main, in the `release` environment, with the release App (the
-  # only bypass actor of the nightly-next ruleset). The 30-minute
-  # nightly-next-tick.yml requests it; so do older feat-cmux-next revisions'
-  # landings and a person's Run workflow with the SHA. Every request is
-  # debounced (below), so nightly-next starts at most one build per
-  # NIGHTLY_NEXT_MIN_INTERVAL_HOURS (0.33 h: a tick 10 minutes late still
-  # promotes) and the tick catches what a skip leaves. The commit counts only through
+  # only bypass actor of the nightly-next ruleset). cmux-next.yml on
+  # feat-cmux-next requests it after a green Release compile without debounce; a person
+  # can Run workflow with the SHA (no debounce). The commit counts only through
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
   # The promote guard (scripts/ci/promote-nightly-next.mjs, run from this
@@ -532,14 +529,8 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
-          # The cadence, enforced here for every caller: a request within
-          # NIGHTLY_NEXT_MIN_INTERVAL_HOURS of the newest nightly-next build's start
-          # is skipped, and the 30-minute tick (nightly-next-tick.yml) promotes
-          # later. A feat-cmux-next landing runs its own commit's revision of
-          # request-nightly-next.sh, and revisions from before the tick-only change
-          # still dispatch, so the script's gate alone cannot hold the cadence.
-          DEBOUNCE: "true"
-          MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '0.33' }}
+          DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
+          MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
         with:
           script: |
             const fs = require('fs');

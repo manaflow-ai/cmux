@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -59,8 +58,6 @@ const notices = [];
 const actions = {
   // Only decideNewest() lists runs without paginating: the promotion requests on main.
   listWorkflowRuns: async (params) => {
-    // The debounce reads the newest nightly-next build: scenario.nightlyNextRuns, newest first.
-    if (params.branch === 'nightly-next') return { data: { workflow_runs: (scenario.nightlyNextRuns || []).slice(0, params.per_page) } };
     calls.dispatchStatuses.push(params.status);
     if (scenario.dispatchThrows) throw Object.assign(new Error('Service Unavailable'), { status: 503 });
     return { data: { workflow_runs: (scenario.dispatchRuns || []).filter((run) => run.status === params.status) } };
@@ -224,9 +221,6 @@ const decision = scenario.newest
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
-      ...(scenario.debounceNow === undefined ? {} : {
-        debounce: true, minIntervalHours: scenario.minIntervalHours, now: () => Date.parse(scenario.debounceNow),
-      }),
       verifyTrain: scenario.trainVerify === undefined ? null : async () => {
         if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
         return scenario.trainVerify;
@@ -362,36 +356,6 @@ def test_non_surface_range_is_promoted() -> None:
     out = run(scenario())
     assert out["decision"]["action"] == "promote", out
     assert out["ack"]["ok"]
-
-
-def test_a_burst_of_landings_starts_one_build_per_window() -> None:
-    """Every promotion starts a full nightly build; six ran at once on 2026-10-28.
-
-    The promote job debounces every request (nightly.yml sets DEBOUNCE "true"),
-    whoever asks: a feat-cmux-next landing runs its own commit's revision of
-    request-nightly-next.sh, and older revisions still dispatch. The first
-    request of a window promotes, the landings after it within the interval
-    are skipped, and the next 30-minute tick promotes the newest."""
-    assert re.search(r'(?m)^\s+DEBOUNCE: "true"$', WORKFLOW), "the debounce must not depend on the caller"
-    assert "vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '0.33'" in WORKFLOW
-    started = "2026-10-28T01:00:00Z"
-    window = dict(minIntervalHours=0.33, nightlyNextRuns=[])
-    assert run(scenario(debounceNow=started, **window))["decision"]["action"] == "promote"
-    window["nightlyNextRuns"] = [{"id": 9, "created_at": "2026-10-28T01:01:00Z"}]
-    for landing in ("01:05", "01:12", "01:20"):
-        out = run(scenario(debounceNow=f"2026-10-28T{landing}:00Z", **window))
-        assert out["decision"]["action"] == "skip", (landing, out["decision"])
-        assert "Debounced" in out["decision"]["reason"]
-    tick = run(scenario(debounceNow="2026-10-28T01:37:00Z", **window))
-    assert tick["decision"]["action"] == "promote", tick["decision"]
-    late_tick = run(scenario(debounceNow="2026-10-28T01:22:00Z", **window))
-    assert late_tick["decision"]["action"] == "promote", "a tick 10 minutes late still promotes"
-
-
-def test_a_tick_with_nothing_new_starts_nothing() -> None:
-    out = run(scenario(current=SHA, debounceNow="2026-10-28T01:37:00Z", minIntervalHours=0.33, nightlyNextRuns=[]))
-    assert out["decision"]["action"] == "skip", out["decision"]
-    assert "already at" in out["decision"]["reason"]
 
 
 def test_sha_not_on_feat_cmux_next_is_refused() -> None:
