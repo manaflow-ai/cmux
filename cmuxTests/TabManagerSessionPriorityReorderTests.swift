@@ -82,6 +82,34 @@ struct TabManagerSessionPriorityReorderTests {
         #expect(reports == 1)
     }
 
+    /// Move Down on the bottom workspace is clamped and still handled. The user asked to go
+    /// down, so it does not promote d above c, which a bump showed first.
+    @Test func moveDownAtTheBottomDoesNotPromote() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        manager.moveTabToTopForNotification(fixture.c)
+        try #require(manager.tabs.map(\.id) == [fixture.c, fixture.a, fixture.b, fixture.d])
+
+        #expect(manager.reorderWorkspace(tabId: fixture.d, by: 1))
+
+        #expect(manager.tabs.map(\.id) == [fixture.c, fixture.a, fixture.b, fixture.d])
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.a, fixture.b, fixture.c, fixture.d])
+    }
+
+    /// Move Up on the top workspace is clamped too; it asked to go up, so it affirms the place.
+    @Test func moveUpAtTheTopAffirmsThePlace() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        manager.moveTabToTopForNotification(fixture.d)
+        try #require(manager.tabs.map(\.id) == [fixture.d, fixture.a, fixture.b, fixture.c])
+
+        #expect(manager.reorderWorkspace(tabId: fixture.d, by: -1))
+
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.d, fixture.a, fixture.b, fixture.c])
+    }
+
     /// The sidebar menu's Move to Top of a selection already at the top affirms it the same way.
     @Test func moveSelectionToTopThatLeavesTheOrderAffirmsIt() throws {
         let fixture = try makeFixture()

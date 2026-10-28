@@ -121,6 +121,22 @@ struct SessionPriorityRankTests {
         #expect(rank.recordedOrder == [c, d, a, b])
     }
 
+    /// Move Down on the last workspace is clamped and leaves the order. The user asked to go
+    /// down, so the moving-down rule places it and it is not promoted: rank `a b c` shown as
+    /// `b a c`, Move Down on c, keeps `a b c`.
+    @Test func orderPreservingMoveDownKeepsTheWorkspaceWhereItRanks() {
+        var rank = SessionPriorityRank(recordedOrder: [a, b, c])
+        rank.recordUserMove(movedIds: [c], before: [b, a, c], after: [b, a, c], movingUp: false)
+        #expect(rank.recordedOrder == [a, b, c])
+    }
+
+    /// The direction matters only when the order did not change: a real move keeps its own.
+    @Test func directionIsIgnoredForAMoveThatChangedTheOrder() {
+        var rank = SessionPriorityRank(recordedOrder: [a, b, c, d])
+        rank.recordUserMove(movedIds: [c], before: [d, a, b, c], after: [c, d, a, b], movingUp: false)
+        #expect(rank.recordedOrder == [c, a, b, d])
+    }
+
     // MARK: - Explicit order (batch reorder)
 
     @Test func recordUserOrderPermutesWithinHeldSlots() {
