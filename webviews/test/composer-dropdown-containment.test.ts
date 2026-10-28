@@ -55,6 +55,14 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
       try {
         const popup = page.locator(".acpmux-folder-popover");
         await contained(page, popup);
+        const trigger = page.getByRole("button", { name: "Folder", exact: true });
+        const triggerBounds = (await trigger.boundingBox())!;
+        const popupBounds = (await popup.boundingBox())!;
+        if (height >= 560) {
+          expect(popupBounds.y).toBeGreaterThanOrEqual(triggerBounds.y + triggerBounds.height - 1);
+        } else {
+          expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(triggerBounds.y + 1);
+        }
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
         await reachable(projects.last(), popup.locator(".ui-combobox-viewport"));
@@ -70,6 +78,14 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
       try {
         const popup = page.locator(".acpmux-env-popover");
         await contained(page, popup);
+        const trigger = page.getByRole("button", { name: /^Environment/ });
+        const triggerBounds = (await trigger.boundingBox())!;
+        const popupBounds = (await popup.boundingBox())!;
+        if (height >= 560) {
+          expect(popupBounds.y).toBeGreaterThanOrEqual(triggerBounds.y + triggerBounds.height - 1);
+        } else {
+          expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(triggerBounds.y + 1);
+        }
         const gpu = popup.locator('[role="option"]').filter({ hasText: "gpu-box" });
         expect(await gpu.count()).toBe(1);
         expect(await gpu.locator('[data-connected="true"]').count()).toBe(1);
