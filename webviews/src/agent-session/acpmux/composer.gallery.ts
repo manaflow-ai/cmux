@@ -1116,6 +1116,71 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
       },
     },
+    // #26545's review at 2b4ccd42: in the prompt, a PDF, a video and an image that cannot be drawn
+    // keep the strip chip's preview, open, play and fallback (composer/inlineAttachments.tsx).
+    "attachment-inline-pdf": {
+      note: "Inline view: a kept draft's PDF in the prompt's text is the strip's PDF card (sheet, name, page count), and a click on its sheet opens the PDF viewer.",
+      snapshot: chat(finished),
+      ready: { draft: "Summarize the design notes." },
+      native: { "chat.draftAttachments.get": [KEPT_PDF] },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const card = "[data-inline-attachment] .acpmux-attachment-document[data-page-count='2']";
+        await ctx.waitFor(() => ctx.document.querySelector(card));
+        if (ctx.find({ selector: `${card} .acpmux-attachment-document-name` }).textContent !== "design-notes.pdf")
+          throw new Error("the inline PDF card must name its file");
+        await ctx.click({ selector: "[data-inline-attachment] .acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+      },
+    },
+    "attachment-inline-video": {
+      note: "Inline view: a dropped screen recording in the prompt's text is the strip's video tile, its poster with a play glyph and 0:42; a click plays it in Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+      },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        dropScreenshotAndVideo(ctx);
+        // Both in the text and drawn (the screenshot's thumbnail is made off the main thread).
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-inline-attachment] img").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-inline-attachment] .acpmux-attachment-video img"));
+        if (ctx.find({ selector: "[data-inline-attachment] .acpmux-attachment-video-length" }).textContent !== "0:42")
+          throw new Error("the inline video tile must show its length");
+        // The screenshot's loading tile became its narrower thumbnail as the waits ended: let that
+        // frame's shift report before the hover is measured.
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+        await ctx.hover({ selector: "[data-inline-attachment] .acpmux-attachment-video" });
+      },
+    },
+    "attachment-inline-image-failed": {
+      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with Retry and its x.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      ready: { draft: "What is in this screenshot?" },
+      native: { "chat.draftAttachments.get": [KEPT_BROKEN_IMAGE] },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const tile = "[data-inline-attachment] .acpmux-attachment-image-failed";
+        await ctx.waitFor(() => ctx.document.querySelector(tile));
+        const chip = ctx.find({ selector: tile });
+        if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
+          throw new Error("an inline image that cannot be drawn must say Couldn't load image");
+        if (!chip.querySelector("button.acpmux-attachment-retry"))
+          throw new Error("an inline image that cannot be drawn must offer Retry");
+        if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
+          throw new Error("an inline image that cannot be drawn must keep its remove button");
+        await ctx.hover({ selector: tile });
+      },
+    },
     "attachment-reorder": {
       note: "Leo, 2026-10-24: \"we ought to be able to drag and reorder images if we're seeing the non-inline attachment composer\". Three pasted screenshots; the first is being dragged past the second (it lifts and moves as the pointer goes), and the prompt sends them in the strip's order. Option-Left/Right moves a focused chip.",
       snapshot: chat(finished),

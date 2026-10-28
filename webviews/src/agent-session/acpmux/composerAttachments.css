@@ -179,6 +179,19 @@
   color: var(--agent-muted);
   text-align: center;
 }
+/* With its Retry (attachmentIntake.tsx BrokenImageChip): the glyph, the note and Retry fit the tile. */
+.acpmux-attachment-image-failed {
+  gap: 2px;
+}
+.acpmux-attachment-image-failed .acpmux-attachment-failed-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.acpmux-attachment-image-failed .acpmux-attachment-retry {
+  line-height: 16px;
+}
 .acpmux-attachment-failed-icon {
   flex: none;
   opacity: 0.8;

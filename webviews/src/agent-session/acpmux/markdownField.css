@@ -297,6 +297,8 @@
 .acpmux-md-inline-chip {
   position: relative;
   display: inline-flex;
+  /* Never on its content's baseline: a thumbnail's would leave a descender's gap under the chip. */
+  vertical-align: top;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
