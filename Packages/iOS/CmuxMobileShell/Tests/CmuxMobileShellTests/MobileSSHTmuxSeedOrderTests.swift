@@ -26,6 +26,7 @@ import Testing
 
         func write(_ data: Data) async throws { writtenContinuation.yield(data) }
         func close() async { eventsContinuation.yield(.closed) }
+        func abort() { eventsContinuation.yield(.closed); eventsContinuation.finish() }
         func tmux(_ text: String) { eventsContinuation.yield(.stdout(Data(text.utf8))) }
     }
 
