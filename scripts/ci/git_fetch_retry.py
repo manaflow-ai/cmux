@@ -213,18 +213,40 @@ def gitfile_target(worktree: Path) -> Path | None:
     return Path(os.path.normpath(target if target.is_absolute() else worktree / target))
 
 
+def inside(path: Path, root: Path) -> bool:
+    """Whether `path` is strictly under `root` with no symlink on the way (root itself included)."""
+    if root.is_symlink():
+        return False
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    if not rel.parts or ".." in rel.parts:
+        return False
+    walk = root
+    for part in rel.parts:
+        walk = walk / part
+        if walk.is_symlink():
+            return False
+    return path.resolve() != root.resolve() and root.resolve() in path.resolve().parents
+
+
 def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print) -> list[Path]:
     """Remove submodule checkouts whose `.git` file names a git dir that is gone or has no HEAD.
 
     `submodule update --init --force` cannot repair such a checkout ("could not get a repository
     handle", "not a git repository"); with the checkout gone it clones the submodule again. A
-    half-made git dir it named is removed too when it is under this repository's .git/modules.
-    Checkouts are visited top-down, so a nested one under a removed checkout is not visited.
+    half-made git dir it named is removed too when it is under this repository's own .git/modules.
+    Only paths inside the repository with no symlink on the way are touched. Checkouts are visited
+    top-down, so a nested one under a removed checkout is not visited.
     """
     removed: list[Path] = []
-    modules = (repo / ".git" / "modules").resolve()
+    repo = Path(os.path.abspath(repo))
+    modules = repo / ".git" / "modules"
+    own_modules = (repo / ".git").is_dir() and not (repo / ".git").is_symlink()
     for worktree in submodule_worktrees(repo):
-        if any(parent in removed for parent in worktree.parents):
+        worktree = Path(os.path.normpath(worktree))
+        if any(parent in removed for parent in worktree.parents) or not inside(worktree, repo):
             continue
         target = gitfile_target(worktree)
         if target is None or (target / "HEAD").is_file():
@@ -233,9 +255,8 @@ def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print) -> 
             remove_tree(worktree)
             worktree.mkdir(parents=True, exist_ok=True)  # as a fresh checkout leaves an uninitialized submodule
             removed.append(worktree)
-            resolved = target.resolve()
-            if resolved.is_dir() and modules in resolved.parents:
-                remove_tree(resolved)
+            if own_modules and target.is_dir() and inside(target, modules):
+                remove_tree(target)
         except OSError as error:
             log(f"git_fetch_retry: could not remove {worktree}: {error}")
             continue
@@ -316,12 +337,17 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
 def main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tries", type=int, default=3)
-    parser.add_argument("--timeout", type=float, required=True, help="seconds per try")
+    parser.add_argument("--timeout", type=float, help="seconds per try (required with a command)")
     parser.add_argument("--repo", type=Path, default=Path("."))
+    parser.add_argument("--drop-dangling-submodules", action="store_true",
+                        help="only remove submodule checkouts whose git dir is gone, then exit")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.drop_dangling_submodules:
+        drop_dangling_submodules(args.repo)
+        return 0
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    if args.tries < 1 or args.timeout <= 0 or not command:
+    if args.tries < 1 or args.timeout is None or args.timeout <= 0 or not command:
         parser.error("need --tries >= 1, --timeout > 0 and a git command after --")
     return run(command, tries=args.tries, timeout=args.timeout, repo=args.repo.resolve())
 

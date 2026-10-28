@@ -232,6 +232,42 @@ class DanglingSubmodules(unittest.TestCase):
         self.assertEqual(self.update(), 0)
         self.assertEqual((self.repo / "ghostty" / "build-cache").read_text(), "warm\n")
 
+    def test_a_dangling_nested_checkout_is_dropped(self) -> None:
+        inner = self.repo / "ghostty" / "vendor"
+        inner.mkdir()
+        (self.repo / "ghostty" / ".gitmodules").write_text('[submodule "vendor"]\n\tpath = vendor\n')
+        (inner / ".git").write_text("gitdir: ../../.git/modules/ghostty/modules/vendor\n")
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [inner])
+        self.assertTrue((self.repo / "ghostty" / ".git").is_file())  # the healthy parent stays
+
+    def test_nothing_outside_the_repository_is_touched(self) -> None:
+        outside = Path(self.temp.name) / "outside"
+        (outside / "victim").mkdir(parents=True)
+        (outside / "victim" / "keep").write_text("x\n")
+        (outside / "victim" / ".git").write_text("gitdir: ../nowhere\n")
+        (self.repo / ".gitmodules").write_text('[submodule "a"]\n\tpath = ../outside/victim\n'
+                                               '[submodule "b"]\n\tpath = link/victim\n')
+        (self.repo / "link").symlink_to(outside)
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [])
+        self.assertEqual((outside / "victim" / "keep").read_text(), "x\n")
+
+    def test_a_symlinked_modules_root_is_never_emptied(self) -> None:
+        outside = Path(self.temp.name) / "elsewhere"
+        (outside / "ghostty" / "objects").mkdir(parents=True)  # no HEAD: looks half-made
+        shutil.rmtree(self.repo / ".git" / "modules")
+        (self.repo / ".git" / "modules").symlink_to(outside)
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [self.repo / "ghostty"])
+        self.assertTrue((outside / "ghostty" / "objects").is_dir())
+
+    def test_the_cli_only_drops(self) -> None:
+        shutil.rmtree(self.repo / ".git" / "modules")
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/git_fetch_retry.py"),
+                                 "--drop-dangling-submodules", "--repo", str(self.repo)],
+                                capture_output=True, text=True, env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("which is gone", result.stdout)
+        self.assertEqual(list((self.repo / "ghostty").iterdir()), [])
+
     def test_only_a_submodule_update_drops_checkouts(self) -> None:
         shutil.rmtree(self.repo / ".git" / "modules")
         retry.run(["git", "fetch", "origin", "abc"], tries=1, timeout=60, repo=self.repo, runner=lambda c, t: 0,
