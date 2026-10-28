@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -210,6 +211,7 @@ final class QuitCoordinator {
             },
             finalizeDrafts: {
                 await services.agentTabs.unsentDrafts.finalizeForQuit()
+                await AgentPaneDraftAttachments.shared?.draftTexts.finalizeForQuit()
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk

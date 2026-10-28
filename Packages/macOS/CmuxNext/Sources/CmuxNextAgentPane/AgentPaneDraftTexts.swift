@@ -9,6 +9,7 @@ public final class AgentPaneDraftTexts {
     private let file: URL?
     private let background: BackgroundWork
     private var tail: Task<Void, Never>?
+    private var acceptsWrites = true
 
     public init(directory: URL?, work: BackgroundWork) {
         file = directory?.appending(path: Self.fileName)
@@ -20,6 +21,7 @@ public final class AgentPaneDraftTexts {
     }
 
     public func set(_ text: String, for sessionId: String) async throws {
+        guard acceptsWrites else { return }
         try await queued { file in
             var drafts = try Self.load(file)
             guard drafts[sessionId] != text else { return }
@@ -32,6 +34,17 @@ public final class AgentPaneDraftTexts {
             try JSONEncoder().encode(drafts).blockingWrite(to: file, options: .atomic)
             try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         }
+    }
+
+    /// Waits for this store's ordered files writes without blocking the main actor.
+    public func flush() async {
+        await tail?.value
+    }
+
+    /// Called after a committed quit: page producers stop changing this store, then pending writes drain.
+    public func finalizeForQuit() async {
+        acceptsWrites = false
+        await flush()
     }
 
     private func queued<T: Sendable>(_ work: @escaping @Sendable (URL?) throws -> T) async throws -> T {

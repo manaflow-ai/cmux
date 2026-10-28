@@ -6,10 +6,13 @@ for (const draft of ["newer edit from another host", "", null]) {
   test("daemon reply wins over a stale native mirror: " + JSON.stringify(draft), async () => {
     const reply = { sessionId, draft };
     const nativeCalls: unknown[][] = [];
-    const actions = draftTextActions({ readDraft: async () => reply, writeDraft: async () => undefined }, async (method, params) => {
-      nativeCalls.push([method, params]);
-      return "stale native draft";
-    });
+    const actions = draftTextActions(
+      { readDraft: async () => reply, writeDraft: async () => undefined },
+      async (method, params) => {
+        nativeCalls.push([method, params]);
+        return "stale native draft";
+      },
+    );
     expect(await actions["chat.readDraft"]({ sessionId })).toEqual(reply);
     expect(nativeCalls).toEqual([["chat.draftText.set", { sessionId, text: draft ?? "" }]]);
   });
@@ -57,7 +60,6 @@ test("writes mirror the same session and text before daemon persistence", async 
     [sessionId, ""],
   ]);
 });
-
 
 test("an authoritative daemon clear updates the mirror for a later fallback", async () => {
   let available = true;

@@ -3,6 +3,8 @@ public import Foundation
 
 public enum DraftStateMigration {
     public static let directoryName = "drafts-v1"
+    private static let importedComposerKeysFile = ".adopted-v1-agent-composer-drafts-imported.json"
+
     public static let artifacts = [
         "agent-draft-attachments",
         "agent-pane-wake-states.json",
@@ -117,7 +119,12 @@ public enum DraftStateMigration {
             do {
                 if let source {
                     if artifact == "agent-unsent-drafts.json" || artifact == "agent-composer-drafts.json" {
-                        try mergeDrafts(from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
+                        let imported = try mergeDrafts(
+                            from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
+                        if artifact == "agent-composer-drafts.json", !imported.isEmpty {
+                            try JSONEncoder().encode(imported.sorted()).blockingWrite(
+                                to: staging.appending(path: importedComposerKeysFile), options: [.atomic])
+                        }
                     } else if artifact != "quick-composer-draft.json" || !fileManager.fileExists(atPath: target.path) {
                         try copyMissing(from: source, to: target, fileManager: fileManager, copyItem: copyItem, owned: owned)
                     }
@@ -141,7 +148,8 @@ public enum DraftStateMigration {
     }
 
     /// Recovers only composer_draft fields from old daemon session metadata. It does
-    /// not move, rewrite or adopt any daemon state.
+    /// not move, rewrite or adopt any daemon state. Imported legacy keys may be replaced by
+    /// the newest metadata, including an explicit clear; genuine destination keys never are.
     public static func adoptComposerDrafts(from homes: [URL], to destination: URL,
                                            fileManager: CheckedFileManager = FileManager.checked) {
         let file = destination.appending(path: "agent-composer-drafts.json")
@@ -151,6 +159,12 @@ public enum DraftStateMigration {
                   let existing = try? JSONDecoder().decode([String: String].self, from: data) else { return }
             drafts = existing
         }
+        var imported = Set<String>()
+        let importedFile = destination.appending(path: importedComposerKeysFile)
+        if let data = try? Data(blockingContentsOf: importedFile),
+           let keys = try? JSONDecoder().decode([String].self, from: data) {
+            imported = Set(keys)
+        }
         var changed = false
         // The former Quick store was one JSON string. Its fixed key now shares this store.
         if drafts["quick-composer-v1"] == nil,
@@ -159,31 +173,60 @@ public enum DraftStateMigration {
             drafts["quick-composer-v1"] = text
             changed = true
         }
-        var latest: [String: (date: Date, text: String?)] = [:]
+        enum Metadata {
+            case valid(String?)
+            case unavailable
+        }
+        var latest: [String: (date: Date, metadata: Metadata)] = [:]
         for home in homes {
             guard let sessions = try? fileManager.contentsOfDirectory(
                 at: home.appending(path: "sessions"), includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
             for session in sessions {
                 let metadata = session.appending(path: "session.json")
-                guard let data = try? Data(blockingContentsOf: metadata),
-                      let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let id = object["id"] as? String else { continue }
                 let date = (try? fileManager.attributesOfItem(atPath: metadata.path)[.modificationDate] as? Date) ?? .distantPast
+                let fallbackID = session.lastPathComponent
+                let parsed: [String: Any]?
+                if let data = try? Data(blockingContentsOf: metadata),
+                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    parsed = object
+                } else {
+                    parsed = nil
+                }
+                let id = parsed?["id"] as? String ?? fallbackID
+                guard !id.isEmpty else { continue }
+                let value: Metadata
+                if let object = parsed, object["id"] as? String == id {
+                    value = .valid(object["composerDraft"] as? String)
+                } else {
+                    value = .unavailable
+                }
                 if let previous = latest[id], previous.date >= date { continue }
-                latest[id] = (date, object["composerDraft"] as? String)
+                latest[id] = (date, value)
             }
         }
-        for (id, (_, text)) in latest where drafts[id] == nil {
-            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            drafts[id] = text
-            changed = true
+        var unresolved = false
+        for (id, (_, metadata)) in latest {
+            switch metadata {
+            case .unavailable:
+                unresolved = true
+            case .valid(let text):
+                guard imported.contains(id) || drafts[id] == nil else { continue }
+                let value = text ?? ""
+                guard drafts[id] != value || imported.contains(id) else { continue }
+                drafts[id] = value
+                changed = true
+                imported.remove(id)
+            }
         }
-        guard changed else { return }
+        guard changed || (!imported.isEmpty && !unresolved) else { return }
         do {
             try fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
                                             attributes: [.posixPermissions: 0o700])
             try JSONEncoder().encode(drafts).blockingWrite(to: file, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            if !unresolved {
+                try? fileManager.removeItem(at: importedFile)
+            }
         } catch { }
     }
 
@@ -191,12 +234,19 @@ public enum DraftStateMigration {
 
     /// Unsent drafts were strings before attachment records. Keep pure legacy files in that
     /// format; if records are present, promote strings so the record decoder can read every key.
-    private static func mergeDrafts(from source: URL, to target: URL, unsent: Bool, fileManager: CheckedFileManager) throws {
-        var drafts = try draftDictionary(at: source, unsent: unsent)
+    private static func mergeDrafts(from source: URL, to target: URL, unsent: Bool,
+                                    fileManager: CheckedFileManager) throws -> Set<String> {
+        let sourceDrafts = try draftDictionary(at: source, unsent: unsent)
+        var drafts = sourceDrafts
+        var imported = Set(sourceDrafts.keys)
         if fileManager.fileExists(atPath: target.path) {
             let existing = try draftDictionary(at: target, unsent: unsent)
-            drafts.merge(existing) { _, current in current }
-            if drafts.count == existing.count { return }
+            drafts = existing
+            for (key, value) in sourceDrafts where existing[key] == nil {
+                drafts[key] = value
+            }
+            imported = Set(sourceDrafts.keys.filter { existing[$0] == nil })
+            if imported.isEmpty { return [] }
         }
         if unsent, drafts.values.contains(where: { $0 is [String: Any] }) {
             drafts = drafts.mapValues { value in
@@ -206,6 +256,7 @@ public enum DraftStateMigration {
         }
         try JSONSerialization.data(withJSONObject: drafts, options: [.sortedKeys]).blockingWrite(to: target, options: [.atomic])
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+        return imported
     }
 
     private static func draftDictionary(at file: URL, unsent: Bool) throws -> [String: Any] {
