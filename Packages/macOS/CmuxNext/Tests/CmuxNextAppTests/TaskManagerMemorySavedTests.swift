@@ -122,16 +122,18 @@ struct TaskManagerMemorySavedTests {
 
     // MARK: The app
 
-    static func services(enabling names: Set<String> = []) -> AppServices {
+    /// Services whose features turn `names` on and `disabled` off over the DEV defaults (where
+    /// `taskManagerMemorySaved` is on by default: feature-switch-policy.md).
+    static func services(enabling names: Set<String> = [], disabling disabled: Set<String> = []) -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
-                                        overrides: FeatureOverrides(environmentEnabled: names))
+                                        overrides: FeatureOverrides(environmentDisabled: disabled, environmentEnabled: names))
         return services
     }
 
     @Test func thePageServiceFollowsTheFeature() {
-        let off = Self.services()
+        let off = Self.services(disabling: [Feature.taskManagerMemorySaved.name])
         #expect(!off.taskManager.memorySaved)
         #expect(!off.taskManager.source.memorySaved)
 

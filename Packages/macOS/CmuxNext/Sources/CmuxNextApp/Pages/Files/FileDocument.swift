@@ -2,6 +2,7 @@ import struct CmuxNextDaemon.POSIXErrorText
 import CryptoKit
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 nonisolated enum FileOpenFailure: Error, Sendable, Equatable {
     case notFound
@@ -49,7 +50,7 @@ nonisolated enum FileDocument {
         var info = stat()
         // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
         // into `info`, a local live for the call.
-        guard unsafe stat(real.path, &info) == 0 else { throw .notFound }
+        guard unsafe blockingStat(real.path, &info) == 0 else { throw .notFound }
         guard info.st_mode & S_IFMT == S_IFREG else { throw .notFile }
         guard Int(info.st_size) <= maximumBytes else { throw .tooLarge }
         // concurrency-allow: FileDocument is nonisolated; the pages call it from @concurrent functions only
@@ -62,7 +63,7 @@ nonisolated enum FileDocument {
             .encoding
         } else if !inWorkspace {
             .outside
-        } else if unsafe access(real.path, W_OK) != 0 {
+        } else if unsafe blockingAccess(real.path, W_OK) != 0 {
             .permission
         } else {
             nil
@@ -118,13 +119,13 @@ nonisolated enum FileDocument {
         var info = stat()
         // SAFETY: stat, open, unlink and rename read the NUL-terminated copies of the paths Swift makes for each
         // call; stat writes one struct stat into `info`, a local live for the call.
-        let exists = unsafe stat(target.path, &info) == 0
+        let exists = unsafe blockingStat(target.path, &info) == 0
         let mode = exists ? mode_t(info.st_mode & 0o7777) : 0o644
-        let descriptor = unsafe open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
+        let descriptor = unsafe blockingOpen(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
         guard descriptor >= 0 else { throw WriteError(step: "open", code: errno) }
         var renamed = false
         defer {
-            if !renamed { unsafe unlink(temporary.path) }
+            if !renamed { unsafe _ = blockingUnlink(temporary.path) }
         }
         do {
             defer { close(descriptor) }
@@ -147,9 +148,9 @@ nonisolated enum FileDocument {
                 guard fchmod(descriptor, mode) == 0 else { throw WriteError(step: "fchmod", code: errno) }
                 copyExtendedAttributes(from: target.path, to: descriptor)
             }
-            guard fsync(descriptor) == 0 else { throw WriteError(step: "fsync", code: errno) }
+            guard blockingFsync(descriptor) == 0 else { throw WriteError(step: "fsync", code: errno) }
         }
-        guard unsafe rename(temporary.path, target.path) == 0 else { throw WriteError(step: "rename", code: errno) }
+        guard unsafe blockingRename(temporary.path, target.path) == 0 else { throw WriteError(step: "rename", code: errno) }
         renamed = true
     }
 

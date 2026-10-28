@@ -259,7 +259,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty { return shell }
         // SAFETY: getpwuid's entry and its NUL-terminated pw_shell stay valid until the next
         // getpw* call; String(cString:) copies the shell at once.
-        if let entry = unsafe getpwuid(getuid()), let shell = unsafe entry.pointee.pw_shell {
+        if let entry = unsafe blockingGetpwuid(getuid()), let shell = unsafe entry.pointee.pw_shell {
             // SAFETY: as above.
             let path = unsafe String(cString: shell)
             if !path.isEmpty { return path }

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// The last login environment the app captured, kept on disk so the next
 /// launch has it before `$SHELL -l -i` finishes (5-17 s on some setups).
@@ -33,10 +34,9 @@ struct LoginEnvironmentStore: Sendable {
     /// A store in `url`, written atomically and made private to the user.
     static func file(_ url: URL) -> LoginEnvironmentStore {
         LoginEnvironmentStore(read: { try? Data(contentsOf: url) }, write: { data in
-            let fileManager = FileManager.default
-            try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             guard (try? data.write(to: url, options: .atomic)) != nil else { return }
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         })
     }
 
