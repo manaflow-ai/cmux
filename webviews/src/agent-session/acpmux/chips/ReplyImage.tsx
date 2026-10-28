@@ -23,6 +23,7 @@ import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
 
@@ -189,13 +190,15 @@ export function ReplyImage({
   thumb?: boolean;
 }) {
   const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
   const local = localImageSource(src);
-  // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
-  if (local && scope?.host !== undefined)
+  // Another machine's image (or, read only, the owner's): its chip, never a file of the same path
+  // here; a denied one is its name.
+  if (local && (scope?.host !== undefined || readOnly))
     return isDeniedPath(local) ? (
       <span className="cv-chip-plain">{alt || pathName(local)}</span>
     ) : (
-      <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
+      <ElsewhereChip path={local} host={scope?.host ?? ""} label={alt || undefined} />
     );
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;

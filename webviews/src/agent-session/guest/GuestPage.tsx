@@ -168,13 +168,17 @@ export function LiveChat({
         // The guest's own prompts' states: the composer's (part 2).
         promptState: () => undefined,
         connection: setConnection,
-        ended: (reason) => ended.current(reason),
+        ended: (reason) => {
+          client.dispose();
+          ended.current(reason);
+        },
       },
     );
     socket.current = room;
     room.connect();
     return () => {
       room.stop();
+      client.dispose();
       pageArrived.current?.();
     };
   }, [socketUrl, openSocket]);
@@ -223,6 +227,7 @@ export function LiveChat({
             expanded={expanded}
             onToggleActivity={toggle}
             working={snapshot.isWorking}
+            readOnly
             canLoadOlder={hasMore}
             historyFrom={snapshot.historyFrom}
             onLoadOlder={loadOlder}

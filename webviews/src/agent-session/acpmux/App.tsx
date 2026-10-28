@@ -336,6 +336,7 @@ import {
   resumeThrough,
   type TurnActions,
 } from "./conversation/turnActions";
+import { TranscriptReadOnly, useTranscriptReadOnly } from "./conversation/readOnly";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -1111,6 +1112,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
+    const readOnly = useTranscriptReadOnly();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one line at the left (its sender's chip), its text as a card under
@@ -1127,15 +1129,17 @@ const MessageRow = memo(
             messageAt={row.at}
             images={row.images}
             onOpen={openSenderChat}
-            onReply={replyToMessage}
+            onReply={readOnly ? undefined : replyToMessage}
             actions={
-              <ReceivedActions
-                row={row}
-                text={row.incoming.message.text}
-                more={
-                  row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />
-                }
-              />
+              readOnly ? undefined : (
+                <ReceivedActions
+                  row={row}
+                  text={row.incoming.message.text}
+                  more={
+                    row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />
+                  }
+                />
+              )
             }
             githubRepository={githubRepository}
           />
@@ -1175,7 +1179,7 @@ const MessageRow = memo(
                 row={row}
                 text={envelope ? envelope.task : (row.text ?? "")}
                 pending={
-                  steerControls(row)
+                  !readOnly && steerControls(row)
                     ? (actions) => (
                         <PendingSteer row={row} send={editQueued}>
                           {actions}
@@ -1193,7 +1197,7 @@ const MessageRow = memo(
                 row={row}
                 text={row.text ?? ""}
                 pending={
-                  steerControls(row)
+                  !readOnly && steerControls(row)
                     ? (actions) => (
                         <PendingSteer row={row} send={editQueued}>
                           {actions}
@@ -1209,7 +1213,7 @@ const MessageRow = memo(
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
-              {row.queued && (
+              {row.queued && !readOnly && (
                 <button
                   type="button"
                   className="cv-user__cancel"
@@ -1683,6 +1687,41 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_OF]: SubagentOfPillRow,
   [SUBAGENT_EMPTY]: SubagentEmptyRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
+};
+
+// A shared chat's guest can see the owner's transcript but cannot act on its rows.
+const NoRow = () => null;
+const ReadOnlyPermissionRow = memo(function ReadOnlyPermissionRow({ row }: RowProps) {
+  const t = useT();
+  return <div className="acpmux-muted">{row.permission?.title?.trim() || t("permission.required")}</div>;
+});
+const ReadOnlyQueuedMessageRow = memo(function ReadOnlyQueuedMessageRow({ row, githubRepository }: RowProps) {
+  return row.incoming?.kind === "message" ? (
+    <div className="cv-incoming">
+      <IncomingMessageLine
+        id={row.id}
+        message={row.incoming.message}
+        messageAt={row.at}
+        images={row.images}
+        onOpen={openSenderChat}
+        githubRepository={githubRepository}
+      />
+    </div>
+  ) : null;
+});
+const ReadOnlyAgentPairRow = memo(function ReadOnlyAgentPairRow({ row }: RowProps) {
+  return row.agentPair ? <AgentPairNote pair={row.agentPair} /> : null;
+});
+const readOnlyRegistry: NativeRegistry = {
+  ...defaultRegistry,
+  permission: ReadOnlyPermissionRow,
+  [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
+  agentPair: ReadOnlyAgentPairRow,
+  sessionOffer: NoRow,
+  [OFFER_RESULT]: NoRow,
+  [STARTED_SESSIONS]: NoRow,
+  [PREVIEW]: NoRow,
+  [RENDER]: NoRow,
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
@@ -2279,15 +2318,19 @@ function JumpToLatest({
 function TranscriptContext({
   find,
   sessionId,
+  readOnly,
   children,
 }: {
   find: React.ContextType<typeof FindReveal>;
   sessionId?: string;
+  readOnly: boolean;
   children: React.ReactNode;
 }) {
   return (
     <FindReveal.Provider value={find}>
-      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
+      <PromptMarksSession.Provider value={sessionId ?? ""}>
+        <TranscriptReadOnly.Provider value={readOnly}>{children}</TranscriptReadOnly.Provider>
+      </PromptMarksSession.Provider>
     </FindReveal.Provider>
   );
 }
@@ -2298,7 +2341,8 @@ export function VirtualTranscript({
   onToggleActivity,
   onOpenDiff,
   expanded,
-  registry = defaultRegistry,
+  registry: givenRegistry,
+  readOnly = false,
   canLoadOlder = false,
   historyFrom,
   githubRepository,
@@ -2362,6 +2406,7 @@ export function VirtualTranscript({
   onOpenDiff?: OpenDiff;
   expanded: Set<string>;
   registry?: NativeRegistry;
+  readOnly?: boolean;
   canLoadOlder?: boolean;
   /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
   historyFrom?: number;
@@ -2403,6 +2448,7 @@ export function VirtualTranscript({
   /// computerUse/computerUsePreview.ts): rows are laid out that much narrower.
   endReserve?: number;
 }) {
+  const registry = givenRegistry ?? (readOnly ? readOnlyRegistry : defaultRegistry);
   const t = useT();
   const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -4583,7 +4629,7 @@ export function VirtualTranscript({
           change={rowsChange.current}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
+        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId} readOnly={readOnly}>
           <div
             className="acpmux-spacer"
             style={{

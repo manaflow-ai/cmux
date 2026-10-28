@@ -1312,6 +1312,8 @@ export class AcpmuxDirectClient {
   static scheduleFrame: ((run: () => void) => (() => void) | void) | undefined;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
+  /// A fed transcript client that its guest page has released must not emit again.
+  private disposed = false;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
   /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change other than its
@@ -1804,7 +1806,14 @@ export class AcpmuxDirectClient {
   static fed(sessionId: string, listener: Listener): AcpmuxDirectClient {
     const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
     client.closed = true;
+    client.stopPageListeners();
     return client;
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.frameSnapshot = undefined;
+    this.stopPageListeners();
   }
 
   /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is
@@ -1817,6 +1826,7 @@ export class AcpmuxDirectClient {
       .filter((event) => event.seq > 0)
       .map((event) => ({ ...event, sessionId }))
       .sort((a, b) => a.seq - b.seq);
+    if (this.disposed) return;
     if (mode !== "live") {
       const first = this.firstSeq ?? Number.POSITIVE_INFINITY;
       this.events = mode === "snapshot" ? own : [...own.filter((event) => event.seq < first), ...this.events];
@@ -1836,7 +1846,7 @@ export class AcpmuxDirectClient {
     if (this.frameSnapshot !== undefined) return;
     this.frameSnapshot = "connected";
     schedule(() => {
-      if (this.frameSnapshot !== undefined) this.emit();
+      if (this.frameSnapshot !== undefined && !this.disposed) this.emit();
     });
   }
 
@@ -8153,14 +8163,17 @@ export class AcpmuxDirectClient {
     this.stopSuperseded = false;
     this.stopOpenerSeen = false;
     this.stoppingEnded();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
+    this.stopPageListeners();
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
     this.rejectPending();
+  }
+  private stopPageListeners(): void {
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
     for (const request of this.pending.values()) {
