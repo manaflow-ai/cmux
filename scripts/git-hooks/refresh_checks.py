@@ -8,7 +8,7 @@ per-symbol compile trailer rule (2026-10-28) landed and no agent's push ran it. 
 
 On a push to feat-cmux-next of the canonical manaflow-ai/cmux remote, when the scripts/cmux-next tree of the
 fetched refs/remotes/<remote>/feat-cmux-next (a remote with the canonical URL) differs from the one the installed
-copy was made from (its .source stamp), and that commit is not older than the stamp's, this writes a new copy from
+copy was made from (its .source stamp), and the stamp's commit does not already contain that commit, this writes a new copy from
 that commit's blobs, never from the working tree, and points the link at it with one rename (the installer's
 scheme: a running gate holds its copy through a shared flock on .in-use). It also refreshes the gate entry point
 and its git helper in the hook folder. It never refuses a push: on any error the push runs the copy it has.
@@ -91,7 +91,9 @@ def blobs(repo: Path, specs: list[str]) -> list[bytes]:
 
 
 def stale(repo: Path, hook_dir: Path, commit: str, tree: str) -> bool:
-    """True when the installed copy is not made from TREE and COMMIT is not older than what it is made from."""
+    """True when the installed copy is not made from TREE and does not already contain COMMIT (made from it or a
+    descendant). A copy made from a commit feat-cmux-next never got (an agent's unpushed or rebased-away commit) is
+    stale: keeping it until it became an ancestor kept its unreviewed checks forever."""
     try:
         stamp = (hook_dir / CHECKS / STAMP).read_text().split()
     except OSError:
@@ -102,7 +104,7 @@ def stale(repo: Path, hook_dir: Path, commit: str, tree: str) -> bool:
         return False
     if not ok(repo, "cat-file", "-e", f"{stamp[0]}^{{commit}}"):
         return True  # made from a commit this clone does not have
-    return ok(repo, "merge-base", "--is-ancestor", stamp[0], commit)  # never back to an older rule
+    return not ok(repo, "merge-base", "--is-ancestor", commit, stamp[0])  # never back to an older rule
 
 
 def ok(repo: Path, *args: str) -> bool:
