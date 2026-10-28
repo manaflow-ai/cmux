@@ -2107,6 +2107,16 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, true)
     }
 
+    /// Tests: [`Self::vt_replay_bounded`] with the second text layout always
+    /// run, the reference for the one-pass layout.
+    #[cfg(test)]
+    pub(crate) fn vt_replay_bounded_two_pass_for_test(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<VtReplay> {
+        self.vt_replay_bounded_with_palette(max_bytes, true)
+    }
+
     /// Theme-portable replay for process-separated renderers.
     ///
     /// This reproduces cells, styles, modes, cursor, history, and Kitty
@@ -2278,6 +2288,8 @@ impl Terminal {
         minimum_start: Option<u64>,
         include_palette: bool,
     ) -> Result<ReplayText> {
+        #[cfg(test)]
+        REPLAY_TEXT_LAYOUTS.with(|count| count.set(count.get() + 1));
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(ReplayText::minimal(max_bytes));
         };
@@ -3356,6 +3368,16 @@ impl Drop for Terminal {
         }
     }
 }
+
+/// Tests: text layouts (formatter passes) since the thread started.
+#[cfg(test)]
+thread_local! {
+    static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+#[path = "replay_layout_tests.rs"]
+mod replay_layout_tests;
 
 #[path = "terminal_history.rs"]
 mod history;
