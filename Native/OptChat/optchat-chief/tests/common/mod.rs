@@ -445,7 +445,11 @@ impl ConversationPort for FakeDaemon {
         owner
             .run_steps
             .push((conversation.to_owned(), run.clone(), steps));
-        if let Some(reason) = owner.run_append_rejects.pop_front().flatten() {
+        if run["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("reports:"))
+            && let Some(reason) = owner.run_append_rejects.pop_front().flatten()
+        {
             return Err(OpError::Transport(reason));
         }
         owner.runs.push(run);

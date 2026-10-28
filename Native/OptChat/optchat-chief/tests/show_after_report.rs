@@ -225,14 +225,14 @@ fn an_inbound_report_has_a_completed_record_after_its_originating_turn_ends() {
 #[test]
 fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() {
     let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
     h.owner
         .lock()
         .unwrap()
         .run_append_rejects
         .push_back(Some("connection reset after commit".into()));
-    h.connect();
-    h.say("user_local", "Please coordinate the work.");
-    h.settle();
     let _ = delivered_report(&mut h);
     assert!(!h.brain.state().pending_reports.is_empty());
 
@@ -243,7 +243,16 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
     assert!(h.brain.state().pending_reports.is_empty());
     let owner = h.owner.lock().unwrap();
     let mut ids = Vec::new();
-    for (_, _, steps) in &owner.run_steps {
+    let reports: Vec<_> = owner
+        .run_steps
+        .iter()
+        .filter(|(_, run, _)| {
+            run["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("reports:"))
+        })
+        .collect();
+    for (_, _, steps) in &reports {
         ids.extend(
             steps
                 .iter()
@@ -254,11 +263,7 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
     ids.sort();
     ids.dedup();
     assert_eq!(ids.len(), 1, "the report has one stable note id");
-    assert_eq!(
-        owner.run_steps.len(),
-        2,
-        "one failed attempt and one replay"
-    );
+    assert_eq!(reports.len(), 2, "one failed attempt and one replay");
 }
 
 #[test]

@@ -31,6 +31,15 @@ fn now_ms() -> u64 {
     super::now_ms()
 }
 
+fn report_key(conversation: &str, steps: &[serde_json::Value]) -> String {
+    let mut ids: Vec<&str> = steps
+        .iter()
+        .filter_map(|step| step["id"].as_str())
+        .collect();
+    ids.sort_unstable();
+    format!("{conversation}\0{}", ids.join("\0"))
+}
+
 /// A report carries another person's influence only when its subagent was
 /// spawned under the spawn floor (policy `ask`, a turn another person
 /// started): the turn that reads it refuses local effects. Any other report
@@ -1623,27 +1632,39 @@ impl Brain {
                     sub.floor,
                     sub.report.as_deref().unwrap_or(""),
                 );
-                let report_id = run["id"].as_str().unwrap_or_default();
-                if replayed.contains(report_id)
+                let key = report_key(&conversation, &steps);
+                if replayed.contains(&key)
                     || self
                         .state
                         .pending_reports
                         .iter()
-                        .any(|pending| pending.run["id"].as_str() == Some(report_id))
+                        .any(|pending| report_key(&pending.conversation, &pending.steps) == key)
                 {
                     return None;
                 }
                 Some((conversation, run, steps))
             })
             .collect();
-        let Some(daemon) = self.daemon.as_mut() else {
-            return;
-        };
         for (conversation, run, steps) in reports {
             let pending = PendingReport {
                 conversation: conversation.clone(),
                 run: run.clone(),
                 steps: steps.clone(),
+            };
+            let key = report_key(&pending.conversation, &pending.steps);
+            if !self
+                .state
+                .pending_reports
+                .iter()
+                .any(|old| report_key(&old.conversation, &old.steps) == key)
+            {
+                // Persist before the first network call: a process or daemon
+                // loss after an ambiguous append can then replay by id.
+                self.state.pending_reports.push(pending.clone());
+                self.save();
+            }
+            let Some(daemon) = self.daemon.as_mut() else {
+                continue;
             };
             let mut complete = true;
             for chunk in crate::run::chunks(steps) {
@@ -1655,17 +1676,13 @@ impl Brain {
                     break;
                 }
             }
-            if !complete
-                && !self
-                    .state
+            if complete {
+                self.state
                     .pending_reports
-                    .iter()
-                    .any(|old| old.run["id"] == run["id"])
-            {
-                self.state.pending_reports.push(pending);
+                    .retain(|old| report_key(&old.conversation, &old.steps) != key);
+                self.save();
             }
         }
-        self.save();
     }
 
     pub(super) fn flush_pending_reports(&mut self) -> std::collections::HashSet<String> {
@@ -1673,6 +1690,9 @@ impl Brain {
             return std::collections::HashSet::new();
         };
         let pending = std::mem::take(&mut self.state.pending_reports);
+        if pending.is_empty() {
+            return std::collections::HashSet::new();
+        }
         let mut keep = Vec::new();
         let mut done = std::collections::HashSet::new();
         for report in pending {
@@ -1687,9 +1707,7 @@ impl Brain {
                 }
             }
             if complete {
-                if let Some(id) = report.run["id"].as_str() {
-                    done.insert(id.to_owned());
-                }
+                done.insert(report_key(&report.conversation, &report.steps));
             } else {
                 keep.push(report);
             }
