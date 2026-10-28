@@ -6444,8 +6444,9 @@ function AcpmuxPane() {
   // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
   // would make a tray it already had look new.
   if (!hasTray && snapshot.chatRead === true) trayAbsentIn.current = shownSessionId;
-  // Another chat showing drops the last one's leaving tray at once.
-  useLayoutEffect(() => settleTrayExit(), [shownSessionId]);
+  // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
+  // its kept copy goes before the frame paints.
+  useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
   const trayNode =
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>

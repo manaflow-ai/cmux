@@ -257,9 +257,10 @@ export const SubagentTray = memo(function SubagentTray({
       aria-expanded={showFinished}
       onClick={() => setShowFinished(!showFinished)}
     >
-      <span className="acpmux-summary-text">
-        {showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
-      </span>
+      <Tick
+        className="acpmux-summary-text"
+        text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
+      />
       <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
