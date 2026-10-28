@@ -4069,23 +4069,25 @@ export function VirtualTranscript({
         style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
       >
         {showMinimap && (
-          <ThreadMinimap
-            rows={rows}
-            sessionId={sessionId}
-            layout={layout}
-            scroller={ref}
-            scrollTop={renderScroll.top}
-            // Above the room under the last row, so a composer that grows while the reader is scrolled
-            // up leaves the map as it was, as it does the scrollbar.
-            viewportHeight={height - room}
-            // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
-            // rail's rows stay above its bottom band.
-            foot={height - dockSpace}
-            scrolls={layout.totalHeight - height > 0.5}
-            width={width}
-            placed={minimapPlaced}
-            change={rowsChange.current}
-          />
+          <TranscriptReadOnly.Provider value={readOnly}>
+            <ThreadMinimap
+              rows={rows}
+              sessionId={sessionId}
+              layout={layout}
+              scroller={ref}
+              scrollTop={renderScroll.top}
+              // Above the room under the last row, so a composer that grows while the reader is scrolled
+              // up leaves the map as it was, as it does the scrollbar.
+              viewportHeight={height - room}
+              // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+              // rail's rows stay above its bottom band.
+              foot={height - dockSpace}
+              scrolls={layout.totalHeight - height > 0.5}
+              width={width}
+              placed={minimapPlaced}
+              change={rowsChange.current}
+            />
+          </TranscriptReadOnly.Provider>
         )}
         {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
         <ChatMinimap
