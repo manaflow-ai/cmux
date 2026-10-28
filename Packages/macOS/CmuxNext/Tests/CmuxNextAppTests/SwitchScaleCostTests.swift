@@ -17,7 +17,7 @@ struct SwitchScaleCostTests {
     static var rounds: Int { Int(ProcessInfo.processInfo.environment["CMUX_SWITCH_SCALE_ROUNDS"] ?? "") ?? 200 }
 
     /// Every kind at `size`: the per-kind samples, printed and recorded.
-    static func measure(_ size: Int, rounds: Int) async throws -> [SwitchScaleBench.Kind: [SwitchScaleBench.Sample]] {
+    static func measure(_ size: Int, rounds: Int, records: Bool = true) async throws -> [SwitchScaleBench.Kind: [SwitchScaleBench.Sample]] {
         let bench = try await SwitchScaleBench(workspaces: size)
         defer { bench.close() }
         let counts = bench.fixture.counts, footprint = await SwitchScaleBench.footprint()
@@ -27,7 +27,7 @@ struct SwitchScaleCostTests {
         for kind in SwitchScaleBench.Kind.allCases {
             let samples = await bench.run(kind, rounds: rounds)
             print(SwitchScaleBench.line(size, kind, samples, mounted: bench.main.mountedContents.count))
-            try SwitchScaleBench.record(size, kind, samples)
+            if records { try SwitchScaleBench.record(size, kind, samples) }
             out[kind] = samples
         }
         return out
@@ -41,7 +41,9 @@ struct SwitchScaleCostTests {
     /// every switch showed its content.
     @Test func aSwitchCostsTheSameAt1000WorkspacesAsAt10() async throws {
         let rounds = min(Self.rounds, 40)
-        let small = try await Self.measure(10, rounds: rounds), large = try await Self.measure(1000, rounds: rounds)
+        // Not recorded: the two tests above own the result-v1 series (a metric recorded twice is refused).
+        let small = try await Self.measure(10, rounds: rounds, records: false)
+        let large = try await Self.measure(1000, rounds: rounds, records: false)
         for kind in SwitchScaleBench.Kind.allCases {
             let at10 = SwitchScaleBench.percentile((small[kind] ?? []).map(\.cpuMs), 0.5)
             let at1000 = SwitchScaleBench.percentile((large[kind] ?? []).map(\.cpuMs), 0.5)

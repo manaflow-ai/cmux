@@ -1,8 +1,8 @@
 {
   "id": "swift-switch-scale",
   "tier": "builder",
-  "description": "SwitchScaleCostTests over SwitchScaleBench: main-thread CPU, wall and draw time of every switch kind (space, screen, workspace by click, Cmd-digit, next and palette, tab, pane, window, Home) over the switch-at-scale fixture (switch_scale.py) at 10 and 1,000 workspaces, 3 windows, in process.",
-  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-switch-scale", "--filter", "SwitchScaleCostTests/everySwitchKind", "--env", "CMUX_SWITCH_SCALE_BENCH=1"],
+  "description": "SwitchScaleCostTests over SwitchScaleBench: main-thread CPU, wall and draw time of every switch kind (space, screen, workspace by click, Cmd-digit, next and palette, tab, pane, window, Home) over the switch-at-scale fixture (switch_scale.py) at 10 and 1,000 workspaces, 3 windows, in process; the O(visible) guard, memory over 1,000 switches and a main-thread profile per kind print in the log.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-switch-scale", "--filter", "SwitchScaleCostTests", "--env", "CMUX_SWITCH_SCALE_BENCH=1"],
   "session": "light",
   "engine": "none",
   "config": "release",
@@ -10,7 +10,7 @@
     {"name": "swift\\.switch_scale\\.(space|screen|tab|pane|window|home|workspace_click|workspace_digit|workspace_next|workspace_palette)\\.[0-9]+\\.(cpu|wall|draw)", "unit": "ms", "better": "lower"}
   ],
   "repeats": 1,
-  "seconds": 1800,
+  "seconds": 3600,
   "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SwitchScaleBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift", "file:scripts/perf-lab/corpus/stories/switch_scale.py"],
   "owner": "Performance Lead",
   "component": "Switch>Scale",
