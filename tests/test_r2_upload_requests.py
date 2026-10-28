@@ -141,7 +141,10 @@ class R2UploadRequestsTests(unittest.TestCase):
                     failure = pending.pop(0)
                     if failure == "lost":
                         stored[self.path] = body
-                    if failure in ("drop", "lost"):
+                    if failure == "other":
+                        # Another publisher's bytes land, and this PUT's answer is lost.
+                        stored[self.path] = b"other publisher\n"
+                    if failure in ("drop", "lost", "other"):
                         self.close_connection = True
                         self.connection.close()
                         return
@@ -202,6 +205,27 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Already present with matching digest", result.stdout)
         self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
+
+    def test_a_write_once_retry_never_accepts_another_publishers_bytes(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        for flags, code in (((), 1), (("--conflict-exit-code", "75"), 75)):
+            with self.subTest(flags=flags):
+                endpoint, requests, stored = self.start_flaky_endpoint(["other"])
+                result = self.upload("appcast.xml", "--write-once", *flags, endpoint=endpoint)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual(stored, {"/cmux-binaries/nightly/appcast.xml": b"other publisher\n"})
+                self.assertEqual([r[0] for r in requests].count("PUT"), 1)
+                if not flags:
+                    self.assertIn("immutable-r2-conflict", result.stdout)
+
+    def test_a_failed_download_keeps_the_destination(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint([])
+        target = self.root / "downloaded"
+        target.write_bytes(b"earlier\n")
+        result, _ = self.download(endpoint, key="nightly/missing.xml")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(target.read_bytes(), b"earlier\n")
 
     def test_retries_are_bounded_and_permanent_errors_are_not_retried(self):
         self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
