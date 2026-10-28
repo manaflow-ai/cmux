@@ -8,7 +8,7 @@ internal import Foundation
 /// is. Every read runs off the main thread on the request's task; a source with main-thread state
 /// takes one snapshot copy there (``InputTapDebugSource``).
 ///
-/// Params: `action` is `read` (the default), `reset`, `hops`, `dirty` or `hittest`; `sections` (read)
+/// Params: `action` is `read` (the default), `reset`, `hops`, `dirty`, `hittest` or `slots`; `sections` (read)
 /// limits the report to the named sections; `since_launch` (recorders) asks for every row since
 /// launch.
 ///
