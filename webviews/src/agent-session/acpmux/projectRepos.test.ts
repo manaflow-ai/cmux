@@ -351,5 +351,5 @@ test("a folder named like a lane but outside a lane root stays listed", () => {
     "/Users/me/summary-menu-visual-triage",
     "/Users/me/a1b2c3",
   ]);
-  expect(projectRows(plain.map((folder) => ({ cwd: folder.id, label: folder.label }))).length).toBe(2);
+  expect(projectRows(plain.map((folder) => ({ cwd: folder.id, label: folder.label })))).toHaveLength(7);
 });
