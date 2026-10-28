@@ -109,8 +109,8 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
     "undo": null, "user_action": {"kind": "oauth", ...}}
    ```
 
-   A harness is `ok` when it is installed and nothing says it is signed
-   out (`signed_in` is `null` when cmux cannot see the sign-in, such as
+   A harness is `ok` when it is installed and no check reports sign-out or
+   a verification error (`signed_in` is `null` when cmux cannot see the sign-in, such as
    Claude Code's keychain login; its first chat asks if it must). Signed
    out is `needs_user` with kind `oauth` and `cmux harness login ID`, or
    the profile's own login command (`codex login`) for a harness not
