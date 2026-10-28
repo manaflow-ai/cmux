@@ -52,7 +52,7 @@ extension AppServices {
         hibernation.follow(settings)
         hibernation.start()
         startIntentPrewarm(over: hibernation)
-        AppMemoryConsumers(services: self).followHibernation(hibernation, settings: settings)  // AppMemoryConsumers+Hibernation.swift
+        AppMemoryConsumers(services: self).followHibernation(hibernation, settings: settings)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: cache.normalWarmCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }
