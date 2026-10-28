@@ -129,8 +129,12 @@ export class FreestyleCloudProvider implements CloudProvider {
     const mint = async (handle: string) => {
       const r = await this.call("POST", `/v5/identities/${encodeURIComponent(handle)}/tokens`, { expiresAt: new Date(expiresAt).toISOString() })
       const token = r.status === 200 && typeof r.json.token === "string" && r.json.token.length > 0 ? r.json.token : null
-      return { status: token ? 200 : r.status, token }
+      // The token must expire when asked (to the second): one without an expiry, or a later one, is no session.
+      const at = typeof r.json.expiresAt === "string" ? Date.parse(r.json.expiresAt) : NaN
+      const onTime = Number.isFinite(at) && Math.abs(at - expiresAt) <= 1000
+      return { status: token ? 200 : r.status, token, onTime }
     }
+    const late = () => new DriverError("cloud.provider.unavailable", "mint client token: the expiry is not the one asked for", false)
     const grant = (handle: string, token: string): ClientSessionGrant => ({
       identity: handle,
       token,
@@ -142,6 +146,8 @@ export class FreestyleCloudProvider implements CloudProvider {
     })
     if (identity) {
       const reused = await mint(identity)
+      // A token with the wrong expiry exists on this identity: the identity goes, with every token on it.
+      if (reused.token && !reused.onTime) throw new ClientIdentityLeft(identity, late())
       if (reused.token) return grant(identity, reused.token)
       if (reused.status !== 404) this.fail(reused.status, {}, "mint client token")
     }
@@ -153,6 +159,7 @@ export class FreestyleCloudProvider implements CloudProvider {
       if (g.status < 200 || g.status >= 300) this.fail(g.status, g.json, "grant VM")
       const t = await mint(handle)
       if (!t.token) this.fail(t.status, {}, "mint client token")
+      if (!t.onTime) throw late()
       return grant(handle, t.token)
     } catch (e) {
       // Nothing half-made survives: an identity without its grant or token is deleted again, and

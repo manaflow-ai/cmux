@@ -264,10 +264,9 @@ export class CloudDO extends CloudIdle {
       {
         team: entity,
         machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
-        member: async (user) => {
+        member: async (user, since) => {
           if (entity === personalTeamIdFor(user)) return true
-          const started = Date.now()
-          return (await this.creatorIsMember(entity, user).catch(() => false)) && (this.leftAt.get(user) ?? -1) < started
+          return (await this.creatorIsMember(entity, user).catch(() => false)) && (this.leftAt.get(user) ?? -1) < since
         },
         plan: async (p) => {
           await this.entitlements.refresh(entity, p)

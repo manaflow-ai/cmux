@@ -32,7 +32,7 @@ describe("the Freestyle provider's client session", () => {
   const NAME = `${PREFIX}vm-${"a".repeat(20)}`
   const TAG = { team: `team_${"t".repeat(20)}`, machine: `vm_${"m".repeat(20)}` }
   const SECRET = "fs-token-secret-value-0123456789"
-  const mock = (opts: { grantStatus?: number; tokenStatus?: number; deleteStatus?: number } = {}) => {
+  const mock = (opts: { grantStatus?: number; tokenStatus?: number; deleteStatus?: number; expiry?: (asked: string) => unknown } = {}) => {
     const calls: Array<{ method: string; path: string; body: any }> = []
     const identities = new Set<string>()
     let n = 0
@@ -51,7 +51,7 @@ describe("the Freestyle provider's client session", () => {
       if (m && req.method === "DELETE") return identities.delete(m[1]!), new Response(null, { status: 204 })
       if (m?.[2] === "permissions/vm") return json({ id: "perm-1", identityId: m[1], vmId: body.vmId, allowedLinuxUsers: body.allowedLinuxUsers }, opts.grantStatus ?? 200)
       // A refused mint still echoes a token-shaped value: no error may carry it.
-      if (m?.[2] === "tokens") return json({ id: "tok-1", token: SECRET, expiresAt: body.expiresAt, code: opts.tokenStatus ? SECRET : undefined }, opts.tokenStatus ?? 200)
+      if (m?.[2] === "tokens") return json({ id: "tok-1", token: SECRET, expiresAt: opts.expiry ? opts.expiry(body.expiresAt) : body.expiresAt, code: opts.tokenStatus ? SECRET : undefined }, opts.tokenStatus ?? 200)
       return json({ code: "UNMOCKED" }, 500)
     }
     return { calls, identities, driver: new GuardedCloudDriver(new FreestyleCloudProvider("test-only-key", "https://freestyle.test/", "cmuxnp-test-vmimg-x", fetchFn), PREFIX) }
@@ -97,6 +97,24 @@ describe("the Freestyle provider's client session", () => {
     expect(left).toBeInstanceOf(ClientIdentityLeft)
     expect(left).toMatchObject({ identity: "fsid-1", code: "cloud.provider.unavailable" })
     expect(String((left as Error).message)).not.toContain(SECRET)
+  })
+
+  it("refuses a token whose expiry is not the one asked for, and never drops an identity it cannot delete", async () => {
+    for (const expiry of [() => null, () => undefined, (a: string) => new Date(Date.parse(a) + 3_600_000).toISOString(), () => "soon"]) {
+      const fresh = mock({ expiry })
+      await expect(fresh.driver.clientSession(NAME, TAG, "cmux", Date.now() + 60_000, null)).rejects.toMatchObject({ code: "cloud.provider.unavailable" })
+      expect(fresh.identities.size).toBe(0)
+    }
+    // A reused identity that got a bad token goes back to the caller to retire.
+    const ok = mock()
+    const first = await ok.driver.clientSession(NAME, TAG, "cmux", Date.now() + 60_000, null)
+    const bad = mock({ expiry: () => null })
+    bad.identities.add(first.grant.identity)
+    const left = await bad.driver.clientSession(NAME, TAG, "cmux", Date.now() + 60_000, { identity: first.grant.identity, vmId: "fsvm-1" }).catch((x: Error) => x)
+    expect(left).toBeInstanceOf(ClientIdentityLeft)
+    expect(left).toMatchObject({ identity: first.grant.identity })
+    const noDelete = new GuardedCloudDriver({ capabilities: { clientSession: true } } as never, PREFIX)
+    await expect(noDelete.dropClientIdentity("fsid-x")).rejects.toMatchObject({ code: "cloud.provider.unsupported" })
   })
 
   it("refuses another environment's name or another team's VM before any identity call", async () => {
@@ -148,11 +166,12 @@ describe("retired identities", () => {
         dropClientIdentity: async (id: string) => (dropFails ? Promise.reject(new Error("503")) : void dropped.push(id))
       } as unknown as GuardedCloudDriver
       let members = [true]
+      const sinces: Array<number> = []
       let retries = 0
       const host: ClientSessionHost = {
         team,
         machine: (id) => (id === machine ? (row as never) : undefined),
-        member: async () => members.shift() ?? false,
+        member: async (_user, since) => (sinces.push(since), members.shift() ?? false),
         plan: async () => true,
         limit: async () => true,
         driver: async () => driver,
@@ -174,6 +193,8 @@ describe("retired identities", () => {
       expect(store.get(machine, "user_a")).toBeNull()
       expect(dropped.sort()).toEqual(["fsid-left", "fsid-new"])
       expect(store.retired(10)).toEqual([])
+      // Both checks ask about departures since the same instant, taken before the provider call.
+      expect(sinces.slice(1)).toEqual([sinces[1], sinces[1]])
 
       // A grant that would expire within seconds of the answer is refused.
       members = [true, true]

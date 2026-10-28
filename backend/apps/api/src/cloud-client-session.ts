@@ -151,8 +151,12 @@ export const sweepClientIdentities = async (store: ClientIdentityStore, machine:
 export interface ClientSessionHost {
   readonly team: string
   machine(id: string): MachineRow | undefined
-  /** Personal team: true. Shared team: the user is still a member with team.resources (fresh; a failed read is false). */
-  member(user: string): Promise<boolean>
+  /**
+   * Personal team: true. Shared team: the user is a member with team.resources now (fresh; a failed
+   * read is false) and no departure notice arrived since `since` (a leave and rejoin during a mint
+   * still refuses it).
+   */
+  member(user: string, since: number): Promise<boolean>
   /** The team has a Cloud plan (refreshed entitlements, or the stub allowlist). */
   plan(principal: Principal): Promise<boolean>
   /** False when the caller is over the mint limit. */
@@ -196,7 +200,8 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
   if (!row || row.status === "deleting" || row.status === "failed") return refuse("not_found")
   // "The caller's own machines": the one who created it, also on a shared team (a teammate's machine runs as its creator).
   if (row.creator !== user) return refuse("not_creator")
-  if (!(await host.member(user).catch(() => false))) return refuse("forbidden")
+  const since = Date.now()
+  if (!(await host.member(user, since).catch(() => false))) return refuse("forbidden")
   if (!(await host.plan(p).catch(() => false))) return refuse("plan_required")
   if (row.status === "paused" || row.status === "pausing" || row.status === "starting") return refuse("paused")
   if (row.status !== "running") return refuse("not_running")
@@ -214,7 +219,8 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
       minted = await driver.clientSession(row.provider_name, { team: host.team, machine }, CLIENT_SESSION_LINUX_USER, expiresAt, host.identities.get(machine, user))
     } catch (e) {
       if (e instanceof ClientIdentityLeft) {
-        host.identities.retire(e.identity, host.now())
+        if (host.identities.get(machine, user)?.identity === e.identity) host.identities.forget(machine, user, host.now())
+        else host.identities.retire(e.identity, host.now())
         host.retryLater()
       }
       // Only a code: a DriverError's message names the step and status, never a body or a token.
@@ -228,7 +234,7 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
     // The membership check is the last wait before the answer: a member who left while the provider
     // calls or the sweep ran gets nothing, and the new identity is retired and deleted.
-    if (!(await host.member(user).catch(() => false))) {
+    if (!(await host.member(user, since).catch(() => false))) {
       host.identities.forget(machine, user, host.now())
       host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, outcome: "auth.forbidden", at: host.now() })
       if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()

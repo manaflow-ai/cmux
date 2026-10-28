@@ -266,7 +266,8 @@ export class GuardedCloudDriver {
 
   /** Deletes a client session identity (its tokens and grants); 404 is success. */
   async dropClientIdentity(identity: string): Promise<void> {
-    if (!this.raw.dropClientIdentity) return
+    // A provider that cannot delete it leaves the identity retired (kept, retried), never dropped.
+    if (!this.raw.dropClientIdentity) throw new DriverError("cloud.provider.unsupported", "client session: this provider cannot delete identities", true)
     await this.raw.dropClientIdentity(identity)
   }
 
