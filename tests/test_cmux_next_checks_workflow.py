@@ -1084,9 +1084,13 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
 
+# The Blacksmith outage failover reads a variable but only ever picks another Blacksmith size.
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| ")
+
+
 def can_run_on_owned_runner(job: dict) -> bool:
     """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
-    return "vars." in str(job.get("runs-on", ""))
+    return "vars." in OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -1124,10 +1128,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
+        # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test",
-                                           "web-bundles"])
+                                           "release-compile", "request-nightly-next", "request-nightly-next-fast",
+                                           "swift-canary", "swift-test", "web-bundles"])
 
 
 
@@ -1318,7 +1322,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
         self.assertNotEqual(cargo["if"], mac["if"])
