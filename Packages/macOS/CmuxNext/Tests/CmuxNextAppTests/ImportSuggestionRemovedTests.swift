@@ -5,9 +5,9 @@ import CmuxNextActions
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextImportCards
+import CmuxNextWakeups
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 /// Leo 2026-10-21: "yeah the bring your stuff to cmux is extrmeely questionable idk why that's
 /// there + why they went to the chief thingy", and "yes to both" to removing it from the New Tab
@@ -54,7 +54,8 @@ import CmuxNextWakeups
                                                            openSettings: { routes.append($0) },
                                                            importClassic: { _ in nil },
                                                            work: BackgroundWork(label: "test.import-cards"),
-                                                           mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+                                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                                           appEvents: AppEvents(center: NotificationCenter())))
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))
         #expect(routes == ["#/settings/import"])

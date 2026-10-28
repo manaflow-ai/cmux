@@ -41,6 +41,7 @@ use serde_json::{Value, json};
 
 use super::routes::{Route, RouteLine, RouteName};
 use super::{FrameStage, MessageWriter, OutboundStream, Response, send_response};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{mux::Mux, panic_free::RecoverPoison};
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
@@ -58,7 +59,6 @@ pub(crate) const MAX_STREAMS_TOTAL: usize = 512;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const AUDIT_CAPACITY: usize = 256;
 const MAX_HOST_BYTES: usize = 253;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: Policy
 
@@ -1048,10 +1048,11 @@ fn connect_and_start(
         let worker = stream.clone();
         let worker_mux = mux.clone();
         // Bulk page bytes: below every request and keystroke.
-        let spawned = crate::thread_qos::spawn_raisable(
+        let spawned = supervised::spawn_raisable(
             name,
             crate::thread_qos::ThreadType::Utility.qos(),
-            Some(THREAD_STACK_BYTES),
+            Fatal,
+            ShutdownBehavior::Continue,
             move || run(worker, worker_mux),
         );
         if spawned.is_err() {

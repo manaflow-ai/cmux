@@ -25,17 +25,20 @@ public struct ImportCardsHost {
     public var work: BackgroundWork
     /// Where a rendered icon lands on the main thread.
     public var mainWork: MainWorkScheduler
+    /// The app's one fan-out of app notices: the cards rescan when cmux comes forward.
+    public var appEvents: AppEvents
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
-                work: BackgroundWork, mainWork: MainWorkScheduler) {
+                work: BackgroundWork, mainWork: MainWorkScheduler, appEvents: AppEvents) {
         self.runImport = runImport
         self.work = work
         self.mainWork = mainWork
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
+        self.appEvents = appEvents
     }
 }

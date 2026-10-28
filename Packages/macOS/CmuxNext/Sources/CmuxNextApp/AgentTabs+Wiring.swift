@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextFeatures
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
+import CmuxNextWakeups
 import Foundation
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
