@@ -145,6 +145,8 @@ pub struct Owner {
     pub runs: Vec<Value>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// An attachment upload waits for a message here first (a slow upload).
+    pub upload_hold: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -258,20 +260,41 @@ impl PreviewPort for FakeUploader {
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &std::path::Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
         height: Option<u32>,
     ) -> Result<DerivedImage, OpError> {
-        self.upload_image(
-            conversation,
-            bytes,
-            mime_type,
-            name,
+        use sha2::Digest;
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
+        let hold = self.0.lock().unwrap().upload_hold.take();
+        if let Some(hold) = hold {
+            let _ = hold.recv();
+        }
+        // Streamed like the real upload: a large test file is never read whole.
+        let mut hasher = sha2::Sha256::new();
+        let byte_count =
+            std::io::copy(&mut std::fs::File::open(path).unwrap(), &mut hasher).unwrap();
+        let image = DerivedImage {
+            hash: hasher
+                .finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            mime_type: mime_type.to_owned(),
+            byte_count,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.to_owned(),
+            image.clone(),
+            name.to_owned(),
             width.unwrap_or(0),
             height.unwrap_or(0),
-        )
+        ));
+        Ok(image)
     }
 }
 

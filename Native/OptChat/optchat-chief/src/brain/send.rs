@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use cmux_conversation::{Op, PartRef};
 
 use super::Brain;
-use super::media::{self, MAX_MEDIA_BYTES, MediaRef};
+use super::media::{self, MediaRef};
 use crate::tools::SendCall;
 
 impl Brain {
@@ -39,14 +39,6 @@ impl Brain {
             }
             if meta.len() == 0 {
                 return Err(format!("send: attachment {} is empty", path.display()));
-            }
-            if meta.len() > MAX_MEDIA_BYTES {
-                return Err(format!(
-                    "send: attachment {} is {} MB; the limit is {} MB",
-                    path.display(),
-                    meta.len() / 1_000_000,
-                    MAX_MEDIA_BYTES / 1_000_000
-                ));
             }
             if files.iter().any(|f| f.path == path) {
                 continue;
