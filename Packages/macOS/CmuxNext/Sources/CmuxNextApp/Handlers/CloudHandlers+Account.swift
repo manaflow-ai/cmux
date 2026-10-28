@@ -15,37 +15,7 @@ import CmuxNextWakeups
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
-        let signedOutCreation = cloud.signedOutCreation
-        bind("newCloudMachine", registry, reason: reason) { invocation in
-            let request = try newMachineRequest(invocation)
-            let actionOrigin = origin(of: invocation)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            let start: @MainActor () -> Void = {
-                guard cloud.isSignedIn, cloud.unavailableReason == nil else { return }
-                if request.isDefault, actionOrigin == .user, window != nil {
-                    beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
-                    return
-                }
-                let flow = creationFlow(context, startedByPerson: actionOrigin == .user,
-                                         askedBy: invocation.callerAgentSession)
-                guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
-                reportCreatedMachine(flow.start(in: window, existing: nil), context)
-            }
-            guard !cloud.isSignedIn else {
-                signedOutCreation.cancel()
-                start()
-                return
-            }
-            guard actionOrigin == .user else {
-                throw ActionFailure(message: CloudStrings.signInFirst)
-            }
-            signedOutCreation.replace(signIn: { await cloud.auth.signIn() }) {
-                // Keep the original destination even if another window became
-                // active; closing it cancels the deferred creation.
-                if let window, context.services.windows.controller(for: window.id) == nil { return }
-                start()
-            }
-        }
+        CloudMachineCreationAction(context: context).bind(into: registry, reason: reason)
         bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil

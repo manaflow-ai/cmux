@@ -146,6 +146,34 @@ struct CloudSignedOutCreationContinuationTests {
         #expect(!handoff.isPending)
     }
 
+    @Test func signInUserThenInitialTeamHydrationStillResumes() async {
+        let handoff = CloudSignedOutCreationContinuation()
+        let gate = CloudSignInTestGate()
+        var resumes = 0
+        let pending = handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        await gate.waitUntilRequested()
+        handoff.scopeDidChange(from: [nil, nil], to: ["user", nil])
+        handoff.scopeDidChange(from: ["user", nil], to: ["user", "team"])
+        #expect(handoff.isPending)
+        gate.resolve(true)
+        await pending.value
+        #expect(resumes == 1)
+    }
+
+    @Test(arguments: [["other", "team"], ["user", "other"], ["user", nil], [nil, nil]])
+    func accountOrTeamReplacementInvalidatesPendingSignIn(current: [String?]) async {
+        let handoff = CloudSignedOutCreationContinuation()
+        let gate = CloudSignInTestGate()
+        var resumes = 0
+        let pending = handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        await gate.waitUntilRequested()
+        handoff.scopeDidChange(from: ["user", "team"], to: current)
+        gate.resolve(true)
+        await pending.value
+        #expect(resumes == 0)
+        #expect(!handoff.isPending)
+    }
+
     @Test func cancelledWaiterCannotResumeEvenIfAuthSucceeded() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()

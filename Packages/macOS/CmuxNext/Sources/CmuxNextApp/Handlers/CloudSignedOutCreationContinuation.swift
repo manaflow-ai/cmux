@@ -27,6 +27,16 @@ final class CloudSignedOutCreationContinuation {
         return pending
     }
 
+    /// Hosted auth publishes its user before loading the initial active team.
+    /// That nil-to-team hydration belongs to the sign-in we are awaiting.
+    /// A later user replacement, sign-out, or populated-team change does not.
+    func scopeDidChange(from previous: [String?], to current: [String?]) {
+        guard isPending else { return }
+        if previous[0] == nil, current[0] != nil { return }
+        if previous[0] == current[0], previous[1] == nil, current[1] != nil { return }
+        cancel()
+    }
+
     func cancel() {
         generation += 1
         task?.cancel()

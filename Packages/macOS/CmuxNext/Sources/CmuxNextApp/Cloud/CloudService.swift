@@ -305,9 +305,7 @@ final class CloudService {
             guard let self else { return }
             var last = account
             for await account in ObservationStream({ self.account }) where account != last {
-                // The initial sign-in completes the pending intent. Later scope
-                // changes invalidate it, including sign-out before auth returns.
-                if last[0] != nil || account[0] == nil { signedOutCreation.cancel() }
+                signedOutCreation.scopeDidChange(from: last, to: account)
                 last = account
                 await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
@@ -353,6 +351,7 @@ final class CloudService {
     }
 
     func stop() {
+        signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
@@ -458,11 +457,6 @@ final class CloudService {
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
         Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
-    }
-
-    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
-        guard let loadedAt, loadedFor == account else { return false }
-        return loadedAt.duration(to: now) < age
     }
 
     private func reconcile(_ list: [CloudMachine]) {
