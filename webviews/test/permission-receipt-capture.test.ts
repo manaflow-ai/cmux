@@ -270,9 +270,11 @@ await requireBrowserLane("permission-receipt-capture.test.ts", async () => {
       const encoded = Buffer.from(bundle).toString("base64");
       const chunkSize = 12000;
       const chunks = Math.ceil(encoded.length / chunkSize);
-      console.log(`PERMISSION_RECEIPT_CAPTURE_FILE ${chunks}`);
-      for (let i = 0; i < chunks; i += 1) console.log(`PERMISSION_RECEIPT_CAPTURE_CHUNK ${i + 1}/${chunks} ${encoded.slice(i * chunkSize, (i + 1) * chunkSize)}`);
-      console.log("PERMISSION_RECEIPT_CAPTURE_END");
+      const label = process.env.PERMISSION_CAPTURE_LABEL ?? "capture";
+      console.log(`PERMISSION_RECEIPT_CAPTURE_FILE ${label} ${chunks}`);
+      for (let i = 0; i < chunks; i += 1)
+        console.log(`PERMISSION_RECEIPT_CAPTURE_CHUNK ${label} ${i + 1}/${chunks} ${encoded.slice(i * chunkSize, (i + 1) * chunkSize)}`);
+      console.log(`PERMISSION_RECEIPT_CAPTURE_END ${label}`);
     }
     await vite?.close();
     await daemon?.stop(true);
