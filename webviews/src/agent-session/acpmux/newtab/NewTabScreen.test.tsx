@@ -354,13 +354,13 @@ async function chooseAdd(id: string) {
   );
 }
 
-test("New Tab capture cancel preserves the draft; a window capture stages through the existing intake", async () => {
+test("New Tab screen/window capture cancel preserves the draft and success stages through existing intake", async () => {
   const captured: string[] = [];
   const asks: unknown[][] = [];
   await addPage({
     capture: async (mode) => {
       captured.push(mode);
-      return mode === "screen" ? undefined : new dom!.window.File(["window"], "window.txt", { type: "text/plain" });
+      return captured.length < 3 ? undefined : new dom!.window.File([mode], `${mode}.txt`, { type: "text/plain" });
     },
     onAsk: (...args) => asks.push(args),
   });
@@ -372,12 +372,19 @@ test("New Tab capture cancel preserves the draft; a window capture stages throug
   expect(container.textContent).toContain("keep.txt");
   await openAdd();
   await chooseAdd("add.window");
-  expect(captured).toEqual(["screen", "window"]);
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("Keep the whole draft");
+  await openAdd();
+  await chooseAdd("add.screenshot");
+  await openAdd();
+  await chooseAdd("add.window");
+  expect(captured).toEqual(["screen", "window", "screen", "window"]);
+  expect(container.textContent).toContain("screen.txt");
   expect(container.textContent).toContain("window.txt");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks[0]?.[1]).toBe("Keep the whole draft");
   expect(asks[0]?.[5]).toEqual([
     expect.objectContaining({ path: "/tmp/keep.txt" }),
+    expect.objectContaining({ path: "/tmp/screen.txt" }),
     expect.objectContaining({ path: "/tmp/window.txt" }),
   ]);
 });
@@ -480,4 +487,27 @@ test("New Tab omits unavailable capture, project, Plan and stale unbound skill a
   expect(container.querySelector('[data-value="add.project"]')).toBeNull();
   expect(container.querySelector('[data-value^="add.mode."]')).toBeNull();
   expect(container.querySelector('[data-value^="add.skill."]')).toBeNull();
+});
+
+test("a refused New Tab mode change keeps every draft byte and attachment", async () => {
+  await addPage({
+    snapshot: noChat([], {
+      summary: {
+        sessionId: "deferred",
+        harness: "claude",
+        modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+      },
+    }),
+    onPlusMode: async () => {
+      throw new Error("Selected host is offline");
+    },
+  });
+  await draft("before \uFFFCkeep\uFFFC after");
+  await stageFile();
+  await openAdd();
+  await chooseAdd("add.mode.plan");
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("before \uFFFCkeep\uFFFC after");
+  expect(container.textContent).toContain("keep.txt");
+  expect(container.textContent).toContain("Selected host is offline");
+  expect(container.querySelector('[role="combobox"]')).toBeTruthy();
 });
