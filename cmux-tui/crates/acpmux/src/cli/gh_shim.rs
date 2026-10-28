@@ -177,7 +177,7 @@ fn git(args: &[&str]) -> Result<String> {
         .map_err(|e| anyhow!("git {} failed: {e}", args.join(" ")))
 }
 
-/// `cmd`'s stdout, if it ends within `timeout` with at most `limit` bytes and succeeds; killed
+/// `cmd`'s stdout, if it exits within `timeout` with at most `limit` bytes and succeeds; killed
 /// otherwise (a remote url past the limit, or a config that blocks, never hangs `acpmux gh`).
 fn bounded_output(
     mut cmd: std::process::Command,
@@ -186,6 +186,7 @@ fn bounded_output(
 ) -> Result<String> {
     use std::io::Read as _;
     use std::process::Stdio;
+    let deadline = std::time::Instant::now() + timeout;
     let mut child =
         cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
     let mut out = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
@@ -197,22 +198,53 @@ fn bounded_output(
         let _ = tx.send(read.map(|_| bytes));
     });
     let read = rx.recv_timeout(timeout);
+    let fail = |child: &mut std::process::Child, why: String| -> Result<String> {
+        let _ = child.kill();
+        let _ = child.wait();
+        bail!("{why}")
+    };
     let bytes = match read {
         Ok(Ok(bytes)) if bytes.len() <= limit => bytes,
-        other => {
-            let _ = child.kill();
-            let _ = child.wait();
-            match other {
-                Ok(Ok(_)) => bail!("its output is over {limit} bytes"),
-                Ok(Err(e)) => bail!("{e}"),
-                Err(_) => bail!("it took over {}s", timeout.as_secs()),
-            }
-        }
+        Ok(Ok(_)) => return fail(&mut child, format!("its output is over {limit} bytes")),
+        Ok(Err(e)) => return fail(&mut child, e.to_string()),
+        Err(_) => return fail(&mut child, format!("it took over {}s", timeout.as_secs())),
     };
-    if !child.wait()?.success() {
+    // Its stdout closed; it may still run (a child that closed it and went on). Its exit is
+    // waited for within the same deadline, a short check at a time, then it is killed.
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            return fail(&mut child, format!("it took over {}s", timeout.as_secs()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    if !status.success() {
         bail!("it exited with an error");
     }
     Ok(String::from_utf8_lossy(&bytes).trim().to_owned())
+}
+
+/// How long a `--body-file` (or stdin) may take to open and read.
+const BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The body at `path` (`-`: stdin), opened and read within `timeout` (a FIFO with no writer,
+/// or a pipe that stalls, is refused then; the reader left behind ends with this process).
+fn read_body_within(path: &str, timeout: std::time::Duration) -> Result<String> {
+    let path = path.to_owned();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let read = if path == "-" {
+            read_bounded(std::io::stdin())
+        } else {
+            std::fs::File::open(&path).map_err(anyhow::Error::from).and_then(read_bounded)
+        };
+        let _ = tx.send(read);
+    });
+    rx.recv_timeout(timeout).unwrap_or_else(|_| {
+        bail!("acpmux gh: the body did not arrive within {}s", timeout.as_secs())
+    })
 }
 
 /// A body the broker can take: at most its limit, read no further (a `/dev/zero` or a FIFO
@@ -238,12 +270,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
             .map_err(|_| anyhow!("acpmux gh: no --repo and no git remote origin here"))?;
         github_repo(&url).ok_or_else(|| anyhow!("acpmux gh: origin is not a GitHub repository"))
     };
-    let read_body = |path: &str| -> Result<String> {
-        if path == "-" {
-            return read_bounded(std::io::stdin().lock());
-        }
-        read_bounded(std::fs::File::open(path)?)
-    };
+    let read_body = |path: &str| read_body_within(path, BODY_TIMEOUT);
     let branch_here = || {
         git(&["symbolic-ref", "--short", "HEAD"])
             .map_err(|_| anyhow!("acpmux gh: no --head, and this folder is on no branch"))

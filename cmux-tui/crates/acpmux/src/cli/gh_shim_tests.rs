@@ -95,3 +95,28 @@ fn a_git_answer_past_its_limit_or_time_is_refused() {
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
     assert!(bounded_output(sh("exit 1"), 64, second).is_err());
 }
+
+/// Review of part 3 at f21dd4d: a child that closed its stdout and went on was waited for with
+/// no limit, and a body FIFO with no writer blocked forever.
+#[test]
+fn a_git_that_closes_its_output_and_runs_on_or_a_body_that_never_comes_is_refused() {
+    let second = std::time::Duration::from_secs(1);
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "echo o/r; exec >&-; sleep 30"]);
+    let started = std::time::Instant::now();
+    let e = bounded_output(cmd, 64, second).unwrap_err();
+    assert!(e.to_string().contains("took over"), "{e}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+
+    let dir = std::env::temp_dir().join(format!("ghshim-fifo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fifo = dir.join("body");
+    let _ = std::fs::remove_file(&fifo);
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let e = read_body_within(fifo.to_str().unwrap(), second).unwrap_err();
+    assert!(e.to_string().contains("did not arrive"), "{e}");
+    let file = dir.join("ok");
+    std::fs::write(&file, "hello").unwrap();
+    assert_eq!(read_body_within(file.to_str().unwrap(), second).unwrap(), "hello");
+    let _ = std::fs::remove_dir_all(&dir);
+}
