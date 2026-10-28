@@ -61,12 +61,17 @@ import Testing
             }, accepted: { _ in false })
             #expect(passed, "the handoff's own request did not pass its hold")
             #expect(!connection.handoffGate.isHolding, "a refused handoff kept its hold")
+            #expect(connection.handoffHoldStage.last?.end == .refused)
 
             let accepted = await connection.quietHandoff { true }
             #expect(accepted)
             #expect(connection.handoffGate.isHolding, "an accepted handoff did not hold new requests")
             await connection.close()
             #expect(!connection.handoffGate.isHolding, "close kept the hold")
+            let stage = connection.handoffHoldStage
+            #expect(stage.last?.end == .closed)
+            #expect(stage.ends == [.refused: 1, .closed: 1])
+            #expect(stage.running == nil)
             await #expect(throws: DaemonError.self) {
                 try await connection.request(SetSplitRatioRequest(split: 1, ratio: 0.5))
             }
@@ -142,6 +147,9 @@ import Testing
             wake.fire()
             let created = try await create.value
             #expect(created.lifecycle == "--execute|use ghostty *", "the next daemon got the create without its shell arguments")
+            let stage = connection.handoffHoldStage
+            #expect(stage.last?.end == .ready, "the hold did not end with the next daemon ready")
+            #expect(stage.last?.heldRequests == 1)
             await connection.close()
         } catch {
             await connection.close()
@@ -158,44 +166,44 @@ import Testing
         return (QuietHandoffGate(observe: { continuation.yield($0) }), waits.makeAsyncIterator())
     }
 
-    @Test func aRequestWithNoHandoffEntersAtOnce() async {
+    @Test func aRequestWithNoHandoffEntersAtOnce() async throws {
         let gate = QuietHandoffGate()
-        await gate.enter(passes: false)
+        try await gate.enter(passes: false)
         #expect(gate.requestsInFlight == 1)
         gate.leave()
         #expect(gate.requestsInFlight == 0)
     }
 
-    @Test func aHeldRequestGoesOnWhenTheHoldEnds() async {
+    @Test func aHeldRequestGoesOnWhenTheHoldEnds() async throws {
         let (gate, stream) = Self.observedGate()
         var waits = stream
         let hold = await gate.beginHandoff()
         let request = Task {
-            await gate.enter(passes: false)
+            try await gate.enter(passes: false)
             defer { gate.leave() }
             return gate.isHolding
         }
         let parked = await waits.next()
         #expect(parked == .request)
         #expect(gate.requestsInFlight == 0, "a held request was counted in flight")
-        #expect(gate.release(hold))
-        #expect(await request.value == false, "the request went on before the hold ended")
+        #expect(gate.release(hold, end: .ready) != nil)
+        #expect(try await request.value == false, "the request went on before the hold ended")
         #expect(gate.requestsInFlight == 0)
     }
 
-    @Test func theHandoffsOwnRequestsPass() async {
+    @Test func theHandoffsOwnRequestsPass() async throws {
         let gate = QuietHandoffGate()
         let hold = await gate.beginHandoff()
-        await gate.enter(passes: true)
+        try await gate.enter(passes: true)
         #expect(gate.requestsInFlight == 1)
         gate.leave()
-        gate.release(hold)
+        gate.release(hold, end: .ready)
     }
 
-    @Test func aHandoffWaitsUntilNoRequestIsInFlight() async {
+    @Test func aHandoffWaitsUntilNoRequestIsInFlight() async throws {
         let (gate, stream) = Self.observedGate()
         var waits = stream
-        await gate.enter(passes: false)
+        try await gate.enter(passes: false)
         let handoff = Task { await gate.beginHandoff() }
         let parked = await waits.next()
         #expect(parked == .quiet)
@@ -203,7 +211,7 @@ import Testing
         gate.leave()
         let hold = await handoff.value
         #expect(gate.holds(hold))
-        gate.release(hold)
+        gate.release(hold, end: .ready)
     }
 
     @Test func aCancelledHeldRequestGoesOnWhileTheHoldRuns() async {
@@ -211,16 +219,47 @@ import Testing
         var waits = stream
         let hold = await gate.beginHandoff()
         let request = Task {
-            await gate.enter(passes: false)
+            try await gate.enter(passes: false)
             gate.leave()
         }
         let parked = await waits.next()
         #expect(parked == .request)
         request.cancel()
-        await request.value
+        if case .failure(let error) = await request.result { Issue.record("a cancelled held request failed: \(error)") }
         #expect(gate.holds(hold), "a cancelled request ended the hold")
         #expect(gate.requestsInFlight == 0)
-        gate.release(hold)
+        gate.release(hold, end: .ready)
+    }
+
+    /// A hold that ends at its limit fails the requests it parked, unsent, and records how long it held
+    /// them and how it ended (the stage `debug.daemon` reports).
+    @Test func aHoldAtItsLimitFailsItsRequestsUnsentAndIsMeasured() async throws {
+        let clock = ManualClock()
+        let (waitStream, continuation) = AsyncStream.makeStream(of: QuietHandoffGate.Wait.self)
+        let gate = QuietHandoffGate(observe: { continuation.yield($0) }, elapsed: LineTransport.elapsedReader(clock))
+        var waits = waitStream.makeAsyncIterator()
+        let hold = await gate.beginHandoff()
+        let request = Task {
+            try await gate.enter(passes: false)
+            gate.leave()
+        }
+        let parked = await waits.next()
+        #expect(parked == .request)
+        clock.advance(by: .seconds(3))
+        #expect(gate.stage.running == DaemonConnection.HandoffHoldStage.Hold(end: nil, duration: .seconds(3), heldRequests: 1))
+        let ended = gate.release(hold, end: .limit)
+        #expect(ended == DaemonConnection.HandoffHoldStage.Hold(end: .limit, duration: .seconds(3), heldRequests: 1))
+        await #expect(throws: DaemonError.handoffNotReady) { try await request.value }
+        #expect(gate.requestsInFlight == 0, "a request failed at the limit was left counted in flight")
+        let stage = gate.stage
+        #expect(stage.ends == [.limit: 1])
+        #expect(stage.holds == 1)
+        #expect(stage.heldRequests == 1)
+        #expect(stage.maxDuration == .seconds(3))
+        #expect(stage.running == nil)
+        // The hold is over: a new request enters at once.
+        try await gate.enter(passes: false)
+        gate.leave()
     }
 
     /// A second handoff waits for the first's hold; a late release of the first hold (its timer) does
@@ -232,12 +271,12 @@ import Testing
         let second = Task { await gate.beginHandoff() }
         let parked = await waits.next()
         #expect(parked == .queue)
-        #expect(gate.release(first))
+        #expect(gate.release(first, end: .ready) != nil)
         let next = await second.value
         #expect(next != first)
-        #expect(!gate.release(first), "a stale release ended a hold")
+        #expect(gate.release(first, end: .limit) == nil, "a stale release ended a hold")
         #expect(gate.holds(next))
-        #expect(gate.release(next))
+        #expect(gate.release(next, end: .ready) != nil)
         #expect(!gate.isHolding)
     }
 
@@ -252,7 +291,8 @@ import Testing
             for _ in 0..<workers {
                 group.addTask {
                     for _ in 0..<perWorker {
-                        await gate.enter(passes: false)
+                        // No hold here ends at its limit, so every enter returns.
+                        guard (try? await gate.enter(passes: false)) != nil else { continue }
                         tally.admitted.wrappingAdd(1, ordering: .sequentiallyConsistent)
                         if tally.handoffRunning.load(ordering: .sequentiallyConsistent) { tally.violations.wrappingAdd(1, ordering: .relaxed) }
                         tally.served.wrappingAdd(1, ordering: .relaxed)
@@ -267,7 +307,7 @@ import Testing
                     tally.handoffRunning.store(true, ordering: .sequentiallyConsistent)
                     if tally.admitted.load(ordering: .sequentiallyConsistent) != 0 { tally.violations.wrappingAdd(1, ordering: .relaxed) }
                     tally.handoffRunning.store(false, ordering: .sequentiallyConsistent)
-                    gate.release(hold)
+                    gate.release(hold, end: .ready)
                     await Task.yield()
                 }
             }

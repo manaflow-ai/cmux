@@ -75,9 +75,19 @@ import Testing
                     "a request held by an accepted handoff was still waiting \(Self.bound) after it, with no next daemon")
             if case .success = outcome { Issue.record("the held request succeeded with no daemon to carry it") }
             if case .failure(let error) = outcome {
-                #expect(error is DaemonError, "the held request ended with an untyped error: \(error)")
+                #expect(error as? DaemonError == .handoffNotReady, "the held request did not fail as a handoff not ready: \(error)")
             }
             #expect(!connection.handoffGate.isHolding, "the hold outlived its bound")
+            #expect(DaemonConnection.handoffHoldLimit <= Self.bound)
+            // The stage says what happened: one hold, ended at the limit, one request held for the whole limit.
+            let stage = connection.handoffHoldStage
+            #expect(stage.last == DaemonConnection.HandoffHoldStage.Hold(end: .limit, duration: DaemonConnection.handoffHoldLimit, heldRequests: 1))
+            #expect(stage.ends == [.limit: 1])
+            #expect(stage.running == nil)
+            // With the hold over, a request with no daemon fails at once instead of waiting.
+            await #expect(throws: DaemonError.notConnected) {
+                try await connection.request(SetSplitRatioRequest(split: 1, ratio: 0.75))
+            }
             await connection.close()
         } catch {
             await connection.close()

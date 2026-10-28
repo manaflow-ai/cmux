@@ -94,7 +94,8 @@ public actor DaemonConnection {
     public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
     /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight and the requests held while
-    /// a handoff runs, counted and parked without the actor; the running hold's limit timer.
+    /// a handoff runs, counted and parked without the actor, and each hold's measured stage; the running
+    /// hold's limit timer.
     nonisolated let handoffGate: QuietHandoffGate
     var handoffHoldTimer: DemandTimer?
     /// Waits for a ready connection newer than `after` (`DaemonConnection+ReadyWait`), each with its limit.
@@ -119,7 +120,8 @@ public actor DaemonConnection {
         self.heartbeat = heartbeat
         // The heartbeat asks on its shown cadence while a request waits for its reply (p14-energy-064).
         handoffGate = QuietHandoffGate(observe: configuration.handoffWaits,
-                                       busyEdge: { [heartbeat] gate in heartbeat.requestsWaiting { gate.requestsInFlight > 0 } })
+                                       busyEdge: { [heartbeat] gate in heartbeat.requestsWaiting { gate.requestsInFlight > 0 } },
+                                       elapsed: LineTransport.elapsedReader(clock))
         // The events no consumer took yet wait in the route's bounded EventInbox backlog; past
         // DaemonEventRoute.highWater bytes of them, while a stream consumer takes them, the reader stops reading the socket.
         let route = DaemonEventRoute()
@@ -151,7 +153,7 @@ public actor DaemonConnection {
         reconnectTask = nil
         if case .ready(let ready) = phase { ready.transport.close() }
         phase = .closed
-        releaseHandoffHold()
+        releaseHandoffHold(end: .closed)
         endReadyWaits()
         route.finish()
     }
@@ -206,7 +208,7 @@ public actor DaemonConnection {
     /// the ready connection that carries it.
     private nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, timeout: Duration?,
                                                             forDaemon: (R, DaemonIdentity) -> R) async throws -> R.Response {
-        await handoffGate.enter(passes: Self.passesHandoffHold)
+        try await handoffGate.enter(passes: Self.passesHandoffHold)
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try R.requireServed(by: ready.identity)
@@ -233,7 +235,7 @@ public actor DaemonConnection {
     nonisolated func resourceRequest<Line: DaemonResourceLine, R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> Line,
                                                                               as type: R.Type, timeout: Duration? = nil,
                                                                               onTransport: (LineTransport) throws -> Void = { _ in }) async throws -> R {
-        await handoffGate.enter(passes: Self.passesHandoffHold)
+        try await handoffGate.enter(passes: Self.passesHandoffHold)
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try onTransport(ready.transport)
@@ -340,7 +342,7 @@ public actor DaemonConnection {
             let life = DaemonDiagnosticSite.Sighting.life(pid: identity.pid, generation: identity.generation.rawValue)
             transportSites?.install { [diagnosticSites] in diagnosticSites.deliver(.init(site: $0, daemonLife: life)) }
             phase = .ready(DaemonReadyConnection(transport: transport, serial: serial, identity: identity, userOriginAllowed: userOriginAllowed))
-            releaseHandoffHold()
+            releaseHandoffHold(end: .ready)
             resumeReadyWaits(serial: serial)
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
@@ -420,7 +422,7 @@ public actor DaemonConnection {
                     logger.error("cmux-tui reconnect failed permanently: \(error.description, privacy: .public)")
                     reconnectTask = nil
                     phase = .closed
-                    releaseHandoffHold()
+                    releaseHandoffHold(end: .closed)
                     endReadyWaits()
                     route.finish(throwing: error)
                     return

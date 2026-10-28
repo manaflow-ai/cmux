@@ -7,6 +7,9 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     case connectionClosed(reason: String)
     /// The daemon announced `daemon-shutdown` before closing.
     case daemonShutdown
+    /// The request waited for the next daemon of an accepted handoff (`DaemonConnection.quietHandoff`), which
+    /// was not ready within `DaemonConnection.handoffHoldLimit`; it was not sent.
+    case handoffNotReady
     case socketPathTooLong(String)
     case connectFailed(path: String, errno: Int32)
     /// The daemon answered `ok:false`. A `cmux.protocol/2` resource error
@@ -39,6 +42,8 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .notConnected: "not connected to cmux-tui"
         case .connectionClosed(let reason): "cmux-tui connection closed: \(reason)"
         case .daemonShutdown: "cmux-tui daemon shut down"
+        case .handoffNotReady:
+            "cmux-tui is restarting and was not ready within \(DaemonConnection.handoffHoldLimit.components.seconds) s; the request was not sent"
         case .socketPathTooLong(let path): "socket path exceeds sun_path: \(path)"
         case .connectFailed(let path, let code): "connect \(path) failed: \(POSIXErrorText(code))"
         case .command(let cmd, let message, let code, _, _): "\(cmd) failed: \(message)\(code.map { " [\($0)]" } ?? "")"
@@ -61,7 +66,7 @@ extension DaemonError {
     /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
     public var isLostConnection: Bool {
         switch self {
-        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        case .notConnected, .connectionClosed, .daemonShutdown, .handoffNotReady, .connectFailed, .timedOut: true
         default: false
         }
     }

@@ -49,6 +49,9 @@ struct DaemonVersionHandoffTests {
                 current = await connection.identity
             }
             #expect(current?.pid != old.pid)
+            // How long the real handoff held new requests (audit B14's evidence; no bound asserted here).
+            let hold = connection.handoffHoldStage.last
+            print("daemon handoff hold: end \(hold?.end?.rawValue ?? "none"), \(hold.map { "\($0.duration)" } ?? "-")")
             #expect(current?.registryID == old.registryID, "the new daemon must open the same session state")
 
             // The terminal is the same terminal, still running.

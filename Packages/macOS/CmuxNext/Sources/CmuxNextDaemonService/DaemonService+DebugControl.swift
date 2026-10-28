@@ -4,6 +4,9 @@ import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension DaemonService {
+    /// The control socket's JSON (CmuxNextDaemon has its own of the same name).
+    typealias ControlJSON = EnergyReport.JSONValue
+
     /// `debug.daemon` (DEBUG builds; a release router drops every `debug.*`
     /// method): the local daemon's connection and recovery as the app shows them,
     /// for the restore journey's daemon variants (scripts/cmux-next/restore-journey.py:
@@ -14,7 +17,8 @@ extension DaemonService {
     /// The report: `startup` (`connecting`, `connected`, `unavailable` with
     /// `startup_error`), `connection` (`connected`, `connecting`,
     /// `disconnected`, `failed` with `connection_reason`), the daemon's `pid`
-    /// while connected, `recovery`, and `windows`: each window's id and what it
+    /// while connected, `recovery`, `handoff_hold` (the quiet handoff's measured
+    /// stage, ``handoffHoldReport(_:)``), and `windows`: each window's id and what it
     /// shows, from `windows` (`content`, `connecting` or `none`).
     @MainActor
     public func debugControlMethod(windows: @escaping @MainActor @Sendable () -> [(id: String, shows: String)]) -> ControlMethod {
@@ -61,9 +65,35 @@ extension DaemonService {
             recovery["is_restarting"] = .bool(self.recovery.isRestarting)
             if let failure = self.recovery.restartFailure { recovery["restart_failure"] = .string(failure) }
             report["recovery"] = .object(recovery)
+            if let connection { report["handoff_hold"] = Self.handoffHoldReport(connection.handoffHoldStage) }
             report["windows"] = .array(windows().map { .object(["id": .string($0.id), "shows": .string($0.shows)]) })
             return .value(.object(report))
         }
+    }
+
+    /// The quiet handoff's stage (``DaemonConnection/HandoffHoldStage``): `limit_ms`; `holds`, the
+    /// holds that ended, and `ends`, how many ended `ready`, `refused`, `closed` or `limit`;
+    /// `held_requests` and `max_held_requests` (all ended holds, and the most one held); `max_hold_ms`;
+    /// `last` and `running` (nil when none): `end` (`last` only), `hold_ms` and `held_requests`.
+    static func handoffHoldReport(_ stage: DaemonConnection.HandoffHoldStage) -> ControlJSON {
+        func milliseconds(_ duration: Duration) -> ControlJSON { .number(duration.inSeconds * 1_000) }
+        func row(_ hold: DaemonConnection.HandoffHoldStage.Hold?) -> ControlJSON {
+            guard let hold else { return .null }
+            var row: [String: ControlJSON] = ["hold_ms": milliseconds(hold.duration), "held_requests": .number(Double(hold.heldRequests))]
+            if let end = hold.end { row["end"] = .string(end.rawValue) }
+            return .object(row)
+        }
+        let ends = DaemonConnection.HandoffHoldEnd.allCases.map { ($0.rawValue, ControlJSON.number(Double(stage.ends[$0] ?? 0))) }
+        return .object([
+            "limit_ms": milliseconds(DaemonConnection.handoffHoldLimit),
+            "holds": .number(Double(stage.holds)),
+            "ends": .object(Dictionary(uniqueKeysWithValues: ends)),
+            "held_requests": .number(Double(stage.heldRequests)),
+            "max_held_requests": .number(Double(stage.maxHeldRequests)),
+            "max_hold_ms": milliseconds(stage.maxDuration),
+            "last": row(stage.last),
+            "running": row(stage.running),
+        ])
     }
 
     /// `debug.drain_cost` (DEBUG and bench builds): what the store's drains of the daemon's event

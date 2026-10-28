@@ -13,6 +13,9 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// turn) live under a short `Mutex` that only those waits take. Chrome sends IPC from any thread the same
 /// way: `IPC::SyncMessageFilter::Send` (ipc/ipc_sync_message_filter.cc) reads the channel under a lock and
 /// never posts to the channel owner's thread first.
+///
+/// Each hold is a measured stage (``DaemonConnection/HandoffHoldStage``): when it began, the requests it
+/// parked, how long it held them and how it ended, recorded under the same lock as the waits.
 final class QuietHandoffGate: Sendable {
     /// One handoff's hold. Releasing a hold that already ended does nothing, so a late timer of one
     /// handoff never ends the next one's hold.
@@ -32,8 +35,12 @@ final class QuietHandoffGate: Sendable {
 
     /// A parked request: its wait ends on release or when its task is cancelled.
     private typealias HeldRequest = OnceContinuation<Void, any Error>
+    /// What a held request's wait ends with when its hold ends at the limit: the request fails, unsent.
+    private struct HoldLimitPassed: Error {}
     /// A parked handoff (waiting for quiet or for its turn).
     private typealias HandoffWait = OnceContinuation<Void, OnceContinuationError>
+    /// One hold as the stage records it.
+    typealias StageHold = DaemonConnection.HandoffHoldStage.Hold
 
     private struct Waits {
         /// The running handoff's hold; nil while none runs. ``QuietHandoffGate/holding`` mirrors it.
@@ -43,6 +50,12 @@ final class QuietHandoffGate: Sendable {
         var held: [UInt64: HeldRequest] = [:]
         var quiet: [HandoffWait] = []
         var queue: [HandoffWait] = []
+        /// When the running hold began, on `elapsed`.
+        var holdStarted: Duration = .zero
+        /// The requests the running hold parked.
+        var heldByHold = 0
+        /// The holds that ended.
+        var stage = DaemonConnection.HandoffHoldStage()
     }
 
     /// True while a handoff holds new requests; written only under `waits`' lock.
@@ -53,6 +66,8 @@ final class QuietHandoffGate: Sendable {
     private let quietWanted = Atomic<Bool>(false)
     private let waits = Mutex(Waits())
     private let observe: @Sendable (Wait) -> Void
+    /// The time since the gate was made, on the connection's clock: the holds' start and end.
+    private let elapsed: @Sendable () -> Duration
     /// Told each time the count of requests in flight leaves or reaches 0 (p14-energy-064: the
     /// heartbeat asks on its shown cadence while a request waits for its reply). It is told with the
     /// gate, not the edge: edges of two threads can arrive out of order, so it reads
@@ -62,10 +77,13 @@ final class QuietHandoffGate: Sendable {
     /// - Parameters:
     ///   - observe: Told each time a wait parks (a test seam; the default ignores it).
     ///   - busyEdge: Told each time the count of requests in flight leaves or reaches 0.
+    ///   - elapsed: The time since some fixed start, which only grows: the holds' durations.
     init(observe: @escaping @Sendable (Wait) -> Void = { _ in },
-         busyEdge: @escaping @Sendable (QuietHandoffGate) -> Void = { _ in }) {
+         busyEdge: @escaping @Sendable (QuietHandoffGate) -> Void = { _ in },
+         elapsed: @escaping @Sendable () -> Duration = LineTransport.elapsedReader(ContinuousClock())) {
         self.observe = observe
         self.busyEdge = busyEdge
+        self.elapsed = elapsed
     }
 
     /// Requests counted in flight (diagnostics, tests).
@@ -77,17 +95,30 @@ final class QuietHandoffGate: Sendable {
     /// True while `hold` is the running handoff's hold.
     func holds(_ hold: Hold) -> Bool { waits.withLock { $0.hold == hold } }
 
+    /// The holds so far, with the running one's time and requests up to now.
+    var stage: DaemonConnection.HandoffHoldStage {
+        let now = elapsed()
+        return waits.withLock { waits in
+            var stage = waits.stage
+            if waits.hold != nil {
+                stage.running = .init(end: nil, duration: max(.zero, now - waits.holdStarted), heldRequests: waits.heldByHold)
+            }
+            return stage
+        }
+    }
+
     // MARK: - Requests
 
     /// Counts a request in flight once no hold stops it: at once when none runs, when `passes` (the
     /// handoff's own requests), or when the task is cancelled (it goes on and fails as before). Every
-    /// return must be paired with one ``leave()``.
-    func enter(passes: Bool) async {
+    /// return must be paired with one ``leave()``. Throws ``DaemonError/handoffNotReady``, with nothing
+    /// counted, when the hold that parked it ended at its limit: the request is not sent.
+    func enter(passes: Bool) async throws(DaemonError) {
         count()
         // Each turn parks until a hold ends; a new hold after it parks the request again.
         while !passes, holding.load(ordering: .sequentiallyConsistent), !Task.isCancelled {
             leave()
-            await parkUntilReleased()
+            guard await parkUntilReleased() else { throw .handoffNotReady }
             count()
         }
     }
@@ -111,27 +142,41 @@ final class QuietHandoffGate: Sendable {
         quiet.forEach { $0.resume(returning: ()) }
     }
 
-    /// Waits until the hold ends or the task is cancelled.
-    private func parkUntilReleased() async {
+    /// Waits until the hold ends or the task is cancelled. False when the hold ended at its limit.
+    private func parkUntilReleased() async -> Bool {
         let key = waits.withLock { waits -> UInt64 in
             waits.nextKey &+= 1
             return waits.nextKey
         }
-        // A cancelled wait ends with CancellationError; the request then goes on, as a released one does.
-        _ = try? await withOnceThrowingContinuation(cancellation: .cancellable) { (continuation: HeldRequest) in
-            let parked = waits.withLock { waits -> Bool in
-                guard waits.hold != nil else { return false }
-                waits.held[key] = continuation
-                return true
+        var goesOn = true
+        do {
+            try await withOnceThrowingContinuation(cancellation: .cancellable) { (continuation: HeldRequest) in
+                parkOrGoOn(continuation, key: key)
             }
-            if parked {
-                observe(.request)
-            } else {
-                continuation.resume(returning: ())
-            }
+        } catch is HoldLimitPassed {
+            goesOn = false
+        } catch {
+            // A cancelled wait ends with CancellationError; the request then goes on, as a released one does.
         }
         // A cancelled wait leaves its entry; a released one was taken already.
         waits.withLock { waits in _ = waits.held.removeValue(forKey: key) }
+        return goesOn
+    }
+
+    /// Parks `continuation` under `key` while a hold runs (counted as one of its requests); resumes it at once
+    /// when none does.
+    private func parkOrGoOn(_ continuation: HeldRequest, key: UInt64) {
+        let parked = waits.withLock { waits -> Bool in
+            guard waits.hold != nil else { return false }
+            waits.held[key] = continuation
+            waits.heldByHold += 1
+            return true
+        }
+        if parked {
+            observe(.request)
+        } else {
+            continuation.resume(returning: ())
+        }
     }
 
     // MARK: - Handoffs
@@ -154,11 +199,14 @@ final class QuietHandoffGate: Sendable {
 
     /// Starts a hold when none runs.
     private func takeHold() -> Hold? {
-        waits.withLock { waits -> Hold? in
+        let now = elapsed()
+        return waits.withLock { waits -> Hold? in
             guard waits.hold == nil else { return nil }
             waits.generation &+= 1
             let hold = Hold(generation: waits.generation)
             waits.hold = hold
+            waits.holdStarted = now
+            waits.heldByHold = 0
             holding.store(true, ordering: .sequentiallyConsistent)
             return hold
         }
@@ -203,23 +251,32 @@ final class QuietHandoffGate: Sendable {
         }
     }
 
-    /// Ends `hold` (nil: whichever runs): the held requests go on, then the next queued handoff. Returns
-    /// false when that hold had ended already.
+    /// Ends `hold` (nil: whichever runs) as `end` says, records it in ``stage`` and returns it: the held
+    /// requests go on (at `.limit` they fail, unsent), then the next queued handoff. Nil when that hold had
+    /// ended already.
     @discardableResult
-    func release(_ hold: Hold? = nil) -> Bool {
-        let woken = waits.withLock { waits -> (held: [HeldRequest], queue: [HandoffWait])? in
+    func release(_ hold: Hold? = nil, end: DaemonConnection.HandoffHoldEnd) -> StageHold? {
+        let now = elapsed()
+        let woken = waits.withLock { waits -> (held: [HeldRequest], queue: [HandoffWait], ended: StageHold)? in
             guard let current = waits.hold, hold == nil || hold == current else { return nil }
             waits.hold = nil
             holding.store(false, ordering: .sequentiallyConsistent)
+            // A hold taken after `now` was read (a release of whichever runs) ended as it began.
+            let ended = StageHold(end: end, duration: max(.zero, now - waits.holdStarted), heldRequests: waits.heldByHold)
+            waits.stage.record(ended)
             defer {
                 waits.held.removeAll()
                 waits.queue.removeAll()
             }
-            return (Array(waits.held.values), waits.queue)
+            return (Array(waits.held.values), waits.queue, ended)
         }
-        guard let woken else { return false }
-        woken.held.forEach { $0.resume(returning: ()) }
+        guard let woken else { return nil }
+        if end == .limit {
+            woken.held.forEach { $0.resume(throwing: HoldLimitPassed()) }
+        } else {
+            woken.held.forEach { $0.resume(returning: ()) }
+        }
         woken.queue.forEach { $0.resume(returning: ()) }
-        return true
+        return woken.ended
     }
 }
