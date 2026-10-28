@@ -365,7 +365,12 @@ impl<I: Io> Reporter<I> {
             return;
         }
         if self.silent() {
-            if let Some(track) = self.tracks.get_mut(session) {
+            // Nothing is sent now. A turn being reported stops being followed (its steps meanwhile
+            // are not sent); a failed turn waiting for its continuation stays, and is reported
+            // once the agent is asked again.
+            if let Some(track) = self.tracks.get_mut(session)
+                && matches!(track.now, Now::Reporting { .. })
+            {
                 track.now = Now::Quiet;
             }
             return;
@@ -459,15 +464,21 @@ impl<I: Io> Reporter<I> {
         self.set_now(session, Now::Quiet);
     }
 
-    /// When the next failed turn waiting for its continuation is to be reported failed.
+    /// When the next failed turn waiting for its continuation is to be reported failed: not
+    /// before the agent is asked again, if it is left alone now.
     pub(super) fn next_deadline(&self) -> Option<tokio::time::Instant> {
-        self.tracks
+        let due = self
+            .tracks
             .values()
             .filter_map(|t| match t.now {
                 Now::Retrying { until, .. } => Some(until),
                 _ => None,
             })
-            .min()
+            .min()?;
+        Some(match self.silent_until {
+            Some(quiet) if quiet > due => quiet,
+            _ => due,
+        })
     }
 
     /// Reports failed every turn whose continuation did not come in time. The worker calls it

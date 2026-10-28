@@ -613,6 +613,16 @@ async fn due_turns_stop_at_an_agent_that_stopped_answering() {
     r.expire().await;
     let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
     assert_eq!(sent.len(), 3, "two begins and one failed report: {sent:?}");
+    // The other due turn waits for the agent, not a timer that fires again at once.
+    let next = r.next_deadline().expect("acp_b still waits");
+    assert!(next >= tokio::time::Instant::now() + SILENT_FOR - Duration::from_secs(1), "{next:?}");
+    // Once the agent is asked again, it is reported.
+    tokio::time::advance(SILENT_FOR).await;
+    fake.answer([ok(1, "failed")]);
+    r.expire().await;
+    let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(r.next_deadline(), None);
 }
 
 /// A hand-off the store closed stays closed for its session across a close and reopen.
