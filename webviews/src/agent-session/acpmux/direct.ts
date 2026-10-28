@@ -321,6 +321,13 @@ const MISSING_RECHECK_MS = 2000;
 /// How long a send waits for a down peer it reconnects: acpmux's own settle budget (30 s, hub
 /// peers.rs PEER_SETTLE_BUDGET) and a little for the reply.
 const PEER_RECONNECT_WAIT_MS = 35_000;
+/// acpmux pushes peer link states (`_acpmux/peer_state_changed`): its `initialize` feature, or capability.
+const PEER_STATE_EVENTS = "peerStateEvents";
+const PEER_STATE_CAPABILITY = "peer-state-events-v1";
+/// A request that went out on a peer link before it dropped (`peer_disconnected`): the peer may have
+/// run it. Only a prompt, which acpmux runs once per id, goes again after it.
+const linkDropped = (error: unknown): boolean => (error as { reason?: unknown } | undefined)?.reason === "peer_disconnected";
+const PEER_LINK_STATES = new Set(["connecting", "connected", "degraded", "reconnecting", "offline"]);
 
 /// The machine a chat ran on, from its kept summary (this page's, or the app host's). A summary
 /// with no `peer` says nothing: the attach of a peer's chat gives that daemon's own detail, which
@@ -1455,6 +1462,10 @@ export class AcpmuxDirectClient {
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
   private peerStates: Record<string, string> = {};
+  /// acpmux pushes each peer's link state as it changes (`_acpmux/peer_state_changed`, the
+  /// `peerStateEvents` feature): the list is read at each connect and these apply on top, so
+  /// opening the machine list reads nothing. An older daemon's is read on open, pick and send.
+  private peerStateEvents = false;
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -1708,6 +1719,11 @@ export class AcpmuxDirectClient {
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
+      const features = initialized?._meta?.acpmux?.features;
+      this.peerStateEvents =
+        (Array.isArray(features) && features.includes(PEER_STATE_EVENTS)) ||
+        this.capabilities?.has(PEER_STATE_CAPABILITY) === true;
+      // The peers as they are now, at every connect (a reconnect included); the pushes apply on top.
       this.readPeers(await this.request("_acpmux/status", {}).catch(() => undefined));
       const first = await this.sessionPages.first();
       let laterPages = first?.next ? first : undefined;
@@ -2376,6 +2392,7 @@ export class AcpmuxDirectClient {
     // A new chat's start mode may have changed (a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
+    else if (notification.method === "_acpmux/peer_state_changed") this.peerStateChanged(notification.params);
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -5061,12 +5078,15 @@ export class AcpmuxDirectClient {
     const offlineCopy = this.peerCopy?.sessionId === sessionId && this.peerCopy.offline;
     if (peer && (this.peerDown(peer) || offlineCopy || row?.status === "unreachable"))
       await this.reconnectPeer(peer, true, !this.peerDown(peer));
-    // A machine that dropped since acpmux listed it (it sends no peer events) refuses the prompt
-    // as unreachable before it reached the agent: reconnected and waited for once, then the same
-    // prompt (its `promptId`) goes again; still down, the refusal is the send's.
+    // A machine whose link dropped: reconnected and waited for once, then the same prompt (its
+    // `promptId`) goes again; still down, the refusal is the send's. `peer_unreachable`: it was
+    // never sent. `peer_disconnected`: it went out and the machine may have run it; acpmux runs a
+    // prompt id once (hub/turns.rs `prompt_with`: the same id answers with the first run's outcome,
+    // marked `duplicate`, waiting for it while it runs; the host marks the second send a `resend`,
+    // so after a daemon restart its log answers too), so the turn never runs twice.
     const retryOnDrop = <T,>(send: () => Promise<T>): Promise<T> =>
       send().catch(async (error: unknown) => {
-        if (!peer || !peerDown(error)) throw error;
+        if (!peer || !(peerDown(error) || linkDropped(error))) throw error;
         await this.reconnectPeer(peer, true, true);
         if (!this.peerUp(peer)) throw error;
         return send();
@@ -6030,8 +6050,10 @@ export class AcpmuxDirectClient {
     // first send goes out once the machine is back (Leo, 2026-10-28), with no Reconnect click.
     if (peer && this.peerDown(peer)) await this.reconnectPeer(peer, true);
     const params = newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model);
-    // A peer that dropped since acpmux last listed it (acpmux sends no peer events) refuses as
-    // unreachable: reconnected and waited for once, then the chat starts; still down, it refuses.
+    // A peer that dropped since this page last heard of it refuses as unreachable (never sent):
+    // reconnected and waited for once, then the chat starts; still down, it refuses. One that went
+    // out before the drop (`peer_disconnected`) may have made the chat, and `session/new` has no id
+    // acpmux runs once: it fails as it did, never a second chat.
     const result = await this.newSession(params, again).catch(async (error: unknown) => {
       if (!peer || !peerDown(error)) throw error;
       await this.reconnectPeer(peer, true, true);
@@ -6537,14 +6559,46 @@ export class AcpmuxDirectClient {
       })),
     ];
   }
-  /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
-  /// machine that connected or dropped since shows as it is now. acpmux sends no peer events.
+  /// Reads acpmux's peers again (`_acpmux/status`): for an older daemon the environment picker
+  /// asks as it opens, so a machine that connected or dropped since shows as it is now.
   async refreshPeers(): Promise<void> {
     const status = await this.request("_acpmux/status", {}).catch(() => undefined);
     if (status === undefined) return;
     this.readPeers(status);
     // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
     // emitting now would record "connected" on the hold before setup says so.
+    if (!this.snapshotHold) this.emit();
+  }
+  /// The machine list opened: an older daemon's peers are read again; with acpmux's pushes they
+  /// are already current, so nothing is read.
+  refreshPeersOnOpen(): Promise<void> {
+    return this.peerStateEvents ? Promise.resolve() : this.refreshPeers();
+  }
+  /// One `_acpmux/peer_state_changed {peer, state, lastSeen, error, at}`: that peer's link now. A
+  /// repeat (a lagged watcher gets every peer's last note again) changes nothing; a removed peer
+  /// (`offline` with `error: "removed"`) leaves the list; one not listed yet is read with the rest
+  /// (its transport comes with the list).
+  private peerStateChanged(params: any): void {
+    const peer = params?.peer;
+    const state = params?.state;
+    if (typeof peer !== "string" || !peer || typeof state !== "string" || !PEER_LINK_STATES.has(state)) return;
+    if (state === "offline" && params?.error === "removed") {
+      if (!this.peers.includes(peer)) return;
+      this.peers = this.peers.filter((name) => name !== peer);
+      const { [peer]: _state, ...states } = this.peerStates;
+      const { [peer]: _connected, ...connected } = this.peerConnected;
+      const { [peer]: _status, ...status } = this.peerStatus;
+      [this.peerStates, this.peerConnected, this.peerStatus] = [states, connected, status];
+    } else if (!this.peers.includes(peer)) {
+      void this.refreshPeers();
+      return;
+    } else {
+      if (this.peerStates[peer] === state) return;
+      const lastSeen = typeof params?.lastSeen === "number" && params.lastSeen > 0 ? { lastSeen: params.lastSeen } : {};
+      this.peerStates = { ...this.peerStates, [peer]: state };
+      this.peerConnected = { ...this.peerConnected, [peer]: state === "connected" };
+      this.peerStatus = { ...this.peerStatus, [peer]: { ...this.peerStatus[peer], state, connected: state === "connected", ...lastSeen } };
+    }
     if (!this.snapshotHold) this.emit();
   }
   /// Whether acpmux lists `peer` and says its link finished its handshake (an older daemon: does

@@ -75,8 +75,11 @@ test("the App's push sets the pane's machine and clears it for a chat on this Ma
 /// The Mac's acpmux with one peer, `gpu-box`, in `state`; `_acpmux/peer_reconnect` brings it back.
 /// `dropped`: the link went down since the listing said `state`, so the next `session/new` or
 /// `session/prompt` there is refused as unreachable until a reconnect. `chat`: a chat on gpu-box.
-/// `gone`: the reconnect finds the peer removed (acpmux lists it no more).
-function daemon(state: string, { dropped = false, chat = false, gone = false } = {}) {
+/// `gone`: the reconnect finds the peer removed (acpmux lists it no more). `cut`: the next
+/// `session/new` or `session/prompt` goes out and the link drops before the answer
+/// (`peer_disconnected`). `events`: it pushes peer link states (`peerStateEvents`).
+function daemon(state: string, { dropped = false, chat = false, gone = false, cut = false, events = false } = {}) {
+  let cutNext = cut;
   const asked: { method: string; params: Record<string, unknown> }[] = [];
   let peerState = state;
   let down = dropped;
@@ -89,7 +92,10 @@ function daemon(state: string, { dropped = false, chat = false, gone = false } =
   const answer = (method: string) => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [], features: events ? ["peerStateEvents"] : [] } },
+        };
       case "_acpmux/status":
         return peers();
       case "_acpmux/peer_reconnect":
@@ -102,6 +108,11 @@ function daemon(state: string, { dropped = false, chat = false, gone = false } =
         return peers();
       case "session/new":
       case "session/prompt":
+        if (cutNext) {
+          cutNext = false;
+          peerState = "reconnecting";
+          throw Object.assign(new Error("peer disconnected"), { data: { reason: "peer_disconnected", peer: "gpu-box" } });
+        }
         if (down || peerState !== "connected") throw new Error("peer_unreachable: gpu-box (offline)");
         return method === "session/new" ? { sessionId: "new-chat" } : { stopReason: "end_turn" };
       case "_acpmux/watch":
@@ -127,7 +138,8 @@ function daemon(state: string, { dropped = false, chat = false, gone = false } =
           try {
             reply = { result: answer(message.method) };
           } catch (error) {
-            reply = { error: { code: -32000, message: String((error as Error).message) } };
+            const data = (error as { data?: unknown }).data;
+            reply = { error: { code: -32000, message: String((error as Error).message), ...(data ? { data } : {}) } };
           }
           socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
         });
@@ -137,7 +149,9 @@ function daemon(state: string, { dropped = false, chat = false, gone = false } =
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
-  return { asked, open };
+  /// acpmux pushes a notification to the page.
+  const notify = (method: string, params: unknown) => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
+  return { asked, open, notify };
 }
 
 async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
@@ -150,7 +164,7 @@ async function client(state: string, options: Parameters<typeof daemon>[1] = {})
     fake.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client: connected, asked: fake.asked, states };
+  return { client: connected, asked: fake.asked, states, notify: fake.notify };
 }
 
 test("a new chat's first send to a down peer reconnects it and waits for its handshake, then starts", async () => {
@@ -224,4 +238,54 @@ test("a send whose machine is gone after its reconnect keeps the refusal and is 
   await pane.send("hello").catch(() => undefined);
   expect(asked.filter((message) => message.method === "session/prompt")).toHaveLength(1);
   expect(asked.map((message) => message.method)).toContain("_acpmux/peer_reconnect");
+});
+
+test("a prompt whose link dropped after it went out is sent again under its id once the machine is back", async () => {
+  const { client: pane, asked } = await client("connected", { chat: true, cut: true });
+  await pane.select("on-gpu");
+  await pane.send("hello");
+  const prompts = asked.filter((message) => message.method === "session/prompt");
+  // acpmux runs a prompt id once: the second copy answers with the first run, never a second turn.
+  expect(prompts).toHaveLength(2);
+  expect((prompts[1]!.params._meta as any).acpmux.promptId).toBe((prompts[0]!.params._meta as any).acpmux.promptId);
+  expect(asked.map((message) => message.method)).toContain("_acpmux/peer_reconnect");
+});
+
+test("a new chat whose link dropped after session/new went out fails as it did, never a second chat", async () => {
+  const { client: pane, asked } = await client("connected", { cut: true });
+  await expect(pane.startSession("claude", "/home/dev/project", "gpu-box")).rejects.toThrow();
+  expect(asked.filter((message) => message.method === "session/new")).toHaveLength(1);
+  expect(asked.map((message) => message.method)).not.toContain("_acpmux/peer_reconnect");
+});
+
+test("with acpmux's pushes the strip follows each peer change, repeats change nothing, and the open reads nothing", async () => {
+  const { client: pane, asked, states, notify } = await client("connected", { events: true });
+  const reads = () => asked.filter((message) => message.method === "_acpmux/status").length;
+  const read = reads();
+  await pane.refreshPeersOnOpen();
+  expect(reads()).toBe(read);
+  const note = (state: string, error: string | null = null) =>
+    notify("_acpmux/peer_state_changed", { peer: "gpu-box", state, lastSeen: 1, error, at: 2 });
+  note("reconnecting");
+  expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
+  const emitted = states.length;
+  note("reconnecting");
+  expect(states.length).toBe(emitted);
+  note("connected");
+  expect(states.at(-1)?.["gpu-box"]).toBe("connected");
+  // A removed peer leaves the list.
+  note("offline", "removed");
+  expect(states.at(-1)?.["gpu-box"]).toBeUndefined();
+  // One not listed yet: the list is read again, for its transport.
+  notify("_acpmux/peer_state_changed", { peer: "new-box", state: "connecting", lastSeen: null, error: null, at: 3 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(reads()).toBe(read + 1);
+});
+
+test("an older daemon with no pushes is read again as the list opens", async () => {
+  const { client: pane, asked } = await client("connected");
+  const reads = () => asked.filter((message) => message.method === "_acpmux/status").length;
+  const read = reads();
+  await pane.refreshPeersOnOpen();
+  expect(reads()).toBe(read + 1);
 });

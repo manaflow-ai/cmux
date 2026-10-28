@@ -9540,7 +9540,7 @@ function AcpmuxPane() {
             {...(quick ? {} : { onOffload: offloadChat, offloads })}
             // The list opened: the machines' status and the chat's moves are read again.
             onRefreshMachines={() => {
-              void directClient.current?.refreshPeers();
+              void directClient.current?.refreshPeersOnOpen();
               refreshTabState();
             }}
             // A down machine picked (Leo, 2026-10-28: "as if you were working on your own computer"):
@@ -9907,7 +9907,7 @@ function AcpmuxPane() {
                   }
                 : {})}
               onConnect={connectMachine}
-              onRefreshMachines={() => void directClient.current?.refreshPeers()}
+              onRefreshMachines={() => void directClient.current?.refreshPeersOnOpen()}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {
