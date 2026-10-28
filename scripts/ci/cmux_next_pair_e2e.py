@@ -15,6 +15,11 @@ Screens: the Mac's Mobile Pairing page on a ref that shows no code (a code's ima
 token, so on a ref with codes the page is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
 the camera off (needs `axe`). On a ref without the feature the Mac shows no code: the pairing is
 skipped, the run passes, and the Devices screen is the "before"; on a ref with it, no code fails.
+Then the upload leg (on a ref whose app has UploadProbe): a sparse file of about 150 MB, past the
+old 100 MiB cap, with marked pages at its start, middle and end, is streamed by the app's own
+`LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
+lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
+memory footprint grew by less than a fifth of the file (no whole-file Data).
 The token is never printed: `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
 tag's daemons (tag_teardown.py), and removes the app's state and its Keychain items.
 
@@ -33,6 +38,9 @@ from tag_teardown import TagTeardown  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
+# The upload leg: past the old 100 MiB cap and not a multiple of LinkUpload's 192 KiB chunk.
+UPLOAD_BYTES = (150 << 20) + 12_345
+UPLOAD_NAME = "cmux-upload-probe.bin"
 
 
 def redact(text):
@@ -45,6 +53,30 @@ def shows_a_code():
     code is the expected "before"; on one with it, no code is a failure."""
     src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
     return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+
+
+def has_upload_probe():
+    """Whether this ref's app has the DEBUG upload probe (UploadProbe.swift): the leg runs only there."""
+    return os.path.exists(os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/UploadProbe.swift"))
+
+
+def sparse_file(path, size):
+    """`size` bytes that take no disk, with marked 4 KiB pages at the start, middle and end so a
+    lost, shifted or zeroed chunk changes the hash."""
+    with open(path, "wb") as f:
+        f.truncate(size)
+        for mark, at in ((0x11, 0), (0x22, size // 2), (0x33, size - 4096)):
+            f.seek(at)
+            f.write(bytes([mark]) * 4096)
+
+
+def sha256(path):
+    digest, total = hashlib.sha256(), 0
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            digest.update(chunk)
+            total += len(chunk)
+    return total, digest.hexdigest()
 
 
 def dev_credential():
@@ -139,6 +171,10 @@ def main():
     rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
     config = os.path.join(rig, "cmux-next.json")
     email, password = dev_credential()
+    probe = has_upload_probe()
+    # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
+    # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
+    upload_root = os.path.join(os.path.realpath(a.work), "pair-rig", "upload-root")
     creds = os.path.join(rig, "dev-auth.env")  # written once cleanup is armed (below)
     # Launched by its binary (its PID is this script's child), with the environment `open`
     # would give it (LSEnvironment) plus the rig's settings. An empty seed trusts no phone.
@@ -209,11 +245,15 @@ def main():
 
     teardown = TagTeardown(a.mac_app)
     teardown.install()
-    streams, app, paired, url = [], None, None, None
+    streams, app, paired, url, uploaded = [], None, None, None, not probe
     try:
         os.makedirs(rig, mode=0o700, exist_ok=True)
+        settings = {"mobile": {"allowIPhoneConnections": True}}
+        if probe:
+            os.makedirs(upload_root, mode=0o700)
+            settings["agents"] = {"chats": {"roots": [upload_root]}}
         with open(config, "w") as f:
-            json.dump({"mobile": {"allowIPhoneConnections": True}}, f)
+            json.dump(settings, f)
         with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
             f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
         if os.path.exists(sock):
@@ -290,6 +330,9 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if paired and probe:
+                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, last.get("macName"))
+                note(f"- upload: {line}")
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
     finally:
         if app and app.poll() is None:
@@ -313,7 +356,48 @@ def main():
         forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
     if not url and not expects_code:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
-    return 0 if paired else 1
+    return 0 if paired and uploaded else 1
+
+
+def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
+    """The phone streams a sparse ~150 MB file to the Mac with its own LinkUpload (UploadProbe, a DEBUG
+    launch argument); (passed, summary line). The stored file must match byte for byte."""
+    data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+    source = os.path.join(data, "tmp", UPLOAD_NAME)
+    result_path = os.path.join(data, "Documents", "upload-probe.json")
+    os.makedirs(os.path.dirname(source), exist_ok=True)
+    if os.path.exists(result_path):
+        os.unlink(result_path)
+    sparse_file(source, UPLOAD_BYTES)
+    try:
+        want = sha256(source)
+        args = ["-CmuxMobileUploadProbe", source, "-CmuxMobileUploadProbeCwd", root]
+        if mac_name:
+            args += ["-CmuxMobileUploadProbeMac", mac_name]
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", udid, bundle_id] + args, env=phone_env, check=True, capture_output=True)
+        # Bounded wait on the app's own result file (no event reaches this script for it).
+        if not wait_for(lambda: os.path.exists(result_path), 300, every=2):
+            return False, f"FAIL: no upload-probe.json in 300 s (the probe waits for a served link to {mac_name!r})"
+        result = json.load(open(result_path))
+    finally:
+        os.unlink(source)
+    took, grew = result.get("seconds", 0), result.get("footprintPeak", 0) - result.get("footprintBefore", 0)
+    if "path" not in result:
+        return False, f"FAIL: the Mac refused it: {result.get('error')}: {result.get('message')}"
+    stored = result["path"]
+    folder = os.path.dirname(stored)
+    checks = {
+        "in <cwd>/.cmux/attachments/phone-<session>/": os.path.dirname(folder) == os.path.join(root, ".cmux", "attachments")
+        and os.path.basename(folder).startswith("phone-"),
+        "same size and SHA-256": os.path.isfile(stored) and sha256(stored) == want,
+        "footprint grew < 1/5 of the file": grew < UPLOAD_BYTES // 5,
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {UPLOAD_BYTES:,} bytes, sha256 "
+                        f"{want[1][:16]}..., in {took:.1f} s; stored at .../{os.path.relpath(stored, root)}; app footprint "
+                        f"{result.get('footprintBefore', 0) >> 20} MiB before, +{grew >> 20} MiB at its peak")
 
 
 def step_tag(app):
