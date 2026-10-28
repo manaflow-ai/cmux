@@ -34,7 +34,7 @@ struct CrashWindowSignatureTests {
     @Test("Legacy windows without IDs and the same checkpoints are one window")
     func legacyIdenticalCheckpoints() {
         let lhs = signature(windowId: nil, workspaces: 4, checkpoints: ["a", "b"], titles: titles)
-        let rhs = signature(windowId: nil, workspaces: 4, checkpoints: ["b", "a"], titles: titles.reversed())
+        let rhs = signature(windowId: nil, workspaces: 4, checkpoints: ["b", "a"], titles: Array(titles.reversed()))
         #expect(lhs.isCrashDuplicate(of: rhs))
     }
 
@@ -42,7 +42,7 @@ struct CrashWindowSignatureTests {
     func sameWindowFuzzyGeneration() {
         let id = UUID()
         let lhs = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "c", "d"], titles: titles)
-        let rhs = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "c", "e"], titles: titles.reversed())
+        let rhs = signature(windowId: id, workspaces: 4, checkpoints: ["a", "b", "c", "e"], titles: Array(titles.reversed()))
         #expect(lhs.isCrashDuplicate(of: rhs))
     }
 
@@ -53,7 +53,7 @@ struct CrashWindowSignatureTests {
     @Test("A replayed window with a new ID whose checkpoints are all in the other is one window")
     func replayedWindowWithNewID() {
         let lhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b"], titles: titles)
-        let rhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b", "c", "d"], titles: titles.reversed())
+        let rhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b", "c", "d"], titles: Array(titles.reversed()))
         #expect(lhs.isCrashDuplicate(of: rhs))
         #expect(rhs.isCrashDuplicate(of: lhs))
     }
@@ -61,7 +61,7 @@ struct CrashWindowSignatureTests {
     @Test("Different window IDs with equal checkpoints remain separate")
     func differentIDsEqualCheckpoints() {
         let lhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b", "c"], titles: titles)
-        let rhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["c", "b", "a"], titles: titles.reversed())
+        let rhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["c", "b", "a"], titles: Array(titles.reversed()))
         #expect(!lhs.isCrashDuplicate(of: rhs))
         #expect(!rhs.isCrashDuplicate(of: lhs))
     }
@@ -177,7 +177,7 @@ struct CrashWindowSignatureTests {
         let id = UUID()
         let workspaces = [UUID(), UUID()]
         let lhs = signature(windowId: id, workspaces: 2, checkpoints: [], titles: [], workspaceIDs: workspaces)
-        let rhs = signature(windowId: id, workspaces: 2, checkpoints: [], titles: [], workspaceIDs: workspaces.reversed())
+        let rhs = signature(windowId: id, workspaces: 2, checkpoints: [], titles: [], workspaceIDs: Array(workspaces.reversed()))
         #expect(lhs.isCrashDuplicate(of: rhs))
     }
 

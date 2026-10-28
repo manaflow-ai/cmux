@@ -50,15 +50,19 @@ extension SessionPersistencePolicy {
     ) -> (snapshot: AppSessionSnapshot, mergedWindowCount: Int) {
         var result: [SessionWindowSnapshot] = []
         var signatures: [CrashWindowSignature] = []
+        var mergedClusters: Set<Int> = []
         result.reserveCapacity(snapshot.windows.count)
         var merged = 0
         for window in snapshot.windows {
             let signature = crashWindowSignature(window)
-            if let index = signatures.firstIndex(where: {
-                $0.isCrashDuplicate(of: signature)
+            if let index = signatures.indices.first(where: { index in
+                signatures[index].isCrashDuplicate(of: signature)
+                    || (mergedClusters.contains(index)
+                        && signatures[index].isCrashClusterContinuation(of: signature))
             }) {
                 result[index] = mergingCrashDuplicateWindows(result[index], window)
                 signatures[index] = crashWindowSignature(result[index])
+                mergedClusters.insert(index)
                 merged += 1
                 continue
             }
@@ -216,7 +220,7 @@ extension SessionPersistencePolicy {
     private nonisolated static func crashDraftContentFingerprint(
         _ draft: SessionTextBoxInputDraftSnapshot
     ) -> String? {
-        var components = [draft.isActive ? "active" : "inactive"]
+        var components: [String?] = [draft.isActive ? "active" : "inactive"]
         for part in draft.parts {
             components.append(part.kind.rawValue)
             components.append(part.text)
@@ -236,20 +240,34 @@ extension SessionPersistencePolicy {
         ]
         if let browser = panel.browser {
             components += [browser.urlString, browser.profileID?.uuidString]
-            components += browser.backHistoryURLStrings ?? []
-            components += browser.forwardHistoryURLStrings ?? []
-            components += [browser.diffViewerRequestPath, browser.cloudTeamID]
+            components += (browser.backHistoryURLStrings ?? []).map(Optional.some)
+            components += (browser.forwardHistoryURLStrings ?? []).map(Optional.some)
+            components += [browser.diffViewerRequestPath, browser.cloudTeamID,
+                           browser.interactionState.map(crashDataContentFingerprint)]
         }
         if let markdown = panel.markdown { components.append(markdown.filePath) }
         if let filePreview = panel.filePreview { components.append(filePreview.filePath) }
         if let project = panel.project {
             components += [project.projectPath, project.selectedNodePath, project.activeTab]
         }
+        if let chief = panel.chief {
+            components.append(chief.conversationID)
+        }
+        if let customSidebar = panel.customSidebar { components.append(customSidebar.name) }
         if let terminal = panel.terminal {
             components += [terminal.workingDirectory, terminal.scrollback]
             if let draft = terminal.textBoxDraft { components.append(crashDraftContentFingerprint(draft)) }
         }
         return digestCrashComponents(components)
+    }
+
+    private nonisolated static func crashDataContentFingerprint(_ data: Data) -> String {
+        let limit = min(data.count, crashFingerprintTextLimit)
+        var sample = Data(data.prefix(limit))
+        if data.count > limit {
+            sample.append(data.suffix(limit))
+        }
+        return "\(data.count):\(Data(SHA256.hash(data: sample)).base64EncodedString())"
     }
 
     private nonisolated static func crashDockContentFingerprint(

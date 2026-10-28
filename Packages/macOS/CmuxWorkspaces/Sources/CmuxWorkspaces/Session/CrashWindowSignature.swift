@@ -72,6 +72,17 @@ public struct CrashWindowSignature: Equatable, Sendable {
         let smaller = min(checkpointIDs.count, other.checkpointIDs.count)
         return Double(overlap) / Double(smaller) >= 0.75
     }
+
+    /// Allows a third generation to join a cluster already proven to be a
+    /// replay. Equal checkpoints alone are intentionally insufficient for two
+    /// fresh windows, but are safe after the first strict-subset merge.
+    nonisolated func isCrashClusterContinuation(of other: CrashWindowSignature) -> Bool {
+        guard dock == other.dock, dock == nil || dock?.contentFingerprint != nil,
+              workspaceCount == other.workspaceCount,
+              checkpointIDs == other.checkpointIDs,
+              hasSameTitleMultiset(as: other) else { return false }
+        return true
+    }
 }
 
 extension CrashWindowSignature {
