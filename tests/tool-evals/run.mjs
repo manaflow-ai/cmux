@@ -10,6 +10,7 @@ import { gunzipSync } from "node:zlib";
 import { capture, normalize } from "../agent-evals/snapshot.mjs";
 import { caseVerdict, cliTool, gradeCalls, gradeState, verdict } from "./grade.mjs";
 import { openSession } from "./session.mjs";
+import { runClaudeSdk, runCodexAppServer } from "./agents-sdk.mjs";
 import { TASKS } from "../agent-evals/tasks.mjs";
 
 const pexec = promisify(execFile);
@@ -254,91 +255,33 @@ let jobSeq = 0;
 // ---------- real CLIs on this machine ----------
 const tomlString = (value) => JSON.stringify(String(value));
 
-/** Runs the real `claude` or `codex` CLI on one case and fills the sample from its logs. */
+/** Runs Claude Code (Agent SDK) or Codex (app-server) on one case and fills the sample from its logs. */
 async function runCliAgent(sample, testCase, surface) {
   const { dir, session } = sample;
   const mcpLog = join(dir, "mcp.jsonl");
-  const serveArgs = surface === "all" ? ["--all-tools"] : [];
-  const mcpEnv = {
-    CMUX_TUI_SOCKET: session.socket,
-    CMUX_TUI_TERMINAL_ID: session.origin.terminal_id,
-    CMUX_SOCKET_PATH: session.env.CMUX_SOCKET_PATH,
-    CMUX_NEXT_CONFIG_FILE: session.env.CMUX_NEXT_CONFIG_FILE,
+  const mcp = {
+    command: process.execPath,
+    args: [join(HERE, "mcp-log.mjs"), mcpLog, CLI, ...(surface === "all" ? ["--all-tools"] : [])],
+    env: {
+      CMUX_TUI_SOCKET: session.socket,
+      CMUX_TUI_TERMINAL_ID: session.origin.terminal_id,
+      CMUX_SOCKET_PATH: session.env.CMUX_SOCKET_PATH,
+      CMUX_NEXT_CONFIG_FILE: session.env.CMUX_NEXT_CONFIG_FILE,
+      PATH: process.env.PATH,
+    },
   };
-  const bun = process.execPath;
-  const logger = [join(HERE, "mcp-log.mjs"), mcpLog, CLI, ...serveArgs];
-  // Only cmux sockets are fenced: the CLI keeps its own state in its home directory.
-  writeFileSync(join(dir, "sandbox-cli.sb"), [
-    "(version 1)", "(allow default)",
-    '(deny network-outbound (remote unix-socket (path-regex #"cmux")))',
-    `(allow network-outbound (remote unix-socket (literal ${JSON.stringify(session.socket)})))`,
-    `(allow network-outbound (remote unix-socket (literal ${JSON.stringify(session.env.CMUX_SOCKET_PATH)})))`,
-    "",
-  ].join("\n"));
   const env = { ...sample.shellEnv, HOME: process.env.HOME, PATH: `${join(dir, "bin")}:${dirname(CLI)}:${process.env.PATH}` };
-  // A clean agent home: the model route and login only, none of this machine's skills,
-  // memory, hooks or MCP servers, so a run measures what cmux gives every user.
-  if (CLI_AGENT[1] === "codex") {
-    const home = join(dir, "codex-home");
-    mkdirSync(home, { recursive: true });
-    const config = readFileSync(join(process.env.HOME, ".codex/config.toml"), "utf8");
-    const route = config.split("\n[")[0].split("\n").filter((l) => /^(openai_base_url|model_provider|service_tier)\s*=/.test(l));
-    const provider = /\n\[model_providers\.[^\]]+\][\s\S]*?(?=\n\[|$)/.exec(config)?.[0] ?? "";
-    writeFileSync(join(home, "config.toml"), `${route.join("\n")}\napproval_policy = "never"\nsandbox_mode = "danger-full-access"\n${provider}\n`);
-    copyFileSync(join(process.env.HOME, ".codex/auth.json"), join(home, "auth.json"));
-    env.CODEX_HOME = home;
-  } else {
-    // Claude reads its login from the keychain; CLAUDE_CONFIG_DIR keeps settings, skills and
-    // memory out of the run.
-    const home = join(dir, "claude-home");
-    mkdirSync(home, { recursive: true });
-    env.CLAUDE_CONFIG_DIR = home;
-  }
   for (const k of Object.keys(env)) if (/^(ACPMUX|MUX)_/.test(k) || k === "CMUX_AGENT_SESSION") delete env[k];
   const prompt = testCase.context ? `${testCase.context}\n\n${testCase.prompt}` : testCase.prompt;
-  let argv;
-  if (CLI_AGENT[1] === "claude") {
-    writeFileSync(join(dir, "mcp-claude.json"), JSON.stringify({ mcpServers: { cmux: { command: bun, args: logger, env: mcpEnv } } }));
-    if (surface === "all") env.ENABLE_TOOL_SEARCH = "true";
-    argv = ["claude", "-p", prompt, "--model", CLI_AGENT[2], "--output-format", "stream-json", "--verbose",
-      "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", join(dir, "mcp-claude.json"), "--setting-sources", "project"];
-  } else {
-    const envToml = `{${Object.entries(mcpEnv).map(([k, v]) => `${k}=${tomlString(v)}`).join(",")}}`;
-    argv = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-m", CLI_AGENT[2],
-      "-c", "notify=[]",
-      "-c", `mcp_servers.cmux.command=${tomlString(bun)}`, "-c", `mcp_servers.cmux.args=[${logger.map(tomlString).join(",")}]`,
-      "-c", `mcp_servers.cmux.env=${envToml}`, "-c", `model_reasoning_effort=${tomlString(EFFORT)}`,
-      "-o", join(dir, "last.txt"), prompt];
-  }
-  const out = await new Promise((resolve) => {
-    const child = spawn("sandbox-exec", ["-f", join(dir, "sandbox-cli.sb"), ...argv], { cwd: session.work, env, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (c) => { stdout += c; });
-    child.stderr.on("data", (c) => { stderr += c; });
-    const timer = setTimeout(() => child.kill("SIGTERM"), CLI_TIMEOUT_S * 1000);
-    child.on("exit", (code) => { clearTimeout(timer); resolve({ stdout, stderr, code }); });
-  });
-  writeFileSync(join(dir, "agent.out"), out.stdout);
-  writeFileSync(join(dir, "agent.err"), out.stderr);
-  const events = out.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  if (CLI_AGENT[1] === "claude") {
-    const result = events.findLast((e) => e.type === "result");
-    sample.text = result?.result ?? "";
-    sample.steps = (result?.num_turns ?? 1) - 1;
-    sample.usage.cost = result?.total_cost_usd ?? 0;
-    const u = result?.usage ?? {};
-    Object.assign(sample.usage, { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 });
-    for (const e of events) for (const b of e.message?.content ?? []) if (b.type === "tool_use" && b.name === "Bash") sample.shell.push(String(b.input?.command ?? ""));
-  } else {
-    sample.text = existsSync(join(dir, "last.txt")) ? readFileSync(join(dir, "last.txt"), "utf8") : "";
-    const items = events.filter((e) => e.type === "item.completed").map((e) => e.item ?? {});
-    for (const item of items) if (item.type === "command_execution") sample.shell.push(String(item.command ?? ""));
-    sample.steps = Math.max(0, items.filter((i) => i.type !== "agent_message" && i.type !== "reasoning").length - 1);
-    const u = events.findLast((e) => e.type === "turn.completed")?.usage ?? {};
-    Object.assign(sample.usage, { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cached_input_tokens ?? 0 });
-  }
-  if (!events.length || (out.code !== 0 && !sample.text)) sample.agentError = `${out.code}: ${out.stderr.slice(-400)}`;
+  const common = { model: CLI_AGENT[2], prompt, cwd: session.work, mcp, env, effort: EFFORT, timeoutMs: CLI_TIMEOUT_S * 1000, allTools: surface === "all" };
+  const out = CLI_AGENT[1] === "claude"
+    ? await runClaudeSdk({ ...common, home: join(dir, "claude-home") })
+    : await runCodexAppServer({ ...common, home: join(dir, "codex-home") });
+  sample.text = out.text;
+  sample.steps = out.steps;
+  Object.assign(sample.usage, out.usage);
+  sample.shell.push(...out.shell);
+  if (out.error && !out.text) sample.agentError = out.error;
   // MCP calls and, for cmux_exec, the calls its scripts made.
   const log = readLines(mcpLog);
   const requests = new Map(log.filter((l) => l.dir === "in" && l.msg.method === "tools/call").map((l) => [l.msg.id, l.msg.params]));
