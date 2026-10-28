@@ -76,7 +76,7 @@ if [ -n "$BIND" ]; then set -- "$@" --exit-with-pid $$; fi
 "$bin" "$@" > "$OUT" 2> "$OUT.err"
 echo ready
 exec sleep 600"#;
-        let mut command = self.server("ensure");
+        let command = self.server("ensure");
         let program = command.get_program().to_owned();
         let args: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
         let mut shell = Command::new("/bin/sh");
