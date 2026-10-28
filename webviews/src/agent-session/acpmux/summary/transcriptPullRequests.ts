@@ -203,6 +203,11 @@ function toolFindings(tool: Tool): Finding[] {
   const command = tool.command ?? "";
   // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
   const plain = callText(command);
+  const scanPlain = plain
+    .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "")
+    .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
+    .replace(/\bfalse\s*\|\|\s*/g, "")
+    .replace(/\bfalse\s*&&\s*([^;\n]+)/g, "false");
   const parts = callText(command)
     .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
     .replace(/\bfalse\s*\|\|\s*/g, "")
@@ -304,15 +309,15 @@ function toolFindings(tool: Tool): Finding[] {
     if (state)
       found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
   }
-  for (const match of calls.matchAll(PR_URL))
+  for (const match of scanPlain.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });
-  for (const match of calls.matchAll(REPO_REF))
+  for (const match of scanPlain.matchAll(REPO_REF))
     found.push({
       how: "mentioned",
       ref: { kind: "full", repo: `${match[1]}/${match[2]}` },
       number: Number(match[3]),
     });
-  for (const match of calls.matchAll(ISSUE_URL))
+  for (const match of scanPlain.matchAll(ISSUE_URL))
     found.push({ how: "mentioned", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]), kind: "issue" });
   return found;
 }
