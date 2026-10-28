@@ -127,10 +127,19 @@ fn last_error(p: &Value) -> String {
     p.get("error").and_then(Value::as_str).map(|e| format!(" ({e})")).unwrap_or_default()
 }
 
-/// Two ssh peer URLs that name the same destination and port.
+/// Two ssh peer URLs that name the same destination and port: the same user exactly (`alice`
+/// and `Alice` can be two accounts), on a host named in any case.
 fn same_ssh_url(a: &str, b: &str) -> bool {
+    let split = |d: &str| match d.rsplit_once('@') {
+        Some((user, host)) => (Some(user.to_owned()), host.to_owned()),
+        None => (None, d.to_owned()),
+    };
     match (crate::peer::ssh_target(a), crate::peer::ssh_target(b)) {
-        (Ok(a), Ok(b)) => a.destination.eq_ignore_ascii_case(&b.destination) && a.port == b.port,
+        (Ok(a), Ok(b)) => {
+            let ((user_a, host_a), (user_b, host_b)) =
+                (split(&a.destination), split(&b.destination));
+            user_a == user_b && host_a.eq_ignore_ascii_case(&host_b) && a.port == b.port
+        }
         _ => false,
     }
 }

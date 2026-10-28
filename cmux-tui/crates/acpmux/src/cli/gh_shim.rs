@@ -166,12 +166,53 @@ fn github_repo(url: &str) -> Option<String> {
     (path.split('/').count() == 2).then(|| path.to_owned())
 }
 
+/// How long one `git` question may take, and how much of its answer is read.
+const GIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const GIT_OUTPUT_MAX: usize = 8 * 1024;
+
 fn git(args: &[&str]) -> Result<String> {
-    let out = std::process::Command::new("git").args(args).output()?;
-    if !out.status.success() {
-        bail!("git {} failed", args.join(" "));
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(args);
+    bounded_output(cmd, GIT_OUTPUT_MAX, GIT_TIMEOUT)
+        .map_err(|e| anyhow!("git {} failed: {e}", args.join(" ")))
+}
+
+/// `cmd`'s stdout, if it ends within `timeout` with at most `limit` bytes and succeeds; killed
+/// otherwise (a remote url past the limit, or a config that blocks, never hangs `acpmux gh`).
+fn bounded_output(
+    mut cmd: std::process::Command,
+    limit: usize,
+    timeout: std::time::Duration,
+) -> Result<String> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    let mut child =
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+    let mut out = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    // Ends at the child's EOF, at `limit`, or when the kill below closes the pipe.
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let read = (&mut out).take(limit as u64 + 1).read_to_end(&mut bytes);
+        let _ = tx.send(read.map(|_| bytes));
+    });
+    let read = rx.recv_timeout(timeout);
+    let bytes = match read {
+        Ok(Ok(bytes)) if bytes.len() <= limit => bytes,
+        other => {
+            let _ = child.kill();
+            let _ = child.wait();
+            match other {
+                Ok(Ok(_)) => bail!("its output is over {limit} bytes"),
+                Ok(Err(e)) => bail!("{e}"),
+                Err(_) => bail!("it took over {}s", timeout.as_secs()),
+            }
+        }
+    };
+    if !child.wait()?.success() {
+        bail!("it exited with an error");
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    Ok(String::from_utf8_lossy(&bytes).trim().to_owned())
 }
 
 /// A body the broker can take: at most its limit, read no further (a `/dev/zero` or a FIFO

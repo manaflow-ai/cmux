@@ -442,3 +442,13 @@ async fn doctor_never_lends_github() {
     assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Ok);
     assert!(!fake.mutated_here());
 }
+
+/// Review of part 3 at a51f607: `Alice@host` matched `alice@host`, so enroll could lend GitHub
+/// to another account's saved peer.
+#[test]
+fn a_peer_url_matches_its_user_exactly_and_its_host_in_any_case() {
+    assert!(same_ssh_url("ssh://alice@Host.example", "ssh://alice@host.example"));
+    assert!(!same_ssh_url("ssh://Alice@host.example", "ssh://alice@host.example"));
+    assert!(!same_ssh_url("ssh://alice@host.example", "ssh://host.example"));
+    assert!(!same_ssh_url("ssh://alice@host.example:2222", "ssh://alice@host.example"));
+}

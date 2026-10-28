@@ -73,3 +73,25 @@ fn a_body_past_the_limit_is_refused_without_reading_on() {
     assert_eq!(read_bounded(&at_limit[..]).unwrap().len(), crate::github_broker::TEXT_MAX);
     assert!(read_bounded(&[0xff_u8][..]).is_err());
 }
+
+/// Review of part 3 at a51f607: `git` was read whole and waited on with no limit.
+#[test]
+fn a_git_answer_past_its_limit_or_time_is_refused() {
+    let sh = |script: &str| {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", script]);
+        cmd
+    };
+    let second = std::time::Duration::from_secs(1);
+    assert_eq!(
+        bounded_output(sh("echo git@github.com:o/r.git"), 64, second).unwrap(),
+        "git@github.com:o/r.git"
+    );
+    let long = bounded_output(sh("yes"), 64, std::time::Duration::from_secs(10)).unwrap_err();
+    assert!(long.to_string().contains("over 64 bytes"), "{long}");
+    let started = std::time::Instant::now();
+    let slow = bounded_output(sh("exec sleep 30"), 64, second).unwrap_err();
+    assert!(slow.to_string().contains("took over"), "{slow}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    assert!(bounded_output(sh("exit 1"), 64, second).is_err());
+}
