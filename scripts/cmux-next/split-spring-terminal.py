@@ -58,6 +58,10 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
     require_gui_session("split-spring")
 # `--suite=first-keys`: the first keys typed into new terminals from Home's dock all reach them, and how fast
 # (new-terminal-first-keys.py; dogfood v2.1 lost them).
+# SCRATCH MEASUREMENT REF ONLY (cp/seqmgr-s6-bench-*): the first 5 s of typing (first-5s-typing.py).
+if "--suite=first5s" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
 if "--suite=first-keys" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-terminal-first-keys.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first-keys"])
