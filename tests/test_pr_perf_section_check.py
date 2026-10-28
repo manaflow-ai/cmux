@@ -152,6 +152,13 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(self.check("", paths=["docs/perf.md", "skills/x/SKILL.md"])[0], 0)
         self.assertEqual(self.check("", paths=["docs/perf.md", "scripts/x.py"])[0], 1)
         self.assertEqual(self.check("", paths=[])[0], 1)
+        # A rename lists both paths, so code moved under docs/ is not docs-only.
+        self.assertEqual(self.check("", paths=["scripts/bench.py", "docs/bench.md"])[0], 1)
+
+    def test_workflow_lists_both_sides_of_a_rename(self):
+        workflow = (ROOT / ".github/workflows/pr-perf-section-check.yml").read_text()
+        self.assertIn("--no-renames", workflow)
+        self.assertIn("previous_filename", workflow)
 
 
 class CommandLineTests(unittest.TestCase):
