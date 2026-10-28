@@ -163,6 +163,123 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
+@Test func longBackgroundUnansweredProbesRedialHalfOpenSession() async throws {
+    // https://github.com/manaflow-ai/cmux/issues/26530: after a long
+    // background the Mac has idled the session out, but the phone's native
+    // connection still reads open. Two unanswered probes must replace it
+    // instead of keeping a dead session that only looks connected.
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock,
+        probeTimeoutNanoseconds: 50_000_000
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    let originalTransport = try #require(box.get())
+    let originalClient = try #require(store.remoteClient)
+    let probeCount = await router.count(of: "mobile.workspace.list")
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: MobileShellComposite.foregroundProbeSilenceIsDeadAfterBackground + 1)
+    await router.holdNextWorkspaceListRequests(count: 2)
+    store.resumeForegroundRefresh()
+
+    #expect(await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 2
+    ))
+    #expect(try await pollUntil {
+        store.remoteClient !== originalClient
+            && store.connectionState == .connected
+            && store.connectionRecoveryOwner.phase == .idle
+            && store.macConnectionStatus == .connected
+    })
+    #expect(box.get() !== originalTransport)
+    #expect(await originalTransport.isTransportClosed())
+    #expect(!store.isRecoveringConnection)
+}
+
+@MainActor
+@Test func longBackgroundProbeShowsReconnectingUntilItSettles() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock,
+        probeTimeoutNanoseconds: 10_000_000_000
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    let originalClient = try #require(store.remoteClient)
+    let probeCount = await router.count(of: "mobile.workspace.list")
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: MobileShellComposite.foregroundProbeSilenceIsDeadAfterBackground + 1)
+    await router.holdNextWorkspaceListRequests()
+    store.resumeForegroundRefresh()
+
+    #expect(await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 1
+    ))
+    #expect(try await pollUntil(attempts: 2_000) { store.isRecoveringConnection })
+    // The probe keeps the session and the keyboard: only presentation changes.
+    #expect(store.connectionState == .connected)
+    #expect(store.remoteClient === originalClient)
+    #expect(!store.connectionRecoveryFailed)
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil {
+        store.connectionRecoveryOwner.phase == .idle && !store.isRecoveringConnection
+    })
+    #expect(store.remoteClient === originalClient)
+    #expect(store.macConnectionStatus == .connected)
+}
+
+@MainActor
+@Test func shortBackgroundProbeNeverShowsReconnecting() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock,
+        probeTimeoutNanoseconds: 10_000_000_000
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    let probeCount = await router.count(of: "mobile.workspace.list")
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: 5)
+    await router.holdNextWorkspaceListRequests()
+    store.resumeForegroundRefresh()
+
+    #expect(await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 1
+    ))
+    // Well past the reveal grace: a short dwell keeps the probe silent.
+    let revealed = try await pollUntil(attempts: 100) { store.isRecoveringConnection }
+    #expect(!revealed)
+    await router.releaseAllHeld()
+    #expect(try await pollUntil { store.connectionRecoveryOwner.phase == .idle })
+}
+
+@MainActor
 @Test func foregroundProbeTimeoutWithLiveTransportRepairsMountedTerminal() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

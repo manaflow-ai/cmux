@@ -447,6 +447,9 @@ extension MobileShellComposite {
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
         let shouldResync = shouldResyncTerminalOutputOnForeground()
+        let backgroundDwell = lastBackgroundedAt.map {
+            (runtime?.now() ?? Date()).timeIntervalSince($0)
+        }
         lastBackgroundedAt = nil
         // Persisted connections let the recovery owner probe first. Restarting
         // their listener here can make a dead MobileCoreRPCClient reopen its old
@@ -463,7 +466,11 @@ extension MobileShellComposite {
         }
         restartActiveMobileBrowserStreams()
         restartActiveMobileSimulatorStreams()
-        recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
+        recoverForegroundConnectionIfNeeded(
+            resyncAfterHealthy: shouldResync,
+            afterLongBackground: (backgroundDwell ?? 0)
+                >= Self.foregroundProbeSilenceIsDeadAfterBackground
+        )
         recoverDisconnectedOnForegroundIfNeeded()
         recoverPendingInactiveRecoveryIfNeeded()
         resumeSecondaryControlMaintenanceAfterForeground()

@@ -180,6 +180,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Short background dwells usually preserve the event stream; beyond this,
     /// the liveness watchdog and normal foreground resync own catch-up.
     static let foregroundResyncShortBackgroundThreshold: TimeInterval = 30
+    /// After a background dwell this long the Mac has likely idled out the
+    /// session while the phone was suspended. The phone's native connection
+    /// can still read open (its monotonic timers pause while the device
+    /// sleeps), so a confirmed unanswered foreground probe is treated as a
+    /// dead session and redialed instead of retained.
+    static let foregroundProbeSilenceIsDeadAfterBackground: TimeInterval = 30
+    /// Grace before a long-background foreground probe shows Reconnecting.
+    static let foregroundProbeIndicatorGrace: Duration = .milliseconds(400)
 
     public private(set) var isSignedIn: Bool {
         didSet {
@@ -382,6 +390,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resumes) degrades into a bounded failure with a scheduled retry
     /// instead of an owner that silently coalesces every later trigger.
     var connectionRecoveryAttemptDeadlineTask: Task<Void, Never>?
+    /// Reveals a long-background foreground probe as Reconnecting once its
+    /// grace elapses, so a fast healthy answer never flashes the indicator.
+    var foregroundProbeIndicatorTask: Task<Void, Never>?
+    /// The probing attempt that owns the pending or visible indicator.
+    var foregroundProbeIndicatorAttemptID: UUID?
+    var foregroundProbeIndicatorIsVisible = false
     var lastPresenceReconnectEvidence: (
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
