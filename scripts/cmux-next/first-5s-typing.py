@@ -260,6 +260,7 @@ class NextApp:
     family = "next"
     enable_features = ""
     commit_probe = False
+    page_target = False
 
     def __init__(self, app, zdot, out):
         self.app, self.out = app, out
@@ -329,6 +330,11 @@ class NextApp:
             params = {"key": key, "timestamp": when / 1e9}
             if rid > 0 and self.commit_probe:  # a key into a text field or page: the probe row closes at its commit
                 params["probe"] = "commit"
+            if rid > 0 and self.page_target:
+                # The New Tab page is a Chromium page window, the key window while its field has the keyboard: a
+                # person's key goes there. Without `target: page` debug.key sends it to the shell window, which
+                # neither the page nor the app's tracker sees (no row, no slot).
+                params["target"] = "page"
             if mods:
                 params["modifiers"] = list(mods)
             conn.sendall((json.dumps({"id": rid, "method": "debug.key", "params": params}) + "\n").encode())
@@ -639,6 +645,7 @@ def main_thread_tree(path, min_share=0.02, limit=260):
 def run_round(app, scenario, index, sampled):
     name, modifiers = (CLASSIC_OPEN_KEYS if app.family == "classic" else OPEN_KEYS)[scenario]
     app.commit_probe = scenario in ("newtab", "browser")
+    app.page_target = scenario == "newtab"
     nkeys = int(round(opts.seconds / opts.interval))
     rows_before = app.probe_rows()
     base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
@@ -865,7 +872,7 @@ def tracker_buckets(rounds):
     out = []
     for b, slots in enumerate(rows):
         total = typing_report.distribution([s.get("total_ms") for s in slots], mean=False) or {"n": 0}
-        start = typing_report.distribution([(s.get("stages_ms") or {}).get("dispatch_start") for s in slots], mean=False) or {"n": 0}
+        start = typing_report.distribution([(s.get("stages_ms") or {}).get("dispatchStart") for s in slots], mean=False) or {"n": 0}
         out.append({"from_ms": int(b * width), "total": total, "dispatch_start": start})
     return out, targets
 
