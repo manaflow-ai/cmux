@@ -45,7 +45,9 @@ extension SidebarBridge {
     /// Runs a sidebar item (sidebar-sections.md 2); pinned tabs, pages, spaces: SidebarBridge+PinnedItems.
     func activate(_ ref: LayoutItemRef, opensWorkspace: Bool = false) {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
+            // The item's own window: Home, New Terminal or Settings act in the window whose sidebar was clicked.
             var invocation = ActionInvocation(origin: .user)
+            invocation.windowID = state?.id
             if opensWorkspace, builtIn == .newTerminal { invocation.arguments["toggleWorkspace"] = .bool(true) }
             _ = services.registry.perform(action, invocation: invocation)
             return
@@ -58,7 +60,9 @@ extension SidebarBridge {
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
         case LayoutItemRef.appKind:
             let (action, arguments) = Self.appActivation(ref.value, registered: { services.registry.action(for: $0) != nil })
-            _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
+            var invocation = ActionInvocation(arguments: arguments, origin: .user)
+            invocation.windowID = state?.id
+            _ = services.registry.perform(action, invocation: invocation)
         default: break
         }
     }

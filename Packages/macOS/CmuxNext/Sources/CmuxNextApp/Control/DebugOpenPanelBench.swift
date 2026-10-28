@@ -23,7 +23,7 @@ enum DebugOpenPanelBench {
     static func run(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .null }
         let mode = params["mode"]?.stringValue ?? "made"
-        guard let window = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
+        guard let window = services.windows.active?.window else { return .object(["error": .string("no window")]) }
         guard window.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
         let shared = services.openPanel
         if mode == "made", !shared.isMade {

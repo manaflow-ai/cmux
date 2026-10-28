@@ -221,7 +221,7 @@ extension AppServices {
     /// A debug method's Mac Screen tab: in the pane named `key`, else the active or first window's focused pane.
     private func openDebugMacScreen(_ record: MacScreenRecord, pane key: String?, byPerson: Bool) -> String? {
         let named = key.flatMap { key in windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == key } }.first }
-        guard let pane = named ?? windows.active?.focusedPane ?? windows.controllers.first?.focusedPane else { return "no pane" }
+        guard let pane = named ?? windows.active?.focusedPane else { return "no pane" }
         macScreenTabs.open(record, in: pane, focus: true, byPerson: byPerson)
         return nil
     }

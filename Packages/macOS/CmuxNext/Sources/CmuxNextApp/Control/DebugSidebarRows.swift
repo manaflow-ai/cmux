@@ -16,11 +16,11 @@ enum DebugSidebarRows {
         if params["refuse_next_close"] == .bool(true) { ClosingWorkspaces.shared.refusesNext = true; return .object(["refuse_next_close": .bool(true)]) }
         #if DEBUG || CMUX_BENCH_HOOKS
         if let motion = params["motion"]?.stringValue {
-            return services.windows.controllers.first.map { json($0.sidebar.container.sidebarView.debugMotionReport(start: motion == "start")) } ?? .null
+            return services.windows.active.map { json($0.sidebar.container.sidebarView.debugMotionReport(start: motion == "start")) } ?? .null
         }
         #endif
         guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
-        let menu = services.windows.controllers.first.flatMap {
+        let menu = services.windows.active.flatMap {
             $0.sidebar.container.debugMenu(atWindowPoint: CGPoint(x: x, y: y))
         }
         func titles(_ menu: NSMenu) -> JSONValue { .array(menu.items.map { .string($0.isSeparatorItem ? "-" : $0.title) }) }

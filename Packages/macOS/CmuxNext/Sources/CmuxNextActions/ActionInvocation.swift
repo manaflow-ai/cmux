@@ -99,6 +99,13 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `action.*` signposts report its age when no input event is being dispatched at the run, and
     /// its ``ActionRunScope`` keeps it for the switches the run makes. Nil for every other run.
     public var inputTimestamp: Double?
+    /// The window this run acts in (the app's `WindowTarget`, Chrome's `Browser*`): the id the
+    /// entrypoint read from the input itself (the view's own window: a sidebar row, the Home button,
+    /// a tab strip; the CLI's `--window`), else the one the registry resolves once when the run
+    /// starts (``ActionRegistry/windowResolver``) and keeps for the run's tasks
+    /// (``ActionRunScope/windowID``). A handler acts in this window; it never asks which window is
+    /// key at a later time. Nil only when no window exists.
+    public var windowID: String?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

@@ -27,7 +27,7 @@ enum DebugPointerHover {
         if let number = params["window"]?.intValue ?? params["window"]?.stringValue.flatMap({ Int($0) }) {
             window = NSApp.windows.first { $0.windowNumber == number }
         } else {
-            window = (services.windows.active ?? services.windows.controllers.first)?.window
+            window = services.windows.active?.window
         }
         guard let window, let root = window.contentView?.superview ?? window.contentView else {
             return .object(["error": .string("no window")])

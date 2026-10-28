@@ -30,7 +30,10 @@ final class WindowManager {
     private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange(); services.crashKeys?.noteWindows(controllers.count) } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
-    private weak var lastActive: WindowController?
+    /// The window the person used last, recorded by the window itself when it or a window it owns
+    /// became key (``didActivate(_:)``): the resolver's fallback (WindowTarget.swift), never the
+    /// key window read at a later time.
+    private(set) weak var lastActive: WindowController?
     /// The cmux window the event in dispatch came from (`dispatching(eventFrom:_:)`).
     var eventOrigin: EventOrigin?
     /// Called after a window is ordered in (the restart notice attaches).
@@ -130,6 +133,7 @@ final class WindowManager {
         incognitoLedger = .forApplication(bundleIdentifier: Bundle.main.bundleIdentifier,
                                           leftovers: services.environment.incognitoLeftovers, work: services.work)
         WindowActivation.didOrder = { [weak self] window, inFront in self?.windowDidOrder(window, inFront: inFront) }
+        installTargetResolver()
     }
 
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
@@ -141,18 +145,7 @@ final class WindowManager {
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }
 
-    /// The window actions without an explicit target act in: during an input event's dispatch the
-    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
-    /// last active one.
-    var active: WindowController? {
-        if let origin = eventOriginWindow { return origin }
-        if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
-        return lastActive ?? controllers.first
-    }
-
-    /// The id of the window actions without an explicit target act in (``active``'s).
-    /// Before the launch window has a controller (its saved picture shows), the window it stands for.
-    var activeWindowID: String? { active?.state.id ?? launchWindowID.flatMap { awaitsRestore($0) ? $0 : nil } }
+    // `active`, `activeWindowID` and the one window resolver: WindowTarget.swift.
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.

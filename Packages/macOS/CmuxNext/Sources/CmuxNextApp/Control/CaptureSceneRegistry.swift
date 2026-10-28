@@ -55,7 +55,7 @@ final class CaptureSceneRegistry {
                 "scene": .string(name),
             ])
         }
-        guard let targetWindow = services.windows.active ?? services.windows.controllers.first,
+        guard let targetWindow = services.windows.active,
               targetWindow.window != nil else {
             return .object(["error": .string("no app window is ready"), "scene": .string(name)])
         }

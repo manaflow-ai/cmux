@@ -103,7 +103,9 @@ extension SidebarBridge {
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
-            services.registry.perform("space.new", invocation: ActionInvocation())
+            var invocation = ActionInvocation()
+            invocation.windowID = state.id  // the space opens in the window whose sidebar asked
+            services.registry.perform("space.new", invocation: invocation)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)

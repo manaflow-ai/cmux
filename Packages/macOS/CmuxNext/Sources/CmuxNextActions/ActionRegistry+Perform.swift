@@ -27,6 +27,8 @@ extension ActionRegistry {
     // perf-hot: <1us action-perform
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        // The run's window, resolved once here at its entrypoint, from the input being dispatched.
+        let invocation = resolvingWindow(invocation)
         guard let turnObserver else {
             return settlingPreview(for: id) { settle in performNow(id, invocation: invocation, settle: settle) }
         }
@@ -37,6 +39,17 @@ extension ActionRegistry {
             turnObserver.performTurnEnded(ActionTurn(id: canonicalID(for: id), origin: invocation.origin, ran: ran))
         }
         return ran
+    }
+
+    /// `invocation` with the window its run acts in (``ActionInvocation/windowID``): the one the
+    /// entrypoint named, else the window of the run this one is nested in, else the App's resolver
+    /// (``windowResolver``), asked once, now, while the input that started the run is dispatched.
+    func resolvingWindow(_ invocation: ActionInvocation) -> ActionInvocation {
+        guard invocation.windowID == nil else { return invocation }
+        guard let windowID = ActionRunScope.current?.windowID ?? windowResolver?(invocation) else { return invocation }
+        var resolved = invocation
+        resolved.windowID = windowID
+        return resolved
     }
 
     /// `settle` puts a preview of another action back; every path that does work calls it first,

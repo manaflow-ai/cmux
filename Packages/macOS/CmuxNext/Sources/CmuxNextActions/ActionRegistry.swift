@@ -139,6 +139,11 @@ public final class ActionRegistry {
     /// Confirms destructive actions run from the keyboard, menu, or palette (`ActionRegistry+Confirmation`). Nil refuses them.
     @ObservationIgnored public var confirmationPresenter: ConfirmationPresenter?
 
+    /// The App's one window resolver (`WindowTarget`): the id of the window a run with no window
+    /// of its own acts in, asked once by ``perform(_:invocation:)`` at the run's entrypoint (the
+    /// window of the event being dispatched, the key window of a menu item, the window that owns
+    /// the run's target, the window the person used last). Nil: runs carry no window.
+    @ObservationIgnored public var windowResolver: (@MainActor (ActionInvocation) -> String?)?
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?

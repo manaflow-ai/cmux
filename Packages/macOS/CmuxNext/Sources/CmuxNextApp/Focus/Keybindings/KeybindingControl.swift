@@ -59,7 +59,7 @@ enum KeybindingControl {
         return KeybindingReports.list(["command": params["command"] ?? .null], registry: services.registry)
     }
 
-    /// The context keys of the window `params` names (or the key window).
+    /// The context keys of the window `params` names (or the window the person used last, `WindowTarget`).
     @MainActor
     static func context(_ params: [String: JSONValue], services: AppServices) throws -> (KeyContext, String?) {
         let controllers = services.windows.controllers
@@ -68,7 +68,7 @@ enum KeybindingControl {
             controller = controllers.first { $0.state.id == id }
             guard controller != nil else { throw ControlError(code: "not_found", message: KeybindingStrings.noWindow(id)) }
         } else {
-            controller = controllers.first { $0.window?.isKeyWindow == true } ?? controllers.first
+            controller = services.windows.active
         }
         guard let controller, let window = controller.window, case let router = services.keyRouter else {
             return (KeyContext(bits: services.registry.context), nil)

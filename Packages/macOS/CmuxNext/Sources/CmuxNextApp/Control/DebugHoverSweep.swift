@@ -23,7 +23,7 @@ enum DebugHoverSweep {
         if let point = params["point"]?.arrayValue?.compactMap(\.doubleValue), point.count == 2 {
             return await hover(at: CGPoint(x: point[0], y: point[1]), params, services: services)
         }
-        guard let controller = services.windows.active ?? services.windows.controllers.first,
+        guard let controller = services.windows.active,
               let strip = controller.content?.focusedPane?.view.stripView, let window = strip.window else {
             return .object(["error": .string("no focused pane with a tab strip")])
         }
@@ -85,7 +85,7 @@ enum DebugHoverSweep {
     }
 
     private static func hover(at point: CGPoint, _ params: [String: JSONValue], services: AppServices) async -> JSONValue {
-        guard let window = (services.windows.active ?? services.windows.controllers.first)?.window else {
+        guard let window = services.windows.active?.window else {
             return .object(["error": .string("no main window")])
         }
         let coordinator = services.hoverCards

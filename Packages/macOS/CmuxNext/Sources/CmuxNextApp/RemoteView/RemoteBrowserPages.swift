@@ -243,7 +243,7 @@ enum RemoteBrowserPages {
             let named = params["pane"]?.stringValue.flatMap { key in
                 services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == key } }.first
             }
-            guard let pane = named ?? services.windows.active?.focusedPane ?? services.windows.controllers.first?.focusedPane else {
+            guard let pane = named ?? services.windows.active?.focusedPane else {
                 return ["error": "no pane"]
             }
             do {

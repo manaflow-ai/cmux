@@ -44,7 +44,7 @@ final class TaskManagerPageService: InternalPageProvider {
 
     /// Shows the Task Manager tab of the active window, else opens one.
     func show(focus: Bool) throws {
-        guard let services, let window = services.windows.active ?? services.windows.controllers.first else {
+        guard let services, let window = services.windows.active else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
         guard services.pages.show(.taskManager, in: window, focus: focus) != nil else {

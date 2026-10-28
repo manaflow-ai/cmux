@@ -119,7 +119,7 @@ enum DebugViewKey {
         if let id = params["window"]?.stringValue {
             return services.windows.controllers.first { $0.state.id == id || $0.window.map { String($0.windowNumber) } == id }
         }
-        return services.windows.active ?? services.windows.controllers.first
+        return services.windows.active
     }
 
     /// The responder's class, with its accessibility label when it has one (a sidebar item).

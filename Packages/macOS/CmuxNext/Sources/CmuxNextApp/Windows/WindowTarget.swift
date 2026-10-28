@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 
 /// The window an input event came from, for the length of its dispatch
 /// (`WindowManager.dispatching(eventFrom:_:)`).
@@ -6,15 +7,19 @@ struct EventOrigin {
     /// The cmux window that owns the event's window, or the window the event's own action made
     /// key since (`eventDidBringForward(_:)`).
     weak var controller: WindowController?
+    /// The event's own action made ``controller`` key (``WindowManager/eventDidBringForward(_:)``): it
+    /// is the window the rest of the dispatch acts in, ahead of the run's resolved window too.
+    var forwarded = false
 }
 
 extension WindowManager {
     /// Runs `body`, the dispatch of an input event from `window` (`CmuxApplication.sendEvent`).
-    /// While it runs, ``active`` is the cmux window that owns `window`, whatever window AppKit
-    /// reports key: a click or key in window A acts in window A even while the key record names
-    /// window B (the app activating after Cmd-Tab makes the window that was key at deactivation
-    /// key again first; a key change still in flight). Only a window this app's own code makes key
-    /// during the dispatch (New Window, Select Next Window: `WindowActivation.show`) takes over.
+    /// While it runs, ``active`` (and the window of an action run it starts, `WindowTarget`) is the
+    /// cmux window that owns `window`, whatever window AppKit reports key: a click or key in window A
+    /// acts in window A even while the key record names window B (the app activating after Cmd-Tab
+    /// makes the window that was key at deactivation key again first; a key change still in flight).
+    /// Only a window this app's own code makes key during the dispatch (New Window, Select Next
+    /// Window: `WindowActivation.show`) takes over.
     /// A window no cmux window owns leaves ``active`` as it was.
     func dispatching<T>(eventFrom window: NSWindow?, _ body: () throws -> T) rethrows -> T {
         let previous = eventOrigin
@@ -33,6 +38,127 @@ extension WindowManager {
     /// event's action asked for that window, which is the active one from now on.
     func eventDidBringForward(_ window: NSWindow) {
         guard eventOrigin != nil, services.keyWindowSource() === window, let controller = owner(of: window) else { return }
-        eventOrigin = EventOrigin(controller: controller)
+        eventOrigin = EventOrigin(controller: controller, forwarded: true)
+    }
+}
+
+/// The window a command runs against, resolved ONCE at its entrypoint from the input itself (the
+/// multi-window P0, Lawrence 2026-10-28: "keyboard shortcuts dont work, and clicking on
+/// home/workspaces might bring me to the wrong window. we need to completely eliminate this error
+/// class"). Chrome runs every command against an explicit `Browser*` (`BrowserWindowInterface`),
+/// the window the input came from; it never asks "which window is current" later. This is that.
+///
+/// This file is the one place that reads AppKit's window state to decide a window
+/// (`guardrails.py` implicit-window: `IMPLICIT_WINDOW_RESOLVERS`). Everything else gets a window
+/// from its input: ``ActionInvocation/windowID`` (set here when the run starts and kept for the
+/// run's tasks in ``ActionRunScope/windowID``), the view's own window, or an explicit argument.
+struct WindowTarget: Hashable {
+    /// What named the window, in the resolver's order (``WindowManager/resolveTarget(for:)``).
+    enum Source: String, Hashable {
+        /// The input named it: the view's own window (a sidebar row, the Home button, a tab strip),
+        /// the CLI's `--window`, a window action's target, or the run this one is nested in.
+        case named
+        /// The window the event in dispatch came from (`WindowManager.dispatching(eventFrom:_:)`),
+        /// or the window that event's own action brought forward.
+        case event
+        /// A person's run with no event window (a menu item): the key window at the run's start,
+        /// which is the key window at the menu's event.
+        case keyWindowAtEntry
+        /// The window that owns the run's target object (its workspace or tab).
+        case targetOwner
+        /// The window the person used last, recorded by that window when it (or a window it owns)
+        /// became key (``WindowManager/didActivate(_:)``); never the key window read later.
+        case lastPersonActive
+        /// The front open window in the registry's recency (the person's last window was closed).
+        case front
+        /// The launch window before the restore registered it (it shows the connecting state).
+        case launch
+    }
+
+    let id: String
+    let source: Source
+}
+
+extension WindowManager {
+    /// THE resolver: the window an action run acts in, in this order (multiwindow.md 1):
+    /// 1. the window the input named (``WindowTarget/Source/named``);
+    /// 2. the window of the event in dispatch (keys, clicks, a palette row);
+    /// 3. a person's run with no event window (a menu item): the key window now, at the run's start;
+    /// 4. the window that owns the run's target workspace or tab (the CLI, MCP, a script);
+    /// 5. the window the person used last, as that window recorded it;
+    /// 6. the front open window; 7. the launch window awaiting the restore.
+    /// Asked once per run by ``ActionRegistry/perform(_:invocation:)`` (``ActionRegistry/windowResolver``).
+    func resolveTarget(for invocation: ActionInvocation) -> WindowTarget? {
+        if let id = invocation.windowID, isTargetable(id) { return WindowTarget(id: id, source: .named) }
+        if let target = invocation.target, target.kind == .window, isTargetable(target.id) {
+            return WindowTarget(id: target.id, source: .named)
+        }
+        if let id = ActionRunScope.current?.windowID, isTargetable(id) { return WindowTarget(id: id, source: .named) }
+        if let origin = eventOriginWindow { return WindowTarget(id: origin.state.id, source: .event) }
+        if invocation.origin == .user, let key = services.keyWindowSource(), let controller = owner(of: key) {
+            return WindowTarget(id: controller.state.id, source: .keyWindowAtEntry)
+        }
+        if let id = owningWindow(of: invocation) { return WindowTarget(id: id, source: .targetOwner) }
+        return ambientTarget()
+    }
+
+    /// The window of code that runs with no input of its own (a timer, an observation, a page's
+    /// message): the window of the action run it belongs to, else the event in dispatch, else the
+    /// window the person used last, else the front one. Never the key window read at a later time.
+    func ambientTarget() -> WindowTarget? {
+        if let origin = eventOrigin, origin.forwarded, let controller = eventOriginWindow {
+            return WindowTarget(id: controller.state.id, source: .event)
+        }
+        if let id = ActionRunScope.current?.windowID, isTargetable(id) { return WindowTarget(id: id, source: .named) }
+        if let origin = eventOriginWindow { return WindowTarget(id: origin.state.id, source: .event) }
+        if let lastActive, controllers.contains(where: { $0 === lastActive }) {
+            return WindowTarget(id: lastActive.state.id, source: .lastPersonActive)
+        }
+        if let front = registry.value.recency.lazy.compactMap({ self.controller(for: $0) }).first(where: { $0.window != nil }) {
+            return WindowTarget(id: front.state.id, source: .front)
+        }
+        if let launch = launchWindowID, awaitsRestore(launch) { return WindowTarget(id: launch, source: .launch) }
+        // An unregistered window (the launch window between its build and its registration): the newest.
+        return controllers.last.map { WindowTarget(id: $0.state.id, source: .front) }
+    }
+
+    /// The window actions without an explicit target act in (``ambientTarget()``'s): inside an action
+    /// run the run's own window, resolved once at its entrypoint; during an input event's dispatch
+    /// the window the event came from (a click or key in window A acts in window A even while the key
+    /// record names window B: the app activating after Cmd-Tab makes the window that was key at
+    /// deactivation key again first); else the window the person used last.
+    var active: WindowController? {
+        ambientTarget().flatMap { controller(for: $0.id) }
+    }
+
+    /// The id of the window actions without an explicit target act in (``active``'s). Before the launch
+    /// window has a controller (its saved picture shows), the window it stands for.
+    var activeWindowID: String? { ambientTarget()?.id }
+
+    /// Installs ``resolveTarget(for:)`` as the registry's window resolver: every action run gets its
+    /// window once, at its entrypoint.
+    func installTargetResolver() {
+        services.registry.windowResolver = { [weak self] invocation in self?.resolveTarget(for: invocation)?.id }
+    }
+
+    /// A window a run may act in: open with a controller, or the launch window awaiting the restore.
+    private func isTargetable(_ id: String) -> Bool {
+        controllers.contains { $0.state.id == id } || awaitsRestore(id)
+    }
+
+    /// The open window that lists the workspace the run targets: its `target`, else a `workspace` or
+    /// `tab` argument. Both are index lookups (a run never walks the session to find its window); a
+    /// pane target's run acts in the person's last window, and its handler finds the pane itself.
+    private func owningWindow(of invocation: ActionInvocation) -> String? {
+        let arguments = ["workspace", "tab"].compactMap { invocation[$0]?.targetValue }
+        for target in [invocation.target].compactMap({ $0 }) + arguments {
+            let workspace: String? = switch target.kind {
+            case .workspace: target.id
+            case .tab: services.workspaceID(ofTab: target.id)
+            default: nil
+            }
+            if let workspace, let owner = registry.value.owner(of: workspace), isTargetable(owner) { return owner }
+        }
+        return nil
     }
 }

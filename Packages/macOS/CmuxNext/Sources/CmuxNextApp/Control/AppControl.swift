@@ -336,7 +336,7 @@ extension AppControl {
                                                  reportsInputPresented: { [weak services] in services?.inputLatency.tracker.pagesReportPresentation = $0 })
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
-                let controller = services?.windows.controllers.first
+                let controller = call.params["window"]?.stringValue.flatMap { services?.windows.controller(for: $0) } ?? services?.windows.active
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
                 var fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
                                                  over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,

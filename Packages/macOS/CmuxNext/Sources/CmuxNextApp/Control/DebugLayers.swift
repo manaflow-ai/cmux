@@ -23,7 +23,7 @@ enum DebugLayers {
             guard let window = controller.window as? ShellWindow else { return nil }
             return report(controller: controller, window: window)
         }
-        let band = params["titlebar_band"]?.boolValue == true ? services.windows.controllers.first?.window?.titlebarBandMap() : nil
+        let band = params["titlebar_band"]?.boolValue == true ? services.windows.active?.window?.titlebarBandMap() : nil
         var fields: [String: JSONValue] = [
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),

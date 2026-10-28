@@ -16,7 +16,7 @@ enum DebugShowcase {
         guard services.environment.showcase else {
             return .object(["seeded": .bool(false), "error": .string("launch with --showcase to enable the showcase profile")])
         }
-        guard let window = services.windows.active ?? services.windows.controllers.first,
+        guard let window = services.windows.active,
               let pane = window.focusedPane ?? window.content?.panes.values.first else {
             return .object(["seeded": .bool(false), "error": .string("no window or pane is ready")])
         }

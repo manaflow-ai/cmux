@@ -25,27 +25,33 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
     /// a switch the run makes in a later turn (after a daemon reply, in a task it started) reads
     /// it here, so its `switch.*` interval answers the same press (`InputDispatchContext.inputTimestamp`).
     public var inputTimestamp: Double?
+    /// The window the run acts in (``ActionInvocation/windowID``, resolved once at its entrypoint).
+    /// A task the handler starts inherits it, so work that ends after a daemon reply lands in the
+    /// window the person pressed the key in, even after they moved to another window.
+    public var windowID: String?
 
-    public init(origin: ActionOrigin, allowsViewChange: Bool, inputTimestamp: Double? = nil) {
+    public init(origin: ActionOrigin, allowsViewChange: Bool, inputTimestamp: Double? = nil, windowID: String? = nil) {
         self.origin = origin
         self.allowsViewChange = allowsViewChange
         self.inputTimestamp = origin == .user ? inputTimestamp : nil
+        self.windowID = windowID
     }
 
     /// The scope of a run of an action described as `focuses` (or not), answering the person's
     /// input stamped `inputTimestamp` (nil without one).
     public init(_ invocation: ActionInvocation, focuses: Bool, inputTimestamp: Double? = nil) {
-        self.init(origin: invocation.origin, allowsViewChange: invocation.allowsViewChange || focuses, inputTimestamp: inputTimestamp)
+        self.init(origin: invocation.origin, allowsViewChange: invocation.allowsViewChange || focuses, inputTimestamp: inputTimestamp,
+                  windowID: invocation.windowID)
     }
 
     /// This scope as a run started inside `outer`: a handler that runs
     /// another action never gains a permission its own run lacks (an inner
-    /// run is built with the default user origin), and an inner run without
-    /// its own input answers the outer run's.
+    /// run is built with the default user origin), an inner run without
+    /// its own input answers the outer run's, and one without its own window acts in the outer run's.
     public func nested(in outer: ActionRunScope?) -> ActionRunScope {
         guard let outer else { return self }
         return ActionRunScope(origin: outer.origin, allowsViewChange: outer.allowsViewChange && allowsViewChange,
-                              inputTimestamp: inputTimestamp ?? outer.inputTimestamp)
+                              inputTimestamp: inputTimestamp ?? outer.inputTimestamp, windowID: windowID ?? outer.windowID)
     }
 }
 

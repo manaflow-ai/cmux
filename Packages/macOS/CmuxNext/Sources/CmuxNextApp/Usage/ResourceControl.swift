@@ -46,7 +46,7 @@ enum ResourceControl {
             }
             return .workspace(workspace)
         }
-        guard let id = services.windows.active?.state.workspaceID ?? services.windows.controllers.first?.state.workspaceID else {
+        guard let id = services.windows.active?.state.workspaceID else {
             throw ControlError(code: "not_found", message: RefusalStrings.noWindowShowsWorkspace)
         }
         return .workspace(id)

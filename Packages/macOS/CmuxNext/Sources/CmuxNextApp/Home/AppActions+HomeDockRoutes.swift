@@ -16,8 +16,11 @@ extension AppActions {
         static func conversation(_ id: String) -> String { "/conversation/\(id)" }
     }
 
-    /// `home.show`: the home workspace in the active window (the window that has it comes
-    /// forward), else in a new window; classic Home shows its top page. False when refused.
+    /// `home.show`: the home workspace in the run's window, else in a new window; classic Home shows
+    /// its top page. A person's Home (the sidebar item, its key, the menu, the palette) shows in the
+    /// window they asked in, which takes it from the window that listed it, as a sidebar row's pick
+    /// does: a click in one window never brings another forward (multiwindow.md). A request from
+    /// elsewhere (the CLI, a script) shows it where it lives. False when refused.
     @discardableResult
     static func showHome(_ services: AppServices) -> Bool {
         let classic = services.home.dock.isClassic
@@ -27,7 +30,8 @@ extension AppActions {
             return false
         }
         if !classic, let active = services.windows.active {
-            services.windows.show(workspaceID: home.id, in: active.state)
+            let origin: ShowOrigin = (ActionRunScope.current?.origin ?? .user) == .user ? .thisWindow : .anywhere
+            services.windows.show(workspaceID: home.id, in: active.state, from: origin)
         } else {
             services.windows.reveal(workspaceID: home.id)
         }
