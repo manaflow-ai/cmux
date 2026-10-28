@@ -450,3 +450,39 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   await key(field, "Enter");
   expect(calls).toEqual(["No project"]);
 });
+
+test("scrollbar blur keeps a searchable menu open while outside blur cancels", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Combobox } = await import("../src/ui/Combobox");
+  let cancelled = 0;
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Combobox
+        suggestions={["Atlas", "Relay"]}
+        onQuery={() => {}}
+        onSubmit={() => {}}
+        onCancel={() => {
+          cancelled += 1;
+        }}
+        label="Projects"
+        inline
+      />,
+    ),
+  );
+  const field = host.querySelector<HTMLInputElement>("input")!;
+  const list = host.querySelector('[role="listbox"]')!;
+  await act(async () => {
+    field.focus();
+    list.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    field.blur();
+  });
+  expect(cancelled).toBe(0);
+  await act(async () => {
+    document.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true }));
+    field.focus();
+    document.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    field.blur();
+  });
+  expect(cancelled).toBe(1);
+});
