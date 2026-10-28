@@ -61,6 +61,9 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=newterm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "newterm-cold-warm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm"])
+if "--suite=first-run-idle" in sys.argv:  # SCRATCH: Chromium at idle on a first launch vs later ones
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-run-idle.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first-run-idle"])
 if "--suite=first5s" in sys.argv:  # the first 5 s of typing (first-5s-typing.py)
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
