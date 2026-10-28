@@ -54,7 +54,7 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
 const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
+  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+|timeout(?:\s+--\S+)*\s+\S+\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -201,7 +201,11 @@ function toolFindings(tool: Tool): Finding[] {
   const calls = callText(command)
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/)
-    .map((part) => part.replace(/^\s*if\s+/, ""))
+    .map((part) =>
+      part
+        .replace(/^\s*(?:(?:if|then|do|else|elif)\s+)+/, "")
+        .replace(/^\s*!\s*/, ""),
+    )
     .filter((part) => EXECUTED_PR_COMMAND.test(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
     .join("\n");
   const found: Finding[] = [];

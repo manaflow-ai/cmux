@@ -23,6 +23,7 @@ export function childRows(
   const hidden = new Set<string>();
   const groups: { row: string; ids: string[] }[] = [];
   let reply: string | undefined;
+  let replyMessageId: string | undefined;
   let activity: string | undefined;
   let group: { row: string; ids: string[] } | undefined;
   for (const { event, update, spawned, settled } of entries) {
@@ -40,6 +41,14 @@ export function childRows(
     const kind = update?.sessionUpdate;
     const text = textFromContent(update?.content);
     if (kind === "agent_message_chunk" && text) {
+      const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
+      if (messageId && replyMessageId && messageId !== replyMessageId) {
+        if (reply) {
+          const prior = rows.get(reply);
+          if (prior) rows.set(reply, { ...prior, version: prior.version + 1, streaming: false });
+        }
+        reply = undefined;
+      }
       const rowId = reply ?? `${id}:assistant-${event.seq}`;
       const existing = rows.get(rowId);
       rows.set(rowId, {
@@ -51,6 +60,7 @@ export function childRows(
         streaming: false,
       });
       reply = rowId;
+      if (messageId) replyMessageId = messageId;
       activity = undefined;
       group = undefined;
     } else if (kind === "agent_thought_chunk" && text) {

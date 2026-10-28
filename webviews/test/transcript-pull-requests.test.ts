@@ -466,6 +466,9 @@ test("shell substitutions and conditions retain executed mutations", () => {
   for (const command of [
     "url=$(gh pr create -R acme/app); echo $url",
     "if gh pr merge 41 -R acme/app --squash; then echo merged; fi",
+    "if false; then true; elif gh pr merge 42 -R acme/app --squash; fi",
+    "if ! gh pr merge 43 -R acme/app --squash; then echo merged; fi",
+    "timeout 60 gh pr merge 44 -R acme/app --squash",
   ]) {
     const rows = toolsRows(shell(command, "https://github.com/acme/app/pull/41"));
     expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
