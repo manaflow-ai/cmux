@@ -52,6 +52,31 @@
         "settled"
       ],
       "note": "binds a two-stroke chord, the first with ctrl"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "keybindings.set",
+        "params": {
+          "command": "newTab",
+          "key": "ctrl+k o"
+        },
+        "idempotencyKey": "keybindings-set-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -10,7 +10,7 @@ import CmuxNextDesign
 /// the quicker `disappear` while it closes, in step with the card's own entrance and exit
 /// (``SidebarCardTransition``). A list that shrinks keeps its larger height, clipped at the shown
 /// edge, and lays out once more when the spring lands (the pane motion's hold rule,
-/// `motion.pane.holdContent`), so its last rows recede under the edge. Rows the clip pushed down
+/// feature `paneHoldsContentInMotion`), so its last rows recede under the edge. Rows the clip pushed down
 /// (a list scrolled to its end that grows) slide down with the edge. Chrome commits layout once
 /// and lets the compositor animate (cc/animation/keyframe_model.h, ui/compositor/layer_animator.h).
 ///
@@ -101,6 +101,7 @@ final class SidebarCardSlotMotion {
     }
 
     private func animates(in view: NSView) -> Bool {
+        // visibility-walk-allow: this view's motion gate: a hidden view animates nothing and lands at once (no node holds one view's isHidden)
         view.window != nil && !view.inLiveResize && !view.isHiddenOrHasHiddenAncestor
             && gate.renderSpring(.appear).animates(Self.edgeKey.path, in: view)
     }

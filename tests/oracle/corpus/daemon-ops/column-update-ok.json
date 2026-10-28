@@ -49,6 +49,44 @@
       }
     },
     {
+      "id": "viewport-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right",
+          "viewport_width": 0.5
+        },
+        "idempotencyKey": "column-update-ok.viewport-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "read-layout",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "screen.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,8 +97,9 @@
       "args": {
         "method": "column.update",
         "params": {
-          "column": "split_00000000000000000000000000000000",
-          "dock": false
+          "column": "$step:read-layout#/layout/root/columns/1/column_id",
+          "dock": true,
+          "edge": "right"
         },
         "idempotencyKey": "column-update-ok.call"
       },
@@ -72,7 +111,57 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a rightward viewport split makes two columns; the second is docked to the right edge (mode docked by default) and the first stays free"
+    },
+    {
+      "id": "docked",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/columns/1/dock",
+        "equals": {
+          "edge": "right",
+          "mode": "docked"
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "first-free",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/columns/0/dock",
+        "predicate": "absent",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "column.update",
+        "params": {
+          "column": "$step:read-layout#/layout/root/columns/1/column_id",
+          "dock": true,
+          "edge": "right"
+        },
+        "idempotencyKey": "column-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -81,8 +170,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.column is a fixed placeholder, not a fixture object; layout/_tuning.json tunes it"
   ]
 }

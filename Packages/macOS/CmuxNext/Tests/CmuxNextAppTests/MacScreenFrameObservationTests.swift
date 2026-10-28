@@ -12,7 +12,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct MacScreenFrameObservationTests {
     private func pane(on node: VisibilityNode, _ work: MainWorkScheduler) -> MacScreenPane {
-        MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }, name: "Studio",
+        MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", deadlines: linklessDeadlines()) { nil }, name: "Studio",
                       preferences: ScreenPreferences(), node: node, on: work)
     }
 
@@ -54,7 +54,7 @@ struct MacScreenFrameObservationTests {
     @Test func aHiddenTabsHubHearsItsStreamFail() throws {
         let work = linklessMainWork()
         let node = VisibilityNode(root: "test.tab", own: .hidden)
-        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
+        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", deadlines: linklessDeadlines()) { nil }
         viewer.endSession = { _, _, _ in }
         let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), node: node, on: work)
         viewer.phase = .streaming(sessionID: "s1", scope: .full)

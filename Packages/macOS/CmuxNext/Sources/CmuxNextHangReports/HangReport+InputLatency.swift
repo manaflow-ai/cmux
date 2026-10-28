@@ -110,6 +110,40 @@ extension HangReport {
         }
     }
 
+    /// `interaction_latency`: cmux's Interaction to Next Paint for the report period
+    /// (web.dev/articles/inp; p04-input-097): how many interactions the person made (a key press to
+    /// its release, a click, a drag), the longest, the longest after ignoring one for each 50 (Chrome's
+    /// high percentile, components/page_load_metrics/browser/responsiveness_metrics_normalization.cc),
+    /// and the kind of the longest. Numbers and a closed kind only.
+    public struct InteractionLatency: Codable, Sendable, Equatable {
+        /// The kinds ``kindOfWorst`` may name (`InteractionLatency.Kind.wireName`).
+        public static let kinds: Set<String> = ["key", "tap", "drag"]
+
+        /// Interactions in the period.
+        public var count: UInt64
+        /// The longest interaction, in milliseconds (two decimals, at most one day).
+        public var worstMs: Double
+        /// The INP value: the longest after ignoring one for each 50, in milliseconds; at most ``worstMs``.
+        public var highPctMs: Double
+        /// `key`, `tap` or `drag`.
+        public var kindOfWorst: String
+
+        /// Makes the value from its parts.
+        public init(count: UInt64, worstMs: Double, highPctMs: Double, kindOfWorst: String) {
+            self.count = count
+            self.worstMs = worstMs
+            self.highPctMs = highPctMs
+            self.kindOfWorst = kindOfWorst
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case count
+            case worstMs = "worst_ms"
+            case highPctMs = "high_pct_ms"
+            case kindOfWorst = "kind_of_worst"
+        }
+    }
+
     /// A row's `display`: the display its inputs were presented on.
     public struct Display: Codable, Sendable, Hashable {
         /// The highest refresh rate it runs at, in whole hertz (0 when unknown).

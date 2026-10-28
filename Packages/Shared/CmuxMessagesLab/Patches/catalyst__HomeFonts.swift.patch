@@ -160,7 +160,7 @@
  
      /// The exact size: a rounded size draws other pixels (the HA HA glyph is 42% of its box,
      /// 7.56 pt, which a half-point store drew at 7.5 pt). The store is bounded by `limit`
-@@ -149,15 +175,24 @@
+@@ -149,22 +175,32 @@
              .fault("HomeFonts store is full (\(limit, privacy: .public) fonts): later fonts are not held")
      }
  
@@ -193,8 +193,13 @@
      }
  
      /// The reference an AppKit factory annotated nonnull returned, read as an
-@@ -167,4 +202,3 @@
-         unsafeBitCast(font, to: UIFont?.self)
+     /// optional: under concurrency these factories can return nil (cx-qpqs),
+     /// and Swift would trust the annotation.
+     private static func unannotated(_ font: UIFont) -> UIFont? {
+-        unsafeBitCast(font, to: UIFont?.self)
++        // SAFETY: a class reference and its Optional have one layout (a null reference is `.none`), so the cast
++        // reinterprets no bits; it only lets the caller see the nil the nonnull annotation hides.
++        unsafe unsafeBitCast(font, to: UIFont?.self)
      }
  }
 -

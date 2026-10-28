@@ -13,20 +13,16 @@ public nonisolated struct GhosttyUnfocusedSplit: Hashable, Sendable {
         self.fill = fill
     }
 
+    /// The keys of `config`, a live handle the caller holds for the call.
     init(config: ghostty_config_t) {
         var opacity: Double = 1
-        _ = Self.get(config, &opacity, key: "unfocused-split-opacity")
+        // SAFETY: the caller's live config; unfocused-split-opacity is a C double.
+        _ = unsafe GhosttyRuntime.configGet(config, &opacity, key: "unfocused-split-opacity")
         var color = ghostty_config_color_s()
-        let fill = Self.get(config, &color, key: "unfocused-split-fill")
+        // SAFETY: the caller's live config; unfocused-split-fill is a color.
+        let fill = unsafe GhosttyRuntime.configGet(config, &color, key: "unfocused-split-fill")
             ? GhosttyThemeColors.RGB(r: color.r, g: color.g, b: color.b) : nil
         self.init(opacity: opacity, fill: fill)
-    }
-
-    /// `ghostty_config_get` for one key, callable off the main actor.
-    private static func get<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
-        withUnsafeMutablePointer(to: &value) { pointer in
-            key.withCString { ghostty_config_get(config, pointer, $0, UInt(key.utf8.count)) }
-        }
     }
 
     /// cmux's `unfocused-split-opacity`, loaded before the user's files: no
@@ -34,24 +30,32 @@ public nonisolated struct GhosttyUnfocusedSplit: Hashable, Sendable {
     static let defaultLine = "unfocused-split-opacity = 1"
 
     static func loadDefault(into config: ghostty_config_t) {
-        let line = defaultLine
-        line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        // SAFETY: the caller passes a live config.
+        unsafe GhosttyRuntime.loadConfigLine(defaultLine, into: config, source: "cmux-next")
     }
 
     /// The keys a user config made of `text` (Ghostty config lines)
     /// resolves to, loaded the way `loadConfig` loads them, for tests.
     @MainActor static func resolved(configText text: String) -> GhosttyUnfocusedSplit? {
         _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
-        guard let config = ghostty_config_new() else { return nil }
-        defer { ghostty_config_free(config) }
-        loadDefault(into: config)
-        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
-        ghostty_config_finalize(config)
-        return GhosttyUnfocusedSplit(config: config)
+        // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
+        return unsafe GhosttyRuntime.withScratchConfig(load: {
+            // SAFETY: as above.
+            unsafe loadDefault(into: $0)
+            // SAFETY: as above.
+            unsafe GhosttyRuntime.loadConfigLine(text, into: $0, source: "test")
+        }, read: {
+            // SAFETY: as above.
+            unsafe GhosttyUnfocusedSplit(config: $0)
+        })
     }
 }
 
 extension GhosttyRuntime {
     /// The unfocused-split keys of the applied config; no dim when none loaded.
-    public var unfocusedSplit: GhosttyUnfocusedSplit { config.map(GhosttyUnfocusedSplit.init(config:)) ?? GhosttyUnfocusedSplit() }
+    public var unfocusedSplit: GhosttyUnfocusedSplit {
+        guard let config else { return GhosttyUnfocusedSplit() }
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe GhosttyUnfocusedSplit(config: config)
+    }
 }

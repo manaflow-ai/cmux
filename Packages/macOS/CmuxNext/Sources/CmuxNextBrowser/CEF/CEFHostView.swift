@@ -8,13 +8,25 @@ import CmuxNextSignposts
 /// (find bar, prompt bar) or must get the mouse (the window's dividers and
 /// switcher, `BrowserWindowOcclusionProviding`), and masks it to the rounded
 /// pane and window corners. What it reads lives in `ChildWindowPageFallback`.
-final class CEFHostView: NSView {
+///
+/// With the feature `cefAttachedPages` and the fork's attach call, each tab's Chromium view is a subview of
+/// this view instead (`CEFLayerHosting.attachedPages`, Chrome's model): the page draws, takes clicks and keys
+/// and gets the first responder as any view does, after the window's key routing (`KeyRouter` in
+/// `sendEvent` and the window's `performKeyEquivalent` run before any view's), and the page window never
+/// orders in. Layer hosting and the page window above are the fallback of a tab the fork does not attach.
+final class CEFHostView: NSView, PaneRenderMoveObserving {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
         didSet {
             guard occlusionRects != oldValue else { return }
             postGeometryChange()
+            for case let page as ChromiumHostPageView in subviews { showOcclusion(in: page) }
         }
+    }
+
+    /// Host mode: `page`'s cursor leaves out the native UI over the page, as the page window does.
+    func showOcclusion(in page: ChromiumHostPageView) {
+        page.cursorHoles = occlusionRects.map { convert($0, to: page) }
     }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
@@ -34,29 +46,54 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
-    /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
-    let layerHosting = CEFLayerHosting()
+    /// Layer hosting (fork API 26) of the page window over this view, or its tabs' attached Chromium views
+    /// (`CEFLayerHosting`).
+    let layerHosting: CEFLayerHosting
+    /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
+    let pageWindowWidgets = CEFPageWindowWidgets()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
     /// Where its window's page update requests arrive (`BrowserPageUpdates`): `.default` in the app,
     /// a private center in tests.
     let pageUpdateCenter: NotificationCenter
+    /// Its pane springs with the `pageSpringResizeOnce` feature (`CEFTabContentView+SpringResize`): the gaps
+    /// beside the page show the page's background.
+    private(set) var isOnPageSpring = false
+    /// Its pane shows a render-server move with that feature (`PaneRenderMoveObserving`): a page in its own
+    /// window hides meanwhile (`ChildWindowPageFallback.hidesForSpring`).
+    private(set) var isOnRenderMove = false
 
-    init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+    /// - Parameters:
+    ///   - pageUpdateCenter: where its window's page update requests arrive.
+    ///   - layerHosting: the page's layer hosting; tests pass one with a fake fork and their own turn.
+    init(frame: NSRect, pageUpdateCenter: NotificationCenter, layerHosting: CEFLayerHosting) {
         self.pageUpdateCenter = pageUpdateCenter
+        self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
-        #if DEBUG
+        // The page window ordered in or out for a widget: the fork places it over this view now.
+        pageWindowWidgets.changed = { [weak self] in self?.childWindowPage.pagesNeedUpdate(force: true) }
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
 
     /// A host view that takes its window's page update requests on `NotificationCenter.default`.
     override convenience init(frame: NSRect) {
-        self.init(frame: frame, pageUpdateCenter: .default)
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own page update center (tests) and the app's layer hosting.
+    convenience init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+        self.init(frame: frame, pageUpdateCenter: pageUpdateCenter, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own layer hosting (tests) that takes page update requests on `.default`.
+    convenience init(frame: NSRect, layerHosting: CEFLayerHosting) {
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: layerHosting)
     }
 
     @available(*, unavailable)
@@ -80,6 +117,13 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
+    /// The content lifecycle shows and hides the shown page by this flag (`CEFTab.setContentVisible`,
+    /// `CEFPaneHost.present`): a hosted page's layer goes with it in this transaction, and the fork
+    /// hears the page's visibility after the commit (`CEFLayerHosting.visibilityMayHaveChanged`).
+    override var isHidden: Bool {
+        didSet { if isHidden != oldValue { layerHosting.visibilityMayHaveChanged() } }
+    }
+
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
     /// the window backdrop remains visible. During a live resize it takes
@@ -91,7 +135,7 @@ final class CEFHostView: NSView {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize, let pageBackdrop {
+        if inLiveResize || isOnPageSpring || isOnRenderMove, let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
@@ -122,6 +166,46 @@ final class CEFHostView: NSView {
         }.map(\.element)
     }
 
+    /// Another tab's container or pane took the view mid-spring: its old pane's landing never reaches it, and
+    /// the new one may be springing on the render server already.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        setPageSpring(false)
+        paneRenderMoveDidChange((superview as? CEFTabContentView)?.springPlacement?.showsRenderMove ?? false)
+    }
+
+    /// Sets ``isOnPageSpring``.
+    func setPageSpring(_ on: Bool) {
+        guard on != isOnPageSpring else { return }
+        isOnPageSpring = on
+        updateBackground()
+    }
+
+    /// `PaneRenderMoveObserving`: a page in its own window is placed from this view's frame, which a
+    /// render-server spring sets at rest in its first turn, so it hides while its pane shows the move
+    /// (`ChildWindowPageFallback.hidesForSpring`), and the geometry update when the move ends orders it in where
+    /// the pane landed. A docked DevTools host hides the same.
+    func paneRenderMoveDidChange(_ showsRenderMove: Bool) {
+        guard showsRenderMove != isOnRenderMove else { return }
+        let hid = ChildWindowPageFallback.hidesForSpring(self)
+        isOnRenderMove = showsRenderMove
+        updateBackground()
+        if ChildWindowPageFallback.hidesForSpring(self) != hid { postGeometryChange() }
+    }
+
+    /// The shown tab's attached Chromium view takes this view's bounds (`CEFAttachedPages`), as Chrome sizes
+    /// a tab's view to its contents container (`WebContentsViewMac::SetBounds`); the find bar and the other
+    /// subviews stay above it. No fork call: Chromium hears the new size from its own view.
+    override func layout() { // perf-hot: 0.1ms cef-geometry (each layout of a pane's host view)
+        super.layout()
+        layerHosting.attachedPages.layout()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        layerHosting.attachedPages.layout()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
@@ -150,6 +234,12 @@ final class CEFHostView: NSView {
 /// window, and shows a snapshot while the tab is occluded.
 final class CEFTabContentView: NSView, PaneMotionSettling {
     weak var tab: CEFTab?
+    /// The size its pane's spring rests at, held at the top-left until it lands (`CEFTabContentView+SpringResize`).
+    var springHold: SpringPageHold?
+    /// The pane host it sits in when that pane's pages hold their size in springs (the `pageSpringResizeOnce`
+    /// feature, `RestingPlacement.pageResizing`), found once each time it moves (`placeInPane()`); nil
+    /// otherwise, so a layout without the feature walks no ancestors.
+    weak var springPlacement: (any RestingPlacement)?
     private let snapshotView = NSImageView()
 
     override init(frame: NSRect) {
@@ -176,8 +266,14 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         tab?.deviceEmulationViewDidResize()
     }
 
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        placeInPane()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        placeInPane()
         guard let tab else { return }
         tab.pageThemeDidChange()
         // A tab parked hidden in its pane (PaneContentView+Parking) shows
@@ -217,8 +313,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
-        let frames = tab?.devToolsController.frames(in: bounds)
-            ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
+        joinSpringResize()
+        let area = springHold?.rect(in: bounds, flipped: isFlipped) ?? bounds
+        let frames = tab?.devToolsController.frames(in: area)
+            ?? CEFDevToolsLayout.Frames(page: area, devTools: .zero, line: .zero, grab: .zero)
         let devToolsHost = tab?.devToolsController.views?.host
         // A fit (cx-qby5j) shows the page in its presented rect inside the frame view.
         let emulation = tab?.deviceEmulation
@@ -260,6 +358,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the shown
     /// page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
     func paneMotionDidSettle() {
+        endSpringResize()
         guard let tab, tab.host.hostView.superview === self else { return }
         tab.host.paneMotionSettled(tab)
     }
@@ -272,6 +371,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         } else if tab?.deviceEmulation?.fit == nil, let current {
             current.removeFromSuperview()
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new emulation (`applyEmulation`'s change check) moves the page to its fit
     }
 }

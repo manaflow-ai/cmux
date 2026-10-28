@@ -136,11 +136,14 @@ import Testing
 
     @Test func onTheStripsHostsAndDividersSitInTheMotionContainer() {
         let w = Window(renderServer: true)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen.stripContainer) }
+        // The first column's rows overflow: they sit in their row's container in the strip container (p04-input-050).
+        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.isDescendant(of: w.screen.stripContainer) == true) }
         #expect(!w.screen.dividerViews.isEmpty)
-        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen.stripContainer })
+        #expect(w.screen.dividerViews.values.allSatisfy { $0.isDescendant(of: w.screen.stripContainer) })
         #expect(w.screen.stripContainer.frame == w.screen.bounds)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.chrome.superview === w.screen.stripChrome, "the rings sit in the strip's plane") }
+        for pane in Self.strip {
+            #expect(w.root.context.hosts[pane]?.chrome.isDescendant(of: w.screen.stripChrome) == true, "the rings sit in the strip's plane")
+        }
         #expect(w.screen.stripChrome.superview === w.root.overlayPlane && w.screen.stripChrome.frame == w.root.overlayPlane.bounds)
         #expect(w.screen.stripContainer.companion === w.screen.stripChrome.layer)
     }
@@ -157,8 +160,8 @@ import Testing
         let contents = Self.strip.compactMap { w.provider.views[$0] as? TrackedContent }
         try #require(contents.count == Self.strip.count)
         w.window.displayIfNeeded()
-        let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
-        let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
+        let tracking = contents.map(\.trackingAreaUpdates), dividerAreas = dividers.map(\.trackingAreaIDs)
+        let cursors = contents.map(\.cursorRectResets)
         let shownBefore = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: point, phase: .began), "the layout takes the Command gesture")
         let sets = screen.stripContainer.translationSets
@@ -175,8 +178,9 @@ import Testing
         #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the pan")
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the pan")
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
-        #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
-        #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
+        #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
+        #expect(dividers.map(\.trackingAreaIDs) == dividerAreas, "the dividers keep their one tracking area")
+        #expect(contents.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(screen.stripContainer.translationSets - sets == 50, "one translation per event")
         #expect(Window.translation(of: screen.stripChrome.layer) == screen.stripContainer.translation,
                 "the rings' plane takes the same translation")
@@ -562,5 +566,13 @@ import Testing
         // first (`LayoutRootView.landStripsWhereTheyShow`), so hit testing agrees with that point.
         #expect(container.hitTest(NSPoint(x: 800, y: 400)) === child)
         #expect(container.hitTest(NSPoint(x: 400, y: 400)) == nil, "clicks outside every host go to the screen")
+    }
+}
+
+extension DividerHandleView {
+    /// The identities of the handle's own tracking areas (init's hover area and the cursor area at its rect):
+    /// a pan or fling, which sets no frame, keeps them.
+    var trackingAreaIDs: [ObjectIdentifier] {
+        trackingAreas.filter { ($0.owner as? NSView) === self }.map { ObjectIdentifier($0) }
     }
 }

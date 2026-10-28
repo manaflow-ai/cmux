@@ -14,20 +14,20 @@ struct PageWebUITraceTests {
 
     /// A page view writing to `recorder`; with `load`, it starts its first document in `chromium` (WebKit
     /// when nil). The configuration has no scheme handler, so a WebKit load never commits.
-    private func page(_ recorder: PageTraceRecorder, load: Bool = false,
+    private func page(_ recorder: PageTraceRecorder, load: Bool = false, pooled: Bool = false,
                       chromium: (any PageChromiumHosting)? = nil) -> PageWebView {
         let configuration = WKWebViewConfiguration()
         return PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
-                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: load,
-                           chromium: chromium, processGroups: WebUIHost.makeProcessGroups(), trace: recorder)
+                           options: .standard, surface: nil, dynamicResources: nil, pooled: pooled, load: load,
+                           chromium: chromium, trace: recorder)
     }
 
     @Test func aNewViewPaintedInChromiumIsOneOpenEndingInChromium() async throws {
         let recorder = PageTraceRecorder()
         let hosting = FakeChromiumHosting()
         let view = page(recorder, load: true, chromium: hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let chromium = try #require(hosting.made.first)
         let painted: Bool? = await PageTestWait.value("paint") { done in
@@ -77,8 +77,8 @@ struct PageWebUITraceTests {
 
     @Test func aClaimReplacesAnUnpaintedOpenAndACommitOpensANavigatedDocument() {
         let recorder = PageTraceRecorder()
-        let view = page(recorder)
-        view.startLoading()
+        // A preload's first document (PageOpenRequest.parked) is a spare open.
+        let view = page(recorder, load: true, pooled: true)
         view.traceOpenRequested(.claim)
         view.documentCommitted() // the claimed document's own commit: part of the claim's open
         view.notePainted()
@@ -86,7 +86,8 @@ struct PageWebUITraceTests {
         view.close()
         let opens = recorder.records.filter { $0.name == .webuiOpen }
         #expect(opens.map(\.phase) == [.asyncBegin, .asyncEnd, .asyncBegin, .asyncEnd, .asyncBegin, .asyncEnd])
-        #expect(opens.filter { $0.phase == .asyncBegin }.map(\.arg0)
+        // Bits 0-7 name the kind; a new view's begin carries its construction time above them.
+        #expect(opens.filter { $0.phase == .asyncBegin }.map { $0.arg0 & 0xff }
             == [PageOpenKind.spare, .claim, .navigated].map(\.rawValue))
         #expect(opens.filter { $0.phase == .asyncEnd }.map(\.arg0)
             == [PageOpenOutcome.replaced, .paintedInWebKit, .closedBeforePaint].map(\.rawValue))
@@ -100,7 +101,7 @@ struct PageWebUITraceTests {
         let task = try rig.task("/")
         let finished: Bool? = await PageTestWait.value("answer") { done in
             task.finished = done
-            rig.handler.webView(rig.view.webKitView, start: task)
+            rig.handler.webView(rig.view.webView, start: task)
         }
         #expect(finished == true)
         let slices = try rig.recorder.schemeSlices()
@@ -116,7 +117,7 @@ struct PageWebUITraceTests {
         let task = try rig.task("/", method: "POST")
         var finished: Bool?
         task.finished = { finished = $0 }
-        rig.handler.webView(rig.view.webKitView, start: task)
+        rig.handler.webView(rig.view.webView, start: task)
         #expect(finished == false)
         let slices = try rig.recorder.schemeSlices()
         #expect(slices.map(\.part) == [0])
@@ -129,7 +130,7 @@ struct PageWebUITraceTests {
         let task = try rig.task("/missing.js")
         let finished: Bool? = await PageTestWait.value("answer") { done in
             task.finished = done
-            rig.handler.webView(rig.view.webKitView, start: task)
+            rig.handler.webView(rig.view.webView, start: task)
         }
         #expect(finished == false)
         let slices = try rig.recorder.schemeSlices()
@@ -146,8 +147,8 @@ struct PageWebUITraceTests {
         let replied: Bool? = await PageTestWait.value("reply") { done in
             // The reply's last step ends the task's work: a stopped task is not answered after it.
             rig.recorder.onEnd = { part in if part == 2, rig.recorder.ended(part: 2) == 3 { done(true) } }
-            rig.handler.webView(rig.view.webKitView, start: task)
-            rig.handler.webView(rig.view.webKitView, stop: task)
+            rig.handler.webView(rig.view.webView, start: task)
+            rig.handler.webView(rig.view.webView, stop: task)
         }
         #expect(replied == true)
         #expect(!answered)
@@ -176,7 +177,7 @@ private struct SchemeRig {
         view = PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false,
-                           chromium: nil, processGroups: WebUIHost.makeProcessGroups(), trace: PageTraceRecorder())
+                           chromium: nil, trace: PageTraceRecorder())
     }
 
     func task(_ path: String, method: String = "GET") throws -> FakeSchemeTask {

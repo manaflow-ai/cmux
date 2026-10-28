@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
-import CmuxNextErrorJournal
 @testable import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -27,55 +26,6 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(request.tolerance == .milliseconds(8), "a 250 ms debounce gets Chromium's 8 ms leeway")
         #expect(request.deadline.offset == FindSectionModel.debounce, "the leeway moves the wake later, never the deadline")
         model.pendingSearch?.cancel()
-    }
-
-    // MARK: Error journal cadence
-
-    @Test func theErrorJournalHarvestsAtOnceThenSleepsOffMainUntilTheNext() async throws {
-        let clock = ManualClock()
-        let source = GatedSource()
-        let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-cadence-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], clock: clock, ledger: WakeupLedger())
-
-        service.start()
-        await source.waitForHarvests(1)
-        source.release()
-        try await clock.waitForSleeper()
-        let first = try #require(clock.sleepRequests.last)
-        #expect(first.deadline.offset == ErrorJournalService.harvestInterval, "the next harvest is one interval after the last ended")
-        #expect(first.tolerance == WakeLeeway.window(delay: ErrorJournalService.harvestInterval).tolerance,
-                "a 300 s cadence asks for WakeLeeway's 1 s slack")
-
-        service.start()
-        #expect(clock.sleeperCount == 1, "a second start does not start a second cadence")
-
-        clock.advance(by: ErrorJournalService.harvestInterval)
-        await source.waitForHarvests(2)
-        await service.stop()
-        #expect(source.harvests == 2)
-    }
-
-    @Test func theErrorJournalPlansNoHarvestWhileOneRuns() async throws {
-        let clock = ManualClock()
-        let source = GatedSource()
-        let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-overlap-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], clock: clock, ledger: WakeupLedger())
-
-        service.start()
-        await source.waitForHarvests(1)
-        clock.advance(by: ErrorJournalService.harvestInterval * 3)
-        #expect(clock.sleeperCount == 0, "a cadence ran while a harvest was in flight")
-        #expect(source.harvests == 1, "a second harvest started behind the first")
-
-        await service.stop()
-        source.release()
-        await #expect(throws: ManualClock.NoSleeper.self, "a harvest that ended after stop planned the next one") {
-            // test-deadline: a bound on a wait that must find nothing, not a settle
-            try await clock.waitForSleeper(within: .milliseconds(300))
-        }
-        #expect(source.harvests == 1)
     }
 
     // MARK: Upload stage expiry
@@ -144,20 +94,21 @@ struct AppSleepsOnWakeLeewayTests {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await Task.yield()
         #expect(poll.started == 1, "a start while a round runs started another")
         #expect(rig.deadlines.nextFire == nil, "a round in flight planned the next one")
 
         poll.answer(.seconds(30))
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(!asks.isTriaging)
         #expect(asks.isTriageScheduled, "the round's pause planned no next round")
         #expect(rig.deadlines.nextFire.map { $0 >= .seconds(30) && $0 <= .seconds(31) } == true, "the next round is one pause away")
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await Task.yield()
         #expect(poll.started == 1, "a start during the pause skipped it")
 
@@ -165,44 +116,94 @@ struct AppSleepsOnWakeLeewayTests {
         await poll.waitForRounds(2)
         #expect(!asks.isTriageScheduled, "the next round's deadline stayed pending while it ran")
         poll.answer(.seconds(30))
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(asks.isTriageScheduled, "the second round's pause planned no third")
+    }
+
+    /// p14-energy-032: under Energy Saver a round's pause is stretched four times.
+    @Test func aTriageRoundsPauseIsStretchedUnderTheSaver() async throws {
+        let rig = MainDeadlineRig()
+        let asks = CloudAccessAsks()
+        let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
+
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(EnergyPolicy(saverReason: .battery)), poll: poll.round)
+        await poll.waitForRounds(1)
+        poll.answer(.seconds(30))
+        await Self.settleRound(asks, rig)
+        #expect(rig.deadlines.nextFire.map { $0 >= .seconds(120) && $0 <= .seconds(121) } == true, "the saver's pause is four pauses")
     }
 
     @Test func aRoundThatAnswersNilStopsTheRoundsUntilTheNextStart() async throws {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(nil)
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(!asks.isTriaging, "a stopped round stayed in flight")
         #expect(!asks.isTriageScheduled, "a round that answered nil planned another")
         #expect(rig.deadlines.nextFire == nil, "the stopped rounds kept a wake")
 
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(2)
         #expect(poll.started == 2, "a start after the rounds stopped ran no round")
         poll.answer(nil)
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
     }
 
     @Test func releasedAsksRunNoNextRound() async throws {
         let rig = MainDeadlineRig()
         var asks: CloudAccessAsks? = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks?.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks?.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(.seconds(30))
-        await asks?.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(asks?.isTriageScheduled == true)
         asks = nil
         rig.fireAndRun()
         await Task.yield()
         #expect(poll.started == 1, "a released CloudAccessAsks ran its next round")
+    }
+
+    /// p06-scheduler-312: a round that ends while the app still launches posts its end and awaits nothing the launch
+    /// holds (the app's held-await report is a Debug assertion); the end runs once the reveal opens background work.
+    @Test func aRoundEndingWhileLaunchingAwaitsNoHeldWork() async throws {
+        let held = HeldAwaits()
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger()) { held.owners.append($0.owner) }
+        let rig = MainDeadlineRig(startup: startup)
+        let asks = CloudAccessAsks()
+        let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
+
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
+        await poll.waitForRounds(1)
+        poll.answer(.seconds(30))
+        await Self.settleRound(asks, rig, passes: 40)
+        #expect(held.owners.isEmpty, "the round's end awaited background work the launch holds: \(held.owners)")
+        #expect(asks.isTriaging, "the round's end ran before the reveal opened background work")
+
+        startup.noteFirstFrame()
+        await Self.settleRound(asks, rig)
+        #expect(!asks.isTriaging, "the round's end never ran after the reveal")
+        #expect(asks.isTriageScheduled, "the round's pause planned no next round")
+        #expect(held.owners.isEmpty)
+    }
+
+    /// Runs the rig's frames until the round in flight ended: its end is one background task posted from off main,
+    /// so each pass also runs the main run loop, where that post arrives.
+    private static func settleRound(_ asks: CloudAccessAsks?, _ rig: MainDeadlineRig, passes: Int = 400) async {
+        for _ in 0..<passes where asks?.isTriaging == true {
+            runMainLoopPass(for: 0.001)
+            rig.frame()
+            await Task.yield()
+        }
     }
 
     /// Returns once the files lane ran what was posted on it at best effort before (`work` has one slot per priority).
@@ -217,76 +218,26 @@ struct AppSleepsOnWakeLeewayTests {
     @Test func holdsAnswersTrueWhenTheConditionComesBeforeTheLimit() async throws {
         let clock = ManualClock()
         let flag = SleepFlag()
+        let rig = MainDeadlineRig()
         // task-owner: the race; the test awaits its answer
-        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), clock: clock) { flag.on } }
+        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), on: rig.deadlines.work, clock: clock) { flag.on } }
         try await clock.waitForSleeper()
         #expect(clock.sleepRequests.last?.tolerance == WakeLeeway.window(delay: .seconds(30)).tolerance)
         flag.on = true
+        // The wait's observation flushes on the next frame (its class is visible).
+        rig.frame()
         #expect(await race.value, "the condition came first, yet the race answered false")
     }
 
     @Test func holdsAnswersFalseWhenTheLimitPassesFirst() async throws {
         let clock = ManualClock()
         let flag = SleepFlag()
+        let rig = MainDeadlineRig()
         // task-owner: the race; the test awaits its answer
-        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), clock: clock) { flag.on } }
+        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), on: rig.deadlines.work, clock: clock) { flag.on } }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(30))
         #expect(!(await race.value), "the limit passed, yet the race answered true")
-    }
-}
-
-/// A source whose every harvest waits until the test releases it.
-private nonisolated final class GatedSource: ErrorHarvestSource, Sendable {
-    let id = "gated"
-    private struct State {
-        var harvests = 0
-        var released = false
-        var waiting: [CheckedContinuation<Void, Never>] = []
-        var watchers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    }
-
-    private let state = Mutex(State())
-
-    var harvests: Int { state.withLock { $0.harvests } }
-
-    func collect(after cursor: String?) async throws -> ErrorHarvest {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let (resume, ready) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
-                state.harvests += 1
-                let count = state.harvests
-                let ready = state.watchers.filter { $0.count <= count }.map(\.continuation)
-                state.watchers.removeAll { $0.count <= count }
-                if state.released { return (true, ready) }
-                state.waiting.append(continuation)
-                return (false, ready)
-            }
-            for watcher in ready { watcher.resume() }
-            if resume { continuation.resume() }
-        }
-        return ErrorHarvest(events: [], cursor: cursor)
-    }
-
-    /// Lets every waiting and later harvest finish.
-    func release() {
-        let waiting = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-            state.released = true
-            defer { state.waiting = [] }
-            return state.waiting
-        }
-        for continuation in waiting { continuation.resume() }
-    }
-
-    /// Returns once `count` harvests have begun.
-    func waitForHarvests(_ count: Int) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let now = state.withLock { state -> Bool in
-                if state.harvests >= count { return true }
-                state.watchers.append((count, continuation))
-                return false
-            }
-            if now { continuation.resume() }
-        }
     }
 }
 
@@ -336,6 +287,12 @@ private final class RoundGate: Sendable {
         guard started < count else { return }
         await withCheckedContinuation { watchers.append((count, $0)) }
     }
+}
+
+/// The owners of the held-class awaits a launching phase reported.
+@MainActor
+private final class HeldAwaits {
+    var owners: [String] = []
 }
 
 @Observable @MainActor

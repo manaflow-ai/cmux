@@ -12,7 +12,7 @@ import Foundation
 /// descriptor is nonblocking: a reader that stopped reading loses lines
 /// instead of stalling the app. The app drops the variable before any thread
 /// starts (`LaunchMarkSink.dropInheritedDescriptor`, CmuxNextApp).
-public nonisolated struct LaunchMarkSink: Sendable {
+public nonisolated struct LaunchMarkSink: LaunchValueSink {
     public static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
 
     public static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
@@ -42,6 +42,14 @@ public nonisolated struct LaunchMarkSink: Sendable {
     /// no signpost, which would read it as milliseconds. The caller sends each name once.
     public func writeValue(name: String, value: UInt64) {
         writeLine("\(name) \(value)\n")
+    }
+
+    /// Sends the launch value `name` (a count or a CPU time, not a time since process start: p08-startup-007's
+    /// first-frame counters): a `launch.value` signpost, never `launch.mark`, and the `<name> <value>` line that
+    /// the bench's `VALUE_MARKS` read as a value.
+    public func writeValue(name: String, number: Double) {
+        signposts.value(name, number: number)
+        writeLine("\(name) \(String(format: "%.1f", number))\n")
     }
 
     private func writeLine(_ line: String) {

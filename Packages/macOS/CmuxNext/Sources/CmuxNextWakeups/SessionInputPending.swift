@@ -130,8 +130,9 @@ public final class SessionInputPending: InputPendingSource {
     /// at 48 Hz).
     public var staleAfter: TimeInterval { max(2 * refreshInterval, Self.minimumStaleAfter) }
 
-    /// The display's refresh interval; 60 Hz when it reports none.
-    private var refreshInterval: TimeInterval {
+    /// The display's refresh interval in seconds; 60 Hz when it reports none (the MainJobGate's
+    /// deadline, p04-input-076).
+    public var refreshInterval: TimeInterval {
         let interval = events.refreshInterval
         return interval.isFinite && interval > 0 ? interval : 1.0 / 60
     }
@@ -165,6 +166,10 @@ public final class SessionInputPending: InputPendingSource {
 
     public func hasPendingInput(uptime: TimeInterval) -> Bool {
         !scan(uptime: uptime, firstOnly: true).isEmpty
+    }
+
+    public func hasPendingPointerInput(uptime: TimeInterval) -> Bool {
+        !pendingKinds(uptime: uptime).subtracting(.key).isEmpty
     }
 
     /// Every kind of input pending at `uptime` (seconds since boot), for the pending-input state's

@@ -388,7 +388,8 @@
         {
           "id": "win_000000000000000000000000000000a1",
           "isKey": true,
-          "responder": "terminal",
+          "responder": "content",
+          "responderPane": "pane_000000000000000000000000000000d1",
           "layoutFocus": "pane_000000000000000000000000000000d1",
           "ghosttyFocused": ["tab_000000000000000000000000000000e1"],
           "childPage": null,
@@ -397,7 +398,7 @@
           "consistent": true,
           "model": {
             "pane": "pane_000000000000000000000000000000d1",
-            "target": "pane",
+            "target": "content",
             "resolved": "terminal",
             "resolvedPane": "pane_000000000000000000000000000000d1",
             "resolvedTab": "tab_000000000000000000000000000000e1",
@@ -502,11 +503,26 @@
       ]
     },
     "sidebar": {
+      "window": "win_000000000000000000000000000000a1",
       "hidden": false,
+      "editing": false,
       "widthFraction": 0.18,
       "selectedWorkspace": "ws_000000000000000000000000000000b1",
+      "selection": ["ws_000000000000000000000000000000b1"],
       "filterSha256": null,
       "rows": [
+        {
+          "kind": "section",
+          "workspace": null,
+          "group": null,
+          "label": "local",
+          "depth": 0,
+          "selected": false,
+          "collapsed": false,
+          "unread": 0,
+          "needsYou": false,
+          "pinned": false
+        },
         {
           "kind": "workspace",
           "workspace": "ws_000000000000000000000000000000b1",
@@ -543,6 +559,7 @@
               "muted": false,
               "audible": false,
               "crashed": false,
+              "unresponsive": false,
               "hibernated": false
             }
           ]

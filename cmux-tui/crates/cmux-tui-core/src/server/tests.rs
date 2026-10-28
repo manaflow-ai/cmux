@@ -548,10 +548,14 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     handle_command(mux, mux.local_test_client(0), command, &test_writer())
 }
 
+mod client_sizing;
+mod connection_scheduler_input_lane;
+mod deferred_commands;
 mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
+mod kitty_share;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod reply_event_order;
@@ -561,6 +565,7 @@ mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod thread_qos;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;

@@ -12,6 +12,7 @@ class ThemedView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
     }
@@ -22,6 +23,7 @@ class ThemedView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     override func updateLayer() { applyColors() }
 
+    // visibility-walk-allow: its layer's fill, border color and border width, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

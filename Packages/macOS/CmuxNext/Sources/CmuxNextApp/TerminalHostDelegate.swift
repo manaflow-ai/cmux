@@ -5,12 +5,17 @@ import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
 /// tabs, and windows, the right-click menu, and links. OSC 9/777/99
 /// notifications come from the daemon, which parses every terminal's output.
 final class TerminalHostDelegate: TerminalSessionDelegate {
     weak var services: AppServices? { didSet { if let services { Self.routeLinks(to: services) } } }
+    /// `terminal.predictiveEcho` (nil: off), followed from the settings (``followPredictiveEcho(_:on:)``):
+    /// every terminal reads it at each key it takes.
+    private var predictiveEcho: TerminalPredictiveEcho.Mode?
+    private var predictiveEchoWatch: FrameObservation<TerminalPredictiveEchoSetting>?
 
     /// A Ghostty keybind (`new_split:right`, `goto_split:left`, ...) runs the
     /// registry action every other entrypoint runs, targeted at this
@@ -29,6 +34,23 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// delivers a key to the terminal (``InputDispatchContext/noteFrameExpected()``).
     func terminalSessionTookKey(_ session: TerminalSession) {
         services?.inputDispatch.noteFrameExpected()
+    }
+
+    /// Off makes no prediction engine (p04-input-046).
+    func terminalSessionPredictiveEcho(_ session: TerminalSession) -> TerminalPredictiveEcho.Mode? { predictiveEcho }
+
+    /// The tab's daemon is another machine's (a Cloud machine, another Mac).
+    func terminalSessionIsRemote(_ session: TerminalSession) -> Bool {
+        guard let services, let ref = target(of: session, in: services), let tab = services.cache.tabModel(ref.id) else { return false }
+        return !services.machines.daemon(forTab: tab).isLocal
+    }
+
+    /// Follows `terminal.predictiveEcho` from `settings`: one apply per change.
+    func followPredictiveEcho(_ settings: SettingsController, on work: MainWorkScheduler) {
+        predictiveEcho = TerminalPredictiveEcho.Mode(setting: settings.snapshot.terminalPredictiveEcho.rawValue)
+        predictiveEchoWatch = FrameObservation(owner: "terminal.predictiveEcho", delivery: .automation, on: work) {
+            settings.snapshot.terminalPredictiveEcho
+        } onChange: { [weak self] setting in self?.predictiveEcho = TerminalPredictiveEcho.Mode(setting: setting.rawValue) }
     }
 
     /// The declared terminal context menu (`ContextMenuCatalog`), targeted at the right-clicked
@@ -51,14 +73,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
         switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
         case .url(let link)?:
-            let menu = LinkMenu { [weak services] url in
+            let menu = LinkMenu(queries: services.workspaceQueries) { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
             }
             let rows = menu.linkRows(for: link)
             let more = TerminalLinkMenu.items(for: link, target: target, registry: services.registry) + BrowserProfileLinkMenu.items(for: link, target: target, services: services)
             return (rows, menu.items(rows, link: link) + (rows.isEmpty ? [] : [.separator()]) + more)
         case .file(let file, let isDirectory)?:
-            let menu = LinkMenu(), rows = menu.pathRows(for: file, isDirectory: isDirectory)
+            let menu = LinkMenu(queries: services.workspaceQueries), rows = menu.pathRows(for: file, isDirectory: isDirectory)
             return (rows, menu.items(rows, file: file) + [.separator()])
         case nil: return ([], [])
         }
@@ -67,11 +89,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// Ghostty asks from inside its mouse-release handler with the
     /// terminal's renderer lock held (cx-7xss), so the open runs after the
     /// click returns: a browser tab or an app launch never stalls the
-    /// terminal's output and drawing.
+    /// terminal's output and drawing. The open is the rest of the person's click (`personAction`).
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        guard case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
+        guard let services, case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
-        Task { @MainActor [weak self] in self?.openWeb(safeURL, request) }
+        services.mainWork.personAction(owner: "TerminalHostDelegate.openURL") {} then: { [weak self] _ in self?.openWeb(safeURL, request) }
         return true
     }
 
@@ -80,25 +102,34 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// click returns. A Markdown file opens the Markdown page, an image or PDF the preview, other
     /// files the code editor page and a folder Finder; a path that exists nowhere opens nothing.
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
+        guard let services else { return false }
         let request = linkRequest(session), cwd = cwd(of: session)
-        let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
-        Task { @MainActor [weak self] in
-            let target = await Task.detached(priority: .userInitiated) {
+        let canOpenLocalFiles = allowsLocalFiles(session, services: services)
+        // The path check on the files lane, then the open as the rest of the person's click (`personAction`).
+        let work = services.work
+        services.mainWork.personAction(owner: "TerminalHostDelegate.openLink") {
+            try? await work.run(.userBlocking, mayBlock: .files) {
                 TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
-            }.value
-            switch target {
-            case .url(let url)?: self?.openWeb(url, request)
-            case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
-            case .file(let url, isDirectory: false)?:
-                // `src/app.ts:3:5` opens the editor at line 3, column 5.
-                let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
-                LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
-                guard let services = self?.services else { return }
-                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
-            case nil: break
             }
+        } then: { [weak self] target in
+            self?.open(target, text: text, request)
         }
         return true
+    }
+
+    /// Opens a resolved Cmd-click `target` (``terminalSession(_:openLink:)``).
+    private func open(_ target: TerminalLinkTarget?, text: String, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
+        switch target {
+        case .url(let url)?: openWeb(url, request)
+        case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
+        case .file(let url, isDirectory: false)?:
+            // `src/app.ts:3:5` opens the editor at line 3, column 5.
+            let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+            LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
+            guard let services else { return }
+            services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
+        case nil: break
+        }
     }
 
     /// The terminal's folder, else its tab's: where a relative path in its output starts.
@@ -123,10 +154,10 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
     /// palette lists them; a plain Cmd-click uses the workspace's profile), Shift-Command (the
-    /// browser the link setting does not pick) and the clicked tab. Read now: the click is the
-    /// current event only during the delegate call.
+    /// browser the link setting does not pick) and the clicked tab. Read now: the click (or the link menu's
+    /// choice) is the action's event only during the delegate call; a CLI or script open has no modifiers.
     private func linkRequest(_ session: TerminalSession) -> (option: Bool, other: Bool, tab: ActionTargetRef?) {
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let flags = services?.inputTap.actionEvent?.modifierFlags ?? []
         return (flags.contains(.option), LinkRouter.isOtherTarget(flags), services.flatMap { target(of: session, in: $0) })
     }
 

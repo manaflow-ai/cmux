@@ -1,5 +1,6 @@
 import AppKit
 public import CmuxNextPages
+public import CmuxNextSignposts
 import WebKit
 
 extension AgentPaneView {
@@ -9,7 +10,7 @@ extension AgentPaneView {
     /// web-override watch.
     ///
     /// - Parameters:
-    ///   - chromiumChat: Whether the agent chat may run in Chromium (`AgentPaneTunables.chromium`).
+    ///   - chromiumChat: Whether the agent chat may run in Chromium (feature `agentChromium`).
     ///   - hosting: The app's Chromium page maker (`AppServices.webUI.chromium`); nil for WebKit only.
     /// - Returns: True when a new agent page opens in WebKit.
     public static func newPagesShowInWebKit(chromiumChat: Bool, hosting: (any PageChromiumHosting)?) -> Bool {
@@ -33,11 +34,12 @@ extension AgentPaneView {
 /// before a later agent page loads. The view is made in the pool and data store
 /// of the agent pages' process groups (``WebUIHost/groupedWebKitConfiguration()``),
 /// so the first agent page can use its web content process. The app posts
-/// ``start(webUI:)`` once the launch's restore finished: at afterFirstFrame when a
-/// visible pane shows an agent chat that opens in WebKit
-/// (``AgentPaneView/newPagesShowInWebKit(chromiumChat:hosting:)``),
-/// else at afterStartup. It used to run before NSApplication.run, where it held
-/// the main thread 80-350 ms ahead of the first frame.
+/// ``start(webUI:)`` at afterStartup (p08-startup-042): before startup
+/// completes, the only WebKit views are those of the agent tabs the launch
+/// shows, each made in its own afterFirstFrame post once its picture drew
+/// (`LaunchViewQueue`), and the first of them starts WebKit itself, so the
+/// warm-up then makes nothing. It used to run before NSApplication.run, where
+/// it held the main thread 80-350 ms ahead of the first frame.
 ///
 /// It makes nothing when new agent pages open in Chromium (p13-webui-046): the
 /// page host's engine decision for the agent page
@@ -75,26 +77,33 @@ extension AgentPaneView {
 /// to `LaunchSettle`.
 public final class AgentPageWarmup {
     private var plan = AgentPageWarmupPlan()
-    private var page: WKWebView?
-    /// Ends a page started after the launch settled once its load ends (WebKit holds its navigation
-    /// delegate weakly).
+    private(set) var page: WKWebView?
+    /// Hears the page's load end and its content process's end (WebKit holds its navigation delegate weakly):
+    /// a page started after the launch settled goes once its load ends.
     private lazy var loadEnd = AgentPageWarmupLoadEnd(warmup: self)
     /// Whether the agent chat may run in Chromium, read at each engine decision.
     private let chromiumChat: @MainActor () -> Bool
+    /// Where the page's content-process end goes as a stability event (p09-observability-108); nil records none.
+    private let stability: RendererStability?
+    /// The WebContent process the page committed in: grouped pages can run in it too
+    /// (``WebUIHost/groupedWebKitConfiguration()``), so its end names it and counts that process once.
+    private var committedProcess: Int32?
 
-    /// - Parameter chromiumChat: Whether the agent chat may run in Chromium (the app passes
-    ///   `AgentPaneTunables.chromium`'s value). Every engine decision of the warm-up and of its
-    ///   post (``agentPagesShowInWebKit(webUI:)``) reads this one seam.
-    public init(chromiumChat: @escaping @MainActor () -> Bool) {
+    /// - Parameters:
+    ///   - chromiumChat: Whether the agent chat may run in Chromium (the app passes feature `agentChromium`,
+    ///     `AppServices.agentChromiumChat`). Every engine decision of the warm-up (each ``start(webUI:)``) reads this
+    ///     one seam.
+    ///   - stability: The app's renderer stability events (`AppServices.rendererStability`).
+    public init(chromiumChat: @escaping @MainActor () -> Bool, stability: RendererStability? = nil) {
         self.chromiumChat = chromiumChat
+        self.stability = stability
     }
 
-    /// Whether a new agent page opens in WebKit now: the one decision that places the warm-up's post
-    /// (afterFirstFrame for a visible WebKit agent chat) and lets the warm-up make its page.
+    /// Whether a new agent page opens in WebKit now: the decision that lets the warm-up make its page.
     ///
     /// - Parameter webUI: The app's page host (`AppServices.webUI`), whose Chromium page maker decides.
     /// - Returns: ``AgentPaneView/newPagesShowInWebKit(chromiumChat:hosting:)`` with this warm-up's seam.
-    public func agentPagesShowInWebKit(webUI: WebUIHost) -> Bool {
+    private func agentPagesShowInWebKit(webUI: WebUIHost) -> Bool {
         AgentPaneView.newPagesShowInWebKit(chromiumChat: chromiumChat(), hosting: webUI.chromium)
     }
 
@@ -112,7 +121,9 @@ public final class AgentPageWarmup {
         }
         // webview-allow: WebKit warm-up for the agent pages the page host shows in WebKit
         let view = WKWebView(frame: .zero, configuration: webUI.groupedWebKitConfiguration())
-        if dropsOnLoad { view.navigationDelegate = loadEnd }
+        // Every warm-up page hears its content process's end; only one made after the launch settled goes at its
+        // load end (``AgentPageWarmupPlan/loadEnded()`` drops nothing before then).
+        view.navigationDelegate = loadEnd
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         page = view
         return .made
@@ -139,9 +150,23 @@ public final class AgentPageWarmup {
         if plan.loadEnded() { dropPage() }
     }
 
+    /// The warm-up page committed its document in `process`.
+    fileprivate func committed(in process: Int32?) {
+        committedProcess = process
+        if let process { stability?.webKitContentCommitted(in: process) }
+    }
+
+    /// The warm-up page's content process ended: a stability event, then the end of its load.
+    fileprivate func contentProcessEnded() {
+        stability?.webKitContentEnded(on: .warmup, process: committedProcess)
+        committedProcess = nil
+        loadEnded()
+    }
+
     private func dropPage() {
         page?.navigationDelegate = nil
         page = nil
+        committedProcess = nil
     }
 }
 
@@ -215,12 +240,16 @@ nonisolated struct AgentPageWarmupPlan: Equatable, Sendable {
     }
 }
 
-/// Ends a warm-up page started after the launch settled once its load ends.
+/// Hears a warm-up page's load end and content-process end.
 private final class AgentPageWarmupLoadEnd: NSObject, WKNavigationDelegate {
     private weak var warmup: AgentPageWarmup?
 
     init(warmup: AgentPageWarmup) {
         self.warmup = warmup
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        warmup?.committed(in: webView.contentProcessID)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
@@ -236,6 +265,6 @@ private final class AgentPageWarmupLoadEnd: NSObject, WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        warmup?.loadEnded()
+        warmup?.contentProcessEnded()
     }
 }

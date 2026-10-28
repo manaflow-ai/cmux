@@ -70,8 +70,10 @@ final class TerminalClipboardRequests {
         }
         let served = wantsText ? text : nil
         if served == nil, !listAvailable { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
-        Self.complete(surface, text: served, available: listAvailable && text != nil ? ["text/plain"] : [],
-                      state: state, confirmed: false)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the pending request's
+        // state, answered once, here (UncheckedPointer).
+        unsafe Self.complete(surface, text: served, available: listAvailable && text != nil ? ["text/plain"] : [],
+                             state: state, confirmed: false)
         return GHOSTTY_CLIPBOARD_READ_STARTED
     }
 
@@ -83,6 +85,7 @@ final class TerminalClipboardRequests {
             confirmProgramWrite(contents: contents, contentBytes: contentBytes, state: state)
             return
         }
+        // visibility-walk-allow: the confirm dialog attaches to the view AppKit shows (a tab dialog on a hidden view is never seen); an occluded window keeps it for the person, which a node would deny
         guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else {
             deny(state: state)
             return
@@ -180,6 +183,7 @@ final class TerminalClipboardRequests {
             finishWritePrompt()
             return nil
         }
+        // visibility-walk-allow: the prompt attaches to the view AppKit shows, else to its window; an occluded window keeps a tab prompt for the person, which a node would move
         if view.window != nil, !view.isHiddenOrHasHiddenAncestor { return .tab(view) }
         if let window = view.window { return .window(window) }
         return .app
@@ -217,39 +221,59 @@ final class TerminalClipboardRequests {
 
     private func complete(state: UncheckedPointer, with text: String) {
         guard let surface = view?.surface else { return }
-        Self.complete(surface, text: text, available: [], state: state, confirmed: true)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the pending request's
+        // state, answered once (UncheckedPointer).
+        unsafe Self.complete(surface, text: text, available: [], state: state, confirmed: true)
     }
 
     /// Denial: Ghostty writes the protocol's denial reply where one exists.
     private func deny(state: UncheckedPointer) {
-        guard let surface = view?.surface, let raw = state.raw else { return }
-        ghostty_surface_deny_clipboard_request(surface, raw)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the pending request's
+        // state, valid until this answer and answered once (UncheckedPointer).
+        guard let surface = view?.surface, let raw = unsafe state.raw else { return }
+        // SAFETY: as above.
+        unsafe ghostty_surface_deny_clipboard_request(surface, raw)
     }
 
     /// `ghostty_surface_complete_clipboard_request` with at most one
     /// text/plain representation. Every pointer is borrowed for the call.
     private static func complete(_ surface: ghostty_surface_t, text: String?, available: [String],
                                  state: UncheckedPointer, confirmed: Bool) {
-        let mime = strdup("text/plain")
+        // The C strings are copies this function owns, freed once (defer) after the one
+        // completion call that borrows them; every other pointer below is a buffer of a value
+        // alive for its closure, with its length passed beside it.
+        // SAFETY: as above.
+        let mime = unsafe strdup("text/plain")
         let data = text.map { Array($0.utf8) } ?? []
-        let availablePointers: [UnsafePointer<CChar>?] = available.map { UnsafePointer(strdup($0)) }
+        // SAFETY: as above.
+        let availablePointers: [UnsafePointer<CChar>?] = unsafe available.map { unsafe UnsafePointer(strdup($0)) }
         defer {
-            free(mime)
-            availablePointers.forEach { free(UnsafeMutableRawPointer(mutating: $0)) }
+            // SAFETY: as above.
+            unsafe free(mime)
+            // SAFETY: as above.
+            unsafe availablePointers.forEach { unsafe free(UnsafeMutableRawPointer(mutating: $0)) }
         }
-        data.withUnsafeBufferPointer { bytes in
-            bytes.withMemoryRebound(to: CChar.self) { chars in
-                var item = ghostty_clipboard_content_s(mime: mime, data: chars.baseAddress, len: chars.count)
-                availablePointers.withUnsafeBufferPointer { list in
-                    withUnsafePointer(to: &item) { itemPointer in
-                        var request = ghostty_clipboard_complete_s(
+        // SAFETY: as above; UInt8 and CChar have the same size and alignment.
+        unsafe data.withUnsafeBufferPointer { bytes in
+            // SAFETY: as above.
+            unsafe bytes.withMemoryRebound(to: CChar.self) { chars in
+                // SAFETY: as above.
+                var item = unsafe ghostty_clipboard_content_s(mime: mime, data: chars.baseAddress, len: chars.count)
+                // SAFETY: as above.
+                unsafe availablePointers.withUnsafeBufferPointer { list in
+                    // SAFETY: as above.
+                    unsafe withUnsafePointer(to: &item) { itemPointer in
+                        // SAFETY: as above.
+                        var request = unsafe ghostty_clipboard_complete_s(
                             contents: text == nil ? nil : itemPointer,
                             contents_len: text == nil ? 0 : 1,
                             available: list.baseAddress,
                             available_len: list.count,
                             confirmed: confirmed,
                             remember: false)
-                        ghostty_surface_complete_clipboard_request(surface, &request, state.raw)
+                        // SAFETY: the caller's live surface and the pending request's state,
+                        // answered once (UncheckedPointer); Ghostty copies what it keeps.
+                        unsafe ghostty_surface_complete_clipboard_request(surface, &request, state.raw)
                     }
                 }
             }
@@ -258,8 +282,12 @@ final class TerminalClipboardRequests {
 
     /// The text of one clipboard representation (binary-safe, with a length,
     /// not NUL-terminated).
+    /// `item` is one of the contents Ghostty passed to the callback that is running.
     nonisolated static func string(_ item: ghostty_clipboard_content_s) -> String {
-        guard let data = item.data, item.len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: data, count: item.len), as: UTF8.self)
+        // SAFETY: Ghostty pairs `data` with its byte count `len`, valid for the callback that
+        // passed `item`; String(decoding:) copies them.
+        guard let data = unsafe item.data, item.len > 0 else { return "" }
+        // SAFETY: as above.
+        return unsafe String(decoding: UnsafeRawBufferPointer(start: data, count: item.len), as: UTF8.self)
     }
 }

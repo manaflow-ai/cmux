@@ -3,7 +3,11 @@ public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextHome
 public import Foundation
+public import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Home as a workspace with a left dock (hq-6d Home workspace, cx-ebm.59.5; Lawrence 2026-10-14:
 /// "we can use docked left column to be the home but right side should be a workspace"). The
@@ -91,21 +95,23 @@ public final class HomeDock {
     /// shows the Chief conversation. Returns the step for `debug.home`; a failure is that step too
     /// (logged), so the Chief conversation's own setup still runs. Reads the home from the live
     /// tree each time (it changes while this waits).
-    public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async -> String {
+    public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, work: MainWorkScheduler,
+                       dock: Dock) async -> String {
         let needs = [DaemonCapability.pageTabs.rawValue, DaemonCapability.dockColumnRole.rawValue, DaemonCapability.tabColumnRespawn.rawValue]
         guard needs.allSatisfy({ store.supports($0) }) else { return "no home dock: the daemon lacks page tabs, dock roles or column respawn" }
         guard !moveInFlight else { return "home dock move in flight" }
         do {
-            return try await ensureDock(connection, store: store, home: home, dock: dock)
+            return try await ensureDock(connection, store: store, home: home, work: work, dock: dock)
         } catch {
             logger.error("home dock: \(String(describing: error), privacy: .public)")
             return "home dock failed: \(String(describing: error))"
         }
     }
 
-    private func ensureDock(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async throws -> String {
+    private func ensureDock(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, work: MainWorkScheduler,
+                            dock: Dock) async throws -> String {
         let workspace: @MainActor @Sendable () -> WorkspaceModel? = { store.workspaces.first { $0.resourceID == home } }
-        guard let first = await shown(workspace) else { return "home workspace gone" }
+        guard let first = await shown(on: work, workspace) else { return "home workspace gone" }
         if Self.pageTab(in: first) == nil {
             // Always the workspace (its active pane, or a first pane of an empty home), so a
             // retry under the same key names the same target and replays.
@@ -118,7 +124,7 @@ public final class HomeDock {
             key.settle()
         }
         // The tree reports a just-created tab after its event.
-        guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
+        guard let placed = await shown(on: work, { workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
         let chiefs = Set((workspace()?.screens ?? []).flatMap { screen in
             screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
         }.map(\.surface))
@@ -140,12 +146,13 @@ public final class HomeDock {
         let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
         moveInFlight = true
         defer { moveInFlight = false }
-        let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+        // A move that drops its callback (abandoned) did not move.
+        let moved = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
             dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
-        }
+        }) ?? false
         guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
-        _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
+        _ = await shown(on: work) { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
         _ = try await pin(connection, store: store, workspace: workspace)
         _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
         return "home dock made"
@@ -265,27 +272,35 @@ public final class HomeDock {
         tab.page == legacyPage && isDocked(pane, on: screen)
     }
 
-    /// The first non-nil value of `read`, observed; nil when cancelled first.
-    private func shown<T: Sendable>(_ read: @escaping @MainActor @Sendable () -> T?) async -> T? {
+    /// The first non-nil value of `read`; nil when cancelled first. A ``ServiceObservation`` in `visible` on
+    /// `work` (the connect's dock steps: no person waits on a click here), answered once: the first value
+    /// stops the observation, so a later flush before the waiting task resumes applies nothing.
+    private func shown<T: Sendable>(on work: MainWorkScheduler, _ read: @escaping @MainActor @Sendable () -> T?) async -> T? {
         if let value = read() { return value }
-        for await value in ObservationStream(read) { if let value { return value } }
-        return nil
+        let first = HomeDockFirstShown<T>()
+        let value = try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (answer: OnceContinuation<T, OnceContinuationError>) in
+            first.start(answer, on: work, read: read)
+        }
+        first.stop()
+        return value
     }
 
     /// The sidebar's Home and Channels entries over a dock view (cx-frn2y): `shown` gets its view now and on
-    /// each switch; for its life, `home.channelsEnabled` turned off (the palette, the CLI, a cmux.json edit)
-    /// moves a shown Channels view to Messages, with the selection handed over (Disable selects Home).
-    public static func followChannelsSetting(_ view: HomeDockSwitchView, shown: @escaping @MainActor (HomeDockMode) -> Void) {
+    /// each switch; while the returned observation lives (the dock tab keeps it), `home.channelsEnabled` turned
+    /// off (the palette, the CLI, a cmux.json edit) moves a shown Channels view to Messages, with the selection
+    /// handed over (Disable selects Home). A ``ServiceObservation`` on `work`: the switch also tells the sidebar,
+    /// so it runs while the dock is hidden too.
+    public static func followChannelsSetting(_ view: HomeDockSwitchView, work: MainWorkScheduler,
+                                             shown: @escaping @MainActor (HomeDockMode) -> Void) -> ServiceObservation<Bool> {
         view.onShow = shown
         shown(view.mode)
-        // task-owner: the dock view (cancelled by its close()); event-driven (Observation)
-        view.tasks.append(Task { [weak view] in
-            for await enabled in ObservationStream({ DesignSettings.shared.homeChannelsEnabled }) where !enabled {
-                guard let view else { return }
-                // Not only when Channels shows now: a switch to it in flight lands first, then this one (in order).
-                view.switchTo(.messages)
-            }
-        })
+        return ServiceObservation(.visible, owner: "HomeDock.channelsSetting", on: work) {
+            DesignSettings.shared.homeChannelsEnabled
+        } apply: { [weak view] enabled in
+            // Not only when Channels shows now: a switch to it in flight lands first, then this one (in order).
+            if !enabled { view?.switchTo(.messages) }
+        }
     }
 
     /// A person's click on a web link in the Home page (cx-ebm.59.6): `workspace.open_url` on the
@@ -298,11 +313,46 @@ public final class HomeDock {
             return
         }
         let logger = logger
-        // task-owner: one daemon request per click; it ends with the reply or the connection's timeout.
-        Task {
+        // task-owner: one daemon request per click; it ends with the reply or the connection's timeout. Off main: the
+        // daemon picks the pane and the tab, and nothing here touches the app.
+        Task { @concurrent in
             do { try await WorkspaceOpenURLClient(connection).openOnHome(url.absoluteString) } catch {
                 logger.error("home link: workspace.open_url: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+}
+
+/// One answer of ``HomeDock``'s tree waits: the first non-nil value of the observation resumes the wait and
+/// stops the observation, so the wait's continuation is resumed once (as ``FirstValueWait`` stops on its first).
+@MainActor
+final class HomeDockFirstShown<T: Sendable> {
+    private var answer: OnceContinuation<T, OnceContinuationError>?
+    private var observation: ServiceObservation<T?>?
+
+    // Generic main-actor class: an isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
+
+    /// Observes `read` on `work` until its first non-nil value answers `answer`.
+    func start(_ answer: OnceContinuation<T, OnceContinuationError>, on work: MainWorkScheduler,
+               read: @escaping @MainActor @Sendable () -> T?) {
+        self.answer = answer
+        let observation = ServiceObservation(.visible, owner: "HomeDock.shown", on: work, read: read) { [weak self] value in
+            if let value { self?.finish(value) }
+        }
+        if self.answer == nil { observation.cancel() } else { self.observation = observation }
+    }
+
+    /// Ends the observation without an answer (the wait was cancelled, or it was answered). Idempotent.
+    func stop() {
+        answer = nil
+        observation?.cancel()
+        observation = nil
+    }
+
+    private func finish(_ value: T) {
+        guard let answer else { return }
+        stop()
+        answer.resume(returning: value)
     }
 }

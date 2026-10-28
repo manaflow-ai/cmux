@@ -10,8 +10,9 @@ use super::ledger::{self, Identity};
 use super::record::{self, Limits};
 use super::scan::{self, refused};
 use super::store::{Store, io_failed};
-use super::{Target, not_found, target};
+use super::{Target, not_found, record_value, resolved, target};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -28,7 +29,7 @@ pub(super) fn get(
     let key = request.fields.get("idempotency_key").and_then(Value::as_str).unwrap_or_default();
     let asked = by_id.unwrap_or(key);
     // A repository never captured has no ids yet, and so no checkpoints.
-    let Some(target) = target(mux, store, request, OPERATION, false)? else {
+    let Some(target) = target(mux, store, request, OPERATION)? else {
         return Err(not_found(asked));
     };
     let checkpoint_id = match by_id {
@@ -43,7 +44,7 @@ pub(super) fn get(
         .load(&target.repository_id, &checkpoint_id)
         .map_err(|error| io_failed(OPERATION, &error))?
         .ok_or_else(|| not_found(asked))?;
-    Ok(serde_json::to_value(&stored.record).expect("records serialize"))
+    record_value(&stored.record, OPERATION)
 }
 
 pub(super) fn list(
@@ -54,7 +55,7 @@ pub(super) fn list(
     const OPERATION: &str = "git.checkpoint.list";
     // A list hands its ids to the create that follows it, so it mints them
     // the first time (under the identity lock only).
-    let target = target(mux, store, request, OPERATION, true)?.expect("list mints identities");
+    let target = resolved(mux, store, request, OPERATION)?;
     let limit = request.fields.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
     let after = match request.fields.get("cursor").and_then(Value::as_str) {
         Some(cursor) => Some(parse_cursor(cursor)?),
@@ -72,11 +73,15 @@ pub(super) fn list(
         .filter(|stored| after.as_ref().is_none_or(|after| stored.order_key() < *after))
         .take(limit + 1)
         .collect::<Vec<_>>();
-    let next_cursor = (page.len() > limit).then(|| {
+    let next_cursor = if page.len() > limit {
         page.truncate(limit);
-        let (created_at_ms, checkpoint_id) = page.last().expect("a full page").order_key();
-        format!("{created_at_ms}.{checkpoint_id}")
-    });
+        page.last().map(|last| {
+            let (created_at_ms, checkpoint_id) = last.order_key();
+            format!("{created_at_ms}.{checkpoint_id}")
+        })
+    } else {
+        None
+    };
     let limits = Limits::default();
     let mut value = json!({
         "repository_id": target.repository_id,
@@ -87,8 +92,8 @@ pub(super) fn list(
     });
     if request.fields.get("include_candidates").and_then(Value::as_bool) == Some(true) {
         let (candidates, ignored_total) = candidates(&target, limits)?;
-        value["candidates"] = candidates;
-        value["ignored_total"] = json!(ignored_total);
+        value.insert("candidates", candidates);
+        value.insert("ignored_total", json!(ignored_total));
     }
     Ok(value)
 }
@@ -127,8 +132,8 @@ fn candidates(target: &Target, limits: Limits) -> Result<(Value, u32), ResourceE
                 "eligible": true,
             });
             if let Some(code) = candidate.ineligible(limits.max_untracked_file_bytes) {
-                value["eligible"] = json!(false);
-                value["reason"] = json!(code);
+                value.insert("eligible", json!(false));
+                value.insert("reason", json!(code));
             }
             (candidate.path.clone(), value)
         })

@@ -49,29 +49,63 @@
       }
     },
     {
+      "id": "second-screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-move-error.second-screen"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "screen": "$step:fx-workspace#/value/screen_id"
+        "screen": "screen_0123456789abcdef0123456789abcdef"
       },
       "args": {
         "method": "screen.move",
         "params": {
-          "index": -1
+          "index": 0
         },
         "idempotencyKey": "screen-move-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "screen",
+          "selector": "screen_0123456789abcdef0123456789abcdef"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "index breaks its catalog type (value must be an unsigned 32-bit integer); the daemon's catalog check refuses it"
+      "note": "a well-formed screen id that names no screen: selector.not_found, the order stays"
+    },
+    {
+      "id": "order-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/id",
+        "equals": "$step:fx-workspace#/value/screen_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

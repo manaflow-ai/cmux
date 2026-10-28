@@ -33,6 +33,7 @@ use super::run::GitFailure;
 use super::user_run::{UserGit, UserRun, deadline};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -116,7 +117,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-    let key = key(request);
+    let key = key(request)?;
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
     let arguments = parse(&request.fields, &target.repository.root)?;
@@ -185,7 +186,7 @@ pub(super) fn dispatch(
             let error = classified(&git.for_classification(), &step, &run, &arguments);
             // An index lock means another git may still commit; a moved HEAD
             // may be this attempt's commit. Both keep the attempt.
-            let locked = error.details["reason"] == "index_locked";
+            let locked = error.details.field("reason") == "index_locked";
             if !locked && repository.commit("HEAD") == attempt.head {
                 journal.finish();
             }
@@ -308,12 +309,12 @@ fn described(repository: &Repository, commit: &str) -> Result<Value, ResourceErr
         "deletions": clamp(deletions),
     });
     if let Some(parent) = repository.commit(&format!("{commit}^")) {
-        value["parent"] = json!(parent);
+        value.insert("parent", json!(parent));
     }
     if let Ok(branch) = run(&["symbolic-ref", "--quiet", "--short", "HEAD"])
         && !branch.is_empty()
     {
-        value["branch"] = json!(branch);
+        value.insert("branch", json!(branch));
     }
     Ok(value)
 }

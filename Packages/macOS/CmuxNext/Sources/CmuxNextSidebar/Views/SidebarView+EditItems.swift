@@ -53,6 +53,7 @@ final class SidebarEditBar: NSView {
         super.init(frame: .zero)
         motionWatch = motionSignals.subscribe([.motion], owner: "SidebarEditBar") { [weak self] in self?.onMotionChange?() }
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
         add.title = Strings.editAddItems
@@ -98,7 +99,7 @@ final class SidebarEditBar: NSView {
         }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }

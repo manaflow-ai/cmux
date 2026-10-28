@@ -4,6 +4,7 @@ import CmuxNextWakeups
 @MainActor
 extension PageWebView {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        crash.webKitCommitted(in: webView.contentProcessID)
         documentCommitted()
     }
 
@@ -24,6 +25,7 @@ extension PageWebView {
         repaintsAtNextLayout = false
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        crash.committed(self)
     }
 
     /// The document finished loading (either engine).
@@ -33,6 +35,7 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        claimLoadedDocument() // a claimed page's new document booted parked (PageWebView+Claim.swift)
         onLoaded?()
     }
 }

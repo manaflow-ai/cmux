@@ -28,7 +28,7 @@ struct PageChatOpenStageTests {
         var ids: [UInt64] { state.withLock { $0 }.filter { $0.phase == .instant }.map(\.arg1) }
 
         /// An open timed on a runtime with the `create` category on, recording into this log.
-        func open() -> CreateTabInterval {
+        @MainActor func open() -> CreateTabInterval {
             let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { [self] record in
                 state.withLock { $0.append(record) }
             })
@@ -43,7 +43,7 @@ struct PageChatOpenStageTests {
         return PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: true,
-                           chromium: chromium, processGroups: WebUIHost.makeProcessGroups(), trace: PageTraceRecorder(), chatOpen: chatOpen)
+                           chromium: chromium, trace: PageTraceRecorder(), chatOpen: chatOpen)
     }
 
     @Test func aWebKitPageOfAnOpenWritesItsStagesOnTheIntentID() {
@@ -61,7 +61,7 @@ struct PageChatOpenStageTests {
         let log = RecordLog()
         let open = log.open()
         let view = page(chatOpen: ChatOpenStages(open), chromium: FakeChromiumHosting())
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.close()
         #expect(Array(log.stages.prefix(4)) == [.chromiumStart, .browserCreated, .setupDone, .navigationStart])

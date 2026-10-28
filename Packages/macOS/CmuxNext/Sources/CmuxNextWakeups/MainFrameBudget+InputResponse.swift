@@ -59,10 +59,10 @@ extension MainFrameBudget {
         private var ticks: UInt64 = 0
         private var lastInput: UInt64?
         private var burstStart: UInt64 = 0
-        /// Per budgeted class (``MainWorkClass/budgeted`` order): when its last task started.
-        private var lastTaskStart: [UInt64?] = [nil, nil, nil]
+        /// Per budgeted class (``Stats/classes`` order): when its last task started.
+        private var lastTaskStart: [UInt64?] = [nil, nil, nil, nil]
         /// Per budgeted class: when an open input response first held its due task.
-        private var dueHeldSince: [UInt64?] = [nil, nil, nil]
+        private var dueHeldSince: [UInt64?] = [nil, nil, nil, nil]
 
         /// Whether an input response is open at `now` (one open for ``cap`` or longer is not).
         func isOpen(at now: UInt64) -> Bool {
@@ -77,7 +77,7 @@ extension MainFrameBudget {
             let expired = expire(at: now)
             if !inBurst(at: now) {
                 burstStart = now
-                dueHeldSince = [nil, nil, nil]
+                dueHeldSince = [nil, nil, nil, nil]
             }
             lastInput = now
             if expectsFrame {
