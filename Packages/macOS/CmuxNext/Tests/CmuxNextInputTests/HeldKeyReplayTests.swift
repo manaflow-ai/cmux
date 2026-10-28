@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextInput
 import Testing
 
-/// The one seam that sends a held key again (hold-class.md item c): every replay records its path's hold (held_by and
+/// The one seam that sends a held key again (``HeldKeyReplay``): every replay records its path's hold (held_by and
 /// hold ms) before the key goes on, so a hold is a measured stage in `debug.input`, never an unseen wait.
 @MainActor
 struct HeldKeyReplayTests {

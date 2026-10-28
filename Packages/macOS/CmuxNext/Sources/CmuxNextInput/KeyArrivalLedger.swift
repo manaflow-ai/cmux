@@ -89,6 +89,8 @@ public final class KeyArrivalLedger {
         var held: UInt64 = 0
         var deliveries: UInt8 = 0
         var heldBy: HoldPath = .none
+        /// The path and hold ``HeldKeyReplay`` recorded at the key's last replay; nil before its first.
+        var recorded: (path: HoldPath, hold: UInt64)?
     }
 
     /// Key-downs remembered at once: more than any hold keeps (a hold of 2 s at 20 keys/s is 40).
@@ -154,6 +156,15 @@ public final class KeyArrivalLedger {
         guard let index = index(of: event) else { return nil }
         let entry = entries[index]
         return entry.held > 0 ? entry.held : entry.arrived
+    }
+
+    /// Stores `path`'s `hold` as `event`'s record (``HeldKeyReplay``) and returns the record of its previous replay: nil
+    /// at its first (or when the ledger no longer knows it). A key its own replay held again is replayed twice.
+    public func recordReplay(_ event: NSEvent, path: HoldPath, hold: UInt64) -> (path: HoldPath, hold: UInt64)? {
+        guard let index = index(of: event) else { return nil }
+        let previous = entries[index].recorded
+        entries[index].recorded = (path, hold)
+        return previous
     }
 
     /// The path that held `event` and how many times `sendEvent` had it.
