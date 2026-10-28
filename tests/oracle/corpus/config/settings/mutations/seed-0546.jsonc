@@ -1,0 +1,16 @@
+{
+  /* block */ "agentPane": {
+    "display": {
+      "code": {
+        // note
+"family": null
+      }
+    },
+  },
+  "sidebar": {
+    "showSpaces": false,
+  },
+  "browser": {
+    "hibernatePinnedTabs": false,
+  }
+}

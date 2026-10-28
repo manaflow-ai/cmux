@@ -71,6 +71,8 @@ final class CmuxToastAnchorView: NSView {
         let onDismiss = request.onDismiss
         handle.onDismiss = { _ in
             // task-owner: one main-actor hop that clears the model once; nothing to cancel
+            // main-hop-allow: SwiftUI's order: the end can come inside the toast center's or SwiftUI's update, where a
+            // model change is refused, so the clear waits one job
             Task { @MainActor in onDismiss() }
         }
         shown = (message, handle)
@@ -82,6 +84,8 @@ final class CmuxToastAnchorView: NSView {
         let onDismiss = request?.message != nil ? request?.onDismiss : nil
         request = nil
         // task-owner: one main-actor hop that clears the model once; nothing to cancel
+        // main-hop-allow: SwiftUI's order: dismantleNSView runs inside SwiftUI's update, where a model change is
+        // refused, so the clear waits one job
         if let onDismiss { Task { @MainActor in onDismiss() } }
     }
 

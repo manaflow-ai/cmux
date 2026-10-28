@@ -1,8 +1,12 @@
 import AppKit
+public import CmuxNextSignposts
 public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 public import CmuxNextDesign
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextInput
+#endif
 
 /// The WebKit engine: one `WKWebView` per tab, one persistent
 /// `WKWebsiteDataStore` per profile.
@@ -48,12 +52,15 @@ public final class WebKitEngine: BrowserEngine {
     /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
     var rateReshowClock: any Clock<Duration> = ContinuousClock()
+    /// A tab the content lifecycle hides is hidden to WebKit (``WebKitPageVisibility``, feature `webkitHiddenTabs`).
+    /// Read when each tab is made; the App sets it once, before its first tab.
+    public var hidesHiddenTabs = false
     /// HTTP sign-ins the user chose to remember (Keychain; tests inject memory).
     var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
 
     /// The remembered-sign-in rules for a profile's tabs.
     func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
-        BrowserHTTPSignInMemory(store: httpCredentials, offTheRecord: profileStore.isOffTheRecord(profile))
+        BrowserHTTPSignInMemory(store: httpCredentials, index: stores.httpSignIns, offTheRecord: profileStore.isOffTheRecord(profile))
     }
 
     /// Per-profile site permissions, shared with the Chromium engine.
@@ -68,6 +75,13 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    /// Where its tabs' content-process ends go as stability events (p09-observability-108); the App sets its reporting one.
+    public var rendererStability = RendererStability()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEV and bench builds: reports when each new tab's page painted after an input, so its latency slot gets a
+    /// presented time (p04-input-099). The App sets it once, before the first tab.
+    public var pageInputTiming: WebPageInputTiming?
+    #endif
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
     /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
@@ -82,6 +96,9 @@ public final class WebKitEngine: BrowserEngine {
     let deadlines: MainDeadlineScheduler
     /// App-wide notices for its tabs: one observer per name for every tab (each tab's Web Inspector watch).
     let appEvents: AppEvents
+    /// Same-site tabs share a WebContent process above the renderer limit (``WebKitProcessReuse``); nil (the
+    /// `webKitSameSiteProcesses` feature off): every tab starts its own.
+    let processReuse: WebKitProcessReuse?
 
     /// An engine over the App's `stores`.
     ///
@@ -97,6 +114,7 @@ public final class WebKitEngine: BrowserEngine {
     ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
     ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
     ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
+    ///   - processReuse: Same-site process sharing above the renderer limit; nil: a process per tab.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -107,9 +125,11 @@ public final class WebKitEngine: BrowserEngine {
         energy: EnergyPolicySource = EnergyPolicySource(),
         waitDeadlines: MainWakeUpQueue? = nil,
         deadlines: MainDeadlineScheduler,
-        appEvents: AppEvents
+        appEvents: AppEvents,
+        processReuse: WebKitProcessReuse? = nil
     ) {
         self.fileInput = fileInput
+        self.processReuse = processReuse
         mainWork = deadlines.work
         self.deadlines = deadlines
         self.appEvents = appEvents
@@ -135,11 +155,13 @@ public final class WebKitEngine: BrowserEngine {
         energy: EnergyPolicySource = EnergyPolicySource(),
         waitDeadlines: MainWakeUpQueue? = nil,
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-        appEvents: AppEvents = AppEvents(center: .default)
+        appEvents: AppEvents = AppEvents(center: .default),
+        processReuse: WebKitProcessReuse? = nil
     ) {
         self.init(fileInput: fileInput, stores: stores, profileStore: profileStore, faviconLoader: faviconLoader,
                   downloadsDirectory: downloadsDirectory, applicationNameForUserAgent: applicationNameForUserAgent, energy: energy,
-                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents)
+                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents,
+                  processReuse: processReuse)
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -167,8 +189,14 @@ public final class WebKitEngine: BrowserEngine {
     private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?) -> WebKitTab {
         let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
         prepare(webConfiguration)
+        // A page-opened tab is already related to its opener; any other may join a same-site process.
+        let site = processReuse?.site(of: configuration.initialURL)
+        let anchor = webViewConfiguration == nil
+            ? processReuse?.join(webConfiguration, site: site, profile: configuration.profile, among: openTabs.allObjects) : nil
         let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
                             openedByPage: webViewConfiguration != nil)
+        tab.processSite = site
+        tab.processAnchor = anchor
         openTabs.add(tab)
         if let url = configuration.initialURL {
             tab.load(url)
@@ -199,7 +227,8 @@ public final class WebKitEngine: BrowserEngine {
         guard WebKitRenderRate.framesPerSecond(energySaver: !fullRate, displayMaxFPS: display)
                 != WebKitRenderRate.framesPerSecond(energySaver: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
+        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock,
+                                                 setHidden: { [weak tab] in tab?.setReshowing($0) })
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {

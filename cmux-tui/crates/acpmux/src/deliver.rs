@@ -15,6 +15,11 @@ pub async fn connect() -> Result<Arc<Client>> {
     crate::daemon::connect(false).await
 }
 
+/// [`connect`] for `caller` instead of this process's own session.
+pub async fn connect_as(caller: crate::client::ClientCaller) -> Result<Arc<Client>> {
+    crate::daemon::connect_as(false, caller).await
+}
+
 /// The id and name of the session `key` names (an id, a name, or a unique
 /// prefix of either).
 pub async fn resolve_session(client: &Client, key: &str) -> Result<(String, String)> {

@@ -81,6 +81,9 @@ struct ForkApi {
   int (*browser_attach_view)(int, void*) = nullptr;
   // API version 37: a tab's visibility and capture from the app.
   int (*tab_set_visibility)(int, int, int) = nullptr;
+  // API version 43 (the fork train p13-webui-086's number for p13-webui-079): a
+  // string to a cmux-page document's receiver (the page push channel).
+  int (*tab_page_push)(int, const char*, size_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -230,6 +233,8 @@ void ApplyPopupMenus(int browser_id);
 // The live DevTools browsers' identifiers (shim_devtools.mm, UI thread): they
 // are not in browsers(), and their <select> popups go to the host too.
 std::vector<int> DevToolsBrowserIds();
+// The live DevTools browsers themselves (same thread and set).
+std::vector<CefRefPtr<CefBrowser>> DevToolsBrowsers();
 
 // The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
 // the pending choosers of a browser that closed or crashed (UI thread).

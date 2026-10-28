@@ -1,3 +1,4 @@
+import CmuxThreading
 public import Foundation
 import Security
 
@@ -36,7 +37,9 @@ public struct AttestKeyStoreError: Error, Sendable, Equatable {
 }
 
 /// ``AttestKeyStore`` in one generic-password item of the login keychain
-/// (works without a provisioning profile on macOS).
+/// (works without a provisioning profile on macOS). Each call waits for
+/// securityd (and may show a Keychain prompt), so each is a checked blocking
+/// call: run it off the main thread.
 ///
 /// ```swift
 /// let store = KeychainAttestKeyStore(service: "com.cmuxterm.free-tier.app-attest", account: "key")
@@ -62,7 +65,7 @@ public struct KeychainAttestKeyStore: AttestKeyStore {
         var search = query
         search[kSecReturnData as String] = true
         search[kSecMatchLimit as String] = kSecMatchLimitOne
-        let status = SecItemCopyMatching(search as CFDictionary, &item)
+        let status = blockingCall(.systemCall) { SecItemCopyMatching(search as CFDictionary, &item) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw AttestKeyStoreError(status: status) }
         guard let data = item as? Data, let keyID = String(data: data, encoding: .utf8), !keyID.isEmpty else {
@@ -73,17 +76,20 @@ public struct KeychainAttestKeyStore: AttestKeyStore {
 
     public func save(_ keyID: String) throws {
         let data = Data(keyID.utf8)
-        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
+        let query = self.query
+        let status = blockingCall(.systemCall) { () -> OSStatus in
+            let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            guard updated == errSecItemNotFound else { return updated }
             var add = query
             add[kSecValueData as String] = data
-            status = SecItemAdd(add as CFDictionary, nil)
+            return SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw AttestKeyStoreError(status: status) }
     }
 
     public func delete() throws {
-        let status = SecItemDelete(query as CFDictionary)
+        let query = self.query
+        let status = blockingCall(.systemCall) { SecItemDelete(query as CFDictionary) }
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AttestKeyStoreError(status: status) }
     }
 }

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499'
+IR_SHA256 = '8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d'
 
 
 @dataclass(frozen=True)
@@ -733,6 +733,7 @@ COMMANDS = {
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
             'snapshot_local_history': CommandFieldMetadata(None, 'terminal-snapshot-local-history-v1'),
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
@@ -981,6 +982,17 @@ COMMANDS = {
             'target': CommandFieldMetadata(None, None),
         },
     ),
+    'cancel-stream': CommandMetadata(
+        'cancel-stream',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
     'chief-inspect': CommandMetadata(
         'chief-inspect',
         'local-admin',
@@ -1034,6 +1046,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'features': CommandFieldMetadata(None, None),
             'install_id': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, None),
             'proof': CommandFieldMetadata(None, None),
@@ -2133,6 +2146,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3498,6 +3512,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3691,6 +3706,7 @@ COMMANDS = {
             'identity': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'lease': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -4320,6 +4336,7 @@ COMMANDS = {
             'have': CommandFieldMetadata(None, None),
             'reason': CommandFieldMetadata(None, None),
             'request_id': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
         },
     ),
@@ -4869,6 +4886,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'input-failed': EventMetadata('input-failed', 12, 'ipc-frames-v2', ('attach-byte',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),
@@ -4895,9 +4913,11 @@ EVENTS = {
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'script-log': EventMetadata('script-log', 12, None, ('control',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'server-diagnostic-site': EventMetadata('server-diagnostic-site', 12, 'diagnostic-sites-v1', ('subscribe',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
+    'stream-end': EventMetadata('stream-end', 12, 'attach-streams-v1', ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),
     'surface-resize-failed': EventMetadata('surface-resize-failed', 7, None, ('subscribe',), 'emitted'),

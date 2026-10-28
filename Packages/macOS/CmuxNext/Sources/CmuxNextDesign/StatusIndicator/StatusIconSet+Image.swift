@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// A set's mark for one state as a still image, from the same geometry and
@@ -24,9 +25,9 @@ extension StatusIconSet {
             colors = .current(loading: config.settings.color)
         }
         guard let color = colors?.color(for: plan.tint), let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels * 4,
-                                      space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+              let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels * 4,
+                                                        space: space,
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let rect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
         context.clip(to: rect, mask: mask)
         context.setFillColor(color)
@@ -43,8 +44,9 @@ extension StatusIconSet {
 @MainActor
 enum StatusGlyphArt {
     static func mask(_ plan: StatusIndicatorPlan, pixels: Int, scale: CGFloat, config: StatusIndicatorConfig) -> CGImage? {
-        guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+        guard let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels,
+                                                        space: CGColorSpaceCreateDeviceGray(),
+                                                        bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
         let rect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
         let thickness = config.settings.thickness * scale
         context.setFillColor(gray: 0, alpha: 1)
@@ -63,7 +65,7 @@ enum StatusGlyphArt {
         case .ring(let progress):
             context.setLineWidth(thickness)
             context.setAlpha(config.trackOpacity)
-            context.addPath(StatusGlyphGeometry.ringPath(in: rect, thickness: thickness))
+            context.addPath(StatusGlyphGeometry.ringPath(in: rect, thickness: thickness).cgPath)
             context.strokePath()
             context.setAlpha(1)
             let radius = max(0, rect.width / 2 - thickness / 2)
@@ -80,7 +82,7 @@ enum StatusGlyphArt {
         case .dot:
             context.fillEllipse(in: StatusGlyphGeometry.dotRect(in: rect, scale: config.dotScale))
         case .check:
-            context.addPath(StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: rect)))
+            context.addPath(StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: rect)).cgPath)
             context.setLineWidth(max(thickness, 1.25 * scale))
             context.strokePath()
         case .dots, .bars:
@@ -88,10 +90,10 @@ enum StatusGlyphArt {
             let element = StatusGlyphGeometry.repeatedElement(in: rect.size, bars: bars)
             for index in 0..<StatusIndicatorLayer.dotsCount {
                 let frame = element.frame.offsetBy(dx: element.step * CGFloat(index), dy: 0)
-                var move = CGAffineTransform(translationX: frame.minX, y: frame.minY)
-                if let path = StatusGlyphGeometry.repeatedElementPath(frame, bars: bars).copy(using: &move) {
-                    context.addPath(path)
-                }
+                let moved = CGMutablePath()
+                moved.addPath(StatusGlyphGeometry.repeatedElementPath(frame, bars: bars).cgPath,
+                              transform: CGAffineTransform(translationX: frame.minX, y: frame.minY))
+                context.addPath(moved)
             }
             context.fillPath()
         case .mark(let mark):

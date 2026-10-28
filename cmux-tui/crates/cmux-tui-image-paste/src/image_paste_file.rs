@@ -61,6 +61,9 @@ impl ImagePasteFile {
         let result = (|| {
             let name = CString::new(format!("clipboard.{extension}")).unwrap();
             // The directory descriptor pins the newly created private directory.
+            // SAFETY: `directory_handle` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CString that lives across it; the mode is the variadic int O_CREAT
+            // reads.
             let fd = unsafe {
                 libc::openat(
                     directory_handle.as_raw_fd(),
@@ -76,12 +79,15 @@ impl ImagePasteFile {
             if fd < 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            // openat returned a new descriptor owned only by this File.
+            // SAFETY: openat returned a new descriptor owned only by this File.
             let file = unsafe { File::from_raw_fd(fd) };
             let directory_metadata = directory_handle.metadata()?;
             let file_metadata = file.metadata()?;
             let receipt_name = CString::new(".receipt").unwrap();
             // The receipt is durable before the first clipboard byte is accepted.
+            // SAFETY: `directory_handle` owns the directory descriptor for the call and
+            // `receipt_name` is a NUL-terminated CString that lives across it; the mode is the
+            // variadic int O_CREAT reads.
             let receipt_fd = unsafe {
                 libc::openat(
                     directory_handle.as_raw_fd(),
@@ -95,12 +101,14 @@ impl ImagePasteFile {
                 )
             };
             if receipt_fd < 0 {
+                // SAFETY: `directory_handle` owns the directory descriptor for the call and `name`
+                // is a NUL-terminated CString that lives across it.
                 unsafe {
                     libc::unlinkat(directory_handle.as_raw_fd(), name.as_ptr(), 0);
                 }
                 return Err(std::io::Error::last_os_error());
             }
-            // openat returned a new, owned descriptor.
+            // SAFETY: openat returned a new descriptor owned only by this File.
             let receipt = unsafe { File::from_raw_fd(receipt_fd) };
             let mut owned = Self {
                 directory: directory.clone(),
@@ -177,6 +185,9 @@ impl ImagePasteFile {
         let Ok(owned) = expected.metadata() else { return EntryOwnership::Unavailable };
         let mut current = std::mem::MaybeUninit::<libc::stat>::uninit();
         // AT_SYMLINK_NOFOLLOW compares the directory entry itself, never its target.
+        // SAFETY: `self.directory_handle` owns the directory descriptor for the call, `name` is a
+        // NUL-terminated CStr, and fstatat writes one stat into `current`, a live
+        // MaybeUninit<stat>.
         let result = unsafe {
             libc::fstatat(
                 self.directory_handle.as_raw_fd(),
@@ -192,7 +203,7 @@ impl ImagePasteFile {
                 EntryOwnership::Unavailable
             };
         }
-        // fstatat initialized current on success.
+        // SAFETY: fstatat returned 0, so it initialized `current`.
         let current = unsafe { current.assume_init() };
         // Darwin's dev_t is signed 32-bit; MetadataExt exposes it as u64.
         #[cfg(target_vendor = "apple")]
@@ -218,12 +229,15 @@ impl ImagePasteFile {
             .open(&directory)
             .ok()?;
         let dir = directory_handle.metadata().ok()?;
+        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
         if dir.uid() != unsafe { libc::geteuid() } || dir.mode() & 0o777 != 0o700 {
             return None;
         }
         let receipt_name = CString::new(".receipt").ok()?;
         let open_file = |name: &CStr| -> Option<File> {
             // No symlink or blocking special-file open is permitted during recovery.
+            // SAFETY: `directory_handle` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CStr that lives across it; openat keeps neither.
             let fd = unsafe {
                 libc::openat(
                     directory_handle.as_raw_fd(),
@@ -231,6 +245,8 @@ impl ImagePasteFile {
                     libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
                 )
             };
+            // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else
+            // owns; the File takes its sole ownership.
             if fd < 0 { None } else { Some(unsafe { File::from_raw_fd(fd) }) }
         };
         let receipt = open_file(&receipt_name)?;
@@ -298,6 +314,8 @@ impl ImagePasteFile {
         // between the initial check and rename is restored instead of deleted.
         if name == quarantine.as_c_str() || rename_noreplace(parent, name, &quarantine).is_ok() {
             if self.entry_matches(&quarantine, expected) {
+                // SAFETY: `self.directory_handle` keeps `parent` open for the call and `quarantine`
+                // is a NUL-terminated CString that lives across it.
                 if unsafe { libc::unlinkat(parent, quarantine.as_ptr(), 0) } == 0 {
                     return true;
                 }
@@ -344,7 +362,7 @@ impl Drop for ImagePasteFile {
 // Same descriptor-relative, no-replace primitive used by workspace file mutations.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn rename_noreplace(parent: i32, source: &CStr, target: &CStr) -> std::io::Result<()> {
-    // Both C strings and the directory descriptor remain live through this syscall.
+    // SAFETY: both C strings and the directory descriptor remain live through this syscall.
     let result = unsafe {
         libc::syscall(
             libc::SYS_renameat2,
@@ -360,7 +378,7 @@ fn rename_noreplace(parent: i32, source: &CStr, target: &CStr) -> std::io::Resul
 
 #[cfg(target_vendor = "apple")]
 fn rename_noreplace(parent: i32, source: &CStr, target: &CStr) -> std::io::Result<()> {
-    // Both C strings and the directory descriptor remain live through this syscall.
+    // SAFETY: both C strings and the directory descriptor remain live through this syscall.
     let result = unsafe {
         libc::renameatx_np(parent, source.as_ptr(), parent, target.as_ptr(), libc::RENAME_EXCL)
     };
