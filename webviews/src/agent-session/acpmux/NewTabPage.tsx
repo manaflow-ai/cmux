@@ -54,6 +54,7 @@ import {
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -269,7 +270,7 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
   return hours < 24 ? t("age.hours", { n: hours }) : t("age.days", { n: Math.round(hours / 24) });
 }
 
-type Props = {
+type Props = NewTabCommandActions & {
   snapshot: AcpmuxSnapshot;
   /// Each kind's shortcut as the host shows it ("⌃⇧⌘T"); a kind without one shows none.
   hotkeys?: Partial<Record<TabKind, string>>;
@@ -339,6 +340,8 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  onCmuxCommand,
+  onImportFile,
   onJump,
   onOpenSession,
   onShowAll,
@@ -380,6 +383,7 @@ export function NewTabPage({
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   const [text, setText] = useState(location ?? "");
+  const command = useNewTabCommand(text, setText, { onCmuxCommand, onImportFile });
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
@@ -387,6 +391,7 @@ export function NewTabPage({
     setOpenFailed(false);
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
+    if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
     const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
@@ -570,6 +575,7 @@ export function NewTabPage({
     submitNow.current();
   };
   submitNow.current = () => {
+    if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length)) return;
     const row = rows[selected];
     if (row) return activate(row);
     if (kind === "browser" && !query.trim()) return;
@@ -692,10 +698,11 @@ export function NewTabPage({
               ))}
             </fieldset>
           </div>
+          {command.input}
           <AttachmentStrip
             attachments={attachments}
             pending={pending}
-            {...(attachError ? { error: attachError } : {})}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={false}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));

@@ -2032,6 +2032,23 @@ export default agentPaneEntry({
         );
       },
     },
+    "slash-menu-cmux-descriptions": {
+      note: "Play: type /; cmux-owned rows describe their actual actions: import starts a chat from a transcript and fork opens a new chat.",
+      snapshot: chat(finished, { commands: [] }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        if (!row("import")?.querySelector(".acpmux-slash-description")?.textContent?.includes("Start a chat"))
+          throw new Error("/import description does not describe starting a chat");
+        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+          throw new Error("/fork description does not describe its new chat");
+      },
+    },
     "reasoning-claude": {
       note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its Effort submenu lists the levels Opus 5.5 offers (Low, Medium, High, Max) and no Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {

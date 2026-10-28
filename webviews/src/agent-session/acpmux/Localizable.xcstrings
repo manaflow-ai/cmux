@@ -7532,134 +7532,1190 @@
         }
       }
     },
+    "composer.cmuxForkArgs": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork لا يقبل وسيطات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork ne prihvata argumente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork tager ikke argumenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork akzeptiert keine Argumente"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork does not take arguments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork no acepta argumentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork n’accepte pas d’arguments"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork non accetta argomenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork は引数を受け取りません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork មិនទទួលយកអាគុយម៉ង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork는 인수를 받지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork tar ikke argumenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork nie przyjmuje argumentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork não aceita argumentos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork не принимает аргументы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork ไม่รับอาร์กิวเมนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork argüman kabul etmez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork не приймає аргументів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork không nhận đối số"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork 不接受参数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/fork 不接受參數"
+          }
+        }
+      }
+    },
+    "composer.cmuxForkBusy": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفرع غير متاح لهذه الدردشة الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork trenutno nije dostupan za ovaj razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork er ikke tilgængelig for denne chat lige nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork ist für diesen Chat derzeit nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork is unavailable for this chat right now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork no está disponible para este chat en este momento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork n’est pas disponible pour ce chat pour le moment"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork non è disponibile per questa chat al momento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットでは現在 Fork を利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork មិនអាចប្រើបានសម្រាប់ការជជែកនេះនៅពេលនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에서는 지금 Fork를 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork er ikke tilgjengelig for denne chatten akkurat nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork jest obecnie niedostępny dla tego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Fork não está disponível para este chat no momento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork сейчас недоступен для этого чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถใช้ Fork กับแชตนี้ได้ในขณะนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork şu anda bu sohbet için kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork зараз недоступний для цього чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork hiện không khả dụng cho cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天暂时无法使用 Fork"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天目前無法使用 Fork"
+          }
+        }
+      }
+    },
+    "composer.cmuxContinueBusy": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتابعة غير متاحة لهذه الدردشة الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavak trenutno nije dostupan za ovaj razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt er ikke tilgængelig for denne chat lige nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen ist für diesen Chat derzeit nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue is unavailable for this chat right now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar no está disponible para este chat en este momento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer n’est pas disponible pour ce chat pour le moment"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua non è disponibile per questa chat al momento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットでは現在「続行」を利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តមិនអាចប្រើបានសម្រាប់ការជជែកនេះនៅពេលនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에서는 지금 계속을 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett er ikke tilgjengelig for denne chatten akkurat nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuowanie jest obecnie niedostępne dla tego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar não está disponível para este chat no momento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжение сейчас недоступно для этого чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถใช้ดำเนินการต่อกับแชตนี้ได้ในขณะนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devam şu anda bu sohbet için kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовження зараз недоступне для цього чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục hiện không khả dụng cho cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天暂时无法继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天目前無法繼續"
+          }
+        }
+      }
+    },
+    "composer.cmuxContinueUnknown": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد بيئة harness مطابقة لـ /continue"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema odgovarajućeg harnessa za /continue"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen matchende harness til /continue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein passender Harness für /continue"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching harness for /continue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún harness coincidente para /continue"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun harness correspondant pour /continue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun harness corrispondente per /continue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/continue に一致する harness がありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមាន harness ដែលត្រូវគ្នាសម្រាប់ /continue"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/continue에 맞는 harness가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen samsvarende harness for /continue"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak pasującego harnessu dla /continue"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum harness correspondente para /continue"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подходящего harness для /continue"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบ harness ที่ตรงกันสำหรับ /continue"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/continue için eşleşen harness yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає відповідного harness для /continue"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có harness phù hợp cho /continue"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有与 /continue 匹配的 harness"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有與 /continue 相符的 harness"
+          }
+        }
+      }
+    },
+    "composer.cmuxStatusUnavailable": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحالة غير متاحة لهذه الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status nije dostupan za ovaj razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status er ikke tilgængelig for denne chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status ist für diesen Chat nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status is unavailable for this chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado no está disponible para este chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le statut n’est pas disponible pour ce chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo stato non è disponibile per questa chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットではステータスを利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពមិនអាចប្រើបានសម្រាប់ការជជែកនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에서는 상태를 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status er ikke tilgjengelig for denne chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status jest niedostępny dla tego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O status não está disponível para este chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статус недоступен для этого чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถดูสถานะของแชตนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum bu sohbet için kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статус недоступний для цього чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trạng thái không khả dụng cho cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天无法查看状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天無法查看狀態"
+          }
+        }
+      }
+    },
+    "composer.cmuxBtwDisabled": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعطيل الأسئلة الجانبية في إعدادات التصحيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sporedna pitanja su onemogućena u postavkama za otklanjanje grešaka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidespørgsmål er deaktiveret i fejlfindingsindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenfragen sind in den Debug-Einstellungen deaktiviert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side questions are disabled in Debug Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las preguntas laterales están desactivadas en la configuración de depuración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les questions secondaires sont désactivées dans les réglages de débogage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le domande laterali sono disabilitate nelle impostazioni di debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグ設定でサイド質問が無効になっています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណួរចំហៀងត្រូវបានបិទក្នុងការកំណត់ Debug"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디버그 설정에서 사이드 질문이 비활성화되어 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidespørsmål er deaktivert i feilsøkingsinnstillingene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytania poboczne są wyłączone w ustawieniach debugowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As perguntas paralelas estão desativadas nas configurações de depuração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Боковые вопросы отключены в настройках отладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำถามด้านข้างถูกปิดใช้งานในการตั้งค่า Debug"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yan sorular Hata Ayıklama Ayarları'nda devre dışı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бічні запитання вимкнено в налаштуваннях налагодження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câu hỏi phụ đã bị tắt trong Cài đặt gỡ lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调试设置中已禁用旁支问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偵錯設定中已停用旁支問題"
+          }
+        }
+      }
+    },
+    "composer.cmuxBtwQuestion": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw يتطلب سؤالًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw zahtijeva pitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw kræver et spørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw benötigt eine Frage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw needs a question"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw necesita una pregunta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw nécessite une question"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw richiede una domanda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw には質問が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw ត្រូវការសំណួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw에는 질문이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw krever et spørsmål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw wymaga pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw precisa de uma pergunta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw требует вопрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw ต้องมีคำถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw bir soru gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw потребує запитання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw cần có câu hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw 需要一个问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/btw 需要一個問題"
+          }
+        }
+      }
+    },
+    "composer.cmuxUnavailable": {
+      "comment": "Agent pane: inline refusal for a cmux-owned slash command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب هذا الأمر دردشة نشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova naredba zahtijeva aktivan razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne kommando kræver en aktiv chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Befehl erfordert einen aktiven Chat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command requires an active chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este comando requiere un chat activo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette commande nécessite un chat actif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo comando richiede una chat attiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドにはアクティブなチャットが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជានេះត្រូវការការជជែកសកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 명령에는 활성 채팅이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne kommandoen krever en aktiv chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To polecenie wymaga aktywnego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este comando requer um chat ativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этой команды нужен активный чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งนี้ต้องใช้แชตที่ใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu komut için etkin bir sohbet gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для цієї команди потрібен активний чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lệnh này yêu cầu một cuộc trò chuyện đang hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此命令需要处于活动状态的聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此命令需要啟用中的聊天"
+          }
+        }
+      }
+    },
     "composer.slashImport": {
       "comment": "Agent pane: the slash menu's description of /import (cmuxCommands.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إرفاق نص محادثة بتنسيق JSON أو نص"
+            "state": "translated",
+            "value": "بدء محادثة من سجل JSON أو نصي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Priloži JSON ili tekstualni transkript"
+            "state": "translated",
+            "value": "Pokreni razgovor iz JSON ili tekstualnog transkripta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vedhæft en JSON- eller tekstudskrift"
+            "state": "translated",
+            "value": "Start en chat fra en JSON- eller tekstudskrift"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "JSON- oder Text-Transkript anhängen"
+            "state": "translated",
+            "value": "Chat aus einem JSON- oder Text-Transkript starten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attach a JSON or text transcript"
+            "value": "Start a chat from a JSON or text transcript"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Adjuntar una transcripción JSON o de texto"
+            "state": "translated",
+            "value": "Iniciar un chat a partir de una transcripción JSON o de texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Joindre une transcription JSON ou texte"
+            "state": "translated",
+            "value": "Démarrer un chat à partir d’une transcription JSON ou texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allega una trascrizione JSON o di testo"
+            "state": "translated",
+            "value": "Avvia una chat da una trascrizione JSON o di testo"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "JSON またはテキストのトランスクリプトを添付"
+            "state": "translated",
+            "value": "JSON またはテキストのトランスクリプトからチャットを開始"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្ជាប់ប្រតិចារឹក JSON ឬអត្ថបទ"
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមការជជែកពីប្រតិចារឹក JSON ឬអត្ថបទ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "JSON 또는 텍스트 기록 첨부"
+            "state": "translated",
+            "value": "JSON 또는 텍스트 기록에서 채팅 시작"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Legg ved en JSON- eller tekstutskrift"
+            "state": "translated",
+            "value": "Start en chat fra en JSON- eller tekstutskrift"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dołącz transkrypcję JSON lub tekstową"
+            "state": "translated",
+            "value": "Rozpocznij czat z transkrypcji JSON lub tekstowej"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Anexar uma transcrição JSON ou de texto"
+            "state": "translated",
+            "value": "Iniciar um chat a partir de uma transcrição JSON ou de texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Прикрепить расшифровку в JSON или тексте"
+            "state": "translated",
+            "value": "Начать чат из расшифровки JSON или текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แนบบันทึกการสนทนาแบบ JSON หรือข้อความ"
+            "state": "translated",
+            "value": "เริ่มแชตจากบันทึกการสนทนาแบบ JSON หรือข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "JSON veya metin dökümü ekle"
+            "state": "translated",
+            "value": "JSON veya metin dökümünden sohbet başlat"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Додати розшифровку в JSON або тексті"
+            "state": "translated",
+            "value": "Почати чат із розшифровки JSON або тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đính kèm bản ghi JSON hoặc văn bản"
+            "state": "translated",
+            "value": "Bắt đầu cuộc trò chuyện từ bản ghi JSON hoặc văn bản"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "附加 JSON 或文本记录"
+            "state": "translated",
+            "value": "从 JSON 或文本记录开始聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "附加 JSON 或文字記錄"
+            "state": "translated",
+            "value": "從 JSON 或文字記錄開始聊天"
           }
         }
       }
@@ -7802,128 +8858,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "بدء محادثة جانبية من هذه الجولة"
+            "state": "translated",
+            "value": "تفريع هذه الجولة إلى علامة تبويب دردشة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Započni sporedni razgovor od ovog poteza"
+            "state": "translated",
+            "value": "Forkuj ovaj potez u novu karticu razgovora"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Start en sidechat fra denne tur"
+            "state": "translated",
+            "value": "Opret en ny chatfane fra denne tur"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nebenchat ab diesem Zug starten"
+            "state": "translated",
+            "value": "Diesen Zug in einen neuen Chat-Tab forken"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a side chat from this turn"
+            "value": "Fork this turn into a new chat tab"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Iniciar un chat paralelo desde este turno"
+            "state": "translated",
+            "value": "Convertir este turno en una nueva pestaña de chat"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Démarrer une discussion parallèle à partir de ce tour"
+            "state": "translated",
+            "value": "Forker ce tour dans un nouvel onglet de chat"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Avvia una chat laterale da questo turno"
+            "state": "translated",
+            "value": "Crea una nuova scheda di chat a partire da questo turno"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "このターンからサイドチャットを開始"
+            "state": "translated",
+            "value": "このターンを新しいチャットタブに Fork"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ចាប់ផ្ដើមការជជែកចំហៀងពីវេននេះ"
+            "state": "translated",
+            "value": "បំបែកវេននេះទៅជាផ្ទាំងការជជែកថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 턴에서 사이드 채팅 시작"
+            "state": "translated",
+            "value": "이 턴을 새 채팅 탭으로 Fork"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Start en sidechat fra denne turen"
+            "state": "translated",
+            "value": "Opprett en ny chatfane fra denne turen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rozpocznij boczny czat od tej tury"
+            "state": "translated",
+            "value": "Rozgałęź tę turę do nowej karty czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Iniciar um chat paralelo a partir deste turno"
+            "state": "translated",
+            "value": "Criar uma nova aba de chat a partir deste turno"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Начать побочный чат с этого хода"
+            "state": "translated",
+            "value": "Перенести этот ход в новую вкладку чата"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เริ่มแชตข้างเคียงจากรอบนี้"
+            "state": "translated",
+            "value": "แยกรอบนี้ไปยังแท็บแชตใหม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu turdan bir yan sohbet başlat"
+            "state": "translated",
+            "value": "Bu turu yeni bir sohbet sekmesine çatalla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Почати побічний чат із цього ходу"
+            "state": "translated",
+            "value": "Розгалузити цей хід у нову вкладку чату"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bắt đầu cuộc trò chuyện phụ từ lượt này"
+            "state": "translated",
+            "value": "Tách lượt này sang một tab trò chuyện mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "从此轮开始旁支对话"
+            "state": "translated",
+            "value": "将此轮分叉到新的聊天标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "從此輪開始旁支對話"
+            "state": "translated",
+            "value": "將此輪分支到新的聊天標籤頁"
           }
         }
       }

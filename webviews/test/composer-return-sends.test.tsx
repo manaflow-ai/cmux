@@ -13,6 +13,8 @@ import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import { cmuxCommandRefusal, type CmuxCommand } from "../src/agent-session/acpmux/cmuxCommands";
+import { translate } from "../src/agent-session/acpmux/i18n";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -88,7 +90,11 @@ function Chips() {
 type Sent = { text: string; steer?: boolean };
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
-async function composer(snapshot: AcpmuxSnapshot, typed: string) {
+async function composer(
+  snapshot: AcpmuxSnapshot,
+  typed: string,
+  onCmuxCommand?: (command: CmuxCommand, args?: string) => boolean | string,
+) {
   const sent: Sent[] = [];
   let handle: ComposerHandle | null = null;
   const { createRoot } = await import("react-dom/client");
@@ -108,6 +114,7 @@ async function composer(snapshot: AcpmuxSnapshot, typed: string) {
         onStop={() => {}}
         onProject={() => {}}
         onNewChat={() => {}}
+        {...(onCmuxCommand ? { onCmuxCommand } : {})}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
       />,
@@ -165,6 +172,37 @@ test("Return sends what is typed", async () => {
   const { field, sent } = await composer(chat(), "What is Spotlight?");
   const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect({ sent, proceeded }).toEqual({ sent: [{ text: "What is Spotlight?", steer: false }], proceeded: false });
+});
+
+const refuseCommand = (command: CmuxCommand, args?: string) => {
+  const reason = cmuxCommandRefusal(command, args, {
+    summary: true,
+    forkable: false,
+    canContinue: false,
+    sideSessions: false,
+    session: true,
+    isSideSession: false,
+    targets: [{ id: "codex", name: "Codex" }],
+  });
+  return reason ? translate(reason) : true;
+};
+
+test("a refused cmux-owned command keeps its draft and shows the inline reason", async () => {
+  const snapshot = chat({ commands: [], isWorking: true });
+  const { field, sent } = await composer(snapshot, "/fork", refuseCommand);
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([]);
+  expect(field.textContent).toContain("/fork");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Fork is unavailable");
+});
+
+test("a cmux-owned command with an invalid target keeps its draft and explains the refusal", async () => {
+  const snapshot = chat({ commands: [] });
+  const { field, sent } = await composer(snapshot, "/continue nope", refuseCommand);
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([]);
+  expect(field.textContent).toContain("/continue nope");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("No matching harness");
 });
 
 test("Return after Dictation (keyCode 229, no composition) steers the running turn, never adds a line", async () => {

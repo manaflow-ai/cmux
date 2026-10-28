@@ -41,8 +41,7 @@ import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
-import { commandArgs, type CmuxCommand } from "./cmuxCommands";
-import { cliOnlyCommand } from "./cliOnlyCommands";
+import { composerCommand, type CmuxCommand, type CmuxCommandResult } from "./cmuxCommands";
 import {
   applyCommand,
   fastModeState,
@@ -259,7 +258,7 @@ type Props = {
   onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
   /// promise keeps it until it settles, clearing it only when it resolves.
-  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void | Promise<unknown>;
+  onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -972,30 +971,28 @@ export function Composer({
       plusDraft.current = undefined;
       return false;
     }
-    // A Claude command that needs its terminal is not sent: the composer keeps it and says what to use.
-    const cliOnly = attachments.length === 0 ? cliOnlyCommand(prompt, snapshot.summary?.harness) : undefined;
-    if (cliOnly) {
-      const values = { command: cliOnly.name };
-      setAttachError(
-        cliOnly.use === "access"
-          ? t("composer.cliOnly.access", values)
-          : cliOnly.use === "model"
-            ? t("composer.cliOnly.model", values)
-            : t("composer.cliOnly.terminal", values),
-      );
+    const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
+    if (command?.kind === "cliOnly") {
+      setAttachError(t(command.key, { command: command.name }));
       return false;
     }
-    const owned = commands?.find(
-      (command): command is CmuxCommand => command.source === "cmux" && commandArgs(prompt, command) !== undefined,
-    );
+    const owned = command?.kind === "cmux" ? command.command : undefined;
     if (owned) {
       if (owned.name === "import") {
-        if (!onImportFile) return false;
+        if (!onImportFile) {
+          setAttachError(t("composer.cmuxUnavailable"));
+          return false;
+        }
         importInput.current?.click();
       } else if (!onCmuxCommand) {
+        setAttachError(t("composer.cmuxUnavailable"));
         return false;
       } else {
-        const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
+        const accepted = onCmuxCommand(owned, command?.kind === "cmux" ? command.args : undefined);
+        if (typeof accepted === "string") {
+          setAttachError(accepted);
+          return false;
+        }
         if (accepted === false) return false;
         if (accepted instanceof Promise) {
           // The prompt stays until the command is done; a refusal leaves it to send again.
