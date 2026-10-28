@@ -1,0 +1,48 @@
+// l10n-allow-file: replay assertions use the scrubbed workflow recording's fixture labels.
+import { expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { WorkflowCard } from "./WorkflowCard";
+import { WorkflowSummaries } from "./WorkflowSummary";
+import { createWorkflowAdapter } from "./foldWorkflows";
+import { realWorkflowFixture } from "../realWorkflowFixture";
+import { WorkflowTasks } from "../inspector/WorkflowTasks";
+
+const NOW = 1_000_000;
+const nodes = realWorkflowFixture(NOW);
+const [workflowNode] = nodes;
+const [workflow] = createWorkflowAdapter()(nodes, "workflow-session");
+const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+test("a real Claude workflow replay folds into its phases, agents, states, models and durations", () => {
+  expect(workflow).toMatchObject({
+    id: "workflow-session/tool-workflow",
+    title: "count-files-fixture",
+    description: "Two agents count files, then one reports the count",
+    state: "completed",
+    runId: "workflow-run-1",
+    elapsedMs: 10_780,
+    tokens: 84_080,
+    counts: { done: 3, started: 3 },
+  });
+  expect(workflow!.phases.map(({ id, name, state, agentIds }) => ({ id, name, state, agentIds }))).toEqual([
+    { id: "1", name: "Count", state: "completed", agentIds: ['["workflow-session/tool-workflow",1]', '["workflow-session/tool-workflow",2]'] },
+    { id: "2", name: "Report", state: "completed", agentIds: ['["workflow-session/tool-workflow",3]'] },
+  ]);
+  expect(workflow!.agents).toEqual([
+    expect.objectContaining({ name: "count-a", state: "completed", model: "claude-opus-5-5", elapsedMs: 5_054, startedAt: 564 }),
+    expect.objectContaining({ name: "count-b", state: "completed", model: "claude-opus-5-5", elapsedMs: 4_640, startedAt: 564 }),
+    expect.objectContaining({ name: "report", state: "completed", model: "claude-opus-5-5", elapsedMs: 4_195, startedAt: 6_579 }),
+  ]);
+});
+
+test("the replay renders in the transcript card, Session Info tasks and summary", () => {
+  const card = renderToStaticMarkup(<WorkflowCard node={{ ...workflowNode!, endedAt: NOW }} />);
+  const tasks = renderToStaticMarkup(<WorkflowTasks workflows={[workflow!]} />);
+  const summary = renderToStaticMarkup(<WorkflowSummaries workflows={[workflow!]} />);
+  expect(text(card)).toContain("count-files-fixture Workflow 3 agents 11s");
+  expect(card.match(/acpmux-workflow-dot"/g)?.length).toBe(3);
+  expect(text(tasks)).toContain("count-files-fixture 10s Workflow · Finished · 3 agents · 84.1k tokens");
+  expect(text(tasks)).toContain("Count 2/2 Report 1/1");
+  expect(text(summary)).toContain("count-files-fixture");
+  expect(text(summary)).toContain("3 done");
+});

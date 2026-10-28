@@ -8,14 +8,18 @@ import { GALLERY_NOW } from "../../../gallery/clock";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 const PROMPT = "Show me how dynamic workflows work by running a small one";
 const REPLY =
   "I started a small demo workflow. It picks a name for a command-line tool that syncs dotfiles: three agents brainstorm, each brainstorm gets a critic, and a judge picks the winner.";
-const paneSnapshot = (stage: WorkflowFixtureStage) => {
-  const nodes = workflowFixture(stage, GALLERY_NOW).filter((node) => node.kind === "workflow");
-  const started = stage === "running" ? 13 / 60 : 2;
+type PaneStage = WorkflowFixtureStage | "real-run";
+const paneSnapshot = (stage: PaneStage) => {
+  const nodes = (stage === "real-run" ? realWorkflowFixture(GALLERY_NOW) : workflowFixture(stage, GALLERY_NOW)).filter(
+    (node) => node.kind === "workflow",
+  );
+  const started = stage === "running" ? 13 / 60 : stage === "real-run" ? 11 / 60 : 2;
   return chat(
     [
       user(PROMPT, started + 0.2),
@@ -56,6 +60,13 @@ export default agentPaneEntry({
     finished: {
       note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Workflow · Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
+      native,
+      workflowLabs: true,
+      play: shown,
+    },
+    "real-run": {
+      note: "Labs: transcript card and Session Info Background tasks both render a scrubbed replay captured from a real Claude Workflow run: Count 2/2, Report 1/1, 3 completed agents and 11s elapsed.",
+      snapshot: paneSnapshot("real-run"),
       native,
       workflowLabs: true,
       play: shown,

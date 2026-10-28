@@ -14,6 +14,8 @@ import type { InspectorProcess } from "../inspector/processes";
 import { SummaryCard } from "./SummaryCard";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
+import { createWorkflowAdapter } from "./foldWorkflows";
+import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
@@ -118,6 +120,7 @@ const workflow: WorkflowSummary = {
   selectedAgentId: "api",
 };
 const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
+const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(), "gallery-session");
 
 const background = (list: InspectorProcess[]) => ({
   processes: list,
@@ -147,6 +150,16 @@ export default componentEntry<Props>({
         background: background(processes),
         sessions: { list: sessions, onOpen: none },
         workflow,
+        workflowActions,
+      },
+    },
+    "workflow-real-run": {
+      note: "Labs-only summary card fed by the scrubbed recording of a real Claude Workflow run: 3 completed agents across Count and Report, with elapsed time and token usage from the stream.",
+      props: {
+        rows,
+        background: background(processes),
+        sessions: { list: sessions, onOpen: none },
+        workflow: realWorkflow,
         workflowActions,
       },
     },
