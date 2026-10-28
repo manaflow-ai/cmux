@@ -1045,6 +1045,12 @@ impl Translator {
         let task = s("description").or(s("name")).or(s("subagent_type"));
         let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
         let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
+        let model =
+            s("model").map(str::to_owned).or_else(|| self.model.try_lock().ok().map(|m| m.clone()));
+        let effort = s("effort")
+            .or(s("reasoning_effort"))
+            .map(str::to_owned)
+            .or_else(|| self.effort.try_lock().ok().map(|e| e.clone()));
         let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
@@ -1054,6 +1060,12 @@ impl Translator {
             "capabilities": {},
             "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
         });
+        if let Some(model) = model {
+            update.set("model", json!(model));
+        }
+        if let Some(effort) = effort {
+            update.set("effort", json!(effort));
+        }
         // It outlives a stopped turn: a client keeps it running past one.
         if background {
             update.set("background", json!(true));

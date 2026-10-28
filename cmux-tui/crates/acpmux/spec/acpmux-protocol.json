@@ -4114,6 +4114,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enforcement": {
           "$ref": "#/types/Enforcement"
         },

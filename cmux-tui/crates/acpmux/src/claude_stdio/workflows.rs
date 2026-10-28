@@ -204,6 +204,15 @@ impl Translator {
         };
         let usage = |key: &str| line.pointer(&format!("/usage/{key}")).and_then(Value::as_u64);
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
+        // The workflow uses the same current effort as its Claude parent. Keep
+        // this on the full workflow payload so a reader joining mid-run can
+        // render it without reconstructing the parent's settings.
+        if workflow.is_some() {
+            let effort = self.effort.lock().await.clone();
+            if !effort.is_empty() {
+                update.set("effort", json!(effort));
+            }
+        }
         for (key, value) in [
             ("tokens", usage("total_tokens")),
             ("toolUses", usage("tool_uses")),
@@ -220,6 +229,9 @@ impl Translator {
         };
         if let Some(action) = action {
             update.set("action", json!(action));
+        }
+        if let Some(last) = text("lastMessage").or_else(|| text("last_message")) {
+            update.set("lastMessage", json!(preview(last)));
         }
         // A run's end repeats what a resume names, for a reader of recent history alone.
         for (key, value) in resume.unwrap_or_default() {
@@ -433,6 +445,9 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
             out.insert(to.into(), json!(value));
         }
     }
+    if let Some(value) = s("effort").or_else(|| s("reasoningEffort")) {
+        out.insert("effort".into(), json!(value));
+    }
     for (from, to) in [
         ("phaseIndex", "phaseIndex"),
         ("tokens", "tokens"),
@@ -453,8 +468,13 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
     if let Some(action) = s("lastToolSummary").or(s("lastToolName")) {
         out.insert("action".into(), json!(preview(action)));
     }
-    for (from, to) in [("promptPreview", "prompt"), ("resultPreview", "result"), ("error", "error")]
-    {
+    for (from, to) in [
+        ("promptPreview", "prompt"),
+        ("resultPreview", "result"),
+        ("lastMessage", "lastMessage"),
+        ("last_message", "lastMessage"),
+        ("error", "error"),
+    ] {
         if let Some(value) = s(from) {
             out.insert(to.into(), json!(preview(value)));
         }

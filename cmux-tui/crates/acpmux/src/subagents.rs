@@ -23,7 +23,7 @@
 //!   subagent's id and `index`; at the run's end, every agent whole with
 //!   `workflowAgentsFull: true`, which replaces them. An agent's fields are `label`, `state` (`queued`, `running`,
 //!   `completed`, `failed`, `skipped` or `blocked`), `phase`, `phaseIndex`,
-//!   `agentId`, `kind`, `model`, `fallbackModel`, `tokens`, `toolUses`,
+//!   `agentId`, `kind`, `model`, `effort`, `fallbackModel`, `tokens`, `toolUses`,
 //!   `elapsedMs`, `queuedAt`, `startedAt`, `lastProgressAt`, `attempt`,
 //!   `retryReason`, `cached`, `isolation`, `remoteSessionId`, `action`,
 //!   `prompt`, `result` and `error` (`claude_stdio/workflows.rs`). A
@@ -145,6 +145,18 @@ impl SubagentTree {
                         event.insert(key.into(), json!(v));
                     }
                 }
+                for key in ["model", "effort", "reasoningEffort", "lastMessage", "last_message"] {
+                    if let Some(v) = s(update, key) {
+                        let key = if key == "reasoningEffort" {
+                            "effort"
+                        } else if key == "last_message" {
+                            "lastMessage"
+                        } else {
+                            key
+                        };
+                        event.insert(key.into(), json!(truncate_last_message(&v)));
+                    }
+                }
                 // The tool call that started it (Claude's Agent call), which a
                 // client drawing the subagent can leave out.
                 if let Some(call) = update.pointer("/_meta/claude/toolUseId") {
@@ -201,9 +213,29 @@ impl SubagentTree {
                     "workflowAgents",
                     "workflowAgentsFull",
                     "background",
+                    "model",
+                    "effort",
+                    "reasoningEffort",
+                    "lastMessage",
+                    "last_message",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
-                        event.insert(key.into(), v.clone());
+                        let key = if key == "reasoningEffort" {
+                            "effort"
+                        } else if key == "last_message" {
+                            "lastMessage"
+                        } else {
+                            key
+                        };
+                        let value = if key == "lastMessage" {
+                            v.as_str()
+                                .map(truncate_last_message)
+                                .map(Value::String)
+                                .unwrap_or_else(|| v.clone())
+                        } else {
+                            v.clone()
+                        };
+                        event.insert(key.into(), value);
                     }
                 }
                 vec![Value::Object(event)]
@@ -243,6 +275,46 @@ impl SubagentTree {
                     if let Some(task) = task {
                         event.insert("task".into(), json!(task));
                     }
+                    for key in ["model", "effort", "reasoningEffort", "lastMessage", "last_message"]
+                    {
+                        if let Some(v) = update.get(key).and_then(Value::as_str) {
+                            let key = if key == "reasoningEffort" {
+                                "effort"
+                            } else if key == "last_message" {
+                                "lastMessage"
+                            } else {
+                                key
+                            };
+                            event.insert(
+                                key.into(),
+                                json!(if key == "lastMessage" {
+                                    truncate_last_message(v)
+                                } else {
+                                    v.to_owned()
+                                }),
+                            );
+                        }
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/model").and_then(Value::as_str)
+                    {
+                        event.insert("model".into(), json!(v));
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/effort").and_then(Value::as_str)
+                    {
+                        event.insert("effort".into(), json!(v));
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/lastMessage").and_then(Value::as_str)
+                    {
+                        event.insert("lastMessage".into(), json!(truncate_last_message(v)));
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/tokens").and_then(Value::as_u64)
+                    {
+                        event.insert("tokens".into(), json!(v));
+                    }
                     event.insert("state".into(), json!(codex_state(status)));
                     event.insert("background".into(), json!(true));
                     if let Some(call) = update.get("toolCallId") {
@@ -267,6 +339,27 @@ impl SubagentTree {
         let Some(mut event) = self.spawn(id, owner) else { return vec![] };
         if let Some(name) = name {
             event.insert("name".into(), json!(name));
+        }
+        for (from, to) in [
+            ("model", "model"),
+            ("effort", "effort"),
+            ("reasoningEffort", "effort"),
+            ("lastMessage", "lastMessage"),
+            ("last_message", "lastMessage"),
+        ] {
+            if let Some(value) = activity.get(from).and_then(Value::as_str) {
+                event.insert(
+                    to.into(),
+                    json!(if to == "lastMessage" {
+                        truncate_last_message(value)
+                    } else {
+                        value.to_owned()
+                    }),
+                );
+            }
+        }
+        if let Some(tokens) = activity.get("tokens").and_then(Value::as_u64) {
+            event.insert("tokens".into(), json!(tokens));
         }
         event.insert("state".into(), json!(state));
         event.insert("background".into(), json!(true));
@@ -312,6 +405,17 @@ fn codex_state(status: Option<&str>) -> &'static str {
         Some("errored" | "shutdown" | "notFound") => "failed",
         _ => "running",
     }
+}
+
+/// Keep the latest agent text bounded while respecting UTF-8 character
+/// boundaries. This is intentionally done only when a subagent event is
+/// already being emitted, never for every streamed token.
+const LAST_MESSAGE_CHARS: usize = 240;
+
+fn truncate_last_message(text: &str) -> String {
+    let mut chars = text.chars();
+    let value: String = chars.by_ref().take(LAST_MESSAGE_CHARS).collect();
+    if chars.next().is_some() { format!("{value}…") } else { value }
 }
 
 #[cfg(test)]
@@ -425,6 +529,33 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+
+    #[test]
+    fn native_and_codex_subagents_carry_orchestration_fields() {
+        let mut tree = SubagentTree::default();
+        let native = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "claude/task",
+                "model": "claude-opus", "effort": "high", "lastMessage": "é".repeat(300)}),
+        );
+        assert_eq!(native[0]["model"], "claude-opus");
+        assert_eq!(native[0]["effort"], "high");
+        assert_eq!(native[0]["lastMessage"].as_str().unwrap().chars().count(), 241);
+
+        let codex = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call_update",
+                "_meta": {"codex": {"subagent": {"threadId": "codex/task",
+                    "activity": "working", "model": "gpt-6", "effort": "xhigh",
+                    "lastMessage": "Reviewing", "tokens": 1234}}}}),
+        );
+        assert_eq!(
+            codex[0],
+            json!({"id": "codex/task", "parent": null,
+                "model": "gpt-6", "effort": "xhigh", "lastMessage": "Reviewing", "tokens": 1234,
+                "state": "running", "background": true})
+        );
     }
 }
 
