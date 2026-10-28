@@ -45,7 +45,6 @@
   flex: 1;
   min-width: 0;
   min-height: var(--ds-control-compact, 24px);
-  max-height: 132px;
   box-sizing: border-box;
   padding: 0;
   border: 0;
