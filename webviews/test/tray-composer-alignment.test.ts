@@ -181,6 +181,41 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 })(),
               };
             });
+            if (variant === "alignment-collapsed" && width === 720 && plainFooter && scheme === "dark") {
+              const beforeShift = await page.evaluate(() => {
+                const dock = document.querySelector<HTMLElement>(".acpmux-dock");
+                return dock
+                  ? Object.fromEntries(
+                      ["surface-start", "surface-end", "start-inset", "end-inset"].map((name) => [
+                        name,
+                        dock.style.getPropertyValue(`--acpmux-tray-${name}`),
+                      ]),
+                    )
+                  : {};
+              });
+              await page.evaluate(() => {
+                for (const selector of [
+                  '[data-alignment-surface="composer"]',
+                  '[data-alignment-surface="tray"]',
+                ]) {
+                  const node = document.querySelector<HTMLElement>(selector);
+                  if (node) node.style.translate = "-36px 0";
+                }
+              });
+              await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+              const afterShift = await page.evaluate(() => {
+                const dock = document.querySelector<HTMLElement>(".acpmux-dock");
+                return dock
+                  ? Object.fromEntries(
+                      ["surface-start", "surface-end", "start-inset", "end-inset"].map((name) => [
+                        name,
+                        dock.style.getPropertyValue(`--acpmux-tray-${name}`),
+                      ]),
+                    )
+                  : {};
+              });
+              expect(afterShift, "inspector child translate must not alter layout columns").toEqual(beforeShift);
+            }
             expect(result.actualLook).toBe(expectedLook);
             expect(result.quiet).toBe(expectedQuiet);
             const center = (box: { left: number; right: number }) => (box.left + box.right) / 2;

@@ -6,16 +6,34 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
   const plus = box.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button");
   if (!dock || !actions || !plus) return undefined;
   const properties = new Set<string>();
+  // The inspector shifts every direct dock child with `translate`, while the
+  // dock's parent stays in the pane's original coordinate space.  Rects are
+  // visual coordinates, so undo that ancestor translation before deriving the
+  // shared margins.  Otherwise the measured surface starts at the shifted
+  // edge and the tray receives a second shift through its margin.
+  const layoutRect = (node: HTMLElement, stop: HTMLElement): DOMRect => {
+    const visual = node.getBoundingClientRect();
+    let shift = 0;
+    for (let current: HTMLElement | null = node; current && current !== stop; current = current.parentElement) {
+      const value = getComputedStyle(current).translate.split(/\s+/)[0];
+      if (value && value !== "none") {
+        const parsed = Number.parseFloat(value);
+        if (Number.isFinite(parsed)) shift += parsed;
+      }
+    }
+    if (!shift) return visual;
+    return new DOMRect(visual.left - shift, visual.top, visual.width, visual.height);
+  };
   const apply = () => {
-    const surface = box.getBoundingClientRect();
     // In inspector/review mode the dock uses display:contents; its parent owns the inline edges.
     const container = getComputedStyle(dock).display === "contents" ? dock.parentElement : dock;
     if (!container) return;
-    const parent = container.getBoundingClientRect();
-    const leading = plus.getBoundingClientRect();
+    const surface = layoutRect(box, container);
+    const parent = layoutRect(container, container);
+    const leading = layoutRect(plus, container);
     const trailing = [...actions.querySelectorAll<HTMLElement>("button")]
       .filter((node) => getComputedStyle(node).visibility !== "hidden")
-      .map((node) => node.getBoundingClientRect())
+      .map((node) => layoutRect(node, container))
       .filter((rect) => rect.width > 0 && rect.height > 0)
       .sort((a, b) => b.right - a.right)[0];
     if (!surface.width || !parent.width || !leading.width || !trailing) return;
