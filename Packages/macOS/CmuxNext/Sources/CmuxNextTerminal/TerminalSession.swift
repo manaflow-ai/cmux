@@ -288,13 +288,28 @@ public final class TerminalSession {
         guard !surfaceHasContent else { return "has_content" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        frameHold.begin(lastFrame: .surface(surface), over: surfaceView, in: view)
         return nil
     }
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
+    }
+
+    /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a restored or
+    /// evicted terminal whose attach has not drawn its content yet), the held frame, never the empty surface under
+    /// it; else ``snapshotInBackground(maxPixelSize:)``. The quit saves this for the next launch, and the hover card
+    /// pictures it: a quit during a slow attach must not save an empty pane as the terminal's last frame.
+    public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
+        switch frameHold.heldFrame {
+        case nil:
+            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+        case .image(let image)?:
+            return image
+        case .surface(let surface)?:
+            return await TerminalSnapshotRenderer.renderOffMain(SendableSurface(surface: surface), maxPixelSize: maxPixelSize)
+        }
     }
 
     /// Stops consuming events and detaches the surface. The IO owner decides
