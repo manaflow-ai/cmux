@@ -112,6 +112,30 @@ import Testing
         #expect(transport.isClosed)
     }
 
+    /// A stream line (`loopback-data`) the writer refuses ends the connection the same way, so the loopback
+    /// stream's owner reconnects instead of failing every later line on a socket that stays open.
+    @Test func aStreamLineTheWriterRefusesClosesTheConnection() async throws {
+        let daemon = try FakeDaemon()
+        let (closes, closed) = AsyncStream<TransportCloseReason>.makeStream()
+        let transport = try connect(daemon, onClose: { closed.yield($0) })
+        defer { transport.close() }
+        var refused = false
+        for _ in 0..<6 where !refused {
+            refused = !transport.sendLine(Data(String(repeating: "b", count: 15 << 20).utf8))
+        }
+        #expect(refused, "the writer took 90 MiB from a daemon that reads nothing")
+        let heard = Task { () -> TransportCloseReason? in
+            for await reason in closes { return reason }
+            return nil
+        }
+        let timeout = Task {
+            try await Task.sleep(for: .seconds(5))
+            heard.cancel()
+        }
+        defer { timeout.cancel() }
+        #expect(await heard.value != nil, "a refused stream line left the connection open with no close")
+    }
+
     /// Terminal input travels in `send` lines the daemon reads: a 20 MiB paste reaches it whole, in order, and no
     /// line passes the daemon's limit.
     @Test func aLargePasteReachesTheDaemonInLinesItReads() async throws {
@@ -124,6 +148,8 @@ import Testing
             for index in raw.indices { raw[index] = UInt8(truncatingIfNeeded: index &* 31 &+ index >> 13) }
         }
         let expected = paste
+        var timeout = timeval(tv_sec: 20, tv_usec: 0)
+        setsockopt(daemon.peerDescriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let reader = LineReader(fd: daemon.peerDescriptor)
         let received = Task.detached { () -> (Data, Int) in
             var bytes = Data()
