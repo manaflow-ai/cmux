@@ -641,6 +641,7 @@
 		C41EF3684F6AEFB1FBCE143A /* ChiefControlRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF4F63A64D736DCDC0FFD /* ChiefControlRequest.swift */; };
 		D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */; };
 		C41EF9F9E5F927F28B6946A5 /* ChiefConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF3329C1652D4C80B6991 /* ChiefConversationListView.swift */; };
+		E0C2D88C793FF69C01AFE7AD /* ChiefDisabledHomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */; };
 		B5EDBC73F930461BB073BBEB /* ChiefDispatchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */; };
 		BB4B1E8F6FBC43FDBBD8A4BD /* ChiefDispatchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */; };
 		C41EFE522A9F79BCD582CCDE /* ChiefEngineSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF322A13A3F710137F679 /* ChiefEngineSettings.swift */; };
@@ -5492,6 +5493,7 @@
 		C41EF4F63A64D736DCDC0FFD /* ChiefControlRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefControlRequest.swift; sourceTree = "<group>"; };
 		293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefControlRequestTests.swift"; sourceTree = "<group>"; };
 		C41EF3329C1652D4C80B6991 /* ChiefConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefConversationListView.swift; sourceTree = "<group>"; };
+		4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefDisabledHomeTests.swift"; sourceTree = "<group>"; };
 		2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefDispatchPlan.swift; sourceTree = "<group>"; };
 		C41EF322A13A3F710137F679 /* ChiefEngineSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefEngineSettings.swift; sourceTree = "<group>"; };
 		C41EFACFA450D15C2AD8EF63 /* ChiefFirstRunAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefFirstRunAgents.swift; sourceTree = "<group>"; };
@@ -14281,6 +14283,7 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18473,6 +18476,7 @@
 				852600010000000000000002 /* CanvasPaneContentMountTests.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
 				D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */,
+				E0C2D88C793FF69C01AFE7AD /* ChiefDisabledHomeTests.swift in Sources */,
 				F3CF0E3AB3D16A241EF1C013 /* ChiefHomeNavigationFocusTests.swift in Sources */,
 				F6174997FACCB1C84EDEAC1C /* ChiefListAndSettingsCopyTests.swift in Sources */,
 				19E97DB221B879A7A25AB8AC /* ChiefPanelSessionTests.swift in Sources */,

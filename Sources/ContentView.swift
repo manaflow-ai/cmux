@@ -2653,6 +2653,8 @@ struct ContentView: View {
 
         view = AnyView(view.onAppear {
             ChiefHomeNavigation.restoreConversations(in: tabManager)
+            // A session saved with Chief on restores its Home; with Chief off, drop it.
+            ChiefHomeNavigation.removeHome(in: tabManager)
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
@@ -2804,6 +2806,7 @@ struct ContentView: View {
                 _ = ChiefHomeNavigation.ensureHome(in: tabManager)
             } else {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).leave()
+                ChiefHomeNavigation.removeHome(in: tabManager)
             }
         })
 
