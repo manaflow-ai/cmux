@@ -60,6 +60,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
+import { restoredDraftAttachments } from "./newtab/draftRestore";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -7152,7 +7153,8 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
-        setDraftAttachments(Array.isArray(host.draftAttachments) ? host.draftAttachments : undefined);
+        // A reconnect omits the one-time seed; only an explicit list replaces restored chips.
+        setDraftAttachments((current) => restoredDraftAttachments(current, host.draftAttachments));
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -9882,6 +9884,11 @@ function AcpmuxPane() {
               knownProjects={newTabKnownProjects}
               host={newTab.host ?? machineName}
               location={newTab.location}
+              initialDraft={draft}
+              initialAttachments={draftAttachments}
+              onDraftChanged={(text, attachments) => {
+                void callNative("chat.unsentDraft", { text, attachments }).catch(() => undefined);
+              }}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               // The same deferred chips as the other templates: a pick before the chat starts opens
