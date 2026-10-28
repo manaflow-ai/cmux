@@ -29,6 +29,7 @@ const added: string[] = [];
 let root: Root | undefined;
 let host: HTMLElement;
 let dom: JSDOM;
+const renderObservers = new Set<MutationObserver>();
 
 beforeAll(async () => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
@@ -60,13 +61,15 @@ beforeAll(async () => {
       scope[key] = (window as unknown as Record<string, unknown>)[key];
     }
   host = window.document.getElementById("root")!;
-  // The app preloads this chunk after its first paint. Await the same import, so assertions below
-  // inspect the actual hunk renderer instead of racing its Suspense fallback.
+  // Match the app's chunk preload. Pierre still paints asynchronously; waitForLines below observes
+  // that paint, independently of whether an earlier test has warmed the syntax highlighter.
   const { loadEditDiffHunks } = await import("../src/agent-session/acpmux/conversation/EditDiff");
   await loadEditDiffHunks();
 });
 
 afterAll(() => {
+  for (const observer of renderObservers) observer.disconnect();
+  renderObservers.clear();
   act(() => root?.unmount());
   dom.window.close();
   for (const key of added) delete scope[key];
@@ -112,9 +115,94 @@ const state: PermissionClientState = {
   busy: false,
 };
 
+// Run the single-card preview first: its highlighter has no earlier render to warm it.
+for (const grouped of [false, true]) {
+  const surface = grouped ? "grouped approval" : "single approval";
+  for (const v2 of [false, true]) {
+    const envelope = v2 ? "ACP v2 subject" : "ACP tool call";
+    test(`${surface} shows the explicit diff from an ${envelope}`, async () => {
+      await renderAsk(
+        {
+          kind: "edit",
+          title: "Edit upload.sh",
+          content: [{ type: "diff", path, oldText: before, newText: after }],
+          // The explicit diff is authoritative, even if input differs.
+          rawInput: { file_path: path, old_string: "wrong\n", new_string: "also\nwrong\n" },
+        },
+        grouped,
+        v2,
+      );
+      expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+1", removed: "-0", cut: false }]);
+      await waitForLines(1);
+      expect(shownLines().flat()).toContain("# retried uploads");
+      expect(shownLines().flat()).not.toContain("wrong");
+    });
+
+    test(`${surface} previews Claude Edit input from an ${envelope}`, async () => {
+      await renderAsk(
+        {
+          kind: "edit",
+          title: "Edit upload.sh",
+          rawInput: { file_path: path, old_string: "exit 1\n", new_string: "echo done\nexit 0\n" },
+        },
+        grouped,
+        v2,
+      );
+      expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+2", removed: "-1", cut: false }]);
+      await waitForLines(1);
+      expect(shownLines()).toEqual([["exit 1", "echo done", "exit 0"]]);
+    });
+  }
+
+  test(`${surface} previews every MultiEdit fragment`, async () => {
+    await renderAsk(
+      {
+        kind: "edit",
+        rawInput: {
+          file_path: path,
+          edits: [
+            { old_string: "attempt=0\n", new_string: "attempt=1\n" },
+            { old_string: "exit 1\n", new_string: "echo done\nexit 0\n" },
+          ],
+        },
+      },
+      grouped,
+    );
+    expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+3", removed: "-2", cut: false }]);
+    await waitForLines(2);
+    expect(shownLines()).toEqual([
+      ["attempt=0", "attempt=1"],
+      ["exit 1", "echo done", "exit 0"],
+    ]);
+  });
+
+  test(`${surface} does not invent a before image for Write or malformed input`, async () => {
+    for (const rawInput of [
+      { file_path: path, content: "replacement\n" },
+      { file_path: path, old_string: null, new_string: "replacement\n" },
+      { old_string: "before", new_string: "after" },
+    ]) {
+      await renderAsk({ kind: "edit", rawInput }, grouped);
+      expect(shownChanges()).toEqual([]);
+    }
+  });
+
+  test(`${surface} does not infer an edit from a different tool's input fields`, async () => {
+    await renderAsk(
+      {
+        kind: "read",
+        rawInput: { file_path: path, old_string: "before", new_string: "after" },
+      },
+      grouped,
+    );
+    expect(shownChanges()).toEqual([]);
+  });
+}
+
 test("a pending edit's approval shows the file's change without Expand details", async () => {
   const { createRoot } = await import("react-dom/client");
   const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  await act(async () => root?.unmount());
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -234,82 +322,24 @@ function shownLines() {
   );
 }
 
-for (const grouped of [false, true]) {
-  const surface = grouped ? "grouped approval" : "single approval";
-  for (const v2 of [false, true]) {
-    const envelope = v2 ? "ACP v2 subject" : "ACP tool call";
-    test(`${surface} shows the explicit diff from an ${envelope}`, async () => {
-      await renderAsk(
-        {
-          kind: "edit",
-          title: "Edit upload.sh",
-          content: [{ type: "diff", path, oldText: before, newText: after }],
-          // The explicit diff is authoritative, even if input differs.
-          rawInput: { file_path: path, old_string: "wrong\n", new_string: "also\nwrong\n" },
-        },
-        grouped,
-        v2,
-      );
-      expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+1", removed: "-0", cut: false }]);
-      expect(shownLines().flat()).toContain("# retried uploads");
-      expect(shownLines().flat()).not.toContain("wrong");
+// Observe both React's mount and Pierre's shadow-root writes. The test's normal timeout still
+// catches missing bodies; there is no sleep, retry, or longer deadline for rendering.
+async function waitForLines(blocks: number) {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      const observer = new MutationObserver(check);
+      renderObservers.add(observer);
+      observer.observe(host, { childList: true, subtree: true });
+      function check() {
+        const containers = [...host.querySelectorAll(".cv-edit-diff__body diffs-container")];
+        for (const container of containers)
+          if (container.shadowRoot) observer.observe(container.shadowRoot, { childList: true, subtree: true });
+        if (containers.length !== blocks || shownLines().some((lines) => lines.length === 0)) return;
+        observer.disconnect();
+        renderObservers.delete(observer);
+        resolve();
+      }
+      check();
     });
-
-    test(`${surface} previews Claude Edit input from an ${envelope}`, async () => {
-      await renderAsk(
-        {
-          kind: "edit",
-          title: "Edit upload.sh",
-          rawInput: { file_path: path, old_string: "exit 1\n", new_string: "echo done\nexit 0\n" },
-        },
-        grouped,
-        v2,
-      );
-      expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+2", removed: "-1", cut: false }]);
-      expect(shownLines()).toEqual([["exit 1", "echo done", "exit 0"]]);
-    });
-  }
-
-  test(`${surface} previews every MultiEdit fragment`, async () => {
-    await renderAsk(
-      {
-        kind: "edit",
-        rawInput: {
-          file_path: path,
-          edits: [
-            { old_string: "attempt=0\n", new_string: "attempt=1\n" },
-            { old_string: "exit 1\n", new_string: "echo done\nexit 0\n" },
-          ],
-        },
-      },
-      grouped,
-    );
-    expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+3", removed: "-2", cut: false }]);
-    expect(shownLines()).toEqual([
-      ["attempt=0", "attempt=1"],
-      ["exit 1", "echo done", "exit 0"],
-    ]);
-  });
-
-  test(`${surface} does not invent a before image for Write or malformed input`, async () => {
-    for (const rawInput of [
-      { file_path: path, content: "replacement\n" },
-      { file_path: path, old_string: null, new_string: "replacement\n" },
-      { old_string: "before", new_string: "after" },
-    ]) {
-      await renderAsk({ kind: "edit", rawInput }, grouped);
-      expect(shownChanges()).toEqual([]);
-    }
-  });
-
-  test(`${surface} does not infer an edit from a different tool's input fields`, async () => {
-    await renderAsk(
-      {
-        kind: "read",
-        rawInput: { file_path: path, old_string: "before", new_string: "after" },
-      },
-      grouped,
-    );
-    expect(shownChanges()).toEqual([]);
   });
 }
