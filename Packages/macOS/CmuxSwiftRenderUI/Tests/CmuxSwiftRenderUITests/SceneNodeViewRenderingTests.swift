@@ -52,6 +52,40 @@ struct SceneNodeViewRenderingTests {
         return host.sizeThatFits(in: proposal)
     }
 
+    @Test func jsonBundledImageHonorsSize() throws {
+        let name = "AgentIcons/JSONSizingRegression"
+        let image = NSImage(size: NSSize(width: 14, height: 14))
+        #expect(image.setName(name))
+        defer { image.setName(nil) }
+        var node = DSLNode(type: .image)
+        node.systemName = name
+        node.size = 32
+        let host = NSHostingController(rootView: DSLSidebarRenderer(node: node, onAction: { _ in }))
+        let size = host.sizeThatFits(in: CGSize(width: 100, height: 100))
+        #expect(size.width == 32)
+        #expect(size.height == 32)
+    }
+
+    private func renderedImage(_ source: String) throws -> Data {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: source))
+        let rootId = try #require(runtime.store.rootId)
+        let renderer = ImageRenderer(content:
+            SceneNodeView(nodeId: rootId)
+                .environment(\.sceneStore, runtime.store)
+                .foregroundStyle(.black)
+                .frame(width: 40, height: 40)
+        )
+        let image = try #require(renderer.cgImage)
+        return try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+    }
+
+    @Test func assetSymbolFallbackMatchesNameForm() throws {
+        let reference = try renderedImage("sidebar(() => Image(\"person.fill\").size(20))")
+        let fallback = try renderedImage("sidebar(() => Image({ asset: () => \"person.fill\" }).size(20))")
+        #expect(fallback == reference)
+    }
+
     private let wideLabel = "A label much wider than forty points"
 
     @Test func fixedSizeKeepsNaturalWidthWhenSqueezed() throws {
