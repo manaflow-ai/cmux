@@ -54,7 +54,12 @@ final class ComposerKeyboardPinUITests: XCTestCase {
 
         // Interactive dismissal: back to the same resting place.
         dismissInteractively(app)
-        let dismissed = reading(probe) { $0.keyboardTop == nil }
+        var dismissed = reading(probe) { $0.keyboardTop == nil }
+        if dismissed.keyboardTop != nil {
+            // A drag that started a text selection in the terminal: once more.
+            dismissInteractively(app)
+            dismissed = reading(probe) { $0.keyboardTop == nil }
+        }
         XCTAssertNil(dismissed.keyboardTop, "dragging the content down takes the keyboard away (\(dismissed.line))")
         XCTAssertEqual(dismissed.fieldBottom, rest.fieldBottom, accuracy: 1, "the field returns to its resting place")
         attach(app, "dismissed")
@@ -75,7 +80,8 @@ final class ComposerKeyboardPinUITests: XCTestCase {
         XCTAssertEqual(pinnedGap(probe, "portrait again"), docked, accuracy: 1, "the gap survives a rotation")
         attach(app, "portrait-again")
 
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        let screen = XCUIScreen.main.screenshot().image.size
+        if screen.width > app.windows.firstMatch.frame.width + 1 {
             // A floating keyboard (pinch in) leaves the composer at rest; docking it again re-pins it.
             app.keyboards.firstMatch.pinch(withScale: 0.4, velocity: -1)
             let floating = reading(probe) { !$0.docked }
@@ -141,8 +147,14 @@ final class ComposerKeyboardPinUITests: XCTestCase {
     /// placeholder the probe reads stays at the iPhone keyboard's size there,
     /// so the gap is checked from the simulator's screenshots instead
     /// (verify/keyboard-pin.md, iPad).
+    @MainActor
     private var probeReadsKeyboard: Bool {
-        !(UIDevice.current.userInterfaceIdiom == .pad && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27)
+        // The runner is an iPhone app too, so its idiom reads phone on an
+        // iPad: an iPad shows as a screen larger than the app's window.
+        let screen = XCUIScreen.main.screenshot().image.size
+        let window = XCUIApplication().windows.firstMatch.frame.size
+        let onPad = screen.width > window.width + 1 || screen.height > window.height + 1
+        return !(onPad && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27)
     }
 
     /// The keyboard's top minus the field's bottom, once both are still.
