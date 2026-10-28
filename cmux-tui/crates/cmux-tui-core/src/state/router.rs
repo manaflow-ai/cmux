@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 
 use crate::mux::{PersonalChange, ScreenChange, StripRequest, WorkspaceStatusChange};
-use crate::resource::{ResourceError, ResourceOperation};
+use crate::resource::{ResourceError, ResourceOperation, WireDecimal};
 use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
