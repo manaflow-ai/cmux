@@ -174,4 +174,43 @@ struct SidebarSelectionBatchCloseTests {
             #expect(!sidebar.allWorkspaces.contains { $0.id.rawValue == id })
         }
     }
+
+    /// The row still leaves on the close animation when the person takes a while to answer. Rows move on a spring
+    /// only within `SidebarModel.userIntentWindow` (2 s) of the person's input (calm-sidebar-movement); a close
+    /// that waits on its question hides the row after that, so without a fresh mark at the hide its row would
+    /// drop out in one step. The sidebar's clock runs 3 s ahead from the question on: an answer 3 s later.
+    @Test func aRowClosedAfterASlowAnswerStillAnimatesOut() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            _ = try await Self.make(1, prefix: "keep", services, in: controller)
+            let id = try #require(try await Self.make(1, prefix: "slow", command: "sleep 600", services, in: controller).first)
+            try await PinnedPageTests.until({ Self.keepsRows([id], services) }, within: .seconds(30))
+            let sidebar = controller.sidebar.model, list = controller.sidebar.container.sidebarView.list
+            let dialogs = CmuxDialogCenter.shared
+            @MainActor func question() -> CmuxDialogCenter.Record? { dialogs.records.first { $0.spec.identifier == "cmux.dialog.confirmation" } }
+            let clock = sidebar.userIntentClock
+            defer { sidebar.userIntentClock = clock }
+
+            sidebar.send(.close([CmuxNextSidebar.WorkspaceID(id)]))
+            try await PinnedPageTests.until({ question() != nil }, within: .seconds(20))
+            sidebar.userIntentClock = { clock() + .seconds(3) }
+            #expect(!sidebar.followsUserIntent, "the press's mark still counts 3 s later: the test proves nothing")
+            let animates = SidebarInsertWhileDisplayAsleepTests.animatesHere()
+            var closingSeen = false, intentAtHide = false
+            _ = dialogs.press(try #require(question()).id, button: DestructiveConfirmation.confirmID)
+            try await PinnedPageTests.until({
+                // The turn the row starts to leave: the sidebar must still read it as the person's change.
+                if ClosingWorkspaces.shared.ids.contains(id) || services.workspace(id: id) == nil, !intentAtHide {
+                    intentAtHide = sidebar.followsUserIntent
+                }
+                if list.subviews.contains(where: { ($0 as? SidebarRowView)?.closingEnd != nil }) { closingSeen = true }
+                return services.workspace(id: id) == nil
+            }, within: .seconds(30))
+            print("SidebarSelectionBatchClose: slow answer, intent at hide \(intentAtHide), animates here \(animates), closing row seen \(closingSeen)")
+            #expect(intentAtHide, "the row left after a slow answer without the person's intent: it drops out with no animation")
+            // With motion available here (an awake display, animations on), the row is seen on its closing spring.
+            if animates { #expect(closingSeen, "the row left in one step, with no close animation") }
+        }
+    }
 }

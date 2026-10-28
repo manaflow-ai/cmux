@@ -203,6 +203,9 @@ extension AppActions {
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
+                // A person's close animates its row out even when the row leaves after their answer to the question
+                // (or after the terminals' answer), past the press's window for motion (calm-sidebar-movement).
+                if invocation.origin == .user { controller?.sidebar.model.noteUserIntent() }
                 let hidden = !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty
                 selected.afterPress = controller?.state.workspaceID
                 return hidden

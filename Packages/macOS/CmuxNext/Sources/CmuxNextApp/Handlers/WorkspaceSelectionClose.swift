@@ -20,6 +20,9 @@ enum WorkspaceSelectionClose {
         let flow = WorkspaceSelectionCloseFlow(
             hide: { ids in
                 defer { selected.afterPress = controller?.state.workspaceID }
+                // Always a person's selection close: its rows animate out even when they leave after the question
+                // was answered, past the press's window for motion (calm-sidebar-movement).
+                controller?.sidebar.model.noteUserIntent()
                 return InstantClose.begin(ids, in: state.id, windows: windows)
             },
             // A terminal that may run a program, or nothing left to undo it: the rows stay until the person answers.
