@@ -27,6 +27,21 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         public var data: String?
         public var text: String?
         public var pageCount: Int?
+        /// Inline placement and saved-path chip state survive the New Tab draft round trip.
+        public var inline: Bool?
+        public var saved: Bool?
+        public var video: Video?
+        public nonisolated struct Video: Codable, Sendable, Equatable {
+            public var durationMs: Double
+            public var width: Int
+            public var height: Int
+            public var poster: String
+            public var frames: [Frame]
+            public nonisolated struct Frame: Codable, Sendable, Equatable {
+                public var atMs: Double
+                public var data: String
+            }
+        }
         /// A link chip's file or folder on this computer (Attach files or folders).
         public var path: String?
         /// A normalized image preview's original file on the session machine.
@@ -39,6 +54,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
             (self.id, self.kind, self.name, self.mimeType, self.size) = (id, kind, name, mimeType, size)
             (self.data, self.text, self.pageCount, self.path) = (data, text, pageCount, path)
             (self.originalPath, self.originalName) = (originalPath, originalName)
+            (self.inline, self.saved, self.video) = (nil, nil, nil)
         }
     }
 

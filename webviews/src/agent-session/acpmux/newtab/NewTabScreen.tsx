@@ -401,15 +401,21 @@ export function NewTabScreen(props: Props) {
     if (text === (location ?? "")) setText(props.initialDraft);
     setInitialDraftApplied(true);
   }, [initialDraftApplied, props.initialDraft, text, location]);
+  const attachmentSeedApplied = useRef(props.initialAttachments !== undefined);
   useEffect(() => {
-    if (props.initialAttachments?.length && attachments.length === 0) setAttachments(props.initialAttachments);
+    if (attachmentSeedApplied.current || props.initialAttachments === undefined) return;
+    if (attachments.length === 0) setAttachments(props.initialAttachments);
+    attachmentSeedApplied.current = true;
   }, [props.initialAttachments, attachments.length, setAttachments]);
   // Persist ordinary edits while the page is alive. Native quit then has a durable record even if
   // the WebView closes without dispatching pagehide; the location remains a suggestion, not a draft.
+  const draftChanged = useRef(props.onDraftChanged);
+  draftChanged.current = props.onDraftChanged;
+  const draftDirty = useRef(false);
+  if (text !== (location ?? "") || attachments.length) draftDirty.current = true;
   useEffect(() => {
-    if (!((text !== (location ?? "") && text.trim()) || attachments.length)) return;
-    props.onDraftChanged?.(text, attachments);
-  }, [text, attachments, location, props.onDraftChanged]);
+    if (draftDirty.current) draftChanged.current?.(text, attachments);
+  }, [text, attachments, location]);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -419,20 +425,22 @@ export function NewTabScreen(props: Props) {
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
   const flushed = useRef<string>();
   leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
-  const flushDraft = useCallback(() => {
+  const flushDraft = useCallback((leavingPage: boolean) => {
     const draft = leaving.current;
     if (!((draft.typed && draft.text.trim()) || draft.attachments.length)) return;
     const key = JSON.stringify([draft.text, draft.attachments.map((attachment) => attachment.id)]);
     if (flushed.current === key) return;
     flushed.current = key;
-    draft.onLeaveDraft?.(draft.text, draft.attachments);
+    if (leavingPage) draft.onLeaveDraft?.(draft.text, draft.attachments);
+    else draftChanged.current?.(draft.text, draft.attachments);
   }, []);
   // A normal app quit/update can pagehide without unmounting React. Persist before native closes.
   useEffect(() => {
-    window.addEventListener("pagehide", flushDraft);
+    const pagehide = () => flushDraft(false);
+    window.addEventListener("pagehide", pagehide);
     return () => {
-      window.removeEventListener("pagehide", flushDraft);
-      flushDraft();
+      window.removeEventListener("pagehide", pagehide);
+      flushDraft(true);
     };
   }, [flushDraft]);
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
