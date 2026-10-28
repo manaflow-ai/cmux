@@ -30,7 +30,6 @@ import {
   mergeRowRanges,
   scrollLeadRanges,
   visibleLayoutRange,
-  type AcpmuxPermission,
   type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
@@ -135,12 +134,9 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
-import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
-import { QuestionCard } from "./question/QuestionCard";
 import { QUESTION_RECORD } from "./question/record";
-import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
-import type { QuestionReply } from "./question/model";
+import { PERMISSION_RECORD } from "./permissions/record";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -455,6 +451,10 @@ import { FailoverRow } from "./rows/FailoverRow";
 import { PolicyUnenforcedRow } from "./rows/PolicyUnenforcedRow";
 import { AgentPairRow } from "./rows/AgentPairRow";
 import { SessionStartRow } from "./rows/SessionStartRow";
+import { PermissionAsk } from "./rows/PermissionAsk";
+import { PermissionRow } from "./rows/PermissionRow";
+import { QuestionRecordRow } from "./rows/QuestionRecordRow";
+import { PermissionRecordRow } from "./rows/PermissionRecordRow";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -841,46 +841,6 @@ const PREVIEW_TURNS = 8;
 /// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
 const REVEAL_HOLD_MS = 2_000;
 
-const PermissionRow = memo(
-  function PermissionRow({ row }: RowProps) {
-    const t = useT();
-    const permission = row.permission;
-    if (!permission)
-      return (
-        <div className="acpmux-permission-card">
-          <strong>{t("permission.required")}</strong>
-        </div>
-      );
-    return <PermissionAsk permission={permission} shortcuts={false} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// A decided question's record (question/record.ts): the card's own answered or cancelled form,
-/// which answers nothing.
-const QuestionRecordRow = memo(
-  function QuestionRecordRow({ row }: RowProps) {
-    return row.question ? <QuestionCard question={row.question} onReply={ignoreReply} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const ignoreReply = () => {};
-/// A single permission card's receipt (permissions/record.ts): one muted line, the decision first.
-const PermissionRecordRow = memo(
-  function PermissionRecordRow({ row }: RowProps) {
-    const t = useT();
-    const decision = row.decision;
-    if (!decision) return null;
-    return (
-      <div className="acpmux-permission-record" data-decision={decision.kind}>
-        {t(DECISION_TEXT[decision.kind], {
-          action: row.permission?.title?.trim() || t("permission.required"),
-          option: decision.kind === "answered" ? decision.option : "",
-        })}
-      </div>
-    );
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
   function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
@@ -3549,81 +3509,9 @@ export function VirtualTranscript({
   );
 }
 
-/// Answers `permission` with the option a button or key picked.
-const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
-  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
-
-/// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
-/// shows a refusal (the promise rejects) and takes input again for a retry.
-const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
-  callNative("chat.permission", {
-    permissionId: permission.permissionId,
-    ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
-    ...(sent.answers === undefined ? {} : { answers: sent.answers }),
-  });
-
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
 const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
   void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
-
-/// A permission ask: a question card when the request asks a question, else its option buttons.
-function PermissionAsk({
-  permission,
-  harness,
-  focusComposer,
-  shownChat,
-  shortcuts,
-  waiting = 0,
-}: {
-  permission: AcpmuxPermission;
-  harness?: string;
-  focusComposer?: () => void;
-  /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
-  /// with what the agent should do instead (`denyWithFeedback`).
-  shownChat?: { readonly current: string | undefined };
-  /// False while a permission group's panel takes the shortcuts (permissionKeys.ts `cardTakesShortcuts`).
-  shortcuts?: boolean;
-  /// More asks waiting behind this one (snapshot `permissionsWaiting`).
-  waiting?: number;
-}) {
-  const t = useT();
-  if (!permission.question)
-    return (
-      <PermissionCard
-        permission={permission}
-        harness={harness}
-        focusComposer={focusComposer}
-        shortcuts={shortcuts}
-        onAnswer={answerPermission(permission)}
-        onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
-        waiting={waiting}
-      />
-    );
-  return (
-    <>
-      {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
-      <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
-    </>
-  );
-}
-
-/// Denies `permission`, then gives the agent what to do instead: into the running turn now (a
-/// steer; an agent that cannot steer stops the turn and takes it as the next prompt). Sent only once
-/// acpmux took the deny, so the agent never reads it before its tool is refused, and only to the chat
-/// that asked: another chat shown meanwhile would take it as its own. False when the deny failed.
-const denyWithFeedback =
-  (permission: AcpmuxPermission, shownChat: { readonly current: string | undefined }) =>
-  async (optionId: string, text: string): Promise<boolean> => {
-    const chat = shownChat.current;
-    try {
-      await callNative("chat.permission", { permissionId: permission.permissionId, optionId });
-    } catch {
-      return false;
-    }
-    if (text && shownChat.current === chat)
-      await callNative("chat.send", { text, attachments: [], steer: true }).catch(() => undefined);
-    return true;
-  };
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
