@@ -26,6 +26,8 @@ export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
   place(chips: readonly PendingAttachment[]): void;
+  /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  sent(ids: Iterable<string>): void;
 };
 
 export type ComposerBoxProps = {
@@ -166,6 +168,7 @@ export function ComposerBox({
     () => ({
       plainPaste: () => plainPaste.current(),
       place: (chips) => inline.place(chips, "paste"),
+      sent: (ids) => inline.sent(ids),
     }),
     [inline],
   );

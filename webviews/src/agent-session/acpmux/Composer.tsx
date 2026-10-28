@@ -1063,6 +1063,7 @@ export function Composer({
       }
       // By id: a chip patched after it went (its original's path arriving) is still the one sent.
       const went = new Set(attachments.map((attachment) => attachment.id));
+      box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
@@ -1080,6 +1081,7 @@ export function Composer({
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
       const went = new Set(sent.map((attachment) => attachment.id));
+      box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;

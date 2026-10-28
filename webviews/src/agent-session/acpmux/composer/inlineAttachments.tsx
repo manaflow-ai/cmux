@@ -45,9 +45,13 @@ export function useInlineAttachments(options: Options) {
   const removed = useRef(new Map<string, ComposerAttachment>());
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
+  /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
+  /// attachment to draw, so they leave the text again.
+  const sentIds = useRef(new Set<string>());
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
+    sentIds.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
 
@@ -107,6 +111,9 @@ export function useInlineAttachments(options: Options) {
     edited(markdown: string) {
       const before = seen.current;
       seen.current = markdown;
+      const stale = inlineTokenIds(markdown).filter((id) => sentIds.current.has(id));
+      // After the edit's own render: the field is still dispatching it.
+      if (stale.length) queueMicrotask(() => stale.forEach((id) => live.current.field.current?.removeInline(id)));
       const was = inlineTokenIds(before, known);
       const now = inlineTokenIds(markdown, known);
       if (!was.length && !now.length) return;
@@ -158,15 +165,22 @@ export function useInlineAttachments(options: Options) {
     },
     /// The attachments sent with a prompt are gone for good: no undo brings them back.
     sent(ids: Iterable<string>) {
-      for (const id of ids) removed.current.delete(id);
+      for (const id of ids) {
+        removed.current.delete(id);
+        placed.current.delete(id);
+        sentIds.current.add(id);
+      }
     },
     known,
     onInlineViews: setViews,
   }));
 
+  // Also when placing starts (the strip view switched to inline, shell mode ended): what was added
+  // meanwhile goes into the text.
+  const placingNow = options.placing();
   useLayoutEffect(() => {
     api.ready();
-  }, [options.attachments, api]);
+  }, [options.attachments, api, placingNow]);
 
   const chips = [...views].map(([id, dom]) =>
     createPortal(
