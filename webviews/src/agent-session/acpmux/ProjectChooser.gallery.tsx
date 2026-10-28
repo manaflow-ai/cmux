@@ -82,7 +82,9 @@ const noMatches: Play = async (ctx) => {
 const typedPath: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("/tmp/new-project");
-  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-menu-active, [role="option"][data-highlighted]'));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('.acpmux-menu-active, [role="option"][data-highlighted]'),
+  );
 };
 
 export default componentEntry<Props>({
@@ -98,11 +100,13 @@ export default componentEntry<Props>({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Opening and filtering the chooser uses a portal and must not move the composer anchor.",
+      reason:
+        "Opening and filtering the chooser uses a portal and must not move the composer anchor.",
     },
     layoutShiftMax: {
       value: 0,
-      reason: "Project filtering and the empty state stay inside the chooser without reflowing the page.",
+      reason:
+        "Project filtering and the empty state stay inside the chooser without reflowing the page.",
     },
     longFrameFailMs: {
       value: 33,
@@ -112,7 +116,13 @@ export default componentEntry<Props>({
   variants: {
     closed: {
       note: "The current project is visible on the trigger; its row is checked when the chooser opens.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
+      props: {
+        projects,
+        current: projects[0]!.cwd,
+        currentLabel: projects[0]!.label,
+        icon,
+        onPick: () => undefined,
+      },
     },
     "open-current": {
       note: "The current project stays checked while the project menu is open.",
@@ -128,7 +138,13 @@ export default componentEntry<Props>({
     },
     "press-drag-release": {
       note: "Pressing the pill opens the chooser; dragging onto a project and releasing picks it and closes.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
+      props: {
+        projects,
+        current: projects[0]!.cwd,
+        currentLabel: projects[0]!.label,
+        icon,
+        onPick: () => undefined,
+      },
       play: pressDragRelease,
     },
     "remote-completion": {
@@ -146,18 +162,32 @@ export default componentEntry<Props>({
         await ctx.type("gpu");
         await ctx.press("Tab");
         await ctx.waitFor(() =>
-          ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')?.value.includes("/home/you/src/atlas-web"),
+          ctx.document
+            .querySelector<HTMLInputElement>('[role="combobox"]')
+            ?.value.includes("/home/you/src/atlas-web"),
         );
       },
     },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
+      props: {
+        projects,
+        current: projects[0]!.cwd,
+        currentLabel: projects[0]!.label,
+        icon,
+        onPick: () => undefined,
+      },
       play: noMatches,
     },
     "typed-path": {
       note: "An absolute path query offers the typed path as a selectable project.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
+      props: {
+        projects,
+        current: projects[0]!.cwd,
+        currentLabel: projects[0]!.label,
+        icon,
+        onPick: () => undefined,
+      },
       play: typedPath,
     },
     "long-names": {
@@ -174,17 +204,77 @@ export default componentEntry<Props>({
     },
     "downward-3": {
       note: "Chosen layout: the shared placement rule opens below the composer when three projects fit.",
-      props: { projects: galleryProjects(3), current: "/Users/you/src/project-1", currentLabel: "project-1", icon, onPick: () => undefined, onBrowse: () => undefined },
+      props: {
+        projects: galleryProjects(3),
+        current: "/Users/you/src/project-1",
+        currentLabel: "project-1",
+        icon,
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+      },
       play: open,
     },
     "downward-8": {
       note: "Chosen layout: eight rows keep the same aligned icon, text and selection columns while the list scrolls.",
-      props: { projects: galleryProjects(8), current: "/Users/you/src/project-1", currentLabel: "project-1", icon, onPick: () => undefined, onBrowse: () => undefined },
+      props: {
+        projects: galleryProjects(8),
+        current: "/Users/you/src/project-1",
+        currentLabel: "project-1",
+        icon,
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+      },
       play: open,
     },
     "downward-15": {
       note: "Chosen layout: fifteen rows use the contained scrollbar and remain keyboard navigable without clipped content.",
-      props: { projects: galleryProjects(15), current: "/Users/you/src/project-1", currentLabel: "project-1", icon, onPick: () => undefined, onBrowse: () => undefined },
+      props: {
+        projects: galleryProjects(15),
+        current: "/Users/you/src/project-1",
+        currentLabel: "project-1",
+        icon,
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+      },
+      play: open,
+    },
+    "variant-aligned-columns": {
+      note: "Gallery variant A: the selected shared-column layout keeps the icon, name, secondary path and check aligned.",
+      props: {
+        projects: galleryProjects(8),
+        current: "/Users/you/src/project-1",
+        currentLabel: "project-1",
+        icon,
+        galleryVariant: "aligned",
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+      },
+      play: open,
+    },
+    "variant-airy-rows": {
+      note: "Gallery variant B: roomier rows increase vertical breathing space while preserving the same columns.",
+      props: {
+        projects: galleryProjects(8),
+        current: "/Users/you/src/project-1",
+        currentLabel: "project-1",
+        icon,
+        galleryVariant: "airy",
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+      },
+      play: open,
+    },
+    "variant-quiet-icons": {
+      note: "Gallery variant C: brand and fallback icons lose their tile so the project name leads visually.",
+      props: {
+        projects: galleryProjects(8),
+        current: "/Users/you/src/project-1",
+        currentLabel: "project-1",
+        icon,
+        galleryVariant: "quiet",
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+      },
       play: open,
     },
   },
