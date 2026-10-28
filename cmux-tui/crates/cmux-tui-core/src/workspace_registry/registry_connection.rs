@@ -254,6 +254,11 @@ impl RegistryConnection {
         self.admit.enabled()
     }
 
+    /// The owner's resolved `admitThenReply`, set once at start (`install_daemon_features`).
+    pub(crate) fn set_admit_then_reply(&self, enabled: bool) {
+        self.admit.set_enabled(enabled);
+    }
+
     /// The connection of the registry stored at `database_path` (`None`:
     /// in memory). Its commits run `synchronous=NORMAL`; a file registry's
     /// WAL is flushed to disk by its syncer thread (`wal_durability`).

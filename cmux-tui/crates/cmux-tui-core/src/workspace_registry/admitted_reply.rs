@@ -190,7 +190,8 @@ pub(crate) struct AdmitStatsSnapshot {
 
 impl AdmitState {
     /// From `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` (disable
-    /// wins); the registry default is off on every channel.
+    /// wins), for a mux no owner installs features on (tests); the owner sets
+    /// its channel-resolved value at start (`install_daemon_features`).
     pub(crate) fn from_env() -> Self {
         let state = Self::default();
         state.enabled.store(cmux_features::listed_in_env(FEATURE), Ordering::Relaxed);
@@ -201,9 +202,14 @@ impl AdmitState {
         self.enabled.load(Ordering::Relaxed)
     }
 
+    /// The owner's resolved [`FEATURE`], set once at start.
+    pub(crate) fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
     #[cfg(test)]
     pub(crate) fn set_enabled_for_test(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
+        self.set_enabled(enabled);
     }
 
     /// The next admit sequence, counted as admitted and unresolved.

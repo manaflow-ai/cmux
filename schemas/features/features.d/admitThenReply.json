@@ -3,7 +3,7 @@
   "name": "admitThenReply",
   "owner": "PL-daemon",
   "description": "A daemon request whose registry commit result is decided in memory replies once the session journal writer has the commit queued, without waiting for the journal write; a later read waits for it, and a write the journal does not take shows a journal-degraded status.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",
   "process": "daemon",
