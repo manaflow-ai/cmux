@@ -519,8 +519,8 @@ class RunBatchTests(unittest.TestCase):
             case = oracle.Case(f"s/c{index}", "s", Path("c.json"), data)
             batches.append((oracle.Work(case, {"case_id": case.id, "state_root": str(base / f"{index:06d}")}),))
         try:
-            results, errors, _logs = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
-                                                      itertools.count())
+            results, errors, _logs, _refusals = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
+                                                                 itertools.count())
         finally:
             shutil.rmtree(base, ignore_errors=True)
         self.assertEqual(errors, [])
