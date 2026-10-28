@@ -163,6 +163,15 @@ build_allowed || {
   exit 1
 }
 
+# Fleet steps call this script directly, without GitHub's setup-go. Prepare Go
+# only on a feature-enabled cache miss, keeping its downloads inside this job.
+shipping_features="$("$repo_root/scripts/ci/acpmux-build-features.sh" \
+  "$source_root/cmux-tui/crates/acpmux/Cargo.toml" aarch64-apple-darwin)"
+if [[ -n "$shipping_features" && -z "${LIBTAILSCALE_A:-}" ]]; then
+  source "$repo_root/scripts/ci/tailnet-go.sh"
+  ensure_tailnet_go "$source_root"
+fi
+
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build acpmux" >&2; exit 1; }
 command -v rustup >/dev/null 2>&1 || { echo "error: rustup is required to provision acpmux targets" >&2; exit 1; }
 
@@ -205,7 +214,7 @@ for arch in $archs; do
   echo "==> building acpmux ($source_mode $source_commit, $target)"
   (cd "$source_root/cmux-tui" && CARGO_TARGET_DIR="$target_dir" cargo build \
     --locked --release --package acpmux --target "$target" \
-    $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$target"))
+    $shipping_features)
   slice="$target_dir/$target/release/acpmux"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   built_slices+=("$slice")

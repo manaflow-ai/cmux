@@ -16,7 +16,7 @@ git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=m
 src="$TMP/src"
 mkdir -p "$src/scripts/ci" "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux" "$src/Native/OptChat/optchat-chief" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$src/scripts/cmux-next/"
-cp "$ROOT/scripts/ci/acpmux-build-features.sh" "$src/scripts/ci/"
+cp "$ROOT/scripts/ci/acpmux-build-features.sh" "$ROOT/scripts/ci/tailnet-go.sh" "$src/scripts/ci/"
 echo '[package]' > "$src/cmux-tui/crates/acpmux/Cargo.toml"
 echo '[package]' > "$src/Native/OptChat/optchat-chief/Cargo.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' > "$src/cmux-tui/rust-toolchain.toml"
@@ -41,6 +41,8 @@ chmod 755 "$CARGO_TARGET_DIR/$target/release/$name"
 echo "$CARGO_TARGET_DIR" >> "$FAKE_CARGO_LOG"
 EOF
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/rustup"
+printf '#!/bin/sh\necho "go version go1.27.1 darwin/arm64"\n' > "$TMP/bin/go"
+chmod 755 "$TMP/bin/go"
 chmod 755 "$TMP/bin/cargo" "$TMP/bin/rustup"
 
 run() { env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" "$@"; }
