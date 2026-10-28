@@ -116,6 +116,11 @@ extension CMUXCLI {
             }
         }
 
+        // Enter the saved directory once, before claiming or clearing a binding.
+        // Both launch paths use this result; reapplying a relative path after
+        // chdir would resolve it against a different directory.
+        let effectiveWorkingDirectory = try applyForkWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
+
         if codexRestoreBindingRequiresClaim(record),
            record.forkArguments == nil,
            legacyForkCommand(for: record) != nil,
@@ -173,25 +178,15 @@ extension CMUXCLI {
         if record.forkArguments == nil,
            record.launchCommand == nil,
            let legacyCommand {
-            // Validate the saved directory before retiring the parent binding.
-            // If the directory disappeared, the fork must be retryable after it
-            // is recreated. `execLegacyForkRecord` repeats the chdir immediately
-            // before exec, so this check does not change the launch path.
-            _ = try applyForkWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
             try clearCodexForkParentBinding()
             try execLegacyForkRecord(
                 legacyCommand,
-                record: record,
+                appliedWorkingDirectory: effectiveWorkingDirectory,
                 environment: environment,
                 client: client
             )
         }
 
-        let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
-        let appliedWorkingDirectory = try applyForkWorkingDirectory(requestedWorkingDirectory)
-        // A requested directory is either entered or refused, so there is no
-        // fallback to the invocation directory.
-        let effectiveWorkingDirectory = appliedWorkingDirectory
         let transcriptTargetWorkingDirectory = normalizedRestoreWorkingDirectory(
             record.forkArgumentsWorkingDirectory
         ) ?? effectiveWorkingDirectory
@@ -224,7 +219,7 @@ extension CMUXCLI {
                 try clearCodexForkParentBinding()
                 try execLegacyForkRecord(
                     legacyCommand,
-                    record: record,
+                    appliedWorkingDirectory: effectiveWorkingDirectory,
                     environment: environment,
                     client: client
                 )

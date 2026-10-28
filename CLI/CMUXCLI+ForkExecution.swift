@@ -219,13 +219,10 @@ extension CMUXCLI {
 
     func execLegacyForkRecord(
         _ command: String,
-        record: RestoreRecord,
+        appliedWorkingDirectory: String?,
         environment: [String: String],
         client: SocketClient
     ) throws {
-        let appliedWorkingDirectory = try applyForkWorkingDirectory(
-            requestedRestoreWorkingDirectory(for: record)
-        )
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory
