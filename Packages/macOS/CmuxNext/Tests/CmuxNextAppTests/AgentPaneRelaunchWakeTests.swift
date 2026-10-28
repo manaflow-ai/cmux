@@ -246,6 +246,35 @@ struct AgentPaneRelaunchWakeTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path), "the launch left the chips' files behind")
     }
 
+    /// A pasted chip's text is a file of its own too: the JSON never holds it, it comes back whole,
+    /// and a later save without the chip leaves no file of it.
+    @Test func aLargePastedChipComesBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
+        let paste = (0..<300_000).map { "pasted line \($0)\n" }.joined()
+        try #require(paste.utf8.count > 5_000_000)
+        let held = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "paste", kind: "pasted", name: "Pasted text", mimeType: "text/plain",
+                                          size: Double(paste.utf8.count), text: paste),
+        ])
+        await AgentPaneRelaunchWake(file: file).save(["tab_paste": held, "tab_shell": AgentPaneWakeState(shell: true, shellText: "ls")])
+        let json = try Data(contentsOf: file)
+        #expect(json.count < 16 * 1024, "the paste's text went into the JSON (\(json.count) bytes)")
+        #expect(json.range(of: Data("pasted line 12345".utf8)) == nil, "the JSON holds the paste's text")
+        let copies = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(copies.count == 1 && copies.allSatisfy { $0.hasSuffix(".txt") }, "\(copies)")
+
+        // The next run's launch gets it back whole.
+        #expect(await AgentPaneRelaunchWake(file: file).take(on: Self.work)["tab_paste"] == held)
+
+        // Saved again without the chip: no file of it is left.
+        await AgentPaneRelaunchWake(file: file).save(["tab_shell": AgentPaneWakeState(shell: true, shellText: "ls")])
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "the paste's text file outlived its chip")
+    }
+
     /// Slice (c) of the main-thread sweep: the launch read the states (up to 8 MB) and their attachments'
     /// files on the main thread as it made the tab store.
     @Test func theSavedStatesAreReadOffTheMainThread() async throws {
