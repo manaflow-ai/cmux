@@ -29,7 +29,9 @@ test("the router's credit refusals read as needs-credits, not a key, quota or ge
   expect(failureCopy(t, undefined, router, "credits.insufficient")).toBe(
     "cmux model router needs cmux credits or your own API key for this model.",
   );
-  expect(failureCopy(t, noCredits, router)).toBe("cmux model router needs cmux credits or your own API key for this model.");
+  expect(failureCopy(t, noCredits, router)).toBe(
+    "cmux model router needs cmux credits or your own API key for this model.",
+  );
   // After credits land, the same prompt goes again.
   expect(failureRecovery("needs-credits")).toBe("retry");
   // A provider's own key or quota failure stays what it was.
@@ -129,7 +131,12 @@ async function render(error: string, arm?: string, access = true) {
     retry: () => calls.push("retry"),
     switchModel: () => calls.push("switch"),
     ...(access
-      ? { access: { addKey: (harness?: string) => calls.push(`key:${harness}`), addCredits: () => calls.push("credits") } }
+      ? {
+          access: {
+            addKey: (harness?: string) => calls.push(`key:${harness}`),
+            addCredits: () => calls.push("credits"),
+          },
+        }
       : {}),
   };
   await act(async () =>
@@ -171,7 +178,9 @@ test("the key-first arm fills Add API Key…; the link arm leaves Retry filled",
 
 test("a pane that cannot run the app's actions still names the way out, with no dead buttons", async () => {
   await render(noCredits, undefined, false);
-  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toContain("needs cmux credits or your own API key");
+  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toContain(
+    "needs cmux credits or your own API key",
+  );
   expect(actionLabels()).toEqual(["Retry", "Switch model"]);
 });
 

@@ -234,20 +234,26 @@ test("a signed-out harness also offers Add API Key and Add Credits", async () =>
     openQuickPicker();
   });
   await act(async () => tabFor(codex.name)!.click());
-  const items = () => [
-    ...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item"),
-  ];
+  const items = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item")];
   expect(items().map((item) => item.textContent)).toEqual(
     expect.arrayContaining(["Log In", "Add API Key…", "Add Credits…"]),
   );
   const labels = items().map((item) => item.textContent);
   expect(labels.indexOf("Log In")).toBeLessThan(labels.indexOf("Add API Key…"));
-  await act(async () => items().find((item) => item.textContent === "Add API Key…")!.click());
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === "Add API Key…")!
+      .click(),
+  );
   await act(async () => {
     openQuickPicker();
   });
   await act(async () => tabFor(codex.name)!.click());
-  await act(async () => items().find((item) => item.textContent === "Add Credits…")!.click());
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === "Add Credits…")!
+      .click(),
+  );
   expect(asked).toEqual(["key:codex", "credits"]);
   expect(sent).toEqual([]);
 });

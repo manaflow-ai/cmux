@@ -118,8 +118,7 @@ export default componentEntry<Props>({
       );
     };
   },
-  styles: () =>
-    Promise.all([import("../styles.css"), import("../modelPicker.css"), import("./conversation.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("../modelPicker.css"), import("./conversation.css")]),
   variants: {
     "turn-no-credits": {
       note: "The router refused the turn (no plan, no credits): Add Credits… and Add API Key… lead, Retry and Switch model after.",

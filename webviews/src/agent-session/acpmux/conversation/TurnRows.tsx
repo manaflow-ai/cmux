@@ -435,9 +435,15 @@ function TurnFailure({
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
-    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth", "needs-credits"].includes(
-      kind,
-    );
+    [
+      "rate-limited",
+      "unreachable",
+      "invalid-key",
+      "proxy-auth",
+      "subscription-login",
+      "auth",
+      "needs-credits",
+    ].includes(kind);
   // The cmux model router refused the turn for want of credits (accessOffer.ts; Leo 2026-10-26: "we
   // offer them to add credits or add their own api key"), placed by the `access-offer` arm. As
   // buttons, the arm's first one is the card's one filled button; as links, Retry keeps it.
