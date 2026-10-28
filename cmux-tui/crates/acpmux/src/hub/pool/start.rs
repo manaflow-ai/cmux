@@ -118,18 +118,22 @@ impl Hub {
             anyhow::bail!("the daemon is stopping");
         }
         let launcher = agent_host::link::HostLauncher::current()?;
-        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
-        lock(&self.pool.starting).insert(session_id.clone(), record.clone());
-        let started =
-            self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(
             &host_spec.program,
             &host_spec.args,
             &host_spec.env,
             &host_spec.cwd,
         );
+        let servers =
+            crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
+                .await;
+        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
+        lock(&self.pool.starting).insert(session_id.clone(), record.clone());
+        let started =
+            self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
         let started = started.map(|p| {
-            p.child.record_launch(launch, spec.draft.family.clone().unwrap_or_default());
+            p.child.record_launch(servers);
             Pooled { preview, ..p }
         });
         if started.is_err() {

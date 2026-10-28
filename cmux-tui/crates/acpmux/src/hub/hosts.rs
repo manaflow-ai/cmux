@@ -1592,9 +1592,11 @@ impl Hub {
             cwd_pin: crate::cwd_pin::CwdPin::current(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
+        let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
         let launched = |child: Arc<ChildAgent>| {
-            child.record_launch(launch.clone(), meta.family.clone().unwrap_or_default());
+            child.record_launch(servers.clone());
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {

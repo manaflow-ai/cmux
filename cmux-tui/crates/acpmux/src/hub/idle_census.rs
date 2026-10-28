@@ -7,8 +7,8 @@
 //! servers, or run under one; anything else keeps the harness up. A census that fails or is not
 //! whole keeps it up too.
 //!
-//! The MCP servers are the ones the harness's configs named as it started: right after each
-//! start, `ChildAgent::record_launch` reads, once, the configs of that launch (argv, folder,
+//! The MCP servers are the ones the harness's configs named as it started: just before each
+//! start, `LaunchServers::read` reads, once, the configs of that launch (argv, folder,
 //! `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`): for Claude Code its `--mcp-config` files
 //! (acpmux's among them) and, unless `--strict-mcp-config`, its `.claude.json` (user servers and
 //! this folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. The
@@ -101,8 +101,8 @@ impl Hub {
     }
 
     /// The MCP servers `child`, the session's harness, runs: what its configs named as it
-    /// started (`ChildAgent::record_launch`) and the `mcpServers` acpmux gave it. None while
-    /// those are not known (still being read, or not read in time): the harness stays up. For a
+    /// started (`LaunchServers::read`) and the `mcpServers` acpmux gave it. None when its configs
+    /// were not read in time: the harness stays up. For a
     /// harness another daemon started none are known, so it ends only when nothing at all runs
     /// under it.
     pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Vec<Sidecar>> {
@@ -110,7 +110,7 @@ impl Hub {
         let (mut servers, path) = match state {
             None => return Some(Vec::new()),
             Some(LaunchServers::Known { servers, path }) => (servers, path),
-            Some(LaunchServers::Reading | LaunchServers::Unknown) => return None,
+            Some(LaunchServers::Unknown) => return None,
         };
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let read = tokio::task::spawn_blocking(move || {
@@ -124,34 +124,33 @@ impl Hub {
 /// What the idle census knows of a harness's MCP servers (`ChildAgent::launch`).
 #[derive(Debug, Clone)]
 pub(crate) enum LaunchServers {
-    /// Its configs are being read, just after its start.
-    Reading,
-    /// The servers its configs named as it started, and its `PATH`.
+    /// The servers its configs named just before it started, and its `PATH`.
     Known { servers: Vec<Sidecar>, path: String },
     /// Its configs could not be read within [`CENSUS_BUDGET`].
     Unknown,
 }
 
+impl LaunchServers {
+    /// Reads, once and before the harness of `family` is started as `launch`, the MCP servers
+    /// its configs name, bounded by [`CENSUS_BUDGET`]; each start site awaits it before its
+    /// spawn, so the census judges by what the harness could read at its start, never by a
+    /// config edited after it.
+    pub(crate) async fn read(launch: &crate::agent::Launch, family: String) -> Self {
+        let path = launch.env.get("PATH").cloned().unwrap_or_default();
+        let (at, launch) = (path.clone(), launch.clone());
+        let read =
+            tokio::task::spawn_blocking(move || resolved(from_launch(&family, &launch), &at));
+        match tokio::time::timeout(CENSUS_BUDGET, read).await {
+            Ok(Ok(servers)) => Self::Known { servers, path },
+            _ => Self::Unknown,
+        }
+    }
+}
+
 impl ChildAgent {
-    /// Reads the MCP configs of the harness just started as `launch` once, in a task bounded by
-    /// [`CENSUS_BUDGET`] that ends with the read, so the census judges by what the harness read
-    /// at its start, never by a config edited since.
-    pub(crate) fn record_launch(self: &Arc<Self>, launch: crate::agent::Launch, family: String) {
-        *self.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(LaunchServers::Reading);
-        let agent = Arc::downgrade(self);
-        tokio::spawn(async move {
-            let path = launch.env.get("PATH").cloned().unwrap_or_default();
-            let at = path.clone();
-            let read =
-                tokio::task::spawn_blocking(move || resolved(from_launch(&family, &launch), &at));
-            let state = match tokio::time::timeout(CENSUS_BUDGET, read).await {
-                Ok(Ok(servers)) => LaunchServers::Known { servers, path },
-                _ => LaunchServers::Unknown,
-            };
-            if let Some(agent) = agent.upgrade() {
-                *agent.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(state);
-            }
-        });
+    /// Records `servers`, what its configs named as it started (`LaunchServers::read`).
+    pub(crate) fn record_launch(&self, servers: LaunchServers) {
+        *self.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers);
     }
 }
 

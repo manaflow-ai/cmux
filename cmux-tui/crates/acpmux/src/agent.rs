@@ -608,8 +608,8 @@ pub struct ChildAgent {
     /// The `mcpServers` acpmux gave it at its session/new or load (`spawn.rs` `acp_params`), for
     /// the idle census (`hub/idle_census.rs`). None for an agent adopted from another daemon.
     pub given_servers: std::sync::Mutex<Option<Value>>,
-    /// The MCP servers its harness's configs named as it started (`ChildAgent::record_launch`),
-    /// for the idle census. None for a harness another daemon started.
+    /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
+    /// it started), for the idle census. None for a harness another daemon started.
     pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
@@ -701,7 +701,12 @@ impl ChildAgent {
             order: Mutex::new(()),
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
-        let launch = Launch::of(&cmd, cwd);
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::hub::LaunchServers::read(
+            &Launch::of(&cmd, cwd),
+            crate::config::derive_family(name, profile),
+        )
+        .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
@@ -742,7 +747,7 @@ impl ChildAgent {
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
             given_servers: std::sync::Mutex::new(None),
-            launch: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(Some(launch)),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -754,7 +759,6 @@ impl ChildAgent {
             job,
         });
 
-        agent.record_launch(launch, crate::config::derive_family(name, profile));
         #[cfg(test)]
         let seam = agent.input_seam.clone();
         let (ended_tx, ended) = tokio::sync::watch::channel(false);
