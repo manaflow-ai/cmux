@@ -6838,137 +6838,6 @@
         }
       }
     },
-    "onboarding.computerUse.off": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Use is off. Allow turns it on, then shows its permissions here."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータ操作はオフです。「許可」でオンにすると、ここに権限が表示されます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "استخدام الكمبيوتر متوقف. يشغّله «سماح» ثم يعرض أذوناته هنا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use je isključen. Dozvoli ga uključuje, a zatim ovdje prikazuje njegove dozvole."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use er slået fra. Tillad slår det til og viser derefter tilladelserne her."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use ist aus. „Erlauben“ schaltet es ein und zeigt dann hier die Berechtigungen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use está desactivado. Permitir lo activa y luego muestra sus permisos aquí."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use est désactivé. Autoriser l’active, puis affiche ses autorisations ici."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use è disattivato. Consenti lo attiva e poi ne mostra qui i permessi."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use ត្រូវបានបិទ។ អនុញ្ញាត នឹងបើកវា បន្ទាប់មកបង្ហាញសិទ្ធិរបស់វានៅទីនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use가 꺼져 있습니다. 허용을 누르면 켜지고 여기에 권한이 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use er av. Tillat slår det på og viser deretter tillatelsene her."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use jest wyłączone. Zezwól włącza je, a potem pokazuje tu jego uprawnienia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Computer Use está desativado. Permitir o ativa e depois mostra as permissões aqui."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use выключен. «Разрешить» включит его и покажет здесь разрешения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use ปิดอยู่ อนุญาตจะเปิดใช้งาน แล้วแสดงสิทธิ์ที่นี่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use kapalı. İzin Ver onu açar ve izinlerini burada gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use вимкнено. «Дозволити» вмикає його й показує тут дозволи."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use đang tắt. Cho phép sẽ bật nó rồi hiển thị quyền ở đây."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "电脑操作已关闭。“允许”会将其打开，然后在此显示权限。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "電腦操作已關閉。「允許」會將其開啟，然後在此顯示權限。"
-          }
-        }
-      }
-    },
     "onboarding.import.fromFiles": {
       "extractionState": "manual",
       "localizations": {
@@ -9664,6 +9533,84 @@
             "value": "重新啟動"
           }
         }
+      }
+    },
+    "onboarding.computerUse.off.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Computer Use turns on when you click Allow."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يعمل استخدام الكمبيوتر عند النقر على «سماح»."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Computer Use se uključuje kada kliknete Dozvoli."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Computer Use slås til, når du klikker på Tillad."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Computer Use wird eingeschaltet, wenn du auf „Erlauben“ klickst."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Computer Use se activa al hacer clic en Permitir."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Computer Use s’active quand vous cliquez sur Autoriser."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Computer Use si attiva quando fai clic su Consenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「許可」をクリックするとコンピュータ操作がオンになります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Computer Use បើកនៅពេលអ្នកចុច អនុញ្ញាត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "허용을 클릭하면 Computer Use가 켜집니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Computer Use slås på når du klikker Tillat."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Computer Use włącza się po kliknięciu Zezwól."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O Computer Use é ativado quando você clica em Permitir."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Computer Use включится, когда вы нажмёте «Разрешить»."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Computer Use จะเปิดเมื่อคุณคลิกอนุญาต"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İzin Ver'e tıkladığınızda Computer Use açılır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Computer Use увімкнеться, коли ви натиснете «Дозволити»."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Computer Use sẽ bật khi bạn bấm Cho phép."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "点按“允许”后，电脑操作就会打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "按一下「允許」後，電腦操作就會開啟。"}}
+      }
+    },
+    "onboarding.computerUse.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Allowed"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مسموح"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoljeno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilladt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Erlaubt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Permitido"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Autorisé"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consentito"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "許可済み"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បានអនុញ្ញាត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "허용됨"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tillatt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zezwolono"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitido"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешено"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อนุญาตแล้ว"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İzin verildi"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволено"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đã cho phép"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "已允许"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "已允許"}}
+      }
+    },
+    "onboarding.button.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Not Now"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ليس الآن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ne sada"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ikke nu"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nicht jetzt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ahora no"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Plus tard"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Non ora"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "後で"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនមែនឥឡូវនេះ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "나중에"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ikke nå"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie teraz"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Agora não"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не сейчас"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่ใช่ตอนนี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şimdi Değil"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не зараз"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Để sau"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "以后"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "稍後"}}
       }
     }
   },

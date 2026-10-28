@@ -43,11 +43,20 @@ public final class OnboardingModel {
         return OnboardingStrings.done
     }
 
+    /// Whether the primary button works now. The Computer Use step's Done
+    /// waits for both grants: before, it would close the window with
+    /// nothing allowed (user 2026-10-27, "improve this ui").
+    public var canGoNext: Bool {
+        step != .computerUse || computerUse.allGranted
+    }
+
     /// The primary button. On the import step with a choice to run it
     /// starts the import and stays, so the rows show it; otherwise it ends
     /// the window (a running import keeps going in the background).
     public func next() {
         switch step {
+        case .computerUse where !computerUse.allGranted:
+            return
         case .importData where importer.justStarted:
             return
         case .importData where importer.phase == .idle:
@@ -69,9 +78,10 @@ public final class OnboardingModel {
     }
 
     /// The footer's Skip: Skip Importing on the Keychain explainer, where it
-    /// leaves without reading anything.
+    /// leaves without reading anything, and Not Now on Computer Use setup.
     public var skipTitle: String {
-        step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
+        if step == .computerUse { return OnboardingStrings.notNow }
+        return step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
     }
 
     /// The footer's Back: shown on the folder and Keychain explainers, off

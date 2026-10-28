@@ -1,10 +1,10 @@
 import AppKit
 import CmuxNextDesign
 
-/// A small floating panel over System Settings while a grant is pending:
-/// the helper app's tile to drag into the open list, one line on what to
-/// do, and a close button. It never takes focus, so System Settings stays
-/// the active app.
+/// A small floating panel docked under System Settings while a grant is
+/// pending (`HelperDragPanelDock` places it): the helper app's tile to drag
+/// into the open list, one line on what to do, and a close button. It never
+/// takes focus, so System Settings stays the active app.
 final class HelperDragPanel: NSPanel {
     private let onClose: () -> Void
 
@@ -47,11 +47,4 @@ final class HelperDragPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     @objc private func closePressed() { onClose() }
-
-    /// Bottom center of the screen System Settings opens on, clear of the Dock.
-    func show(on screen: NSScreen?) {
-        guard let visible = (screen ?? NSScreen.main)?.visibleFrame else { return }
-        setFrameOrigin(NSPoint(x: visible.midX - frame.width / 2, y: visible.minY + 48))
-        orderFrontRegardless()
-    }
 }

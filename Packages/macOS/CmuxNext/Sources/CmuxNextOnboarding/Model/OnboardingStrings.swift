@@ -5,6 +5,7 @@ import Foundation
 enum OnboardingStrings {
     static var importButton: String { String(localized: "onboarding.button.import", defaultValue: "Import", bundle: .module) }
     static var skip: String { String(localized: "onboarding.button.skip", defaultValue: "Skip", bundle: .module) }
+    static var notNow: String { String(localized: "onboarding.button.notNow", defaultValue: "Not Now", bundle: .module) }
     static var done: String { String(localized: "onboarding.button.done", defaultValue: "Done", bundle: .module) }
 
     // Import

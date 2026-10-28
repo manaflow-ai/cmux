@@ -45,6 +45,14 @@ final class OnboardingAccentButton: NSButton {
     private static let horizontalPadding: CGFloat = 14
     private static let minimumHeight: CGFloat = 28
 
+    /// A disabled primary (Computer Use's Done before both grants) dims, so
+    /// it does not read as the next thing to click.
+    override var isEnabled: Bool {
+        didSet { alphaValue = isEnabled ? 1 : Self.disabledAlpha }
+    }
+
+    static let disabledAlpha: CGFloat = 0.4
+
     func refreshAppearance() {
         applyAppearance()
     }

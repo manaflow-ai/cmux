@@ -77,4 +77,15 @@ public final class ComputerUseStepModel {
     }
 
     public var helperAppURL: URL? { source?.helperAppURL }
+
+    /// Both grants are in: the step's Done ends the window. Unknown grants
+    /// (Computer Use off, a helper that did not answer) are not granted.
+    public var allGranted: Bool {
+        ComputerUsePermissionPane.allCases.allSatisfy { permissions.granted($0) }
+    }
+
+    /// What `pane`'s card shows on its right (`PermissionCardState`).
+    public func cardState(_ pane: ComputerUsePermissionPane) -> PermissionCardState {
+        PermissionCardState(pane: pane, permissions: permissions)
+    }
 }

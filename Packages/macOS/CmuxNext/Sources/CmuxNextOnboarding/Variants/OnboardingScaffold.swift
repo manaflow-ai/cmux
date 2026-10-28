@@ -41,6 +41,8 @@ enum OnboardingScaffold {
 final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
     private var loop: RenderLoop?
+    /// The footer's buttons, in order: Back, Skip (Not Now), the primary.
+    private(set) var buttons: [NSButton] = []
 
     init(context: OnboardingStepContext) {
         self.context = context
@@ -52,6 +54,7 @@ final class OnboardingFooter: NSView {
         skip.setAccessibilityIdentifier("cmux.onboarding.footer.skip")
         let next = OnboardingControl.button(context.model.primaryTitle, prominent: true, target: self, action: #selector(nextPressed))
         next.setAccessibilityIdentifier("cmux.onboarding.footer.next")
+        buttons = [back, skip, next]
         let row = NSStackView(views: [back, skip, next])
         row.orientation = .horizontal
         row.spacing = 12
@@ -62,19 +65,26 @@ final class OnboardingFooter: NSView {
             row.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
             heightAnchor.constraint(equalToConstant: 40),
         ])
+        loop = RenderLoop { [weak self] in self?.render() }
+    }
+
+    /// Applies the model to the buttons (the render loop runs it on each change).
+    func render() {
+        guard buttons.count == 3 else { return }
+        let (back, skip, next) = (buttons[0], buttons[1], buttons[2])
         let model = context.model
-        loop = RenderLoop { [weak next, weak skip, weak back] in
-            let title = model.primaryTitle
-            if next?.title != title {
-                next?.title = title
-                (next as? OnboardingAccentButton)?.refreshAppearance()
-            }
-            // Skip Importing on the Keychain explainer.
-            if skip?.title != model.skipTitle { skip?.title = model.skipTitle }
-            let showsBack = model.flowProgress != nil
-            if back?.isHidden == showsBack { back?.isHidden = !showsBack }
-            if back?.isEnabled != model.canGoBack { back?.isEnabled = model.canGoBack }
+        // Computer Use setup's Done waits for both grants.
+        if next.isEnabled != model.canGoNext { next.isEnabled = model.canGoNext }
+        let title = model.primaryTitle
+        if next.title != title {
+            next.title = title
+            (next as? OnboardingAccentButton)?.refreshAppearance()
         }
+        // Skip Importing on the Keychain explainer, Not Now on Computer Use setup.
+        if skip.title != model.skipTitle { skip.title = model.skipTitle }
+        let showsBack = model.flowProgress != nil
+        if back.isHidden == showsBack { back.isHidden = !showsBack }
+        if back.isEnabled != model.canGoBack { back.isEnabled = model.canGoBack }
     }
 
     @available(*, unavailable)
