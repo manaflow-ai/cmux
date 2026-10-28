@@ -64,6 +64,7 @@ import Testing
         try await CmuxConfigFile(url: url).set(old, at: InspectorOrderRevision.path)
         settings.start()
         defer { settings.stop() }
+        await settings.waitForLoad(atLeast: 1)
         let nextLoad = settings.loadCount + 1
         let source = try await settings.file.source()
         let changed: String
