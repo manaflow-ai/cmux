@@ -58,14 +58,66 @@ struct AgentPaneMenuLookTests {
         #expect(!menu.items.contains { $0.identifier?.rawValue == "WKMenuItemIdentifierReload" })
     }
 
-    /// Choosing Copy Message on a reply copies its Markdown.
+    /// Message copies preserve both the rendered text and the source Markdown.
     @Test func aChosenPaneRowStillRuns() throws {
         var copied: [String] = []
         let menu = Self.menu(target: Self.reply, copied: { copied.append($0) })
-        let item = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessage })
-        try Self.click(item)
+        let plain = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessage })
+        let markdown = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessageAsMarkdown })
+        try Self.click(plain)
+        try Self.click(markdown)
         Self.drainRunLoop { !copied.isEmpty }
-        #expect(copied == [Self.reply.markdown])
+        #expect(copied == [Self.reply.text, Self.reply.markdown])
+    }
+
+    @Test func selectedMessageKeepsCopyRowsThenQuoteContextPinForkAndSearch() throws {
+        var page: [(String, [String: String])] = []
+        var quoted: [String] = []
+        var attached: [String] = []
+        let target = AgentPaneMessageTarget(text: "Rendered body", rowId: "summary-4", markdown: "**Body**", forkSeq: 4)
+        // Rebuild with the seam callbacks because the helper's defaults intentionally do nothing.
+        let webKit = Self.webKitMenu(MenuLookWebKitTarget())
+        AgentPaneContextMenu.rebuild(
+            webKit,
+            target: target,
+            selection: "selected words",
+            devTools: false,
+            scope: ThemeScope.app.fullStrength,
+            actions: .init(
+                copy: { _ in },
+                fork: { _ in },
+                quoteReply: { quoted.append($0) },
+                attachSelection: { attached.append($0) },
+                search: { page.append(("search", ["text": $0])) },
+                pinChapter: { page.append(("pin", ["rowId": $0])) },
+            ),
+        )
+        let titles = webKit.items.map { $0.isSeparatorItem ? "-" : $0.title }
+        #expect(titles == [
+            "Copy",
+            AgentPaneMenuStrings.copyMessage,
+            AgentPaneMenuStrings.copyMessageAsMarkdown,
+            "-",
+            AgentPaneMenuStrings.quoteInReply,
+            AgentPaneMenuStrings.attachSelectionAsContext,
+            "-",
+            AgentPaneMenuStrings.pinAsChapter,
+            AgentPaneMenuStrings.forkFromHere,
+            "-",
+            AgentPaneMenuStrings.searchTheWeb,
+            AgentPaneMenuStrings.askAboutThis,
+        ])
+        let quote = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.quoteInReply })
+        let attach = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.attachSelectionAsContext })
+        let pin = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.pinAsChapter })
+        let search = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.searchTheWeb })
+        try Self.click(quote)
+        try Self.click(attach)
+        try Self.click(pin)
+        try Self.click(search)
+        #expect(quoted == ["> selected words\n\n"])
+        #expect(attached == ["selected words"])
+        #expect(page == [("pin", ["rowId": "summary-4"]), ("search", ["text": "selected words"])])
     }
 
     /// Fork from Here's neighbour Open in Side Chat on a prompt runs the page's side chat action.

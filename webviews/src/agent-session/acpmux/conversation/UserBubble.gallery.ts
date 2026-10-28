@@ -218,6 +218,16 @@ export default agentPaneEntry({
       note: "A short prompt is unchanged: its whole text, no fade, no Show more.",
       snapshot: turns(claude),
     },
+    "markdown-quote": {
+      note: "A sent prompt reuses transcript Markdown: quoted lines draw with a muted left bar and quiet ink instead of raw greater-than markers.",
+      snapshot: claude(
+        chat([
+          user("> The upload retries forever\n> when the network is offline.\n\nAdd a bounded backoff.", 9, { seq: 1 }),
+          assistant("Added a five-attempt cap and a reset on the next upload.", 8.5),
+          summary(8.5, { seq: 3, status: "completed" }),
+        ]),
+      ),
+    },
     "pasted-chip": {
       note: "A pasted 2,300-line stack trace is a chip under the typed question: its first words and line count.",
       snapshot: pastedPrompt(),

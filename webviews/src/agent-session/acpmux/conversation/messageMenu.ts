@@ -14,6 +14,8 @@ import { menuPartAt, type MenuPart } from "./menuParts";
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = {
+  /// The transcript row id, used by the native menu's Pin as chapter seam.
+  rowId?: string;
   text: string;
   markdown?: string;
   forkSeq?: number;
@@ -137,7 +139,7 @@ export function messageMenuTarget(
       ? turnSeq
       : undefined;
   const target: MessageMenuTarget =
-    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+    row.kind === "user" ? { rowId: id, text: row.text } : { rowId: id, text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   if (row.kind === "user" && row.failed) target.retryRowId = row.id;

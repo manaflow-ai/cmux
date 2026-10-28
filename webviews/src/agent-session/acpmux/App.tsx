@@ -7816,6 +7816,32 @@ function AcpmuxPane() {
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
           },
+          // Native transcript menus insert a Markdown quote into the existing draft. The optional
+          // method keeps this action compatible with panes whose composer predates quoteReply.
+          "chat.quoteReply": async ({ markdown }) => {
+            const handle = composerHandle.current as
+              | (ComposerHandle & {
+                  quoteReply?: (value: string) => void;
+                })
+              | null;
+            handle?.quoteReply?.(String(markdown ?? ""));
+            handle?.focus();
+          },
+          // Selected transcript text can be attached as a context chip without changing the
+          // draft text. The rail/menu owns only the gesture; the composer owns chip rendering.
+          "chat.attachSelection": async ({ text }) => {
+            const value = String(text ?? "").trim();
+            if (!value) return;
+            composerHandle.current?.attach({
+              id: "transcript-selection",
+              kind: "text",
+              name: "Selection",
+              mimeType: "text/plain",
+              size: value.length,
+              text: value,
+            });
+            composerHandle.current?.focus();
+          },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
           "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),

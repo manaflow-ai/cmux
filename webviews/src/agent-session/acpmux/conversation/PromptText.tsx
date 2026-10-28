@@ -19,6 +19,7 @@ import {
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
+import { Markdown } from "./Markdown";
 
 export function PromptText({
   rowId,
@@ -154,9 +155,15 @@ export function PromptText({
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
         {parts.map((part, index) =>
           part.kind === "text" ? (
-            <span key={index} className="cv-user__typed">
-              {show(part.text)}
-            </span>
+            /(^|\n)\s*>/.test(part.text) ? (
+              <Markdown key={index} className="cv-user__markdown" thumbnails={false}>
+                {show(part.text)}
+              </Markdown>
+            ) : (
+              <span key={index} className="cv-user__typed">
+                {show(part.text)}
+              </span>
+            )
           ) : (
             <PasteChip
               key={index}

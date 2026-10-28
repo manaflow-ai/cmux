@@ -157,6 +157,17 @@ try {
     expect(toggle()).toBeNull();
   });
 
+  test("a sent prompt renders Markdown blockquotes with the transcript quote treatment", () => {
+    resetTranscriptDisclosure();
+    const text = "> The upload retries forever\n> when offline.\n\nAdd a bounded backoff.";
+    render(prompt("user-quote", text));
+    const quote = host.querySelector(".cv-user__markdown .cv-quote");
+    expect(quote).not.toBeNull();
+    expect(quote?.textContent).toBe("The upload retries foreverwhen offline.");
+    expect(host.querySelector(".cv-user__markdown")?.textContent).not.toContain("> The");
+    expect(host.querySelector(".cv-user__markdown > .cv-p")?.textContent).toBe("Add a bounded backoff.");
+  });
+
   // Leo 2026-10-21: prompts drew as empty grey bubbles. A prompt with no text to read draws no
   // bubble; one of images alone is its images (agent-pane-blank-prompt.test.ts covers the ingest).
   test("a prompt of images alone draws its images and no empty bubble", () => {
