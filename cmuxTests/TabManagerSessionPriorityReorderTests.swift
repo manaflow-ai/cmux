@@ -97,6 +97,24 @@ struct TabManagerSessionPriorityReorderTests {
         #expect(manager.sessionPriorityEffectiveOrder == [fixture.a, fixture.b, fixture.c, fixture.d])
     }
 
+    /// `reorder-workspace --index 5` on the bottom workspace: the socket moves it to the clamped
+    /// plan index, its current one, but the user asked to go past the end, so d is not promoted
+    /// above c, which a bump showed first (ruling R30).
+    @Test func indexPastTheEndOnTheBottomWorkspaceDoesNotPromote() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        manager.moveTabToTopForNotification(fixture.c)
+        try #require(manager.tabs.map(\.id) == [fixture.c, fixture.a, fixture.b, fixture.d])
+        let clamped = try #require(manager.workspaceReorderPlan(tabId: fixture.d, toIndex: 5)?.toIndex)
+        try #require(clamped == 3)
+
+        #expect(manager.reorderWorkspace(tabId: fixture.d, toIndex: clamped, requestedIndex: 5))
+
+        #expect(manager.tabs.map(\.id) == [fixture.c, fixture.a, fixture.b, fixture.d])
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.a, fixture.b, fixture.c, fixture.d])
+    }
+
     /// Move Up on the top workspace is clamped too; it asked to go up, so it affirms the place.
     @Test func moveUpAtTheTopAffirmsThePlace() throws {
         let fixture = try makeFixture()
