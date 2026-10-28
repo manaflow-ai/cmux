@@ -239,6 +239,7 @@ final class CrashRecoveryService {
             object["exception_frames"] = exception.frames
         }
         if let previousCrashLog { object["system_report"] = previousCrashLog.path }
+        if previous.startupComplete == false, let task = previous.lastStartupTask { object["last_startup_task"] = task }
         if let tags = crashKeys?.tags, !tags.isEmpty { object["crash_keys"] = tags }
         return object
     }

@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCloud
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
@@ -98,6 +99,14 @@ public struct CmuxNextApp {
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         environment.actionCatalog = actionCatalog
+        // The launch caches' crash-streak decision (p08-startup-089), made on the files lane by the first cache read or
+        // the run marker's launch read, which writes this launch's record before any cache is read: after a streak of
+        // launches that ended before their startup completed, every launch cache below reads as missing.
+        let markerFolder = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID), launched = Date()
+        let launchCaches = LaunchSafeMode.Gate(decide: { AppRunMarker.launchSafeMode(directory: markerFolder, now: launched) },
+                                               mark: { DebugTimings.markLaunch($0) })
+        environment.launchCaches = launchCaches
+        let cacheReader = environment.launchCacheReader
         #if DEBUG || CMUX_BENCH_HOOKS
         environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
@@ -109,7 +118,8 @@ public struct CmuxNextApp {
         let homeCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         environment.homeCachesDirectory = homeCaches
         // The Home list's caches of this build's Chief owner, read on the files lane while AppKit starts (p08-startup-076).
-        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work)
+        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work,
+                                                            reads: { launchCaches.safeMode.readsLaunchCaches })
         // The app's acpmux, resolved once on the system lane: its signature check reads this app's signing team
         // (SigningTeamInstall) and hashes the binary. Main-thread users take the landed answer (QuitAgents.environment).
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
@@ -148,10 +158,9 @@ public struct CmuxNextApp {
         // The run marker reads the last run's files and opens this run's (p08-startup-075), after the Labs and tunables
         // reads (the launch's features take those without waiting) and before the settings read: the services, made
         // after the settings read lands, take its result with no file call on main.
-        environment.runMarker = AppRunMarker.startLaunchRead(directory: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID),
-                                                             in: ledgerThenSettings)
+        environment.runMarker = AppRunMarker.startLaunchRead(directory: markerFolder, in: ledgerThenSettings, now: launched, gate: launchCaches)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
-        environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
+        environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings, reader: cacheReader)
         // This Mac's install id, after the feature choices (the launch's features do not wait for it) and after the run marker
         // and saved sidebars, before the settings read: the windows built when that lands find it read (p08-startup-076).
         let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
@@ -160,13 +169,13 @@ public struct CmuxNextApp {
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
-        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
+        let launchImages = AgentPaneLaunchImages(state: state, reader: cacheReader), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        let terminalFrames = TerminalLaunchFrames(state: state)
+        let terminalFrames = TerminalLaunchFrames(state: state, reader: cacheReader)
         terminalFrames.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
+        environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work, reader: cacheReader)  // browser pages' (p08-startup-043)
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
-        environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
+        environment.windowPictures = WindowPictureStore(state: state, work: work, reader: cacheReader)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
         // The kept web update's state and digest (NIGHTLY): pages wait for it, never main (p08-startup-077).
         environment.webUpdates = WebUpdates.startLaunchRead(on: work)
@@ -210,7 +219,7 @@ public struct CmuxNextApp {
                                                   featureHello: featureHello, terminalStreams: terminalStreams)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
-                LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
+                launchCaches.safeMode.readsLaunchCaches ? LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory) : .missing
             }
             return start.reading(LaunchSnapshotPrefetch(session: names.session, ended: { read.value }, finished: { await read.finished() }))
         }
@@ -220,6 +229,7 @@ public struct CmuxNextApp {
         if features.isEnabled(.savedWindowPicture) {
             let build = environment.launch.build
             environment.windowPictures?.prefetchFront({
+                guard launchCaches.safeMode.readsLaunchCaches else { return nil }  // the launch snapshot is a launch cache
                 // The daemon's launch step when it has landed, else this build's daemon names read here by the
                 // launcher's rule (DaemonLauncher.appNames): the picture's read never waits for the system lane.
                 let landed = daemonStart.value
