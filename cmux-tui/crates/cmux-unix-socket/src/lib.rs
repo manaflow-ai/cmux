@@ -159,3 +159,38 @@ pub fn short_test_dir(prefix: &str) -> TestDir {
         // crash-allow: test-support only (dev-dependencies); a test without its socket directory must fail
         .expect("create a short test socket directory")
 }
+
+#[cfg(all(test, unix))]
+mod bind_private_tests {
+    use super::*;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    fn dir(mode: u32) -> tempfile::TempDir {
+        let dir = tempfile::Builder::new().prefix("bp").tempdir_in("/tmp").unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(mode)).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_path_that_fits_binds_also_at_the_limit() {
+        let dir = dir(0o700);
+        let base = dir.path().as_os_str().len() + 1;
+        let name = "x".repeat(MAX_PATH_BYTES - base);
+        let path = dir.path().join(name);
+        assert!(fits(&path));
+        let _listener = bind_private(&path).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_parent_others_can_write_is_refused() {
+        let dir = dir(0o777);
+        let error = bind_private(&dir.path().join("a.sock")).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "a staging directory was left"
+        );
+    }
+}
