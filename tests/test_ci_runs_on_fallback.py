@@ -283,7 +283,17 @@ def lands_on_large_mac(job: dict) -> bool:
     text = runs_on_text(job)
     matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), dict) else None
     for key in MATRIX_KEY.findall(text):
-        if isinstance(matrix, dict) and LARGE_MAC in yaml.safe_dump(matrix.get(key, "")):
+        if isinstance(matrix, str):
+            # A matrix built at run time (fromJSON of a picker's output): fails closed only if it spells the label.
+            if LARGE_MAC in matrix:
+                return True
+            continue
+        if not isinstance(matrix, dict):
+            continue
+        # The axis itself, and every include entry that sets that key (`include:` adds or extends combinations).
+        includes = matrix.get("include") if isinstance(matrix.get("include"), list) else []
+        values = [matrix.get(key, ""), *(entry.get(key, "") for entry in includes if isinstance(entry, dict))]
+        if LARGE_MAC in yaml.safe_dump(values) or (isinstance(matrix.get("include"), str) and LARGE_MAC in matrix["include"]):
             return True
     if LARGE_MAC not in text:
         return False
@@ -467,6 +477,10 @@ class RunsOnFallbackTests(unittest.TestCase):
                                                        "'[\"blacksmith-12vcpu-macos-26\"]') }}"}))
         self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
             "pool": ["blacksmith-6vcpu-macos-26"], "note": ["blacksmith-12vcpu-macos-26"]}}}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "include": [{"pool": "blacksmith-6vcpu-macos-26"}, {"pool": "blacksmith-12vcpu-macos-26"}]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "include": [{"pool": "blacksmith-6vcpu-macos-26", "note": "blacksmith-12vcpu-macos-26"}]}}}))
         self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.large == 'true' && "
                                                         "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}"}))
 
