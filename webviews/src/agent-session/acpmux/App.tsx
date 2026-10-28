@@ -3263,8 +3263,10 @@ export function VirtualTranscript({
       const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.
+      // A reader can already be parked before the next wheel/default write. The live offset is
+      // still authoritative for that recent upward input; gating this on `following` reused the
+      // stale acknowledged top and produced a one-frame jump when an unseen row remeasured.
       const readerLeft =
-        followingRef.current &&
         !clamped &&
         performance.now() - readerAt.current <= READER_SCROLL_MS &&
         scrolledTo.current.top - live > FOLLOW_BOTTOM_DEADBAND_PX;
