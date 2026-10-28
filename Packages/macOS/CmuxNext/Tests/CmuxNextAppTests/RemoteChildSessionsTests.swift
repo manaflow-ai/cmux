@@ -27,7 +27,8 @@ import Testing
         func events(_ page: AgentSessionPage) async throws -> Data { Data("{}".utf8) }
         func prompt(id: String, text: String) async throws -> Data { Data("{}".utf8) }
         func cancel() async throws {}
-        func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {}
+        func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
+                        personDecision: String?) async throws {}
         func detach() async {}
         func close() async {}
         func children() async throws -> Data { RemoteAcpmuxWire.json(["sessions": listed]) }

@@ -103,9 +103,16 @@ if [ "$tailscaled_state" = stopped ]; then
   skip "tailscale DNS mode: tailscaled is installed but not running"
 elif [ "$tailscaled_state" = running ]; then
   invocation="$(systemctl show -p InvocationID --value tailscaled.service 2>/dev/null)"
+  # tailscaled logs its DNS mode once, as it starts, so read only the first 10 minutes of this run.
+  # A long run's whole journal (380k lines on huge-blue after 8 h) takes longer than the read's timeout.
+  window=()
+  started="$(systemctl show -p ExecMainStartTimestamp --value tailscaled.service 2>/dev/null)"
+  if [ -n "$started" ] && started_s="$(date -d "$started" +%s 2>/dev/null)"; then
+    window=(--since "@$((started_s - 5))" --until "@$((started_s + 600))")
+  fi
   end=$((SECONDS + timeout)); mode="!tailscaled has no invocation ID"
   while [ -n "$invocation" ]; do
-    if ! journal="$(timeout 10 journalctl -q -o cat "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null)"; then
+    if ! journal="$(timeout 10 journalctl -q -o cat "${window[@]}" "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null)"; then
       mode="!could not read the tailscaled journal"; break
     fi
     mode="$(dns_mode <<<"$journal")"

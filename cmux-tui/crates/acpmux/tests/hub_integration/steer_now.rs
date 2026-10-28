@@ -183,3 +183,61 @@ async fn a_send_now_that_missed_its_turn_does_not_stop_the_turn_after_it() {
     let late = tokio::time::timeout(Duration::from_secs(20), late).await.unwrap().unwrap();
     assert!(late.is_ok(), "the send-now never ran: {late:?}");
 }
+
+/// In a chat several people share (`author.rs`), only the person who sent a steer takes it back:
+/// another person, or the owner, gets `queue.not_author`, and the steer stays.
+#[tokio::test]
+async fn only_the_sender_takes_back_a_persons_steer() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
+    let mut a = connect(&hub).await;
+    let mut steer = prompt(&id, "p-steer", "PINEAPPLE", true);
+    steer["_meta"]["acpmux"]["author"] = ana.clone();
+    let steered = a.send(method::SESSION_PROMPT, steer).await;
+    a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-steer").await;
+
+    let mut e = connect(&hub).await;
+    let withdraw = |author: Option<&Value>| {
+        let mut p = json!({"sessionId": id, "promptId": "p-steer", "op": "withdraw"});
+        if let Some(author) = author {
+            p["_meta"] = json!({"acpmux": {"author": author}});
+        }
+        p
+    };
+    for other in [Some(json!({"id": "user_bo", "name": "Bo"})), None] {
+        let refused = e.request("_acpmux/queue_edit", withdraw(other.as_ref())).await;
+        assert!(
+            refused.as_ref().is_err_and(|m| m.starts_with("queue.not_author")),
+            "{other:?}: {refused:?}"
+        );
+    }
+    let took = e.request("_acpmux/queue_edit", withdraw(Some(&ana))).await.unwrap();
+    assert_eq!(took["ok"], true, "{took}");
+    let (answer, _) = a.response(steered).await;
+    assert_eq!(answer.unwrap()["stopReason"], "withdrawn");
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (_, seen) = c.response(turn).await;
+    assert!(!said(&seen, "read: PINEAPPLE"), "the agent read the withdrawn steer: {seen:?}");
+}
+
+/// A steer that asks to be read now when it is sent (`_meta.acpmux.steerNow`): the Chief's tell
+/// (Lawrence, 2026-10-26: a Chief message lands in the agent's chat "with interrupt by default").
+/// It stops the agent's current step as the pane's Send now does, without a second request, and
+/// the turn runs on. A steer without it still waits for the step (the tests above).
+#[tokio::test]
+async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let mut a = connect(&hub).await;
+    let mut steer = prompt(&id, "p-now", "PINEAPPLE", true);
+    steer["_meta"]["acpmux"]["steerNow"] = json!(true);
+    a.send(method::SESSION_PROMPT, steer).await;
+    let accepted = a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-now").await;
+    assert_eq!(accepted["steer"], true, "{accepted}");
+    // The long step runs until it is stopped: without steerNow the turn never ends.
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(20), c.response(turn)).await;
+    let (answer, seen) = ended.expect("steerNow did not stop the step: the turn still runs");
+    assert!(said(&seen, "read: PINEAPPLE"), "the agent never read the steer: {seen:?}");
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
+}

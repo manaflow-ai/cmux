@@ -19,7 +19,8 @@ type Machine = {
   readlinkFails?: boolean;
   resolves?: string[];
   /** status "fail": `tailscale status --json` exits 1. */
-  tailscale?: { status: unknown; dnsLog?: string; journalFails?: boolean; stopped?: boolean };
+  /** started: tailscaled's ExecMainStartTimestamp; unset, systemctl prints nothing. */
+  tailscale?: { status: unknown; dnsLog?: string; journalFails?: boolean; stopped?: boolean; started?: string };
 };
 
 function stub(dir: string, name: string, body: string): void {
@@ -46,11 +47,15 @@ async function check(machine: Machine, args: string[] = []) {
     `  cat) [ "$2" = tailscaled.service ] && ${ts ? "exit 0" : "exit 1"} ;;`,
     "  restart) exit 0 ;;",
     `  is-active) case "$3" in tailscaled.service) ${ts?.stopped ? "exit 3" : "exit 0"} ;; esac; ${machine.resolvedActive ?? true ? "exit 0" : "exit 3"} ;;`,
-    "  show) echo inv-1; exit 0 ;;",
+    `  show) case "$*" in *ExecMainStartTimestamp*) echo ${JSON.stringify(ts?.started ?? "")} ;; *) echo inv-1 ;; esac; exit 0 ;;`,
     "esac",
     "exit 1",
   ].join("\n"));
-  stub(dir, "journalctl", ts?.journalFails ? "exit 1" : `[ "$4" = _SYSTEMD_INVOCATION_ID=inv-1 ] && printf '%b\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`);
+  stub(dir, "journalctl", ts?.journalFails ? "exit 1" : [
+    `echo "journalctl $*" >> ${log}`,
+    'for a; do [ "$a" = _SYSTEMD_INVOCATION_ID=inv-1 ] && hit=1; done',
+    `[ -n "$hit" ] && printf '%b\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`,
+  ].join("\n"));
   stub(dir, "getent", `for n in ${(machine.resolves ?? ["github.com"]).join(" ")}; do [ "$2" = "$n" ] && { echo "140.82.112.3 STREAM $n"; exit 0; }; done; exit 2`);
   if (ts) {
     writeFileSync(path.join(dir, "status.json"), JSON.stringify(ts.status));
@@ -155,6 +160,19 @@ describe("cmux-dns-check", () => {
   test("the last DNS mode line of the run wins", async () => {
     const r = await check({ resolves: ["github.com", "huge-blue.tail1234.ts.net"], tailscale: { status: LOGGED_IN, dnsLog: "dns: [rc=unknown ret=direct]\\nother line\\n" + RESOLVED_MODE } });
     expect(r.lines).toContain("PASS tailscale DNS mode: systemd-resolved");
+  });
+
+  test("only the first 10 minutes of a long tailscaled run are read, where it logs its DNS mode", async () => {
+    // huge-blue, 8 h into a run: the whole run's journal (380k lines) outlasted the 10 s read.
+    const started = "Sun 2026-10-25 20:41:14 UTC";
+    const at = Math.floor(Date.parse("2026-10-25T20:41:14Z") / 1000);
+    const r = await check({ resolves: ["github.com", "huge-blue.tail1234.ts.net"], tailscale: { status: LOGGED_IN, dnsLog: RESOLVED_MODE, started } });
+    expect(r.lines).toContain("PASS tailscale DNS mode: systemd-resolved");
+    expect(r.calls).toContain(`journalctl -q -o cat --since @${at - 5} --until @${at + 600} _SYSTEMD_INVOCATION_ID=inv-1`);
+    // No start time (systemctl prints nothing): the whole run is read, as before.
+    const unbounded = await check({ resolves: ["github.com", "huge-blue.tail1234.ts.net"], tailscale: { status: LOGGED_IN, dnsLog: RESOLVED_MODE } });
+    expect(unbounded.lines).toContain("PASS tailscale DNS mode: systemd-resolved");
+    expect(unbounded.calls).toContain("journalctl -q -o cat _SYSTEMD_INVOCATION_ID=inv-1");
   });
 
   test("a starting tailscaled fails after the deadline; an unknown or missing state fails", async () => {

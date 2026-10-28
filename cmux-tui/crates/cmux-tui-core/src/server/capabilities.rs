@@ -31,6 +31,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_PRESENCE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
         capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
     }
@@ -47,6 +48,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -62,7 +64,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
+        capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -72,6 +76,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {

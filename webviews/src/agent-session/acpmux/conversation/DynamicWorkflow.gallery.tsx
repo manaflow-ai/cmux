@@ -65,6 +65,7 @@ function ProgressSparkline() {
     <svg
       className="workflow-gallery__sparkline"
       viewBox="0 0 100 44"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the geometry below is built from the workflow's own numbers; an <img> would need it serialized first and could not update it.
       role="img"
       aria-label="Workflow progress sparkline"
     >
@@ -134,6 +135,7 @@ function WorkflowSummary({ compact = false }: { compact?: boolean }) {
       </div>
       <div
         className="workflow-gallery__progress"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
         role="progressbar"
         aria-label="Workflow agents done"
         aria-valuenow={WORKFLOW.done}
@@ -300,6 +302,9 @@ function DetailSheet() {
         </div>
         <WorkflowControls state={workflowState} onStateChange={setWorkflowState} />
       </header>
+      {/* A roving tabindex: the tabs below take the focus and the list only routes their arrow
+          keys, so making the list itself focusable would add a tab stop ARIA does not want. */}
+      {/* oxlint-disable-next-line jsx-a11y/interactive-supports-focus */}
       <div className="workflow-gallery__tabs" role="tablist" aria-label="Workflow detail tabs" onKeyDown={onTabKeyDown}>
         <button
           id="workflow-workflow-tab"

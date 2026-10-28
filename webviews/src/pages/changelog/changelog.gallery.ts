@@ -30,6 +30,9 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   changes: realChanges.slice(start(index), start(index) + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
 }));
 
+/** A real published reel (scripts/cmux-next/media/reel.py), so the gallery shows the card as it plays. */
+const nightlyReel = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193688601/reel.mp4";
+
 export default changelogPageEntry({
   id: "pages.changelog",
   title: "Changelog",
@@ -93,6 +96,11 @@ export default changelogPageEntry({
     "ledger-update-span": {
       note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
       notes: journalNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    "ledger-update-reel": {
+      note: "The same update with a nightly reel: one video card (its first frame, a play button, its length and title) that plays in place. The reel is nightly 3969193's, as published.",
+      notes: journalNotes.map((n, i) => (i === 0 ? { ...n, reel: nightlyReel } : n)),
       route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     journal: {

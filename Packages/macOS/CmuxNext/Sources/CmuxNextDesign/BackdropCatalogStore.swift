@@ -54,14 +54,30 @@ public final class BackdropCatalogStore {
         let build = build, folders = folders
         // task-owner: the store's refresh loop; stop() cancels it
         task = Task { [weak self] in
-            let changes = FolderChanges(folders: folders).events()
-            await self?.refresh(build)
-            // wakeup-allow: each pass is one folder change event, never a poll
-            for await _ in changes {
-                guard let self else { return }
-                await self.refresh(build)
+            var watched = Set(folders)
+            // wakeup-allow: rearm only when a catalog changes the folders; otherwise await a file event.
+            watch: while !Task.isCancelled {
+                let changes = FolderChanges(folders: Array(watched)).events()
+                await self?.refresh(build)
+                guard let next = self?.watchFolders(folders) else { return }
+                if next != watched { watched = next; continue }
+                for await _ in changes {
+                    guard let self else { return }
+                    await self.refresh(build)
+                    let next = self.watchFolders(folders)
+                    if next != watched { watched = next; continue watch }
+                }
+                return
             }
         }
+    }
+
+    /// A download changes its movie's parent folder, not the aerial root (folder watches are not recursive).
+    private func watchFolders(_ folders: [URL]) -> Set<URL> {
+        Set(folders).union(catalog.choices.compactMap { choice in
+            guard case .system(let path) = choice, choice.isVideo else { return nil }
+            return URL(fileURLWithPath: path).deletingLastPathComponent()
+        })
     }
 
     /// Stops watching the folders.

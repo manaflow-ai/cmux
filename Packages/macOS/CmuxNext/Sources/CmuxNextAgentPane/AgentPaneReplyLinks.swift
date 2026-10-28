@@ -44,6 +44,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var readLocalImage: @Sendable (_ path: String) async -> Result<String, AgentPaneReplyError> = {
         await AgentPaneReplyImages.local($0)
     }
+    /// Reads a path chip's text preview off the main actor (``AgentPaneReplyTextPreview/read(_:accept:)``);
+    /// tests stand in for it.
+    var readTextPreview: @Sendable (_ path: String, _ accept: @Sendable (String) -> Bool) async
+        -> Result<AgentPaneReplyTextPreview, AgentPaneReplyError> = { await AgentPaneReplyTextPreview.read($0, accept: $1) }
     /// Writes a dragged SVG's rebuilt copy off the main actor (``AgentPaneImageCopies/rebuild(_:to:)``);
     /// tests stand in for it.
     var rebuildCopy: @Sendable (_ file: URL, _ copy: URL) async -> Bool = { await AgentPaneImageCopies.rebuild($0, to: $1) }
@@ -59,6 +63,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
+    /// Where a video's private copies are read and played from (``AgentPaneVideoInfo/snapshot(_:in:into:)``).
+    var videoFolder = AgentPaneImageCopies.defaultFolder().deletingLastPathComponent().appendingPathComponent("Agent Videos", isDirectory: true)
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
@@ -115,8 +121,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage,
-             .dragImage, .dragFile:
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+             .quickLookImage, .dragImage, .dragFile, .previewPath:
             return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -135,13 +141,23 @@ extension AgentPaneModel {
     /// behind the ordinary outside-root gate. A remote chat never reads this Mac's image roots;
     /// its `image.load` request is handled by the remote wire.
     func replyPaths() -> AgentPaneReplyPaths {
+        AgentPaneReplyPaths(replyPathScope())
+    }
+
+    /// What ``replyPaths()`` is made of, read on the main actor without touching the disk: the
+    /// folders as spelled. Making the paths from it reads the disk (each folder made canonical,
+    /// ``sessionRoots()``'s rule applied), which a caller off the main actor can do there.
+    func replyPathScope() -> AgentPaneReplyPaths.Scope {
         // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
         // roots as a fallback: a same-named local file must not be read or opened here. Its
         // folders are not even looked up (``chatIsElsewhere``, also while only the wire is remote).
-        guard !chatIsElsewhere else { return AgentPaneReplyPaths(roots: [], home: replyLinks.home, base: nil) }
-        let base = sessionRoots().first ?? primaryRoot()
-        let imageRoots = [base, "/tmp", replyLinks.home].compactMap { $0 }
-        return AgentPaneReplyPaths(roots: fileOpenRoots(), imageRoots: imageRoots, home: replyLinks.home, base: base)
+        guard !chatIsElsewhere else {
+            return AgentPaneReplyPaths.Scope(local: false, roots: [], session: nil,
+                                             primary: AgentPanePrimaryRoot(answered: true, candidates: []), home: replyLinks.home)
+        }
+        let session = sessionId.flatMap { transport.sessions.contains($0) ? transport.sessions.folder(of: $0) : nil }
+        return AgentPaneReplyPaths.Scope(local: true, roots: roots() + transport.addedRoots, session: session,
+                                         primary: primaryRootChoice(), home: replyLinks.home)
     }
 
     /// The reply for one reply link request.
@@ -190,10 +206,15 @@ extension AgentPaneModel {
             return await loadReplyImage(src, auto: auto)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
+        case .videoInfo(let src):
+            return await videoInfo(src)
+        case .quickLookVideo(let src):
+            return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
             return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
             return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .previewPath(let path): return await previewReplyPath(path)
         }
     }
 

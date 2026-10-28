@@ -22,7 +22,8 @@ enum RestoredNewTabPages {
         guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
               (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(key),
               tabs.unsentDrafts.seed(for: key, session: nil) == nil,
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) != .remote else { return false }
+              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
+                                listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
         // The daemon whose tree lists this record, found by identity (no tab-list read).
         let daemon = tabs.daemonListing(tab)
         guard daemon?.isLocal != false else { return false }

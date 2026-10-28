@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
+    /// for the same raw id is never its (`hub/presence.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -316,6 +319,11 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+    /// This daemon's own chats this connection is attached to.
+    fn local_attached_ids(&self) -> Vec<String> {
+        let subs = self.subs.lock_or_recover();
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
+    }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
@@ -338,10 +346,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -814,6 +818,9 @@ pub async fn serve_ws_with(
             {
                 return;
             }
+            // Binary frames are upload data (`upload_frames.rs`), written in order by their own
+            // worker; it refuses them on any connection but the local app's.
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
             let reader = tokio::spawn(async move {
                 while let Some(frame) = source.next().await {
                     let frame = match frame {
@@ -824,9 +831,16 @@ pub async fn serve_ws_with(
                             break;
                         }
                     };
-                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
-                        && in_tx.send(t.to_string()).await.is_err()
-                    {
+                    let sent = match frame {
+                        // After the frames before it are written (`upload_frames::InFlight`).
+                        tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            frames.in_flight.drained().await;
+                            in_tx.send(t.to_string()).await.is_ok()
+                        }
+                        tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                        _ => true,
+                    };
+                    if !sent {
                         break;
                     }
                 }
@@ -990,7 +1004,7 @@ async fn serve_http(
         if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
             ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
         } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
+            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to open it with its token (<code>acpmux web --no-open --show-token</code> prints the link).</p>".to_owned(), "text/html; charset=utf-8")
         }
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
@@ -1193,7 +1207,11 @@ async fn serve_connection_from(
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
+                        Err(mut e) => {
+                            // What kind of failure, and what to do (`recovery.rs`).
+                            crate::recovery::annotate(&mut e, None);
+                            Message::err(id, e)
+                        }
                     });
                 });
             }
@@ -1459,6 +1477,8 @@ mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+use lane_parent::lane_parent;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -1477,6 +1497,7 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 mod routes;
@@ -1485,8 +1506,10 @@ mod session_files;
 mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
+pub mod upload_frames;
 mod view;
-mod wait;
+mod vm_host;
+pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
@@ -1731,3 +1754,7 @@ mod outbound_queue_tests {
         assert!(matches!(gap, Message::Notification { method, .. } if method == "_acpmux/lagged"));
     }
 }
+
+/// Owner-only TLS ingress from the embedded tailnet node.
+#[cfg(all(unix, feature = "tailnet"))]
+pub mod tailnet_ingress;

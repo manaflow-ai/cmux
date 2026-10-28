@@ -21,6 +21,8 @@ public import MessagesLabHome
 public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    var starterSent = false
+    var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
     /// This conversation's part of the store: chained refusal and
     /// unanswered callbacks, attachment bytes, Cancel Upload.
@@ -53,7 +55,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
-        didSet { transcript.isSendEnabled = isSendEnabled }
+        didSet { transcript.isSendEnabled = isSendEnabled; updateStarterAvailability() }
     }
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking = false {
@@ -164,6 +166,7 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
+        firstRun.starters.onSend = { [weak self] prompt in self?.sendStarter(prompt) }
         firstRun.switchCard.onHide = { [weak self] in
             self?.firstRun.switchCard.apply(nil)
             self?.firstRun.needsLayout = true
@@ -175,6 +178,7 @@ public final class HomeNativeTranscriptView: NSView {
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
+        followZoom()
         followBubbleStyle()
         followHeroTunable()
         followChiefPet()
@@ -249,6 +253,12 @@ public final class HomeNativeTranscriptView: NSView {
     public var avatarText: String? {
         get { transcript.avatarText }
         set { transcript.avatarText = newValue }
+    }
+
+    /// The header's name (a Chief's own name, its record's); nil shows the conversation's title.
+    public var headerTitle: String? {
+        get { transcript.headerTitle }
+        set { transcript.headerTitle = newValue }
     }
 
     /// The header avatar's picture, over its text; nil shows the text.
@@ -337,14 +347,26 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The live interface scale applies to the native first-run chrome. The
+    /// The live interface scale applies to the native first-run chrome, times the Chief chat's zoom
+    /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
-            applyTextScale(Typography.userScale)
+            applyTextScale(Typography.userScale * DesignSettings.shared.agentPaneZoom)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
+    }
+
+    /// Agent Chat Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
+    /// is drawn at it, live, as an agent chat is.
+    private func followZoom() {
+        withObservationTracking {
+            transcript.zoom = DesignSettings.shared.agentPaneZoom
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followZoom() }
+        }
+        needsLayout = true
     }
 
     /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.

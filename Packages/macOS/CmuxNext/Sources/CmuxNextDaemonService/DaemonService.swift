@@ -468,6 +468,8 @@ public final class DaemonService {
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
 
     public func shutdownConnection() {
+        // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
+        recovery.detach()
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
         pathMonitor?.cancel()

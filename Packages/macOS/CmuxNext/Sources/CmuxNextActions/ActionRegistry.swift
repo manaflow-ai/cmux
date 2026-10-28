@@ -49,6 +49,13 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// More keys for an action than its override (`{"any": [...]}` in
+    /// cmux.json): each one key or a two-key chord, all running it too. The
+    /// override stays the key menus show; replacing it clears these.
+    public internal(set) var alternateShortcuts: [ActionID: [[Shortcut]]] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
     /// App and keybindings.json entries, after the defaults and cmux.json (`KeyBindingLoader`).
     public internal(set) var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
 
@@ -56,6 +63,10 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
+    /// leaves the palette, menus and context menus, and a run is refused with this reason (the
+    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -319,7 +330,8 @@ public final class ActionRegistry {
     /// required context is present, and it is not debug-only without developer tools (`DevTools`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
-        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && Self.isAvailable(descriptor, in: context ?? self.context)
+        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && settingOffReason(descriptor.id) == nil
+            && Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target

@@ -5,28 +5,26 @@
 //! 0. the value MDM or the team policy forces for the cmux setting
 //!    `agents.defaultPermissionMode`, which the app pushes
 //!    (`start_mode_state.rs`): an administrator's choice beats everything
-//!    below, picks included. A forced value this build does not know is
-//!    `standard`, never full access;
-//! 1. the person's latest mode pick in any chat (config.json
-//!    `lastPermissionMode`: `fullAccess`, `standard` or `ask`, written by
-//!    `note_mode_pick` from the app pane only), while no change to the cmux
-//!    setting has been counted since the pick (`lastPermissionModeChange`,
-//!    `start_mode_state.rs`): a change to the setting after the pick is the
-//!    person's latest choice, so it wins, also when it is changed back
-//!    (Leo 2026-10-18: users set their own default). One pick for every harness
-//!    and model (Lawrence 2026-10-14: "should just apply to the ones going
-//!    forward, all harnesses/models, should always use the latest user
-//!    selected one"); chats that exist keep their mode;
-//! 2. acpmux config.json `defaultPermissionMode` (acpmux without the app,
+//!    below. A forced value this build does not know is `standard`, never
+//!    full access;
+//! 1. acpmux config.json `defaultPermissionMode` (acpmux without the app,
 //!    tests), else the cmux setting `agents.defaultPermissionMode` (the
-//!    settings file, `user_settings.rs`): `fullAccess` (the default), `standard` (the
-//!    harness's own start mode: acpmux sets nothing) or `ask` (the mode
-//!    that asks before each change, `web_modes::ASKING_MODES`, else `ask`);
-//! 3. full access: the harness's own mode that skips every approval
+//!    settings file, `user_settings.rs`, else the value the app pushed):
+//!    `fullAccess` (the default), `standard` (the harness's own start mode:
+//!    acpmux sets nothing) or `ask` (the mode that asks before each change,
+//!    `web_modes::ASKING_MODES`, else `ask`);
+//! 2. full access: the harness's own mode that skips every approval
 //!    (`FULL_ACCESS_MODES`: Claude Code `bypassPermissions`, the Codex
 //!    bridge `agent-full-access` = approval never + danger-full-access,
 //!    `yolo` where a harness names it so). A harness with no such mode keeps
 //!    its own start mode.
+//!
+//! A mode picked in a chat holds for that chat only; new chats keep starting
+//! in the default (Leo 2026-10-21: "i think starting in full access is ok cuz
+//! the default for new chats != whatever u just temp set in an existing
+//! running chat"). The default changes only where it is set: Settings, the
+//! settings file, MDM or the team policy, or config.json. A
+//! `lastPermissionMode` an older build saved in config.json is ignored.
 //!
 //! acpmux sets it with `session/set_mode` once the harness is up. Like the
 //! start model it is soft: a refusal is logged (`start_default_skipped`)
@@ -36,8 +34,7 @@
 //! adopted conversation, and a profile that pins its mode in its argv
 //! (`profile_sets_mode`).
 //!
-//! Only the person widens a mode later (`hub/person.rs`). A pick is saved
-//! as its level, so it maps onto every harness's own mode ids.
+//! Only the person widens a mode later (`hub/person.rs`).
 //!
 //! Inherit (Leo 2026-10-25: "shouldn't sub-agents just inherit the bypass
 //! permission situation?"): a chat an agent starts, by `session/new` from
@@ -75,7 +72,6 @@
 //! socket since before this).
 
 use super::*;
-use crate::config::PermissionModeChange;
 
 /// The mark on a watchers' harness-feed payload that is a start-mode notice.
 pub(crate) const START_MODE_NOTE: &str = "startModeChanged";
@@ -87,11 +83,8 @@ pub const SETTING: &str = "agents.defaultPermissionMode";
 pub(crate) const FULL_ACCESS_MODES: [&str; 4] =
     ["bypassPermissions", "agent-full-access", "full-access", "yolo"];
 
-/// Mode ids that are a temporary toggle, never a saved pick.
+/// Mode ids that are a temporary toggle, never inherited by a sub-session.
 const TOGGLE_MODES: [&str; 1] = ["plan"];
-
-/// The longest mode id a pick saves.
-const MAX_MODE: usize = 128;
 
 /// `agents.defaultPermissionMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,12 +162,11 @@ impl DefaultMode {
     }
 }
 
-/// What chose a start level: a value policy forces, the person's latest
-/// pick, config.json, the cmux setting, or nothing (full access).
+/// What chose a start level: a value policy forces, config.json, the cmux
+/// setting, or nothing (full access).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
     Managed,
-    Pick,
     Config,
     Settings,
     Default,
@@ -184,7 +176,6 @@ impl Source {
     fn as_str(self) -> &'static str {
         match self {
             Self::Managed => "managed",
-            Self::Pick => "pick",
             Self::Config => "config",
             Self::Settings => "settings",
             Self::Default => "default",
@@ -209,19 +200,14 @@ pub(crate) fn setting_snapshot() -> Option<String> {
 }
 
 /// The level a new chat starts at (module docs): the forced value
-/// (`managed`), else the latest pick (config.json `lastPermissionMode`)
-/// while the setting's change count is the one recorded with it
-/// (`picked_at`, `now`), else `DefaultMode::resolve` (with `pushed`). The
-/// person's latest choice wins, whether it is a pick in a chat or a change to
-/// the setting. With `sessions.allowFullAccess` off, full access starts as
-/// Standard, whatever chose it.
+/// (`managed`), else `DefaultMode::resolve` (with `pushed`). With
+/// `sessions.allowFullAccess` off, full access starts as Standard, whatever
+/// chose it.
 fn start_level(
     managed: Option<&str>,
-    picked: Option<&str>,
-    picked_at: Option<&PermissionModeChange>,
-    now: &PermissionModeChange,
     configured: Option<&str>,
     pushed: Option<&str>,
+    allowed: bool,
 ) -> (DefaultMode, Source) {
     let (level, source) = if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
@@ -233,13 +219,10 @@ fn start_level(
         });
         (level, Source::Managed)
     } else {
-        match picked.and_then(DefaultMode::parse) {
-            Some(level) if configured.is_some() || picked_at == Some(now) => (level, Source::Pick),
-            _ => DefaultMode::resolve(configured, pushed),
-        }
+        DefaultMode::resolve(configured, pushed)
     };
     // `sessions.allowFullAccess` off: no chat starts in a mode that skips every approval.
-    if level == DefaultMode::FullAccess && !full_access_allowed() {
+    if level == DefaultMode::FullAccess && !allowed {
         return (DefaultMode::Standard, source);
     }
     (level, source)
@@ -249,9 +232,10 @@ fn start_level(
 /// Sessions, "Allow Full-Access Modes").
 pub const ALLOW_FULL_ACCESS: &str = "sessions.allowFullAccess";
 
-/// Whether a mode that skips every approval may run now: yes unless the settings file turns
-/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no).
-pub fn full_access_allowed() -> bool {
+/// Whether the settings file lets a mode that skips every approval run: yes unless it turns
+/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no). The
+/// effective answer is `Hub::full_access_allowed` (`full_access_bound.rs`), which MDM can lower.
+pub(super) fn file_allows_full_access() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
@@ -298,9 +282,9 @@ pub(crate) fn is_full_access(mode: &str) -> bool {
 }
 
 /// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
-/// saved one skips every approval and `sessions.allowFullAccess` is off.
-pub(crate) fn resumable_mode(saved: String, fallback: &str) -> String {
-    if is_full_access(&saved) && !full_access_allowed() { fallback.to_owned() } else { saved }
+/// saved one skips every approval and `sessions.allowFullAccess` is off (`allowed`).
+pub(crate) fn resumable_mode(saved: String, fallback: &str, allowed: bool) -> String {
+    if is_full_access(&saved) && !allowed { fallback.to_owned() } else { saved }
 }
 
 /// Whether a session request switches into a full-access mode: `session/set_mode` to one, or
@@ -425,8 +409,10 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
 }
 
 /// Modes that ask (or only read) on harnesses the asking table leaves out:
-/// the Codex bridge's `ask` and `read-only`.
-const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
+/// the Codex bridge's `ask` and `read-only`. The start gate takes them on the
+/// bridge alone (`start_gate.rs`): the codex-acp adapter's `read-only` writes
+/// in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+pub(super) const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
 
 /// The level of mode `mode` on a harness of `family`: a full-access mode,
 /// a mode that asks before each change (`asking`: the merged asking table's
@@ -533,7 +519,7 @@ impl Hub {
         offered: &[String],
     ) -> Option<String> {
         let family = crate::web_modes::family_of(meta);
-        let allowed = full_access_allowed();
+        let allowed = self.full_access_allowed();
         if crate::web_modes::family_of(theirs) == family
             && let Some(mode) = crate::web_modes::mode_of(theirs)
             && offered.contains(&mode)
@@ -598,10 +584,11 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
-        if !is_full_access(&current) || full_access_allowed() {
+        if !is_full_access(&current) || off.allows_full_access() {
             return Ok(());
         }
         let family = crate::web_modes::family_of(&meta);
@@ -633,19 +620,24 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         profile: &HarnessProfile,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
+        let mut refused = None;
         if !profile_sets_mode(profile)
-            && let Err(e) = self.leave_full_access_if_off(session, child).await
+            && let Err(e) = self.leave_full_access_if_off(session, child, off).await
         {
-            if let Some(started) = session.child.lock().await.take() {
-                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
-            }
-            // A host that outlived the grace would be re-adopted, still in full access.
-            if Self::host_record_live(&session.id) {
-                self.end_unadopted_host(session).await;
-            }
-            self.set_status(session, SessionStatus::Idle);
-            self.append(session, "mux", "full_access_refused", json!({}));
+            refused = Some(e);
+        }
+        // MDM forces full access off (#23322): a start still in it by any form acpmux sees (a
+        // config option, a mode its harness reports without declaring modes) is refused too.
+        if refused.is_none() && self.managed_off_runs_full_access(off, session) {
+            refused = Some(full_access_off());
+        }
+        // Whether MDM's off stops it is the start's one read of the off (`off`), taken before the
+        // mode change above awaited: an unset that landed meanwhile does not make it the person's
+        // own off (review 2 of #26257).
+        if let Some(e) = refused {
+            self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
@@ -653,49 +645,58 @@ impl Hub {
         Ok(())
     }
 
+    /// Stops `session`'s agent, which runs in a full access the setting does not allow; the chat
+    /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
+    /// off stops it (now, or one that held as the agent started).
+    pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
+        // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
+        // or option report it still has queued is not applied to the agent after it, and none it
+        // sent is counted. With MDM unset nothing changes.
+        let started = {
+            let mut slot = session.child.lock().await;
+            let started = slot.take();
+            if let Some(started) = started.as_ref().filter(|_| managed) {
+                session.floor.retired_through.fetch_max(started.generation, Ordering::SeqCst);
+            }
+            started
+        };
+        if managed && started.is_some() {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
+        if let Some(started) = started {
+            // Bounded: a host whose link stopped reading never takes the terminate; it is then
+            // ended by its nonce below (review 31 of #23322).
+            let grace = super::shutdown::SHUTDOWN_GRACE;
+            if tokio::time::timeout(grace * 2, started.terminate(grace)).await.is_err() {
+                tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
+            }
+        }
+        // A host that outlived the grace would be re-adopted, still in full access.
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        self.set_status(session, SessionStatus::Idle);
+        self.append(session, "mux", "full_access_refused", json!({}));
+    }
+
     /// The level new chats start at now, and what chose it.
     async fn start_level(&self) -> (DefaultMode, Source) {
-        let (mut state, mut picked, mut picked_at, legacy, configured) = {
+        let (state, configured) = {
             let cfg = self.config.read().await;
             let path = super::start_mode_state::state_file(&cfg);
             (
                 self.update_start_mode_state(path.as_deref(), |_| {}).1,
-                cfg.last_permission_mode.clone(),
-                cfg.last_permission_mode_change.clone(),
-                cfg.last_permission_mode_setting.clone(),
                 cfg.default_permission_mode.clone(),
             )
         };
-        // A pick from before acpmux counted changes (an upgrade): it wins
-        // until the next change, so record the count now. An older build's
-        // record of the setting at the pick that is not the setting now means
-        // the setting changed after the pick: the pick is spent.
-        if picked.is_some() && picked_at.is_none() {
-            let spent = legacy.is_some_and(|then| then != setting_snapshot().unwrap_or_default());
-            let mut cfg = self.config.write().await;
-            let path = super::start_mode_state::state_file(&cfg);
-            state = self.update_start_mode_state(path.as_deref(), |_| {}).1;
-            if cfg.last_permission_mode == picked && cfg.last_permission_mode_change.is_none() {
-                if spent {
-                    cfg.last_permission_mode = None;
-                } else {
-                    cfg.last_permission_mode_change = Some(state.mark());
-                }
-                cfg.last_permission_mode_setting = None;
-                if let Err(e) = cfg.save() {
-                    tracing::warn!("permission pick's change count not saved to config.json: {e}");
-                }
-            }
-            picked = cfg.last_permission_mode.clone();
-            picked_at = cfg.last_permission_mode_change.clone();
-        }
         start_level(
             state.managed.as_deref(),
-            picked.as_deref(),
-            picked_at.as_ref(),
-            &state.mark(),
             configured.as_deref(),
             state.pushed.as_deref(),
+            self.full_access_allowed(),
         )
     }
 
@@ -706,7 +707,8 @@ impl Hub {
     /// `modeId` is null when acpmux would set no mode: the chat is not
     /// eligible, the level keeps the harness's own mode, or the harness's
     /// modes are not known yet (no chat of it in this daemon, and not
-    /// acpmux's own Claude backend).
+    /// acpmux's own Claude backend). `fullAccess: "managed"` while MDM or the team policy forces
+    /// `sessions.allowFullAccess` off.
     pub async fn start_mode_answer(
         &self,
         harness: Option<String>,
@@ -724,6 +726,14 @@ impl Hub {
         }
         // As session/new: harness discovery and launcher checks finish first.
         self.wait_startup().await;
+        // MDM or the team policy forces full access off: every answer says so, for the mode menu.
+        let managed_off = self.full_access_managed_off();
+        let mark = |mut answer: Value| {
+            if managed_off {
+                answer["fullAccess"] = json!("managed");
+            }
+            answer
+        };
         let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
@@ -751,28 +761,28 @@ impl Hub {
         if let Some(policy) = policy {
             let mode = super::policy_mode::policy_mode(policy, &family, &ids);
             if mode.is_none() {
-                return Ok(none);
+                return Ok(mark(none));
             }
-            return Ok(json!({
+            return Ok(mark(json!({
                 "harness": agent,
                 "modeId": mode,
                 "name": name_of(&mode),
                 "level": DefaultMode::Ask.as_str(),
                 "source": "policy",
-            }));
+            })));
         }
         if !eligible {
-            return Ok(none);
+            return Ok(mark(none));
         }
         let (level, source) = self.start_level().await;
         let mode = mode_for(level, &family, &ids);
-        Ok(json!({
+        Ok(mark(json!({
             "harness": agent,
             "modeId": mode,
             "name": name_of(&mode),
             "level": level.as_str(),
             "source": source.as_str(),
-        }))
+        })))
     }
 
     /// The modes harness profile `agent` offers, as its newest chat in this
@@ -798,60 +808,6 @@ impl Hub {
                 Vec::new()
             }
         })
-    }
-
-    /// `session/set_mode` from a client. From the app pane (`pick`), once
-    /// the harness takes it, its level is the start mode of every new chat.
-    pub async fn client_set_mode(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        mode: &str,
-        pick: bool,
-    ) -> Result<Value, RpcError> {
-        let r = self.set_mode(session, mode).await?;
-        if pick {
-            self.note_mode_pick(session, mode).await;
-        }
-        Ok(r)
-    }
-
-    /// Saves the level of a mode pick on `session` as the start mode of
-    /// every new chat (config.json `lastPermissionMode`). Not for a preset's
-    /// chat, a remote-origin chat, a toggle such as Plan, or a profile that
-    /// pins its mode.
-    pub(super) async fn note_mode_pick(&self, session: &Session, mode: &str) {
-        let meta = session.meta();
-        if meta.preset.is_some()
-            || meta.remote_origin
-            || mode.is_empty()
-            || mode.len() > MAX_MODE
-            || TOGGLE_MODES.contains(&mode)
-        {
-            return;
-        }
-        let family = crate::web_modes::family_of(&meta);
-        let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
-        let mut cfg = self.config.write().await;
-        if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
-            return;
-        }
-        // The setting's change count now, read under the config lock so a
-        // push counted before this pick is saved never spends it.
-        let path = super::start_mode_state::state_file(&cfg);
-        let changes = Some(self.update_start_mode_state(path.as_deref(), |_| {}).1.mark());
-        if cfg.last_permission_mode.as_deref() == Some(level)
-            && cfg.last_permission_mode_change == changes
-        {
-            return;
-        }
-        cfg.last_permission_mode = Some(level.to_owned());
-        cfg.last_permission_mode_change = changes;
-        cfg.last_permission_mode_setting = None;
-        if let Err(e) = cfg.save() {
-            tracing::warn!("mode pick not saved to config.json: {e}");
-        }
-        drop(cfg);
-        self.start_mode_changed();
     }
 
     /// Tells local watchers a new chat's start mode may have changed

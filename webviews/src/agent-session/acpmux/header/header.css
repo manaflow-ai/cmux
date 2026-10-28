@@ -1,31 +1,32 @@
 /* The chat header's tools (header/ChatHeaderTools.tsx), as Claude Code desktop's top strip draws them (Leo 2026-10-21:
    "why do you still have this spacing and these separators"): 24px square buttons on a 26px pitch with no separators,
    one 16px glyph size (HEADER_GLYPH), nothing on press (composer-no-hover-highlight). In the chat header's row they are
-   plain glyphs with no fill, border or shadow of their own in any state (Leo 2026-10-25: "why do the icons have their
-   own background border situation instead of just being, you know, good"): muted at rest, the text's ink on hover,
-   while a menu is open and while a toggle's panel is open; the 24px square stays the hit target. The "..." menu
+   plain glyphs with no fill, border or shadow of their own at rest or on hover (Leo 2026-10-25: "why do the icons have
+   their own background border situation instead of just being, you know, good"): muted at rest, the text's ink on
+   hover, while a menu is open and while a toggle's panel is open; the 24px square stays the hit target. The "..." menu
    (src/ui Menu) sits on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
 .acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
-.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-header-symbol{display:inline-block;flex:none;background:currentColor;pointer-events:none}
+.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-header-tools .acpmux-header-tool{color:var(--agent-muted);transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
-/* On: a toggle whose panel is open (aria-pressed, cx-00n1): the text's ink, and the panel toggle's glyph its filled form. */
+/* On: toggles use the text's ink; HeaderIcon gives the selected panel glyph accent ink, without a backdrop. */
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text)}
 /* Start Agent's floating chat (FloatingChat.tsx) borrows the tool's square and keeps its soft tint on hover and while on. */
 .acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
 .acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
-.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
-.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none;letter-spacing:var(--text-control--letter-spacing)}
+.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:var(--text-detail);line-height:18px}
+.acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
 /* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
    (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the
@@ -43,33 +44,16 @@
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */
 .acpmux-header-status-slot{position:relative;flex:1 1 0;min-width:0;height:26px}
-.acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden}
+.acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The Environment line (EnvironmentLine.tsx): Left's machine · folder · branch row below the tab
-   row, as quiet metadata. Right stays in the existing header slot. */
-.acpmux-env-line{position:absolute;inset:0 auto 0 0;display:flex;align-items:center;gap:5px;max-width:100%;box-sizing:border-box;margin:0;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);white-space:nowrap;overflow:hidden;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-environment-row{display:flex;align-items:center;flex:none;min-width:0;min-height:var(--ui-row-height);padding:0 8px;box-sizing:border-box;pointer-events:none}
-.acpmux-environment-row>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;width:auto;max-width:100%;min-height:var(--ui-row-height);pointer-events:auto}
-/* The glyph and the names center on one line: a block glyph, and a line box tall enough for descenders. */
-.acpmux-env-line>svg{flex:none;display:block}
-.acpmux-env-line>span{line-height:16px}
-.acpmux-env-line__machine,.acpmux-env-line__folder,.acpmux-env-line__branch{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.acpmux-env-line__machine{flex:0 1000 auto}
-.acpmux-env-line__folder{flex:0 1 auto}
-.acpmux-env-line__branch{flex:0 10 auto}
-.acpmux-env-line__dot{flex:none}
-button.acpmux-env-line:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
-button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-/* In the pane's tab row it leads the tools: in the row's flow, never wider than a few tabs. */
-.acpmux-env-line.acpmux-env-line--compact{position:static;inset:auto;flex:0 1 auto;max-width:220px;height:24px;margin-right:4px;padding:0 4px}
-/* The tools after the Environment line (App.tsx): the Needs you inbox and the header tools on the same pitch. */
+/* The Needs you inbox and the header tools share one pitch. */
 .acpmux-header .acpmux-handoff-header-tools{flex:none;gap:2px}
 /* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
 .acpmux-header-customize{display:contents}
 .acpmux-header-customize-check{display:inline-block;width:1.2em}
 /* The pull request chip (cx-tcwj): its number, the icon colored by its state, a dot by its checks. */
-.acpmux-header-tool.acpmux-header-pr{width:auto;gap:3px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums;text-decoration:none}
+.acpmux-header-tool.acpmux-header-pr{width:auto;gap:3px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums;text-decoration:none;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-pr[data-state=open]>svg{color:var(--agent-status-success)}
 .acpmux-header-pr[data-state=merged]>svg{color:var(--agent-status-merged)}
 .acpmux-header-pr[data-state=closed]>svg{color:var(--agent-status-failure)}
@@ -77,14 +61,14 @@ button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outli
 .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
 .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
 /* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
-.acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap}
+.acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
 .acpmux-worktree-status{width:280px}
-.acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere}
-.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-worktree-apply button:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-worktree-apply button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px}
 .acpmux-worktree-apply button:disabled{color:var(--agent-muted)}
@@ -95,11 +79,11 @@ button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outli
 .acpmux-worktree-apply button.acpmux-worktree-remove-discard{color:var(--agent-status-failure)}
 /* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
    check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
-.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
+.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none;letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-pr-title{display:block;padding:0 6px;color:var(--agent-text);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
 .acpmux-pr-title:hover{text-decoration:underline}
 .acpmux-pr-title:focus-visible,.acpmux-pr-check>a:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px;border-radius:4px}
-.acpmux-pr-facts{display:flex;flex-wrap:wrap;gap:4px 8px;padding:2px 6px 6px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-pr-facts{display:flex;flex-wrap:wrap;gap:4px 8px;padding:2px 6px 6px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-state[data-state=open]{color:var(--agent-status-success)}
 .acpmux-pr-state[data-state=merged]{color:var(--agent-status-merged)}
 .acpmux-pr-state[data-state=closed],.acpmux-pr-conflicts,.acpmux-pr-review[data-review=changes_requested]{color:var(--agent-status-failure)}
@@ -111,15 +95,15 @@ button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outli
 .acpmux-pr-check[data-state=failed]::before{background:var(--agent-status-failure)}
 /* A failure the base branch's tip has too (headerState `onBase`): not this pull request's to fix, so its dot is a warning and the row says so. */
 .acpmux-pr-check[data-state=failed][data-on-base]::before{background:var(--agent-status-warning)}
-.acpmux-pr-check__onBase{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-pr-check__onBase{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
 /* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
 /* Sticky, so Merge stays in reach under a long check list. */
-.acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--surface-popup);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
+.acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--surface-popup);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-merge-buttons{display:flex;justify-content:flex-end;gap:6px}
-.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-pr-merge button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-pr-merge button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-pr-merge button[aria-disabled=true]{opacity:.6}
@@ -136,4 +120,4 @@ button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outli
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */
 .acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
-.acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}
+.acpmux-header[data-tab-row]::after{content:none}

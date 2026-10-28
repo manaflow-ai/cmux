@@ -145,6 +145,14 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
             ),
             SettingDescriptor(
+                WallpaperTintSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help",
+                                        "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."),
+                kind: .toggle, default: .bool(WallpaperTintSetting.fallback),
+                keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
+            ),
+            SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
                 help: SettingsText.keyed("settings.appearance.glassTransparency.help",

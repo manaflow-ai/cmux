@@ -91,6 +91,13 @@ pub struct AttachResult {
     /// More records lie beyond this page.
     pub has_more: bool,
     pub last_seq: u64,
+    /// How far the page holds: every record of the kinds asked from the page's first one up to it
+    /// is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The
+    /// log's last seq, read before the page, for the newest page; a page of older records
+    /// (`beforeSeq`) or a forward one with more to read holds only to its own last record.
+    pub page_through: u64,
+    /// Who has the chat open now, this attachment included (`hub/presence.rs`).
+    pub presence: super::presence::PresenceNote,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -115,6 +122,13 @@ pub struct EventsResult {
     pub events: Vec<SessionEvent>,
     pub has_more: bool,
     pub last_seq: u64,
+    /// How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the
+    /// page (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads
+    /// to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
+    pub page_through: u64,
+    /// The session the page is of (its `createdAt`): a session recreated under the same id while
+    /// the page was asked is another journal (`hub/peer_snapshot.rs`).
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -131,6 +145,10 @@ pub struct ViewParams {
     pub session_id: String,
     /// The attached client shows the chat (`hub/seen.rs`).
     pub visible: bool,
+    /// An author changes only that person's presence (`hub/presence.rs`), not whether the
+    /// chat counts as shown.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
 }
 
 /// An acknowledgement with nothing in it.
