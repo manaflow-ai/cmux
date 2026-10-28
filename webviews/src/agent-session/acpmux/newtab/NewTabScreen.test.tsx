@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import type { ComponentProps } from "react";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { NewTabScreen } from "./NewTabScreen";
 
@@ -295,4 +296,188 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
   expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+});
+
+type AddProps = Partial<ComponentProps<typeof NewTabScreen>> & {
+  capture?: (mode: "screen" | "window") => Promise<File | undefined>;
+  onPlusMode?: (pick: {
+    harness: string;
+    modeId: string;
+    cwd?: string;
+    model?: string;
+    peer?: string;
+  }) => Promise<void>;
+};
+async function addPage(props: AddProps = {}) {
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        upload={async (files) => ({ paths: files.map((file) => `/tmp/${file.name}`) })}
+        {...props}
+      />,
+    ),
+  );
+}
+async function draft(value: string) {
+  await act(async () => {
+    const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+}
+async function stageFile() {
+  const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [new dom!.window.File(["keep"], "keep.txt", { type: "text/plain" })],
+  });
+  await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
+}
+async function openAdd() {
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!.click(),
+  );
+}
+async function chooseAdd(id: string) {
+  const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+  expect(row).toBeTruthy();
+  await act(async () =>
+    row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+}
+
+test("New Tab capture cancel preserves the draft; a window capture stages through the existing intake", async () => {
+  const captured: string[] = [];
+  const asks: unknown[][] = [];
+  await addPage({
+    capture: async (mode) => {
+      captured.push(mode);
+      return mode === "screen" ? undefined : new dom!.window.File(["window"], "window.txt", { type: "text/plain" });
+    },
+    onAsk: (...args) => asks.push(args),
+  });
+  await draft("Keep the whole draft");
+  await stageFile();
+  await openAdd();
+  await chooseAdd("add.screenshot");
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("Keep the whole draft");
+  expect(container.textContent).toContain("keep.txt");
+  await openAdd();
+  await chooseAdd("add.window");
+  expect(captured).toEqual(["screen", "window"]);
+  expect(container.textContent).toContain("window.txt");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks[0]?.[1]).toBe("Keep the whole draft");
+  expect(asks[0]?.[5]).toEqual([
+    expect.objectContaining({ path: "/tmp/keep.txt" }),
+    expect.objectContaining({ path: "/tmp/window.txt" }),
+  ]);
+});
+
+test("New Tab Add uses the project chooser and leaves text and attachments alone on cancel or refusal", async () => {
+  const asks: unknown[][] = [];
+  let choice: string | undefined;
+  let refuse = false;
+  await addPage({
+    onBrowseProject: async () => {
+      if (refuse) throw new Error("Folder unavailable");
+      return choice;
+    },
+    onAsk: (...args) => asks.push(args),
+  });
+  await draft("Do this after choosing");
+  await stageFile();
+  await openAdd();
+  await chooseAdd("add.project");
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("Do this after choosing");
+  refuse = true;
+  await openAdd();
+  await chooseAdd("add.project");
+  expect(container.textContent).toContain("Folder unavailable");
+  expect(container.textContent).toContain("keep.txt");
+  refuse = false;
+  choice = "/chosen";
+  await chooseAdd("add.project");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks[0]?.slice(0, 3)).toEqual(["claude", "Do this after choosing", "/chosen"]);
+  expect(asks[0]?.[5]).toEqual([expect.objectContaining({ path: "/tmp/keep.txt" })]);
+});
+
+test("New Tab Plan uses the selected harness, model and folder without sending or replacing the draft", async () => {
+  const picks: unknown[] = [];
+  const asks: unknown[][] = [];
+  await addPage({
+    cwd: "/chosen",
+    startCwd: "/chosen",
+    snapshot: noChat([], {
+      summary: {
+        sessionId: "deferred",
+        harness: "claude",
+        model: "claude-opus-5-5",
+        cwd: "/chosen",
+        modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+      },
+    }),
+    onPlusMode: async (pick) => {
+      picks.push(pick);
+    },
+    onAsk: (...args) => asks.push(args),
+  });
+  await draft("Unsent plan draft");
+  await stageFile();
+  await openAdd();
+  await chooseAdd("add.mode.plan");
+  expect(picks).toEqual([{ harness: "claude", modeId: "plan", cwd: "/chosen", model: "claude-opus-5-5" }]);
+  expect(asks).toEqual([]);
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("Unsent plan draft");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks[0]?.[0]).toBe("claude");
+  expect(asks[0]?.[3]).toBe("claude-opus-5-5");
+  expect(asks[0]?.[5]).toEqual([expect.objectContaining({ path: "/tmp/keep.txt" })]);
+});
+
+test("New Tab advertised skills and goals preserve the entire draft as arguments and keep attachments", async () => {
+  const asks: unknown[][] = [];
+  await addPage({
+    snapshot: noChat([], {
+      summary: { sessionId: "deferred", harness: "claude" },
+      commands: [
+        { name: "review", description: "Review the draft", source: "skill" },
+        { name: "goal", description: "Keep pursuing the draft", source: "agent" },
+      ],
+    }),
+    onAsk: (...args) => asks.push(args),
+  });
+  const original = "before \uFFFCfixture\uFFFC after\nsecond paragraph";
+  await draft(original);
+  container.querySelector<HTMLTextAreaElement>(".nt-field")!.setSelectionRange(3, 3);
+  await stageFile();
+  await openAdd();
+  await chooseAdd("add.skill.review");
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe(`/review ${original}`);
+  await openAdd();
+  await chooseAdd("add.goal");
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe(`/goal /review ${original}`);
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks[0]?.[1]).toBe(`/goal /review ${original}`);
+  expect(asks[0]?.[5]).toEqual([expect.objectContaining({ path: "/tmp/keep.txt" })]);
+});
+
+test("New Tab omits unavailable capture, project, Plan and stale unbound skill actions", async () => {
+  await addPage({
+    snapshot: noChat([], { commands: [{ name: "old-harness-skill", description: "Stale command", source: "skill" }] }),
+  });
+  await openAdd();
+  expect(container.querySelector('[data-value="add.screenshot"]')).toBeNull();
+  expect(container.querySelector('[data-value="add.project"]')).toBeNull();
+  expect(container.querySelector('[data-value^="add.mode."]')).toBeNull();
+  expect(container.querySelector('[data-value^="add.skill."]')).toBeNull();
 });
