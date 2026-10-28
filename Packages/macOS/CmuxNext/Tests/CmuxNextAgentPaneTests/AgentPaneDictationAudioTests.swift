@@ -183,6 +183,56 @@ struct AgentPaneDictationAudioTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
+    /// Review of #26559 at 90725635 (P1): discard marked the recording finished under the lock and
+    /// queued its delete after releasing it, so a finish in between queued its answer first and
+    /// returned with the folder still there.
+    @Test func aFinishRacingADiscardStillWaitsForTheDelete() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let holder = RecordingHolder()
+        let folderAtAnswer = FolderSeen()
+        let recording = DictationAudioRecording(folder: folder, writer: DispatchQueue(label: "dictation-test-writer"), discardMarked: {
+            // The other caller's finish lands between discard's lock and its delete: what it sees
+            // when it answers is what a caller of `discard(); await finish()` relies on.
+            let done = DispatchSemaphore(value: 0)
+            Task.detached {
+                let audio = await holder.recording?.finish()
+                await folderAtAnswer.set(audio == nil, FileManager.default.fileExists(atPath: folder.path))
+                done.signal()
+            }
+            done.wait()
+        })
+        holder.recording = recording
+        feed(recording, seconds: 2)
+        await Task.detached { recording.discard() }.value
+        let seen = await folderAtAnswer.value
+        #expect(seen?.nothing == true)
+        #expect(seen?.folderThere == false, "the racing finish answered after the delete")
+    }
+
+    /// Review of #26559 at 90725635 (P3): the WAV header stored the data length in 32 bits, so a
+    /// recording past 4 GiB (about 37 hours) left a clamped, invalid header. Past 4 GiB the file
+    /// is RF64: the same 16 kHz mono PCM with 64-bit sizes in a ds64 chunk, and the samples stay
+    /// where they began.
+    @Test func aRecordingPast4GiBHasAnRF64Header() throws {
+        let field = { (data: Data, at: Int, size: Int) in data[at..<(at + size)].enumerated().reduce(0) { $0 | Int($1.element) << (8 * $1.offset) } }
+        let small = DictationAudioRecording.header(samples: 16_000)
+        #expect(String(decoding: small.prefix(4), as: UTF8.self) == "RIFF")
+        let samples = 2_500_000_000 // 5 GB of data
+        let big = DictationAudioRecording.header(samples: samples)
+        #expect(big.count == small.count, "the samples start at the same offset whatever the size")
+        #expect(String(decoding: big.prefix(4), as: UTF8.self) == "RF64")
+        #expect(field(big, 4, 4) == 0xFFFF_FFFF)
+        #expect(String(decoding: big[12..<16], as: UTF8.self) == "ds64")
+        let dataBytes = samples * 2
+        #expect(field(big, 28, 8) == dataBytes, "ds64 dataSize")
+        #expect(field(big, 20, 8) == big.count - 8 + dataBytes, "ds64 riffSize")
+        let dataAt = big.count - 8
+        #expect(String(decoding: big[dataAt..<(dataAt + 4)], as: UTF8.self) == "data")
+        #expect(field(big, dataAt + 4, 4) == 0xFFFF_FFFF)
+    }
+
     @Test func aDiscardedRecordingLeavesNoFile() async throws {
         let (recording, folder) = recording()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -232,4 +282,9 @@ private final class RecordingHolder: @unchecked Sendable {
 private actor FinishFlag {
     private(set) var value = false
     func set() { value = true }
+}
+
+private actor FolderSeen {
+    private(set) var value: (nothing: Bool, folderThere: Bool)?
+    func set(_ nothing: Bool, _ folderThere: Bool) { value = (nothing, folderThere) }
 }

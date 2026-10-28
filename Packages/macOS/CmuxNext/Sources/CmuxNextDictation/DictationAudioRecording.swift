@@ -77,6 +77,8 @@ public final class DictationAudioRecording: Sendable {
 
     /// Called after a tap took a full second for the file (tests interleave a finish there).
     private let flushTaken: (@Sendable () -> Void)?
+    /// Called after a discard marked the recording finished (tests interleave a finish there).
+    private let discardMarked: (@Sendable () -> Void)?
 
     /// A recording into `file` (made owner-only at the first second heard).
     public convenience init(file: URL) {
@@ -88,6 +90,7 @@ public final class DictationAudioRecording: Sendable {
         self.file = file
         folder = nil
         self.flushTaken = flushTaken
+        discardMarked = nil
     }
 
     /// A recording that owns `folder` (a fresh upload folder of the chat, made owner-only at the
@@ -98,8 +101,9 @@ public final class DictationAudioRecording: Sendable {
     }
 
     /// A recording that owns `folder`, writing on `writer` (tests hold it to order the steps).
-    init(folder: URL?, writer: DispatchQueue) {
+    init(folder: URL?, writer: DispatchQueue, discardMarked: (@Sendable () -> Void)? = nil) {
         self.writer = writer
+        self.discardMarked = discardMarked
         let folder = folder
             ?? FileManager.default.temporaryDirectory.appending(path: "cmux-dictation", directoryHint: .isDirectory)
             .appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
@@ -196,6 +200,7 @@ public final class DictationAudioRecording: Sendable {
     /// before it. A ``finish()`` after this answers nil once the file is gone.
     public func discard() {
         state.withLock { $0.finished = true }
+        discardMarked?()
         // A write or finish enqueued before this runs first; this one ends the file for good.
         writer.async {
             // Final: a later write or finish finds `failed` and keeps nothing.
