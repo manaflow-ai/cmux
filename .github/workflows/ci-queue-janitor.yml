@@ -38,6 +38,13 @@ name: CI queue janitor
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.
 #
+# A job queued over 3 minutes on a runner label that started nothing in that
+# time, while another label of its family (Blacksmith Linux, or owned and
+# Blacksmith macOS) did, is moved: its run is force-cancelled and re-run in the
+# same sweep, so runs-on is evaluated again against the current runner
+# variables. Never a started nightly, DEV or promote build, a running job's
+# run, or a release run (scripts/ci/dead_labels.py).
+#
 # It also alerts on starved fleet labels: a glaeda-* label with a job queued
 # over 10 minutes and no job on it running or started in that time
 # (scripts/ci/starved_labels.py). Each gets an ::error:: annotation, a summary
@@ -193,6 +200,13 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          # Where a re-run of a job goes now (scripts/ci/dead_labels.py): a dead label that is one of these is
+          # left for the overflow switch to move, since a re-run would queue on it again. Runner labels only.
+          DEAD_LABEL_LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          DEAD_LABEL_ROUTES: >-
+            ${{ vars.LINUX_RUNNER }} ${{ vars.CI_TRUSTED_RUNNER }} ${{ vars.MACOS_RUNNER_PR }}
+            ${{ vars.MACOS_RUNNER_26 }} ${{ vars.MACOS_RUNNER_DISPLAY }} ${{ vars.MACOS_RUNNER_IOS }}
+          MAX_REDISPATCH: ${{ vars.CI_JANITOR_MAX_REDISPATCH }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on

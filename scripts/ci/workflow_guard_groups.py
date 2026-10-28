@@ -153,6 +153,8 @@ PATH_OWNERS = {
     "scripts/ci/delivery_concurrency.py": frozenset(("release-notary",)),
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
+    # test_ci_dead_labels.py (ci) loads it by path; queue_janitor.py imports it.
+    "scripts/ci/dead_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/relocate_package_framework_rpaths.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),

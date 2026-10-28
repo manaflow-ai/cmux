@@ -785,6 +785,10 @@ path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_dead_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 

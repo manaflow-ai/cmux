@@ -752,6 +752,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_starved_labels.py
 
+      - name: Validate the dead runner label re-dispatch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_dead_labels.py
+
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py

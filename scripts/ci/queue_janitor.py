@@ -206,6 +206,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
+import dead_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
@@ -3258,6 +3259,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
                                    unclaimed=unclaimed))
 
+    dead = dead_labels.dead_labels(runs, jobs_by_run, now=now, evidence=evidence_jobs)
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -3297,6 +3299,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"queue-janitor: {error}", file=sys.stderr)
             print(render_rate_limits(github.rate_limits), file=sys.stderr)
             return 1
+        # Labels that stopped starting jobs while their family serves (dead_labels.py); the re-dispatch below acts
+        # on them, and the snapshot carries them for the overflow switch and anyone reading the queue.
+        snapshot["dead_labels"] = [item.as_json() for item in dead] if not unread else []
         if unread:
             # Read from every run but these: their jobs are missing, so a label one of them is running on
             # can look starved and one it waits on can look recovered. No starved-label issue is opened,
@@ -3405,11 +3410,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         superseded_decisions, superseded_failures = [], 1
     failures += superseded_failures
 
+    # Dead labels: a job queued past dead_labels.DEAD_AFTER on a label that started nothing in that time, while
+    # another label of its family did, is force-cancelled and re-run onto the current route, unless its run is a
+    # started nightly, DEV or promote build or otherwise protected (dead_labels.protected_reason()).
+    acted = ({candidate.run["id"] for candidate in plan.to_cancel()}
+             | {decision.orphan.run["id"] for decision in orphan_decisions if decision.action == "cancel"}
+             | {decision.run["id"] for decision in superseded_decisions if decision.action == "cancel"})
+    try:
+        max_redispatch = min(max(env_int("MAX_REDISPATCH", dead_labels.DEFAULT_MAX_REDISPATCH), 0),
+                             dead_labels.MAX_REDISPATCH_LIMIT)
+    except ValueError:
+        max_redispatch = dead_labels.DEFAULT_MAX_REDISPATCH
+    redispatch_decisions = dead_labels.plan(runs, jobs_by_run, dead, routes=dead_labels.routes_from_env(os.environ),
+                                            exclude=acted, max_runs=max_redispatch)
+    try:
+        redispatch_results, redispatch_failures = dead_labels.redispatch(github, redispatch_decisions,
+                                                                         dry_run=args.dry_run)
+    except RuntimeError as error:  # a rate limit: the next sweep sees what was cancelled
+        print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
+        redispatch_results, redispatch_failures = {}, 1
+    failures += redispatch_failures
+
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
     summary += render_superseded_summary(superseded_decisions)
+    summary += dead_labels.render_summary(dead, redispatch_decisions, redispatch_results)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(lost)} lost assignments, {len(unclaimed)} unclaimed legs, " \
                f"{head_reads} branch head reads, {len(evidence_jobs)} evidence job listings, " \
