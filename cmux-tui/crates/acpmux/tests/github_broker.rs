@@ -32,17 +32,23 @@ fn fake_gh() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         use std::os::unix::fs::PermissionsExt;
-        let bin = std::env::temp_dir().join(format!("ghb-bin-{}", std::process::id()));
+        let bin = gh_bin();
         std::fs::create_dir_all(&bin).unwrap();
         let gh = bin.join("gh");
-        // For `o/leak` it fails printing a token, and for `o/print` it prints one.
-        let script = "#!/bin/sh\ncase \"$*\" in\n*o/leak*) echo \"gh: bad credentials gho_secretB\" >&2; exit 1;;\n*o/print*) echo \"ok github_pat_secretC\"; exit 0;;\nesac\necho \"gh $*\"\n[ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && echo token-seen\nexit 0\n";
+        // For `o/leak` it fails printing a token, and for `o/print` it prints one. For `o/slow`
+        // it says it started, and says it finished 4 s later.
+        let script = "#!/bin/sh\ncase \"$*\" in\n*o/slow*) d=$(dirname \"$0\"); touch \"$d/slow-started\"; sleep 4; touch \"$d/slow-done\"; exit 0;;\n*o/leak*) echo \"gh: bad credentials gho_secretB\" >&2; exit 1;;\n*o/print*) echo \"ok github_pat_secretC\"; exit 0;;\nesac\necho \"gh $*\"\n[ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && echo token-seen\nexit 0\n";
         std::fs::write(&gh, script).unwrap();
         std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
         // SAFETY: under the Once, before this process's tests start a hub or a child.
         unsafe { std::env::set_var("PATH", path) };
     });
+}
+
+/// Where `fake_gh` is.
+fn gh_bin() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("ghb-bin-{}", std::process::id()))
 }
 
 /// A unix-socket client of `hub`; with `caller`, it is that agent session (`hub/person.rs`).
@@ -262,4 +268,23 @@ async fn lending_to_a_peer_added_before_keeps_its_tokens() {
     let saved = a.config.read().await.peers.get("old").cloned().unwrap();
     assert!(saved.github_broker);
     assert_eq!((saved.token.as_deref(), saved.peer_token.as_deref()), (Some("tok"), Some("pt")));
+}
+
+/// Review of #24797 at f2e68a4: an action already running went on for up to 60 s after the
+/// Mac took lending back (the peer removed, `githubBroker` off, its link ended).
+#[tokio::test]
+async fn an_action_running_when_lending_ends_is_stopped() {
+    fake_gh();
+    let a = hub();
+    let mut app = C::new(&a, None).await;
+    let slow = json!({"action": "read", "repo": "o/slow"});
+    let (port, _answer) = lane_asking(slow, "peer", Ask::AfterWatch).await;
+    let add = json!({"name": "slow", "url": format!("ws://127.0.0.1:{port}"), "token": "tok",
+        "githubBroker": true, "wait": true});
+    app.call("_acpmux/peer_add", add).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(gh_bin().join("slow-started").exists(), "gh started");
+    app.call("_acpmux/peer_remove", json!({"name": "slow"})).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert!(!gh_bin().join("slow-done").exists(), "gh is stopped when lending ends");
 }
