@@ -290,3 +290,33 @@ test("a shell whose call is not in the transcript is one row, and joins its call
   expect(callOf(rows(), "bg3").tool?.background?.state).toBe("completed");
   expect(notes()).toEqual([]);
 });
+
+test("message ID changes preserve the preceding reply Sources after completion", async () => {
+  const say = (messageId: string, text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text } }),
+  ];
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Find the PR" }],
+      ["mux", "turn_started", {}],
+      say("msg-1", "See https://github.com/acme/app/pull/41"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows(), "acme/app").sources).toEqual([]);
+    daemon.push(record([say("msg-2", "Continue here")], 4));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }]], 5));
+    expect(rows().filter((row) => row.kind === "assistant")).toMatchObject([
+      { text: "See https://github.com/acme/app/pull/41", streaming: false },
+      { text: "Continue here", streaming: false },
+    ]);
+    expect(sessionSummary(rows(), "acme/app").sources).toMatchObject([
+      { url: "https://github.com/acme/app/pull/41", kind: "pullRequest" },
+    ]);
+  } finally {
+    client.close();
+  }
+});

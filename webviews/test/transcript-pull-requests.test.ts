@@ -591,6 +591,10 @@ test("a PR mutation target with a comment fragment is marked changed", () => {
 });
 
 const shellRegressionCases: [string, string, number[]][] = [
+  ["unknown conditional success", "if test -f exists; then true; else false; fi && gh pr merge 41 -R acme/app", [41]],
+  ["unknown conditional failure", "if test -f exists; then false; else true; fi || gh pr merge 41 -R acme/app", [41]],
+  ["negated pipeline skips", "! true | true && gh pr merge 41 -R acme/app; true", []],
+  ["negated pipeline fallback", "! true | true || gh pr merge 41 -R acme/app", [41]],
   ["skipped substitution", "false && echo $(gh pr merge 41 -R acme/app); true", []],
   ["active substitution", "echo $(gh pr merge 41 -R acme/app)", [41]],
   ["and continuation", "false &&\ngh pr merge 41 -R acme/app; true", []],
