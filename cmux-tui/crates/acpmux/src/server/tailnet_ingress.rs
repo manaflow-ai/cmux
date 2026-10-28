@@ -48,7 +48,8 @@ pub async fn serve(
         _ = stopped(&mut stop) => return Ok(()),
         result = tokio::time::timeout(HANDSHAKE_BOUND, opening) => {
             let joined = result?;
-            joined?
+            let listener = joined?;
+            listener?
         },
     };
     let mut listener = tokio::io::unix::AsyncFd::new(listener)?;
