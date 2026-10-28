@@ -97,7 +97,7 @@ export type MeasuredRun = {
 
 export type AutosizeInput = {
   readonly taskKind: AutosizeTaskKind;
-  readonly repo?: { readonly sizeMb?: number; readonly rootFiles?: readonly string[] };
+  readonly repo?: { readonly key?: string; readonly sizeMb?: number; readonly rootFiles?: readonly string[] };
   readonly gpu?: boolean;
   /** Newest first. */
   readonly measuredRuns?: readonly MeasuredRun[];
@@ -223,5 +223,51 @@ function parseAutosizeRepo(value: unknown): AutosizeInput["repo"] | string {
   const r = value as Record<string, unknown>;
   if (!validRepoSizeMb(r.sizeMb)) return "`autosize.repo.sizeMb` must be a non-negative number of MiB.";
   if (!validRootFiles(r.rootFiles)) return "`autosize.repo.rootFiles` must be at most 500 file names.";
-  return { sizeMb: r.sizeMb as number | undefined, rootFiles: r.rootFiles as string[] | undefined };
+  if (r.key !== undefined && (typeof r.key !== "string" || !REPO_KEY.test(r.key))) {
+    return "`autosize.repo.key` must name the repo, e.g. github.com/owner/name.";
+  }
+  return { key: (r.key as string | undefined)?.toLowerCase(), sizeMb: r.sizeMb as number | undefined, rootFiles: r.rootFiles as string[] | undefined };
+}
+
+/** A repo's identity across runs: host/owner/name, as the client's remote names it. */
+const REPO_KEY = /^[A-Za-z0-9][A-Za-z0-9._~:@/-]{0,199}$/;
+
+/**
+ * What a VM created by a pick records in its metadata, so a later pick of the
+ * same repo and task kind reads it with the peaks its guest reported
+ * (resourceUsage.ts VM_RESOURCE_PEAK_KEY) as one measured run.
+ */
+export const AUTOSIZE_METADATA_KEY = "cmuxAutosize";
+export type AutosizeTag = {
+  readonly repoKey: string;
+  readonly taskKind: AutosizeTaskKind;
+  readonly pick: string;
+  readonly vcpus: number;
+  readonly memoryMb: number;
+  readonly storageMb: number;
+};
+export const autosizeTag = (repoKey: string, taskKind: AutosizeTaskKind, pick: AutosizePick): AutosizeTag =>
+  ({ repoKey, taskKind, pick: pick.pick, vcpus: pick.size.cpu, memoryMb: pick.size.memoryMb, storageMb: pick.size.storageMb });
+
+const finite = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
+
+/**
+ * One measured run from a VM's metadata: its tag and its peaks. Null when the
+ * VM has no tag or no sample ever reached the control plane. A run that
+ * filled its memory or disk needs no flag: a peak past 84% of the shape plus
+ * the 20% margin is already above it, so the next pick goes up a shape.
+ */
+export function measuredRunFromMetadata(metadata: Readonly<Record<string, unknown>>, peakKey: string): MeasuredRun | null {
+  const tag = metadata[AUTOSIZE_METADATA_KEY] as Record<string, unknown> | undefined;
+  const peak = metadata[peakKey] as Record<string, unknown> | undefined;
+  if (!tag || typeof tag !== "object" || !peak || typeof peak !== "object") return null;
+  const vcpus = finite(tag.vcpus);
+  const memoryMb = finite(tag.memoryMb);
+  if (!vcpus || !memoryMb) return null;
+  const peakMemoryMb = finite(peak.memoryUsedMb);
+  const peakDiskMb = finite(peak.diskUsedMb);
+  const cpuSum = finite(peak.cpuPercentSum);
+  const cpuSamples = finite(peak.cpuSamples);
+  const meanBusyCpus = cpuSum !== undefined && cpuSamples ? (cpuSum / cpuSamples / 100) * vcpus : undefined;
+  return { vcpus, memoryMb, peakMemoryMb, meanBusyCpus, peakDiskMb };
 }
