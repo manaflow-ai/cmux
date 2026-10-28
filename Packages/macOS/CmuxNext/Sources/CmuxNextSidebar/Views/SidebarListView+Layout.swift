@@ -147,7 +147,9 @@ extension SidebarListViewComponents {
     }
     /// How far past each clip edge the list realizes rows: none while the launch holds the offscreen rows (p08-startup-064).
     var realizedOverscan: CGFloat { launchRows.holdsOffscreenRows ? 0 : SidebarStyle.overscan }
-    func apply(_ layout: SidebarLayout, animated: Bool) {
+    /// `newRowsInPlace`: the change's new rows show in their slots, whole, in this frame, with no open (a reveal jumps
+    /// to them: their gap is open at once, so a row growing from nothing there would show an empty slot).
+    func apply(_ layout: SidebarLayout, animated: Bool, newRowsInPlace: Bool = false) {
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
@@ -177,8 +179,10 @@ extension SidebarListViewComponents {
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
         let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
-        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
-        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // A new row in place does not open (``apply(_:animated:newRowsInPlace:)``).
+        let opensNew = animate && !newRowsInPlace
+        for row in layout.rows where animate && ((opensNew && old.row(for: row.key) == nil) || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: opensNew ? old : layout, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -201,8 +205,9 @@ extension SidebarListViewComponents {
             configure(view, row: row, animated: animate || (adopting && existing != nil))
             // A row new to the layout, one that moved by itself, or one still opening that scrolls in with no view
             // (it opens in place, as `RowMotion.place` opens one on a scroll).
+            let isNew = old.row(for: row.key) == nil
             let opens = animate && existing == nil
-                && (old.row(for: row.key) == nil || reopened.contains(row.key) || openingRows[row.key] != nil)
+                && ((isNew && opensNew) || reopened.contains(row.key) || (!isNew && openingRows[row.key] != nil))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
@@ -216,6 +221,8 @@ extension SidebarListViewComponents {
                         view.opens += 1
                     } else {
                         view.frame = animate ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
+                        // A new row in place shows whole now; a recycled view may hold a leaving row's opacity.
+                        if isNew, newRowsInPlace { view.alphaValue = 1 }
                     }
                 }
             }
@@ -287,25 +294,24 @@ extension SidebarListViewComponents {
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history)
             .run(in: self, from: old, to: layout, animated: animate)
     }
-    /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: the row
-    /// before each, among the rows of both layouts, changed. A row an insert or a removal above only pushes keeps
-    /// its neighbours.
+    /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
+    /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
+    /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.
     static func movedByThemselves(_ keys: some Collection<SidebarRowKey>, from old: SidebarLayout, to layout: SidebarLayout) -> Set<SidebarRowKey> {
         guard !keys.isEmpty else { return [] }
         let both = Set(old.rows.map(\.key)).intersection(layout.rows.map(\.key))
-        func before(_ rows: [SidebarRow]) -> [SidebarRowKey: SidebarRowKey?] {
-            var previous: SidebarRowKey?
-            var result: [SidebarRowKey: SidebarRowKey?] = [:]
-            for row in rows where both.contains(row.key) {
-                result[row.key] = previous
-                previous = row.key
+        func neighbours(_ rows: [SidebarRow]) -> [SidebarRowKey: (before: SidebarRowKey?, after: SidebarRowKey?)] {
+            let kept = rows.map(\.key).filter(both.contains)
+            var result: [SidebarRowKey: (before: SidebarRowKey?, after: SidebarRowKey?)] = [:]
+            for (index, key) in kept.enumerated() {
+                result[key] = (index > 0 ? kept[index - 1] : nil, index + 1 < kept.count ? kept[index + 1] : nil)
             }
             return result
         }
-        let was = before(old.rows), now = before(layout.rows)
+        let was = neighbours(old.rows), now = neighbours(layout.rows)
         return Set(keys.filter { key in
             guard let then = was[key], let next = now[key] else { return false }
-            return then != next
+            return then.before != next.before && then.after != next.after
         })
     }
 
