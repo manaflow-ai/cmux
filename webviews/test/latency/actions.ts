@@ -12,18 +12,23 @@ async function quiet(page: Page): Promise<void> {
     let changed = true;
     const observer = new MutationObserver(() => (changed = true));
     observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
-    for (let held = 0, frames = 0; held < 10 && frames < 600; frames += 1) {
-      await window.cmuxPaintFrame();
-      const moving = document
-        .getAnimations()
-        .some(
-          (animation) =>
-            animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
-        );
-      held = changed || moving ? 0 : held + 1;
-      changed = false;
+    let held = 0;
+    try {
+      for (let frames = 0; held < 10 && frames < 600; frames += 1) {
+        await window.cmuxPaintFrame();
+        const moving = document
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+        held = changed || moving ? 0 : held + 1;
+        changed = false;
+      }
+      if (held < 10) throw new Error("page did not settle within 600 painted frames");
+    } finally {
+      observer.disconnect();
     }
-    observer.disconnect();
   });
 }
 
@@ -622,6 +627,241 @@ export const AGENT_PANE_PAGE: LatencyPageSpec = {
   actions: agentPaneActions,
 };
 
+const composerEditor = ".acpmux-composer [contenteditable='true']";
+const profiled = ["longTasks", "reactCommits"] as const;
+const shown = (selector: string) => `(() => {
+  const node = document.querySelector(${js(selector)});
+  if (!node) return false;
+  const box = node.getBoundingClientRect();
+  return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < innerHeight &&
+    box.right > 0 && box.left < innerWidth && getComputedStyle(node).visibility !== "hidden";
+})()`;
+
+async function clearComposer(page: Page): Promise<void> {
+  await page.focus(composerEditor);
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Escape");
+}
+
+async function flowChat(page: Page): Promise<void> {
+  await page.evaluate("window.__latencyFlows.restoreChat()");
+  await page.waitForSelector(composerEditor);
+  await page.waitForFunction(() => !document.querySelector(".acpmux-newtab"));
+  await page.keyboard.press("Escape");
+  if (await page.$("aside.acpmux-chat-inspector")) {
+    await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+    await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached" });
+  }
+  await clearComposer(page);
+  await quiet(page);
+}
+
+function pickerOpen(id: string, name: string, trigger: string, popup: string, keyboard = false): LatencyAction {
+  return {
+    id,
+    name,
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      await page.waitForSelector(trigger);
+      if (keyboard) await page.focus(trigger);
+      return shown(popup);
+    },
+    async input(page) {
+      if (keyboard) await page.keyboard.press("ArrowDown");
+      else await page.click(trigger);
+    },
+    async settle(page) {
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(popup, { state: "detached" });
+      await quiet(page);
+    },
+  };
+}
+
+function composerMenu(id: string, name: string, key: string, popup: string): LatencyAction {
+  return {
+    id,
+    name,
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      await page.focus(composerEditor);
+      return shown(popup);
+    },
+    async input(page) {
+      await page.keyboard.press(key);
+    },
+    async settle(page) {
+      await clearComposer(page);
+      await page.waitForSelector(popup, { state: "detached" });
+      await quiet(page);
+    },
+  };
+}
+
+const flowActions: LatencyAction[] = [
+  pickerOpen(
+    "chat.picker.model.pointer",
+    "model picker open (pointer)",
+    ".acpmux-model .acpmux-picker-button",
+    ".acpmux-model .acpmux-mp",
+  ),
+  pickerOpen(
+    "chat.picker.model.keyboard",
+    "model picker open (keyboard)",
+    ".acpmux-model .acpmux-picker-button",
+    ".acpmux-model .acpmux-mp",
+    true,
+  ),
+  pickerOpen(
+    "chat.picker.access.open",
+    "access picker open",
+    ".acpmux-access .acpmux-picker-button",
+    ".acpmux-access-menu",
+  ),
+  pickerOpen(
+    "chat.menu.add.open",
+    "add menu open",
+    ".acpmux-composer-plus .acpmux-picker-button",
+    ".acpmux-composer-plus [role='listbox']",
+  ),
+  composerMenu("chat.menu.slash.open", "slash menu open", "/", ".acpmux-slash-menu:not(.acpmux-mention-menu)"),
+  composerMenu("chat.menu.mention.open", "mention menu open", "@", ".acpmux-mention-menu"),
+  {
+    id: "chat.type.character",
+    name: "type a character",
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      return `document.querySelector(${js(composerEditor)})?.textContent === "x"`;
+    },
+    async input(page) {
+      await page.keyboard.press("x");
+    },
+    async settle(page) {
+      await clearComposer(page);
+      await quiet(page);
+    },
+  },
+  {
+    id: "chat.send",
+    name: "send prompt",
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      const text = `Latency prompt ${Date.now()}`;
+      await page.keyboard.insertText(text);
+      await quiet(page);
+      return `Array.from(document.querySelectorAll(".cv-user__bubble")).some((node) => {
+        if (node.textContent?.trim() !== ${js(text)}) return false;
+        const box = node.getBoundingClientRect();
+        const scroll = node.closest(".acpmux-scroll")?.getBoundingClientRect();
+        return scroll && box.width > 0 && box.height > 0 && box.bottom > Math.max(0, scroll.top) &&
+          box.top < Math.min(innerHeight, scroll.bottom);
+      })`;
+    },
+    async input(page) {
+      await page.keyboard.press("Enter");
+    },
+    settle: quiet,
+  },
+  ...([true, false] as const).map((open): LatencyAction => ({
+    id: `chat.session-info.${open ? "open" : "close"}`,
+    name: `toggleSessionInfo (${open ? "open" : "close"}, web command)`,
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      if (!open) {
+        await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+        await page.waitForSelector("aside.acpmux-chat-inspector[data-presence='shown']");
+        await quiet(page);
+      }
+      return open
+        ? shown("aside.acpmux-chat-inspector[data-presence='shown']")
+        : `document.querySelector("aside.acpmux-chat-inspector") === null`;
+    },
+    async input(page) {
+      // The host command is the same production bridge used by the native palette. Its web
+      // portion starts here; the command lookup and native window are outside this metric.
+      await page.evaluate(
+        "window.__latency.markInput('session-info-command'); window.cmuxAcpmuxBridge.command('toggleSessionInfo')",
+      );
+    },
+    settle: quiet,
+  })),
+  {
+    id: "chat.new-tab.open",
+    name: "openNewTab (web adoption)",
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      return shown(".acpmux-newtab .nt-field");
+    },
+    async input(page) {
+      await page.evaluate("window.__latency.markInput('new-tab-adoption'); window.__latencyFlows.openNewTab()");
+    },
+    async settle(page) {
+      await flowChat(page);
+    },
+  },
+];
+
+export const CHAT_FLOWS_PAGE: LatencyPageSpec = {
+  name: "chat flows",
+  path: "/test/latency/flows.html?mock&recents=demo",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: flowActions,
+};
+
+function longScroll(resident: boolean): LatencyAction {
+  return {
+    id: `chat.scroll.3000.${resident ? "resident" : "paged"}`,
+    name: `3000-turn scroll (${resident ? "resident mixed rows" : "paged heavy history tail"})`,
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await page.waitForSelector(".acpmux-scroll");
+      await page.evaluate(() => {
+        const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroll.scrollTop = scroll.scrollHeight;
+      });
+      await quiet(page);
+      const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+      if (from < 600) throw new Error("long transcript does not have a scrollable history");
+      await page.locator(".acpmux-scroll").hover();
+      return `(() => {
+        const scroll = document.querySelector(".acpmux-scroll");
+        if (!scroll || scroll.scrollTop > ${from - 400}) return false;
+        const viewport = scroll.getBoundingClientRect();
+        return Array.from(scroll.querySelectorAll(".acpmux-row")).some((row) => {
+          const box = row.getBoundingClientRect();
+          return row.textContent?.trim() && box.width > 0 && box.height > 0 &&
+            box.bottom > Math.max(0, viewport.top) && box.top < Math.min(innerHeight, viewport.bottom);
+        });
+      })()`;
+    },
+    async input(page) {
+      await page.mouse.wheel(0, -600);
+    },
+    settle: quiet,
+  };
+}
+
+export const LONG_CHAT_PAGES: LatencyPageSpec[] = [false, true].map((resident) => ({
+  name: `chat 3000 ${resident ? "resident" : "paged"}`,
+  path: `/test/latency/flows.html?mock&turns=3000${resident ? "&resident" : ""}`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [longScroll(resident)],
+}));
+
 // Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
 // to the first painted frame that shows the new section complete (its title and the host-read
 // buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
@@ -685,5 +925,7 @@ export const PAGES: LatencyPageSpec[] = [
   PICKER_PAGE,
   EMPTY_PAGE,
   AGENT_PANE_PAGE,
+  CHAT_FLOWS_PAGE,
+  ...LONG_CHAT_PAGES,
   SETTINGS_PAGE,
 ];
