@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -555,6 +555,29 @@ function OtherRow({
   onHover(): void;
   onText(text: string): void;
 }) {
+  const field = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const node = field.current;
+    const view = node?.ownerDocument.defaultView;
+    if (!node || view?.CSS?.supports?.("field-sizing", "content")) return;
+    // macOS 14 WebKit keeps rows=1 fixed; grow and shrink before painting each edit.
+    const resize = () => {
+      node.style.height = "auto";
+      node.style.height = `${node.scrollHeight}px`;
+    };
+    resize();
+    let width = node.clientWidth;
+    const observer = view?.ResizeObserver
+      ? new view.ResizeObserver(() => {
+          if (node.clientWidth === width) return;
+          width = node.clientWidth;
+          resize();
+        })
+      : undefined;
+    observer?.observe(node);
+    return () => observer?.disconnect();
+  }, [draft, editing]);
+
   const key = row < 9 ? String(row + 1) : undefined;
   if (editing)
     return (
@@ -566,6 +589,7 @@ function OtherRow({
       >
         <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
         <textarea
+          ref={field}
           rows={1}
           aria-label={t("question.other")}
           placeholder={t("question.otherPlaceholder")}
