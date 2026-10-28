@@ -132,6 +132,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     /// Returns one or more whole frames, or nil once the control lane ends.
     /// Single consumer: at most one `receive()` may be outstanding.
     public func receive() async throws -> Data? {
+        // wakeup-allow: bounded each pass awaits one lane read; a frame, EOF, closure or an error ends it
         while true {
             if let frames = takeCompleteFrames() { return frames }
             let (_, lane) = try await establishedPair()
@@ -178,6 +179,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     }
 
     public func sendReportingControlStreamGeneration(_ data: Data) async throws -> UInt64 {
+        // wakeup-allow: bounded it writes again only after a lane replacement retired the last write
         while true {
             let (_, lane) = try await establishedPair()
             let generation = laneGeneration
@@ -392,6 +394,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let headerByteCount = MobileSyncFrameCodec.headerByteCount
         var reader = WireByteReader(buffered)
         var boundary = 0
+        // wakeup-allow: bounded one walk over the buffered bytes, no wait
         while true {
             var frame = reader
             guard let header = frame.bigEndian(UInt32.self) else { break }

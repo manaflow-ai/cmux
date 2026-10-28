@@ -189,7 +189,7 @@ extension HomeService {
         let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
             .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         let reader = HomeChiefAvatars(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
-                                      registry: DaemonChiefAvatarRegistry(connection: connection))
+                                      registry: DaemonChiefAvatarRegistry(connection: connection), files: services.work)
         // task-owner: one read of a few small files off the main actor; ends when it is set
         Task { [weak self] in
             let avatars = await reader.read(chiefs: chiefs)

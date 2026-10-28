@@ -337,7 +337,7 @@ class IdleBudgetSessionTests(unittest.TestCase):
     def test_power_sessions_are_one_shown_tab_on_both_sides(self):
         mine, chrome = ib.SESSIONS[ib.POWER_SESSION], ib.SESSIONS[ib.CHROME_POWER_SESSION]
         self.assertEqual(mine["tabs"], chrome["tabs"])
-        self.assertEqual(len(ib.tab_plan(type("P", (), {"url": lambda self, k, key: key, "origin": ""})(), mine["tabs"])), 1)
+        self.assertEqual(len(ib.tab_plan(type("P", (), {"probe_url": lambda self, key: key, "origin": ""})(), mine["tabs"])), 1)
         self.assertTrue(mine["power"] and chrome["power"] and chrome["chrome"])
         self.assertEqual(ib.SESSIONS[ib.CHROME_SESSION]["tabs"], ib.TABS_STATIC)
         self.assertEqual(ib.parse_sessions("power-visible,chrome-power-visible"), [ib.POWER_SESSION, ib.CHROME_POWER_SESSION])

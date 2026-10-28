@@ -1,6 +1,6 @@
 public import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextDesign
+import CmuxNextAppearance
 public import CmuxNextWakeups
 
 /// `home.channelsEnabled` in cmux.json (hq-6d cx-frn2y; Lawrence 2026-10-15: "u have to cmd shift p to

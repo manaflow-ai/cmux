@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// One entry of a listed folder.
 public nonisolated struct FolderEntry: Equatable, Sendable {
@@ -98,7 +99,7 @@ public nonisolated struct FolderListing: Equatable, Sendable {
                 // into until the user opens it: a probe could raise a prompt.
                 let child = base + "/" + name
                 // SAFETY: access reads the NUL-terminated copy of the path made for the call.
-                let git = unsafe isDirectory && PickerPrivacy.mayProbe(child) && access(child + "/.git", F_OK) == 0
+                let git = unsafe isDirectory && PickerPrivacy.mayProbe(child) && blockingAccess(child + "/.git", F_OK) == 0
                 entries.append(FolderEntry(name: name, isDirectory: isDirectory, isGitRepository: git))
             }
         }
@@ -140,7 +141,7 @@ public nonisolated struct FolderListing: Equatable, Sendable {
             var info = stat()
             // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
             // into `info`, a local live for the call.
-            return unsafe stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+            return unsafe blockingStat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
         default: return false
         }
     }

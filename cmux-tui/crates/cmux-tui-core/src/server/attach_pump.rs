@@ -121,6 +121,19 @@ impl AttachPump {
         }
     }
 
+    /// The hook that moves the drain to another priority's workers and runs
+    /// a turn there (`set-stream-priority`, p05-ipc-142). It holds the pump
+    /// weakly, as [`Self::hook`] does.
+    pub(crate) fn priority_hook(&self) -> impl Fn(SequencePriority) + Send + Sync + 'static {
+        let pump = Arc::downgrade(&self.inner);
+        move |priority| {
+            if let Some(inner) = pump.upgrade() {
+                inner.sequence.update_priority(priority);
+                wake(&inner);
+            }
+        }
+    }
+
     /// Fired by any close the view ends on; it wakes the drain.
     pub(crate) fn stop(&self) -> &Arc<StreamInterrupt> {
         &self.inner.stop

@@ -62,7 +62,7 @@ public final class MainTurnMeter {
 
     private let uptimeNanos: () -> UInt64
     private let signposts: Bool
-    private var counters = Snapshot()
+    var counters = Snapshot() // read and cleared in MainTurnMeter+Kinds.swift
     private var observers: [MainRunLoopObserver] = []
 
     // The run-loop levels, innermost last: running loops, and nested loops that exited to the code
@@ -91,6 +91,9 @@ public final class MainTurnMeter {
     private var rendering = false
     private var renderStart: UInt64 = 0
     private var spansAtRenderStart: UInt64 = 0
+    /// The turn in progress: its kinds (``noteTurn(_:)``) and whether it ran a budgeted task (the budget sets it).
+    var turnKinds: UInt8 = 0
+    var ranBudgetedTask = false
     /// Told when a nested run loop starts running (`true`: its entry, or a parked level's next entry)
     /// and when it stops (`false`: its exit), at `now`. The budget (``MainFrameBudget``) takes that
     /// time out of the task that ran the loop, as Chrome's `RunLevelTracker` suspends a task's work
@@ -273,18 +276,6 @@ public final class MainTurnMeter {
         beginTurn(at: now)
     }
 
-    // MARK: Reading
-
-    /// A copy of the counters; ``Snapshot/longestUnattributed`` sorts the top turns off the main thread.
-    public func snapshot() -> Snapshot {
-        counters
-    }
-
-    /// Clears the counters (`debug.main_budget reset`); the turn in progress is kept.
-    public func reset() {
-        counters = Snapshot()
-    }
-
     // MARK: Levels
 
     /// The innermost level, when it is parked and tracked.
@@ -350,6 +341,7 @@ public final class MainTurnMeter {
         input = 0
         render = 0
         rendering = false
+        (turnKinds, ranBudgetedTask) = (0, false)
     }
 
     private func beginRender(at now: UInt64) {
@@ -380,6 +372,7 @@ public final class MainTurnMeter {
         let attributed = scheduled &+ input &+ render
         record(TopTurn(turnNanos: total, unattributedNanos: total > attributed ? total - attributed : 0, scheduledNanos: scheduled,
                        inputNanos: input, renderNanos: render, endNanos: now, nested: turnNested))
+        if turnKinds != 0 { recordKinds(turnNanos: total) }
     }
 
     // perf-hot: 100ns main-turn (every run-loop turn)

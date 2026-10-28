@@ -1,7 +1,6 @@
-import CmuxNextActions
 import CmuxNextCompat
-@testable import CmuxNextApp
 import CmuxNextIcons
+import CmuxNextLaunch
 import Foundation
 import Testing
 
@@ -56,16 +55,15 @@ struct LaunchIconWarmupTests {
     @Test("Launch warm-up starts the icon decode and marks icons_decoded when it ends")
     func launchStartsIconDecodeAndMarksIt() {
         let log = Log()
-        // Built before the start, so the launch thread claims no build and marks nothing: only the icon mark is seen.
-        let catalog = ActionCatalogLaunch()
-        catalog.build()
+        // No warm-up work (the App's catalog build marks only when it claims the build): only the icon mark is seen.
         LaunchWarmup(
+            work: {},
             decodeIcons: { decoded in
                 log.record(.startedIconDecode)
                 log.hold(decoded)
             },
             markLaunch: { log.record(.marked($0)) }
-        ).start(catalog: catalog)
+        ).start()
         // Not marked before the decode ends.
         #expect(log.recorded == [.startedIconDecode])
         log.finishHeldDecode()

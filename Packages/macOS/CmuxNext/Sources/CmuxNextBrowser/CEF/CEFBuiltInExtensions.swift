@@ -52,13 +52,13 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     /// start (not command line 8, not component 5 or 10), and a path that is
     /// not a cmux app's built-in folder (an installed copy has a relative path
     /// under Extensions/; a copy the person loaded unpacked, its own folder).
-    static func personInstalledAdBlocker(profiles: URL, fileManager: FileManager = .default) -> Bool {
-        personAdBlocker(profiles: profiles, fileManager: fileManager) != nil
+    static func personInstalledAdBlocker(profiles: URL) -> Bool {
+        personAdBlocker(profiles: profiles) != nil
     }
 
     /// The Chromium location of the person's uBlock Origin (4 = unpacked), or nil.
-    static func personAdBlocker(profiles: URL, fileManager: FileManager = .default) -> Int? {
-        guard let children = try? fileManager.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil) else { return nil }
+    static func personAdBlocker(profiles: URL) -> Int? {
+        guard let children = try? FileManager.checked.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil) else { return nil }
         let id = Data(adBlockerID.utf8)
         for profile in children where profile.lastPathComponent.hasPrefix("Profile-") || profile.lastPathComponent == "Default" {
             for name in ["Secure Preferences", "Preferences"] {

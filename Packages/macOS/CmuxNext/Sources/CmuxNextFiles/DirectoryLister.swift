@@ -1,5 +1,6 @@
 public import Foundation
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// Lists one folder's children: the seam the Files model reads through.
 ///
@@ -37,7 +38,7 @@ public struct DirectoryLister: DirectoryListing {
     /// The synchronous listing (also used by benchmarks).
     public static func listSync(_ folder: URL) throws -> [FileEntry] {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let fd = unsafe open(folder.path, O_RDONLY | O_DIRECTORY)
+        let fd = unsafe blockingOpen(folder.path, O_RDONLY | O_DIRECTORY)
         guard fd >= 0 else { throw FileBrowserError.unreadable(folder, errno) }
         defer { close(fd) }
 
@@ -84,7 +85,7 @@ public struct DirectoryLister: DirectoryListing {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local live for the call.
-        guard unsafe lstat(url.path, &info) == 0 else { return nil }
+        guard unsafe blockingLstat(url.path, &info) == 0 else { return nil }
         let kind: FileKind
         switch info.st_mode & S_IFMT {
         case S_IFDIR: kind = isPackage(url.lastPathComponent) ? .package : .folder
