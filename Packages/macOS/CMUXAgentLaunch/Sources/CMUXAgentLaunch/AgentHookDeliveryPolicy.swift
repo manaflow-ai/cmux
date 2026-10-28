@@ -153,6 +153,10 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// restore liveness reads the stale generation as "the agent exited" and
     /// retires the pane's auto-resume binding.
     ///
+    /// Only a live PID is returned. A dead mapped PID yields the inferred PID
+    /// when it names a different process, and `nil` otherwise, so callers never
+    /// associate an event with a process that is already gone.
+    ///
     /// - Parameters:
     ///   - agentName: The hook's agent key.
     ///   - mappedPID: The PID already stored for the session, if any.
@@ -167,9 +171,16 @@ public struct AgentHookDeliveryPolicy: Sendable {
         if agentName == "codex" {
             return inferredPID ?? mappedPID
         }
-        guard let mappedPID, mappedPID > 0 else { return inferredPID }
-        guard let inferredPID, inferredPID > 0 else { return mappedPID }
-        return isRunning(mappedPID) ? mappedPID : inferredPID
+        guard let mappedPID, mappedPID > 0 else {
+            return inferredPID
+        }
+        guard isRunning(mappedPID) else {
+            guard let inferredPID, inferredPID > 0, inferredPID != mappedPID else {
+                return nil
+            }
+            return inferredPID
+        }
+        return mappedPID
     }
 
     /// Reports whether `pid` names a live process.

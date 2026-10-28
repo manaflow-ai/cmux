@@ -144,15 +144,15 @@ struct AgentHookDeliveryPolicyTests {
             mappedPID: mapped,
             inferredPID: nil,
             isRunning: { _ in false }
-        ) == mapped)
-        // When both candidates name the same dead process there is nothing to
-        // prefer: only a caller that infers a different live pid can move it.
+        ) == nil)
+        // A stale inherited pid names the same dead process as the record, so
+        // there is no live candidate to hand to the caller.
         #expect(policy.preferredEventPID(
             agentName: "opencode",
             mappedPID: mapped,
             inferredPID: mapped,
             isRunning: { _ in false }
-        ) == mapped)
+        ) == nil)
         // Codex keeps preferring the live invocation PID outright.
         #expect(policy.preferredEventPID(
             agentName: "codex",
