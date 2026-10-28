@@ -240,7 +240,19 @@ test("a chat whose host keeps its answer offers no Trust after Not now", async (
     noop,
     { answers: false },
   );
-  expect(buttons()).toEqual(["Undo"]);
+  // Undo would send an answer the host rejects, and that failure would offer Trust: neither works.
+  expect(buttons()).toEqual([]);
+});
+
+test("a chat whose host keeps its answer offers no Trust or Not now when an answer failed", async () => {
+  for (const ask of [
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "failed" as const },
+    { cwd: "/Users/you/Downloads/thing", state: "failed" as const },
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "ask" as const },
+  ]) {
+    await render(ask, noop, { answers: false });
+    expect(buttons()).toEqual([]);
+  }
 });
 
 test("the Access grant names where the answer lives: the repository, not the chat's private folder", () => {
