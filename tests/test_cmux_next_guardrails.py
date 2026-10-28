@@ -1067,7 +1067,7 @@ class ImplicitWindowRuleTests(Fixture):
         self.commit("moves a lookup")
         self.assertEqual(self.refused_lines(), [("implicit-window-record", [
             "OtherHandlers.swift: 1 implicit window lookups, its row in scripts/cmux-next/implicit-window-baseline.tsv "
-            "allows 0: a lookup moved in from another file carries its row (lower the old file's row by as much)"])])
+            "allows 0: one moved in from another file carries its row (lower the old file's row by as much)"])])
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(guardrails.main(["--repo", str(self.repo), "--implicit-window-update"]), 0)
         self.assertEqual(guardrails.implicit_window_rows((self.repo / self.RECORD).read_text()),

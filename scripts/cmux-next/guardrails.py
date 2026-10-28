@@ -68,6 +68,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py --list
   scripts/cmux-next/guardrails.py --implicit-window-counts   # implicit window lookups per Sources file at HEAD
   scripts/cmux-next/guardrails.py --implicit-window-update   # lower scripts/cmux-next/implicit-window-baseline.tsv
+  scripts/cmux-next/guardrails.py --key-replay-counts        # key re-dispatches per Sources file at HEAD
+  scripts/cmux-next/guardrails.py --key-replay-update        # lower scripts/cmux-next/key-replay-baseline.tsv
   scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
                                                      # raw-continuation, trap-api, decode-trap and Rust stability
                                                      # cases
@@ -612,10 +614,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS, IMPLICIT_WINDOW_BASELINE), so its blobs are read while the content diff
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS, COUNT_RECORD_PATHS), so its blobs are read while the content diff
     runs. A path this misses is read after the diff (check()'s late read)."""
     return (in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
-            or in_rust_stability_scope(path) or path == IMPLICIT_WINDOW_BASELINE)
+            or in_rust_stability_scope(path) or path in COUNT_RECORD_PATHS)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -5036,7 +5038,7 @@ RULES += AWAITED_LOW_PRIORITY_RULES
 # The one WindowTarget resolver (the conversion's slice 1 adds it; until then nothing new is allowed anywhere).
 IMPLICIT_WINDOW_RESOLVERS: tuple[str, ...] = (APP + "Windows/WindowTarget.swift",)
 IMPLICIT_WINDOW_BASELINE = "scripts/cmux-next/implicit-window-baseline.tsv"
-IMPLICIT_WINDOW_MEMO = "implicit-window-record"
+IMPLICIT_WINDOW_MEMO = "implicit-window-record"  # the per-file alias memo's key prefix
 IMPLICIT_WINDOW_ALLOW = re.compile(r"//\s*window-allow:\s*\S")
 NSAPP_WINDOW = re.compile(r"\b(?:NSApp|NSApplication\s*\.\s*shared)\s*[?!]?\s*\.\s*(?:keyWindow|mainWindow|orderedWindows)\b")
 FIRST_WINDOW = re.compile(r"\b(?:controllers|windows)\s*\.\s*(?:first|last)\b")
@@ -5104,30 +5106,12 @@ def implicit_window_debt(version: Version, index: int) -> tuple[bool, list[int]]
 IMPLICIT_WINDOW_MATCHER = Matcher(IMPLICIT_WINDOW_LINE, IMPLICIT_WINDOW_ALLOW, implicit_window_debt)
 
 
-def implicit_window_scope(path: str) -> bool:
-    """PATH is product Swift the rules count: under Sources, not the resolver."""
-    return path.startswith(SOURCES) and path.endswith(".swift") and path not in IMPLICIT_WINDOW_RESOLVERS
-
-
-def implicit_window_count(path: str, lines: list[str]) -> int:
-    """The implicit lookups of one file's LINES: matching lines without a `// window-allow:` escape."""
-    if not implicit_window_scope(path):
-        return 0
-    version = Version(path, lines, set())
-    return sum(1 for i, line in enumerate(lines) if IMPLICIT_WINDOW_LINE.search(line)
-               and IMPLICIT_WINDOW_LINE.search(code_of(line)) and is_debt(version, i, IMPLICIT_WINDOW_MATCHER)[0])
-
-
-def implicit_window(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    return matcher_rule(IMPLICIT_WINDOW_MATCHER)([c for c in changes if implicit_window_scope(c.path)], moved)
-
-
 class BaselineError(ValueError):
     pass
 
 
-def implicit_window_rows(text: str | None) -> dict[str, tuple[int, int]] | None:
-    """{path: (count, 1-based line)} of IMPLICIT_WINDOW_BASELINE's TEXT (None: no record at that revision)."""
+def record_rows(text: str | None) -> dict[str, tuple[int, int]] | None:
+    """{path: (count, 1-based line)} of a count record's TEXT (None: no record at that revision)."""
     if text is None:
         return None
     rows: dict[str, tuple[int, int]] = {}
@@ -5141,107 +5125,155 @@ def implicit_window_rows(text: str | None) -> dict[str, tuple[int, int]] | None:
     return rows
 
 
-def implicit_window_record(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """The record rule (see the block comment): code over its row, and rows raised past the push's own drops."""
-    memo = next((c.memo[IMPLICIT_WINDOW_MEMO] for c in changes if IMPLICIT_WINDOW_MEMO in c.memo), None)
-    if memo is None:
-        return []
-    base_text, head_text = memo
-    if base_text is None and head_text is None:
-        return []  # a branch from before the record (the installed hook has it): the line rule alone judges it
-    hits: list[Added] = []
-    try:
-        head_rows = implicit_window_rows(head_text)
-    except BaselineError as error:
-        return [Added(IMPLICIT_WINDOW_BASELINE, 1, f"the record does not parse ({error}); fix it or run "
-                      "guardrails.py --implicit-window-update")]
-    base_rows = implicit_window_rows(base_text) or {}  # a base record that does not parse lends nothing
-    if head_rows is None:
-        if base_text is not None:
-            hits.append(Added(IMPLICIT_WINDOW_BASELINE, 1, "the push deletes the implicit-window record"))
-        head_rows = {}
-    sources = [c for c in changes if implicit_window_scope(c.path)]
-    line_hits = collections.Counter(h.path for h in implicit_window(sources, moved))
-    counts = {c.path: (implicit_window_count(c.path, c.base_lines if not c.is_new else []),
-                       implicit_window_count(c.path, c.head_lines if not c.is_deleted else [])) for c in sources}
-    for path, (base_count, head_count) in sorted(counts.items()):
-        row = head_rows.get(path, (0, 0))[0]
-        allowed = max(row, base_count)  # debt the base already has over its row never blocks
-        if head_count - line_hits[path] > allowed:
-            hits.append(Added(path, 1, f"{head_count} implicit window lookups, its row in {IMPLICIT_WINDOW_BASELINE} "
-                              f"allows {allowed}: a lookup moved in from another file carries its row (lower the old "
-                              "file's row by as much)"))
-        elif head_count < row:
-            hits.append(NetHit(path, 1, f"implicit window lookups {row} -> {head_count}: lower its row "
-                               "(guardrails.py --implicit-window-update)", bucket=f"stale:{path}", excess=1,
-                               warn=True, additive=False))
-    if base_text is None:
-        return hits  # the push that adds the record: nothing to compare it with
-    # A row may rise only to the lookups the push leaves in its file (a move in), and the total never rises.
-    raised = False
-    for path, (count, number) in sorted(head_rows.items()):
-        old = base_rows.get(path, (0, 0))[0]
-        if count <= old:
-            continue
-        raised = True
-        head_count = counts.get(path, (None, None))[1]
-        if head_count is None or count > head_count:
-            hits.append(Added(IMPLICIT_WINDOW_BASELINE, number, f"{path}: row raised {old} -> {count} above the "
-                              f"lookups the push leaves in it ({'a file the push does not change' if head_count is None else head_count})"))
-    base_total = sum(c for c, _ in base_rows.values())
-    head_total = sum(c for c, _ in head_rows.values())
-    if raised and head_total > base_total:
-        hits.append(Added(IMPLICIT_WINDOW_BASELINE, 1, f"the recorded total rises {base_total} -> {head_total}: the "
-                          "record only goes down; a move carries its row (lower the old file's row by as much)"))
-    return hits
+implicit_window_rows = record_rows
+
+
+@dataclass(frozen=True)
+class CountRecord:
+    """A line rule's per-file count ratchet: RULE's matches in each Sources file (less EXEMPT() files and escaped
+    lines) recorded in PATH, a TSV of `<path>\t<count>` rows that only go down (the `<rule>-record` rule; see
+    the implicit-window block comment). GREP prefilters the tree count; NOUN names what it counts."""
+    rule: str
+    path: str
+    matcher: Matcher
+    exempt: Callable[[], tuple[str, ...]]
+    grep: str
+    noun: str
+
+    @property
+    def update_flag(self) -> str:
+        return f"--{self.rule}-update"
+
+    @property
+    def header(self) -> str:
+        return (f"# path\t{self.noun} (guardrails.py {self.rule}-record: the count only goes down, target 0; lower "
+                f"with guardrails.py {self.update_flag})\n")
+
+    def scope(self, path: str) -> bool:
+        """PATH is product Swift the record counts: under Sources, not an exempt file."""
+        return path.startswith(SOURCES) and path.endswith(".swift") and path not in self.exempt()
+
+    def count(self, path: str, lines: list[str]) -> int:
+        """The matches of one file's LINES, escaped lines not counted."""
+        if not self.scope(path):
+            return 0
+        version, pattern = Version(path, lines, set()), self.matcher.pattern
+        return sum(1 for i, line in enumerate(lines) if pattern.search(line) and pattern.search(self.matcher.code(line))
+                   and is_debt(version, i, self.matcher)[0])
+
+    def find(self, changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        """The line rule: added matches, base debt per file and moves paired as every line rule."""
+        return matcher_rule(self.matcher)([c for c in changes if self.scope(c.path)], moved)
+
+    def judge(self, changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        """The record rule: code over its row, a row above its file's count, a total that rises."""
+        memo = next((c.memo[self.path] for c in changes if self.path in c.memo), None)
+        if memo is None:
+            return []
+        base_text, head_text = memo
+        if base_text is None and head_text is None:
+            return []  # a branch from before the record (the installed hook has it): the line rule alone judges it
+        hits: list[Added] = []
+        try:
+            head_rows = record_rows(head_text)
+        except BaselineError as error:
+            return [Added(self.path, 1, f"the record does not parse ({error}); fix it or run guardrails.py "
+                          f"{self.update_flag}")]
+        try:
+            base_rows = record_rows(base_text) or {}
+        except BaselineError:
+            base_rows = {}  # a base record that does not parse lends nothing
+        if head_rows is None:
+            if base_text is not None:
+                hits.append(Added(self.path, 1, f"the push deletes the {self.rule} record"))
+            head_rows = {}
+        sources = [c for c in changes if self.scope(c.path)]
+        line_hits = collections.Counter(h.path for h in self.find(sources, moved))
+        counts = {c.path: (self.count(c.path, c.base_lines if not c.is_new else []),
+                           self.count(c.path, c.head_lines if not c.is_deleted else [])) for c in sources}
+        for path, (base_count, head_count) in sorted(counts.items()):
+            row = head_rows.get(path, (0, 0))[0]
+            allowed = max(row, base_count)  # debt the base already has over its row never blocks
+            if head_count - line_hits[path] > allowed:
+                hits.append(Added(path, 1, f"{head_count} {self.noun}, its row in {self.path} allows {allowed}: one "
+                                  "moved in from another file carries its row (lower the old file's row by as much)"))
+            elif head_count < row:
+                hits.append(NetHit(path, 1, f"{self.noun} {row} -> {head_count}: lower its row (guardrails.py "
+                                   f"{self.update_flag})", bucket=f"stale:{path}", excess=1, warn=True, additive=False))
+        if base_text is None:
+            return hits  # the push that adds the record: nothing to compare it with
+        # A row may rise only to the matches the push leaves in its file (a move in), and the total never rises.
+        raised = False
+        for path, (count, number) in sorted(head_rows.items()):
+            old = base_rows.get(path, (0, 0))[0]
+            if count <= old:
+                continue
+            raised = True
+            head_count = counts.get(path, (None, None))[1]
+            if head_count is None or count > head_count:
+                left = "a file the push does not change" if head_count is None else head_count
+                hits.append(Added(self.path, number, f"{path}: row raised {old} -> {count} above the {self.noun} the "
+                                  f"push leaves in it ({left})"))
+        base_total = sum(c for c, _ in base_rows.values())
+        head_total = sum(c for c, _ in head_rows.values())
+        if raised and head_total > base_total:
+            hits.append(Added(self.path, 1, f"the recorded total rises {base_total} -> {head_total}: the record only "
+                              "goes down; a move carries its row (lower the old file's row by as much)"))
+        return hits
+
+    def tree(self, repo: Path, rev: str) -> dict[str, int]:
+        """{path: count} of every Sources file at REV with at least one."""
+        listed = git(repo, "grep", "-l", "-E", self.grep, rev, "--", SWIFT_SOURCES, check=False)
+        paths = sorted({line.split(":", 1)[1] for line in listed.split("\n") if ":" in line})
+        texts = blobs(repo, [(rev, p) for p in paths])
+        counts = {p: self.count(p, texts.get((rev, p), "").split("\n")) for p in paths}
+        return {p: n for p, n in counts.items() if n}
+
+    def update(self, repo: Path, rev: str) -> int:
+        """Rewrite PATH (in REPO's worktree) from REV's tree: every row lowered to its file's count (with no record
+        yet, the tree's counts). A file over its row (a match moved in) is raised only as far as the rows lowered
+        here pay for it, in path order, so the total never rises; a rise they do not cover is printed and not
+        recorded, and the run exits 1."""
+        tree = self.tree(repo, rev)
+        target = repo / self.path
+        old = record_rows(target.read_text()) if target.exists() else None
+        over = []
+        if old is None:
+            rows = tree
+        else:
+            rows = {p: min(tree.get(p, 0), count) for p, (count, _) in old.items()}
+            credit = sum(count for count, _ in old.values()) - sum(rows.values())
+            for path, now in sorted(tree.items()):
+                rise = now - rows.get(path, 0)
+                if rise <= 0:
+                    continue
+                moved = min(rise, credit)
+                credit -= moved
+                rows[path] = rows.get(path, 0) + moved
+                if moved:
+                    print(f"{self.rule}: {path}: +{moved} moved in, paid by rows lowered above")
+                if rise > moved:
+                    over.append(f"{path}: {now - rise + moved} -> {now}")
+            rows = {p: n for p, n in rows.items() if n}
+        target.write_text(self.header + "".join(f"{p}\t{n}\n" for p, n in sorted(rows.items())))
+        print(f"{self.rule}: {sum(rows.values())} {self.noun} in {len(rows)} files recorded "
+              f"({sum(tree.values())} in the tree)")
+        for line in over:
+            print(f"{self.rule}: over its row, not recorded: {line}")
+        return 1 if over else 0
+
+
+IMPLICIT_WINDOW_RECORD = CountRecord(
+    "implicit-window", IMPLICIT_WINDOW_BASELINE, IMPLICIT_WINDOW_MATCHER, lambda: IMPLICIT_WINDOW_RESOLVERS,
+    r"keyWindow|mainWindow|orderedWindows|\.first|\.last|\.active|targetWindow|WindowTargeting",
+    "implicit window lookups")
+IMPLICIT_WINDOW_HEADER = IMPLICIT_WINDOW_RECORD.header
+implicit_window = IMPLICIT_WINDOW_RECORD.find
+implicit_window_record = IMPLICIT_WINDOW_RECORD.judge
 
 
 def implicit_window_tree(repo: Path, rev: str) -> dict[str, int]:
-    """{path: implicit lookups} of every Sources file at REV with at least one."""
-    listed = git(repo, "grep", "-l", "-E", r"keyWindow|mainWindow|orderedWindows|\.first|\.last|\.active|targetWindow|"
-                 r"WindowTargeting", rev,
-                 "--", SWIFT_SOURCES, check=False)
-    paths = sorted({line.split(":", 1)[1] for line in listed.split("\n") if ":" in line})
-    texts = blobs(repo, [(rev, p) for p in paths])
-    counts = {p: implicit_window_count(p, texts.get((rev, p), "").split("\n")) for p in paths}
-    return {p: n for p, n in counts.items() if n}
-
-
-IMPLICIT_WINDOW_HEADER = ("# path\timplicit window lookups (guardrails.py implicit-window-record: the count only goes "
-                          "down, target 0; lower with guardrails.py --implicit-window-update)\n")
-
-
-def implicit_window_update(repo: Path, rev: str) -> int:
-    """Rewrite IMPLICIT_WINDOW_BASELINE (in REPO's worktree) from REV's tree: every row lowered to its file's count
-    (with no record yet, the tree's counts). A file over its row (a lookup moved in) is raised only as far as the
-    rows lowered here pay for it, in path order, so the total never rises; a rise they do not cover is printed and
-    not recorded, and the run exits 1."""
-    tree = implicit_window_tree(repo, rev)
-    target = repo / IMPLICIT_WINDOW_BASELINE
-    old = implicit_window_rows(target.read_text()) if target.exists() else None
-    over = []
-    if old is None:
-        rows = tree
-    else:
-        rows = {p: min(tree.get(p, 0), count) for p, (count, _) in old.items()}
-        credit = sum(count for count, _ in old.values()) - sum(rows.values())
-        for path, now in sorted(tree.items()):
-            rise = now - rows.get(path, 0)
-            if rise <= 0:
-                continue
-            moved = min(rise, credit)
-            credit -= moved
-            rows[path] = rows.get(path, 0) + moved
-            if moved:
-                print(f"implicit-window: {path}: +{moved} moved in, paid by rows lowered above")
-            if rise > moved:
-                over.append(f"{path}: {now - rise + moved} -> {now}")
-        rows = {p: n for p, n in rows.items() if n}
-    target.write_text(IMPLICIT_WINDOW_HEADER + "".join(f"{p}\t{n}\n" for p, n in sorted(rows.items())))
-    print(f"implicit-window: {sum(rows.values())} lookups in {len(rows)} files recorded ({sum(tree.values())} in the tree)")
-    for line in over:
-        print(f"implicit-window: over its row, not recorded: {line}")
-    return 1 if over else 0
+    return IMPLICIT_WINDOW_RECORD.tree(repo, rev)
 
 
 IMPLICIT_WINDOW_FIX = ("take the window from the input: the WindowTarget its entrypoint resolved (the event's window, "
@@ -5257,7 +5289,7 @@ IMPLICIT_WINDOW_RULES = (
          "window, Home or a workspace click switching another window, the \"No workspaces\" launch window)",
          IMPLICIT_WINDOW_FIX + "; only the WindowTarget resolver file may read the key window",
          "// window-allow: <why the window is explicit here>",
-         implicit_window, local_only=True),
+         IMPLICIT_WINDOW_RECORD.find, local_only=True),
     Rule("implicit-window-record", f"A file's implicit window lookups over its row in {IMPLICIT_WINDOW_BASELINE}, a "
          "row raised above its file's lookups, or a recorded total that rises",
          "the record holds the count of every file so it only goes down to 0 (the conversion lowers it slice by "
@@ -5266,10 +5298,102 @@ IMPLICIT_WINDOW_RULES = (
          "one by as much in the same push (the total must not rise); after a slice, guardrails.py "
          "--implicit-window-update lowers the rows",
          None,
-         implicit_window_record, scope=(SOURCES, IMPLICIT_WINDOW_BASELINE), local_only=True),
+         IMPLICIT_WINDOW_RECORD.judge, scope=(SOURCES, IMPLICIT_WINDOW_BASELINE), local_only=True),
 )
 RULES += IMPLICIT_WINDOW_RULES
 # ---------------------------------------------------------------- end of implicit-window
+
+
+# ---------------------------------------------------------------- key-replay (hold-class rule (c), 2026-10-28)
+# Never hold a person's input to wait for app state; route it by id at once (terminal, pane or page id) and let the
+# destination queue it (plans: the hold-class error class; 29f62d577c6 held every key of a window "until the new
+# terminal has the keyboard" and replayed them through NSApp.sendEvent, bounded only by a request timeout, and
+# nothing measured the wait). A key re-dispatch is the mechanism of every such hold, so a new one may only go through
+# the one InputReplay seam, which records held_by and the hold's ms (a hold needs a reason, a <= 50 ms limit and its
+# own measured stage in debug.input). Chrome's equivalent: input goes to the RenderWidgetHost that owns the target
+# and is queued there (InputRouterImpl), never re-injected into the browser's event loop.
+# Covered: `<x>.sendEvent(` / `NSApp.postEvent(` on a key event (or an event the line's context does not prove is a
+# pointer event), a keyboard CGEvent (`CGEvent(keyboardEventSource:`), and its post (`.post(tap:`, `postToPid`,
+# `CGEventPost`). Not covered: mouse, scroll and other pointer events (the innermost block around the call, or its
+# function, names a mouse or scroll event and no key event), `super.sendEvent(` in an override (a pass-through,
+# not a replay), and Tests. Debug and bench handlers count unless they live in the seam.
+# Two rules, local pre-push tier only (Lawrence 2026-10-23: no new CI gates): `key-replay` (added lines) and
+# `key-replay-record` (KEY_REPLAY_BASELINE's per-file count only goes down; CountRecord).
+# The block owns its lines from here to `RULES += KEY_REPLAY_RULES`.
+KEY_REPLAY_SEAMS: tuple[str, ...] = ()  # the InputReplay seam (hold-class-result.md names it); none yet: nothing new
+KEY_REPLAY_BASELINE = "scripts/cmux-next/key-replay-baseline.tsv"
+KEY_REPLAY_ALLOW = re.compile(r"//\s*key-replay-allow:\s*\S")
+EVENT_DISPATCH = re.compile(r"(?:\.\s*|(?<![\w.]))(?P<verb>sendEvent|postEvent)\s*\(")
+KEY_CGEVENT = re.compile(r"\bCGEvent\s*\(\s*keyboardEventSource\s*:")
+CGEVENT_POST = re.compile(r"\.\s*post\s*\(\s*tap\s*:|\.\s*postToPid\s*\(|\bCGEventPost(?:ToPid)?\s*\(")
+KEY_REPLAY_LINE = re.compile("|".join(p.pattern for p in (EVENT_DISPATCH, KEY_CGEVENT, CGEVENT_POST)))
+KEY_HINT = re.compile(r"\.keyDown\b|\.keyUp\b|\.flagsChanged\b|\bkeyEvent\s*\(|keyboardEventSource|\bkeyCode\b|"
+                      r"charactersIgnoringModifiers|[kK]ey(?:Down|Up)\b|\b(?:key|keys|held|typed)\b|[a-z]Key\b")
+POINTER_HINT = re.compile(r"(?i)mouse|scroll|click|drag|wheel|pointer|hover|trackpad|swipe|magnify|gesture|pressure")
+FUNCTION_STOP = re.compile(r"\b(?:func|init|deinit|subscript)\b|\b(?:var|let)\s+\w+\s*:")
+
+
+def key_replay_kind(lines: list[str], index: int, prefix: str) -> str:
+    """"key" or "pointer" for an event dispatched on LINES[INDEX] after PREFIX (the code before the call): the
+    line itself, then each enclosing block from the innermost out to its function, read from the block's opener to
+    the call; the first that names a key event is a key, the first that names only a pointer event is a pointer.
+    One that names neither is a key: a re-dispatch must show it is not one."""
+    code = code_of(lines[index])
+    if KEY_HINT.search(code):
+        return "key"
+    if POINTER_HINT.search(code):
+        return "pointer"
+    for _, number in enclosing_openers(lines, index, FUNCTION_STOP, prefix):
+        context = "\n".join(code_of(lines[j]) for j in range(number - 1, index + 1))
+        if KEY_HINT.search(context):
+            return "key"
+        if POINTER_HINT.search(context):
+            return "pointer"
+    return "key"
+
+
+def key_replay_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    code = code_of(version.lines[index])
+    if KEY_CGEVENT.search(code):
+        return True, []
+    for match in itertools.chain(EVENT_DISPATCH.finditer(code), CGEVENT_POST.finditer(code)):
+        before = code[:match.start()]
+        if re.search(r"\b(?:func|super\s*)\s*$", before.rstrip(".").rstrip()) or re.search(r"\bsuper\s*\.\s*$", before):
+            continue  # a declaration, or an override handing the event on: no replay
+        if key_replay_kind(version.lines, index, before) == "key":
+            return True, []
+    return False, []
+
+
+KEY_REPLAY_MATCHER = Matcher(KEY_REPLAY_LINE, KEY_REPLAY_ALLOW, key_replay_debt)
+KEY_REPLAY_RECORD = CountRecord(
+    "key-replay", KEY_REPLAY_BASELINE, KEY_REPLAY_MATCHER, lambda: KEY_REPLAY_SEAMS,
+    r"sendEvent|postEvent|keyboardEventSource|post\(tap|postToPid|CGEventPost", "key re-dispatches")
+KEY_REPLAY_RULES = (
+    Rule("key-replay", "A key event re-dispatched outside the InputReplay seam: `NSApp.sendEvent` / "
+         "`NSApplication.shared.sendEvent` / `window.sendEvent` / `<x>.sendEvent(` of a key event, `NSApp.postEvent` of "
+         "one, or a keyboard CGEvent (`CGEvent(keyboardEventSource:`) and its post; mouse and scroll events are not "
+         "covered",
+         "a replayed key is a held key: the person's input waited for app state (29f62d577c6 held every key of a window "
+         "until a new terminal took the keyboard, bounded only by a request timeout), and nothing measured the wait",
+         "never hold a person's input to wait for app state; route it by id at once (terminal id, pane id, page id) and "
+         "let the destination queue it; a hold needs a reason, a <= 50 ms limit and its own measured stage (held_by + "
+         "hold ms in debug.input), which only the InputReplay seam records",
+         "// key-replay-allow: <held_by, the <= 50 ms limit and its measured stage>",
+         KEY_REPLAY_RECORD.find, local_only=True),
+    Rule("key-replay-record", f"A file's key re-dispatches over its row in {KEY_REPLAY_BASELINE}, a row raised above "
+         "its file's count, or a recorded total that rises",
+         "the record holds the count of every file so it only goes down to 0 (each hold converted to route-by-id "
+         "lowers it); a replay moved into a file the record does not follow, or a row raised by hand, would grow it",
+         "lower the code; a replay moved from another file carries its row (the total must not rise); after a "
+         f"conversion, guardrails.py {KEY_REPLAY_RECORD.update_flag} lowers the rows",
+         None,
+         KEY_REPLAY_RECORD.judge, scope=(SOURCES, KEY_REPLAY_BASELINE), local_only=True),
+)
+RULES += KEY_REPLAY_RULES
+COUNT_RECORDS = (IMPLICIT_WINDOW_RECORD, KEY_REPLAY_RECORD)
+COUNT_RECORD_PATHS = tuple(record.path for record in COUNT_RECORDS)
+# ---------------------------------------------------------------- end of key-replay
 
 
 # ---------------------------------------------------------------- diff
@@ -5607,7 +5731,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
-             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS, IMPLICIT_WINDOW_BASELINE]
+             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS, *COUNT_RECORD_PATHS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -5622,7 +5746,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
                      (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST),
-                     (head, IMPLICIT_WINDOW_BASELINE), (base, IMPLICIT_WINDOW_BASELINE)]
+                     *[(rev, path) for path in COUNT_RECORD_PATHS for rev in (head, base)]]
                   + [(base, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -5675,11 +5799,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
     invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
-    window_record = (texts.get((base, IMPLICIT_WINDOW_BASELINE)), texts.get((head, IMPLICIT_WINDOW_BASELINE)))
+    records = {path: (texts.get((base, path)), texts.get((head, path))) for path in COUNT_RECORD_PATHS}
     for change in files:
         change.memo["wakeup"] = wakeup
         change.memo[INVARIANT_ALLOW_MEMO] = invariant_allow
-        change.memo[IMPLICIT_WINDOW_MEMO] = window_record
+        change.memo.update(records)
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     try:
         load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
@@ -6683,10 +6807,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="judge the input-monitor, target-settings, safety-todo, raw-continuation, invariant-site, "
                              "trap-api, decode-trap and Rust stability rules' refuse and escape cases in a scratch "
                              "repository")
-    parser.add_argument("--implicit-window-update", action="store_true",
-                        help=f"rewrite {IMPLICIT_WINDOW_BASELINE} from --head's tree (default HEAD): rows only go down")
-    parser.add_argument("--implicit-window-counts", action="store_true",
-                        help="print the implicit window lookups per Sources file at --head (default HEAD)")
+    for record in COUNT_RECORDS:
+        parser.add_argument(record.update_flag, action="store_true",
+                            help=f"rewrite {record.path} from --head's tree (default HEAD): rows only go down")
+        parser.add_argument(f"--{record.rule}-counts", action="store_true",
+                            help=f"print the {record.noun} per Sources file at --head (default HEAD)")
     parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
                              "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
@@ -6697,11 +6822,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_perf_hot is not None:
         return list_perf_hot(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip()),
                              args.list_perf_hot)
-    if args.implicit_window_update or args.implicit_window_counts:
+    for record in COUNT_RECORDS:
+        flag = record.rule.replace("-", "_")
+        if not (getattr(args, f"{flag}_update") or getattr(args, f"{flag}_counts")):
+            continue
         repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
-        if args.implicit_window_update:
-            return implicit_window_update(repo, args.head)
-        tree = implicit_window_tree(repo, args.head)
+        if getattr(args, f"{flag}_update"):
+            return record.update(repo, args.head)
+        tree = record.tree(repo, args.head)
         for path, count in sorted(tree.items(), key=lambda item: (-item[1], item[0])):
             print(f"{count}\t{path}")
         print(f"{sum(tree.values())}\ttotal ({len(tree)} files)")

@@ -1,0 +1,15 @@
+# path	key re-dispatches (guardrails.py key-replay-record: the count only goes down, target 0; lower with guardrails.py --key-replay-update)
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugViewKey.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/CreationInputCoordinator.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugKey+Sequence.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugKey.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+NewTabInput.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+TypeAhead.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ListHandlers.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/DebugNativeInput.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/DebugKeySequence.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/MenuIdentityHeaderView.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/WindowOverlayHost+Modal.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/LaunchPictureInput.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+LinkTesting.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView.swift	1
