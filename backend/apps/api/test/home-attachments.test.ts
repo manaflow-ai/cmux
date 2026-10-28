@@ -58,8 +58,13 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     const parts: Array<{ part_number: number; byte_count: number; etag?: string }> = []
     for (let start = 0, part = 1; start < body.length; start += partSize, part++) {
       const piece = body.subarray(start, Math.min(body.length, start + partSize))
-      const reply = await worker.fetch(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } })
-      expect(reply.status).toBe(200)
+      const request = () => ({ method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } } as const)
+      // The route's conditional R2 write rejects a duplicate, including when
+      // two callers race before either preliminary HEAD sees the object.
+      const first = await worker.fetch(r.json.value.upload_url, request())
+      const replies = part === 1 ? [first, await worker.fetch(r.json.value.upload_url, request())] : [first]
+      if (part === 1) expect(replies.map((reply) => reply.status)).toEqual([200, 409])
+      const reply = replies.find((candidate) => candidate.status === 200)!
       const value = ((await reply.json()) as any).value
       parts.push({ part_number: part, byte_count: piece.byteLength, etag: value.etag })
     }

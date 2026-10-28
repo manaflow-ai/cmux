@@ -7,7 +7,7 @@ import { createHash } from "node:crypto"
  */
 export type StreamResult = { readonly ok: true; readonly etag: string | undefined } | { readonly ok: false; readonly code: "attachment.size_mismatch" | "attachment.hash_mismatch" }
 
-export type PartResult = { readonly ok: true; readonly etag: string | undefined; readonly size: number } | { readonly ok: false; readonly code: "attachment.size_mismatch" }
+export type PartResult = { readonly ok: true; readonly etag: string | undefined; readonly size: number } | { readonly ok: false; readonly code: "attachment.size_mismatch" | "attachment.part_exists" }
 
 /** Store one bounded multipart piece without buffering it in the Worker. */
 export const streamPartInto = async (bucket: R2Bucket, key: string, request: Request, maxBytes: number, contentType: string): Promise<PartResult> => {
@@ -26,7 +26,17 @@ export const streamPartInto = async (bucket: R2Bucket, key: string, request: Req
   const piped = request.body.pipeThrough(meter).pipeTo(fixed.writable).catch(() => undefined)
   let etag: string | undefined
   try {
-    etag = (await bucket.put(key, fixed.readable, { httpMetadata: { contentType } }))?.etag
+    // The preliminary HEAD in the route is only an early error response. The
+    // conditional write is the actual single-writer guard when two PUTs race
+    // for the same part (or a completion races a late PUT).
+    const stored = await bucket.put(key, fixed.readable, { onlyIf: { etagDoesNotMatch: "*" }, httpMetadata: { contentType } })
+    if (stored === null) {
+      // R2 may reject a failed precondition before consuming the body. The
+      // pipe has its own rejection handler, so do not wait on an unwatched
+      // stream here and risk holding the request open behind a loser.
+      return { ok: false, code: "attachment.part_exists" }
+    }
+    etag = stored.etag
     await piped
   } catch {
     await bucket.delete(key)

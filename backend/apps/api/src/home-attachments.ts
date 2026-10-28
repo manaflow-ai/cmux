@@ -350,7 +350,7 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   const key = multipartKey(slot, part)
   if (await bucket.head(key)) return failure({ status: 409, code: "attachment.part_exists", message: "that upload part was already stored" })
   const put = await streamPartInto(bucket, key, request, Math.min(MULTIPART_PART_BYTES, slot.byte_count - (part - 1) * MULTIPART_PART_BYTES), slot.mime_type)
-  if (!put.ok) return failure({ status: 400, code: put.code, message: "the upload part is empty, too large or has the wrong length" })
+  if (!put.ok) return failure({ status: put.code === "attachment.part_exists" ? 409 : 400, code: put.code, message: put.code === "attachment.part_exists" ? "that upload part was already stored" : "the upload part is empty, too large or has the wrong length" })
   // A request admitted just before completion may finish afterwards. It
   // must not leave an orphan after the completion removes the slot.
   if (!await conv.uploadSlot(conversation, id, "multipart", false)) {
