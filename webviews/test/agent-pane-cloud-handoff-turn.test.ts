@@ -10,7 +10,7 @@ const CHAT = "0190a000-0000-7000-8000-0000000000e1";
 const START = Date.UTC(2026, 9, 28, 10, 0, 0);
 
 /// A daemon with one idle chat that records every prompt it gets.
-function fakeDaemon(prompts: Record<string, unknown>[]) {
+function fakeDaemon(prompts: Record<string, unknown>[], refuse = 0) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -45,6 +45,16 @@ function fakeDaemon(prompts: Record<string, unknown>[]) {
       send(raw: string) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
+        if (message.method === "session/prompt" && refuse > 0) {
+          refuse -= 1;
+          prompts.push(message.params);
+          queueMicrotask(() =>
+            socket.onmessage?.({
+              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "refused" } }),
+            }),
+          );
+          return;
+        }
         queueMicrotask(() =>
           socket.onmessage?.({
             data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }),
@@ -58,12 +68,12 @@ function fakeDaemon(prompts: Record<string, unknown>[]) {
   };
 }
 
-async function client(prompts: Record<string, unknown>[]) {
+async function client(prompts: Record<string, unknown>[], refuse = 0) {
   const connected = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
     () => undefined,
     undefined,
-    fakeDaemon(prompts),
+    fakeDaemon(prompts, refuse),
   );
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   return connected;
@@ -157,4 +167,14 @@ test("an ask from before the chat was shown again is not waited on: the new send
   await expect(first).rejects.toThrow();
   await second;
   expect(prompts.map(promptIdOf)).toEqual(["handoff-7-p-11"]);
+});
+
+test("a Retry goes under the id its prompt first went with, even when a turn is open now", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts, 1);
+  chat.handoffTurn = async () => undefined;
+  await chat.send("first", [], "p-12").catch(() => undefined);
+  chat.handoffTurn = async () => 8;
+  await chat.retryPrompt("local-p-12").catch(() => undefined);
+  expect(prompts.map(promptIdOf)).toEqual(["p-12", "p-12"]);
 });

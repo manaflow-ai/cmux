@@ -4916,7 +4916,8 @@ export class AcpmuxDirectClient {
     // a prompt whose chat is no longer the one shown goes back to its sender, never drawn in the
     // other chat. An ask from before the chat was shown again belongs to such a prompt: a send now
     // asks again, and the app names the turn that ask opened (a turn not run yet is named again).
-    if (this.handoffTurn && !steer && !namesHandoffTurn(promptId)) {
+    // A Retry keeps the id its prompt first went with, named or not: acpmux may hold that copy.
+    if (this.handoffTurn && !steer && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
       const generation = this.selectionGeneration;
       const asking = this.handoffAsks.get(sessionId);
       if (asking?.generation === generation) await asking.ask;
