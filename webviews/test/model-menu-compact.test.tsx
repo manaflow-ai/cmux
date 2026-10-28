@@ -789,9 +789,10 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
       );
     });
     await settle();
-    const full = doc().querySelector<HTMLElement>(".acpmux-mp");
-    expect(full).not.toBeNull();
-    expect(full!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+    // Cmd-Ctrl-M deliberately keeps the same compact menu mounted as a pointer click.
+    expect(menu()).not.toBeNull();
+    expect(doc().querySelector(".acpmux-mp")).toBeNull();
+    expect(menu()!.textContent).not.toMatch(/Model\s*·\s*this session/i);
   },
 );
 
