@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings

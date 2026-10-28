@@ -23,7 +23,7 @@ struct WorkspaceAutoNameWiring {
             })
     }
 
-    /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that
+    /// Variant B's focused-chat naming (`WorkspaceAutoNamer`) on every daemon that
     /// serves the name-source capability, once settings load.
     func start(settings: SettingsController) {
         let namer = WorkspaceAutoNamer(
@@ -46,14 +46,16 @@ struct WorkspaceAutoNameWiring {
                 guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
                 return services.windows.states[window]?.selection.selection(in: pane.id) // never builds the window
             },
-            rename: { [weak services] target, name in
+            rename: { [weak services] target, name, maySend, onFailure in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
                       let daemon = services.machines.daemon(machine: target.machineID),
-                      daemon.supports(DaemonCapability.workspaceNameSource.rawValue) else { return }
-                daemon.send("auto-rename workspace") {
-                    _ = try await $0.renameWorkspace(key, to: name, source: .auto,
-                                                      expectedNameRevision: target.nameRevision)
+                      daemon.supports(DaemonCapability.workspaceNameSource.rawValue) else { return false }
+                daemon.send("auto-rename workspace", onFailure: { _ in onFailure() }) { connection in
+                    guard await maySend() else { return }
+                    _ = try await connection.renameWorkspace(key, to: name, source: .auto,
+                                                              expectedNameRevision: target.nameRevision)
                 }
+                return true
             })
         // task-owner: the namer follows the stores for the app's lifetime; the task itself only awaits the
         // settings load (off main), then posts the one main step, the follow's start, as a classed visible task.

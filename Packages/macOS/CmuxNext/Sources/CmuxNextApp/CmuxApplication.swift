@@ -38,13 +38,15 @@ import os
 ///   work whatever has focus (plans/cmux-next/focus.md section 5).
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
-///   run never takes focus from the user's frontmost app.
-final class CmuxApplication: NSApplication, CEFAppProtocol {
+///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
+///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
+final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false
     /// The event in dispatch reached AppKit's `sendEvent` (no cmux stage consumed it): the tap's
     /// dispatch-end outcome. A nested dispatch keeps its own and gives the outer one back.
     private var dispatchDelivered = false
-    /// Set once in `CmuxNextApp.shared.main` before `run()`.
+    /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
+    /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
@@ -63,6 +65,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: runs a click's or key's dispatch with the window it came from as
     /// the active window (`WindowManager.dispatching(eventFrom:_:)`).
     var dispatchScope: ((NSEvent, () -> Void) -> Void)?
+    /// Where the left mouse-down in dispatch went down (screen coordinates), taken before AppKit
+    /// dispatched it: a titlebar press's window drag has moved the window by the time it returns.
+    /// The services' after-dispatch mouse-down subscription reads it (`AppServices`).
+    private(set) var mouseDownScreenLocation: NSPoint?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -190,6 +196,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func dispatch(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            mouseDownScreenLocation = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
+        }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDownToEditingPill(event, in: keyWindow ?? event.window) { return }
         Self.dispatchThroughTap(event, tap: inputTap) { delivered in
@@ -299,7 +308,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func logRefused() {
-        logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1)")
+        logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1, or an update relaunch's startup)")
     }
 }
 

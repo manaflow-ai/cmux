@@ -23,9 +23,12 @@ How it is enforced:
   crash mode, next item; a contended `Mutex` wait is always recorded only: it is measured on the wall clock). A seam call on main is always a new
   bug: move it onto `work.run(_, mayBlock:)` or resolve its answer before the input's turn (the terminal
   identity's terminfo check is one launch read on the files lane, awaited where a terminal's env is built). Bench builds (`reload.sh --config bench`,
-  `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
-  `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it records by default, traps only in the opt-in crash mode (next item) and has no log or menu.
+  `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. cmux NEXT Nightly (track
+  `nightly-next`): built with `-DCMUX_BLOCKING_CHECKS` (`scripts/cmux-next/lib/nightly-swift-defines.sh`, read
+  by `nightly.yml` and `check-release-compile.sh --nightly`); it records each new site once by default, traps
+  only in the opt-in crash mode (next item), has no menu, and writes one public unified-log line per site with
+  the kind and the image UUID + offset frames only (`BlockingLogSink`, category `blocking`; no path, file or
+  symbol). The opt-in hang reports do not carry the sites yet (a report schema change with PL-telemetry).
   Release: compiled out. Debug records on the main thread and
   the pool until the every-action sweep (p02-threads-300, RUN-1) shows 0 main and 0 pool sites; then task 021 makes
   both trap by default. Daemon (`cmux-threads::blocking`): a disallowed thread's blocking call records its site in
@@ -684,6 +687,9 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   Chrome's `kDisplayCritical`; `MetalYUVRenderer`'s serial queue, made with `DispatchQueue.checkedSerial`),
   `cmux.remote-view.rd-transport` (user-initiated; the visible session's input and frames, below the render queue),
   `cmux.remote-view.mock-host` (user-initiated; the Debug host stand-in), `cmux.next.mobile.unix-lane` (user-initiated),
+  `com.cmuxterm.mobile.paired-devices` (utility, serial; the iPhone host's paired-phone list and its Keychain seal:
+  its file and Keychain calls block this queue, never main; one item per save, read or withdrawal, each from a
+  person's action or an account change, so no back-pressure; quit waits at most 2 s for it under `terminate`),
   `com.cmuxterm.next.phone-process.stdin` (per-item; the caller's QoS: a phone tool's stdin DispatchIO channel,
   whose completions only close it, so a large `simctl pbcopy` never holds a thread),
   `cmux.screen.capture` (user-initiated; CmuxVNCWebRTC, p02-threads-146),
@@ -923,7 +929,7 @@ connection), and the macOS daemon. Until it is done, this task does not pass.
 
 `allowBlocking(<reason>)` lets the main thread block for one of these reasons only (Chrome's
 `ScopedAllowBlocking` friend list). A new `BlockingAllowance` needs a row here in the same push. It is not for
-hot paths: in Debug and bench builds (and Nightly, to come) each outermost scope adds and removes one `CFRunLoopObserver` (it
+hot paths: in Debug and bench builds (and Nightly) each outermost scope adds and removes one `CFRunLoopObserver` (it
 holds the allowance back while a nested run of the main run loop runs other work). Swift allowances plus
 `// blocking-allow:` escapes stay at 3 or fewer (INV-4; arch-ratchet `blocking_allow_escapes`).
 

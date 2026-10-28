@@ -228,6 +228,8 @@ extension AppServices {
                                                                           profile: profile.map(BrowserProfileRecord.wireID(for:)))
         }
         engine.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
+        // A Chromium page's file chooser that reaches the app with no agent offer asks with the same panel WebKit tabs use.
+        engine.fileInput = openPanel
     }
 }
 

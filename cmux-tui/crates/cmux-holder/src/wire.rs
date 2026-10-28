@@ -4,9 +4,14 @@
 //!
 //! `magic "CMHX" | kind u16 | flags u16 | chan u32 | len u32 | payload`,
 //! little endian. `chan` names one terminal; 0 is the link itself. A frame
-//! that carries descriptors sends them with its first byte; the receiver
-//! queues them in arrival order and the frame kind says how many it takes.
+//! that carries descriptors sends them with its first byte, and its header
+//! states how many ([`FLAG_FDS_STATED`]): the receiver gives each frame
+//! exactly the descriptors that arrived with its first byte, and a frame
+//! whose descriptors are missing, or that passed more than it states, ends
+//! the link. A frame from an older build states nothing; its kind and flags
+//! say how many it passes.
 
+use std::collections::VecDeque;
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 
@@ -129,7 +134,10 @@ pub enum Kind {
     Listed = 14,
     /// h->d: `request_kind u16, code u16`, then a UTF-8 message. Code
     /// `SUPERSEDED` on channel 0 (request kind [`Kind::Hello`]): another
-    /// daemon authenticated and took this link's place.
+    /// daemon authenticated and took this link's place. Request kind 0
+    /// ([`STREAM_FAULT`]) on channel 0: the holder could not read the
+    /// daemon's stream on ([`Fault`]; code `NO_DESCRIPTORS` or
+    /// `BAD_PAYLOAD`), and the link ends after it.
     Error = 15,
     /// both: `nonce u64`.
     Ping = 16,
@@ -217,6 +225,8 @@ impl Kind {
     /// Descriptors a frame of this kind with these header flags carries:
     /// one more with [`FLAG_RING`] (the ring's segment, after the master;
     /// an [`Kind::Adopted`] carries only the segment).
+    /// What a frame without [`FLAG_FDS_STATED`] (an older build's) passes;
+    /// a sender of this build passes exactly this many too.
     pub fn descriptors_with(self, flags: u16) -> usize {
         let ring = flags & FLAG_RING != 0;
         if self == Kind::Adopted {
@@ -236,6 +246,10 @@ pub struct Frame {
     pub payload: Vec<u8>,
     pub fds: Vec<OwnedFd>,
 }
+
+/// The request kind of an ERROR about the daemon's stream itself rather
+/// than one of its frames ([`Kind::Error`]): no kind has this value.
+pub const STREAM_FAULT: u16 = 0;
 
 /// [`Kind::Attach`] flag: send the terminal's prologue first.
 pub const FLAG_WITH_PROLOGUE: u16 = 1;
@@ -320,6 +334,20 @@ impl HangReport {
         Ok(Self { deadline_ms, busy_ms, site })
     }
 }
+/// Header flag of every frame this build sends, of any kind: the three bits
+/// above it are the number of descriptors the frame passes.
+/// A receiver of an older build ignores it (it counts by kind, and this
+/// build passes what the kind says); a receiver of this build takes exactly
+/// that many, so a frame that passes no descriptor where its kind would
+/// (never from this build's holder, which passes its own descriptors and
+/// makes none) never takes the next frame's.
+pub const FLAG_FDS_STATED: u16 = 1 << 12;
+/// The shift of the descriptor count in a header's flags.
+const FDS_SHIFT: u32 = 13;
+/// The header bits a descriptor count takes (with [`FLAG_FDS_STATED`]).
+const FDS_FIELD: u16 = 0b111 << FDS_SHIFT;
+/// The most descriptors one frame may pass: what its header can state.
+pub const MAX_FRAME_FDS: usize = (FDS_FIELD >> FDS_SHIFT) as usize;
 
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {
@@ -332,8 +360,28 @@ pub fn encode_flagged(kind: Kind, flags: u16, chan: u32, payload: &[u8]) -> Vec<
 }
 
 /// A frame whose payload is `parts` in order: one allocation and one copy
-/// of each part (a DATA frame straight from the two halves of a ring).
+/// of each part (a DATA frame straight from the two halves of a ring). It
+/// passes no descriptor.
 pub fn encode_parts(kind: Kind, flags: u16, chan: u32, parts: &[&[u8]]) -> Vec<u8> {
+    encode_frame(kind, flags, chan, parts, 0)
+}
+
+/// A frame that passes `fds` descriptors with its first byte: its header
+/// states the count ([`FLAG_FDS_STATED`]). The caller sends exactly that
+/// many with it ([`send_frame`], or the holder's link queue).
+///
+/// # Panics
+///
+/// When `fds` is more than [`MAX_FRAME_FDS`]: no frame of the wire passes
+/// more than two.
+pub fn encode_with_fds(kind: Kind, flags: u16, chan: u32, payload: &[u8], fds: usize) -> Vec<u8> {
+    encode_frame(kind, flags, chan, &[payload], fds)
+}
+
+fn encode_frame(kind: Kind, flags: u16, chan: u32, parts: &[&[u8]], fds: usize) -> Vec<u8> {
+    assert!(fds <= MAX_FRAME_FDS, "a frame passes at most {MAX_FRAME_FDS} descriptors");
+    debug_assert_eq!(flags & (FLAG_FDS_STATED | FDS_FIELD), 0, "a kind flag in the count bits");
+    let flags = flags | FLAG_FDS_STATED | ((fds as u16) << FDS_SHIFT);
     let len: usize = parts.iter().map(|part| part.len()).sum();
     let mut out = Vec::with_capacity(HEADER + len);
     out.extend_from_slice(&MAGIC);
@@ -401,11 +449,29 @@ pub struct Reader {
     buf: Vec<u8>,
     /// Offset in `buf` of the first byte no frame took yet.
     start: usize,
+    /// Stream offset of `buf[start]`: frames took every byte before it.
+    taken: u64,
+    /// The `recvmsg` and the descriptors no frame took yet, in arrival order.
     fds: FdReceiver,
+    /// The stream offsets `from..to` of the bytes of the read that passed
+    /// each descriptor queued in `fds`, in the same order.
+    arrivals: VecDeque<Arrival>,
+}
+
+/// A descriptor and the stream offsets of the bytes the read that passed it
+/// returned. A sender passes a frame's descriptors with the frame's first
+/// byte, so the frame they belong to starts in `from..to`.
+#[derive(Clone, Copy)]
+struct Arrival {
+    from: u64,
+    to: u64,
 }
 
 impl Reader {
-    /// Read what the socket has (one `recvmsg`). `Ok(false)` at end of stream.
+    /// Read what the socket has (one `recvmsg`). `Ok(false)` at end of
+    /// stream. Descriptors the kernel had to drop (this process is out of
+    /// descriptors) are a [`Fault::Descriptors`] error: the frames they
+    /// belong to cannot be served, and the stream cannot be read on.
     pub fn fill(&mut self, fd: RawFd) -> io::Result<bool> {
         self.fill_with(fd, |_| {})
     }
@@ -419,44 +485,175 @@ impl Reader {
             self.buf.drain(..self.start);
             self.start = 0;
         }
-        let n = self.fds.recv(fd, &mut self.buf, READ_CHUNK, between)?;
+        let len = self.buf.len();
+        let queued = self.fds.queued();
+        let n = self.fds.recv(fd, &mut self.buf, READ_CHUNK, between).map_err(read_fault)?;
+        let from = self.taken + len as u64;
+        let to = from + n as u64;
+        let arrived = self.fds.queued() - queued;
+        self.arrivals.extend(std::iter::repeat_n(Arrival { from, to }, arrived));
         Ok(n != 0)
     }
 
-    /// The next complete frame, if one is buffered. A bad magic or an
-    /// oversized length is an error: the stream is lost.
+    /// The next complete frame, if one is buffered, with exactly the
+    /// descriptors it passed. A bad magic, an oversized length, a frame
+    /// whose descriptors did not arrive with its first byte, or descriptors
+    /// no frame states are a [`Fault::Malformed`] error: the stream cannot be
+    /// read on (never a frame that takes another frame's descriptor).
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
         let pending = &self.buf[self.start..];
         if pending.len() < HEADER {
             return Ok(None);
         }
         if pending[..4] != MAGIC {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "bad holder frame magic"));
+            return Err(fault(Fault::Malformed, "bad holder frame magic"));
         }
         let kind = u16::from_le_bytes([pending[4], pending[5]]);
         let flags = u16::from_le_bytes([pending[6], pending[7]]);
         let chan = u32::from_le_bytes(pending[8..12].try_into().unwrap_or_default());
         let len = u32::from_le_bytes(pending[12..16].try_into().unwrap_or_default()) as usize;
         if len > MAX_PAYLOAD {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "holder frame too large"));
+            return Err(fault(Fault::Malformed, "holder frame too large"));
         }
         if pending.len() < HEADER + len {
             return Ok(None);
         }
         let payload = pending[HEADER..HEADER + len].to_vec();
+        let frame_at = self.taken;
         self.start += HEADER + len;
+        self.taken += (HEADER + len) as u64;
         if self.start == self.buf.len() {
             // Everything was taken: the next fill needs no compaction.
             self.buf.clear();
             self.start = 0;
         }
-        let wanted = Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags));
-        let fds = self.fds.take(wanted).map_err(|bad| bad.into_io(io::ErrorKind::InvalidData))?;
+        let wanted = if flags & FLAG_FDS_STATED != 0 {
+            usize::from((flags & FDS_FIELD) >> FDS_SHIFT)
+        } else {
+            Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags))
+        };
+        let missing = || {
+            let message = "a link frame did not pass the descriptors it states";
+            fault(Fault::Malformed, message)
+        };
+        if wanted > self.fds.queued() {
+            return Err(missing());
+        }
+        let fds = self.fds.take(wanted).map_err(|_| missing())?;
+        for _ in 0..wanted {
+            match self.arrivals.pop_front() {
+                Some(arrival) if arrival.from <= frame_at && frame_at < arrival.to => {}
+                _ => return Err(missing()),
+            }
+        }
+        // Every frame that starts where a descriptor arrived was taken, and
+        // none took it: its sender passed more than it stated.
+        if self.arrivals.front().is_some_and(|arrival| arrival.to <= self.taken) {
+            let message = "a link frame passed descriptors it does not state";
+            return Err(fault(Fault::Malformed, message));
+        }
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
 }
 
 pub use fds::{send_all, send_with_fds};
+
+/// Why a link's stream cannot be read on although the socket still works:
+/// the reader returns it inside the error ([`Fault::of`]). A peer that sees
+/// one did not lose its peer (no crash to count), and tells it why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// This process could not take the descriptors the peer passed (it is
+    /// out of descriptors), so the kernel dropped them: macOS fails the read
+    /// with `EMFILE`, `ENFILE` or `EMSGSIZE` and leaves the bytes, Linux
+    /// delivers the descriptors that fit and sets `MSG_CTRUNC`.
+    Descriptors,
+    /// The bytes are not frames of this wire: a bad magic, a frame too
+    /// large, or descriptors that do not match what the frames state.
+    Malformed,
+}
+
+impl Fault {
+    /// The fault a [`Reader`] error stands for; `None` for an error of the
+    /// socket itself (the link ended or broke).
+    pub fn of(error: &io::Error) -> Option<Self> {
+        error.get_ref()?.downcast_ref::<FaultError>().map(|fault| fault.fault)
+    }
+}
+
+/// The payload of a [`Fault`]'s `io::Error`.
+#[derive(Debug)]
+struct FaultError {
+    fault: Fault,
+    message: String,
+}
+
+impl std::fmt::Display for FaultError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for FaultError {}
+
+/// An `io::Error` that [`Fault::of`] reads back as `fault`.
+fn fault(fault: Fault, message: impl Into<String>) -> io::Error {
+    let kind = match fault {
+        Fault::Descriptors => io::ErrorKind::Other,
+        Fault::Malformed => io::ErrorKind::InvalidData,
+    };
+    io::Error::new(kind, FaultError { fault, message: message.into() })
+}
+
+/// A [`Reader`] read error as the [`Fault`] it stands for: descriptors the
+/// kernel could not hand over (this process is out of them: macOS fails the
+/// read, Linux truncates the control data) are [`Fault::Descriptors`]; any
+/// other error is the socket's own.
+fn read_fault(error: io::Error) -> io::Error {
+    if let Some(errno) = error.raw_os_error()
+        && dropped_descriptors(errno)
+    {
+        let message = format!("the kernel dropped descriptors the link passed: {error}");
+        return fault(Fault::Descriptors, message);
+    }
+    if error
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<fds::FdBadMessage>())
+        .is_some_and(|bad| *bad == fds::FdBadMessage::ControlTruncated)
+    {
+        return fault(Fault::Descriptors, "the kernel dropped descriptors the link passed");
+    }
+    error
+}
+
+/// Write one frame that passes `fds` with its first byte, its header
+/// stating how many ([`encode_with_fds`]). Blocking.
+pub fn send_frame(
+    fd: RawFd,
+    kind: Kind,
+    flags: u16,
+    chan: u32,
+    payload: &[u8],
+    fds: &[RawFd],
+) -> io::Result<()> {
+    send_all(fd, &encode_with_fds(kind, flags, chan, payload, fds.len()), fds)
+}
+
+/// Whether a failed `recvmsg` on a Unix stream socket means the kernel
+/// could not hand over the descriptors that came with the bytes: it
+/// dropped them and left the bytes, which now lack them. `EMFILE` or
+/// `ENFILE`: allocating one of them failed (macOS 27.0, measured).
+/// `EMSGSIZE`, on macOS: XNU's `unp_externalize` fails with it when the
+/// descriptor table has no room for them all (its `fdavail` check, in the
+/// BSD code since 4.4BSD), which other macOS majors may return for the
+/// same exhaustion; a stream socket's `recvmsg` has no other source of it,
+/// since a message is never too long for a stream. Linux does not fail the
+/// read for them: it delivers what fits and sets `MSG_CTRUNC`
+/// (`cmux_ipc::fds::FdBadMessage::ControlTruncated`).
+fn dropped_descriptors(errno: i32) -> bool {
+    matches!(errno, libc::EMFILE | libc::ENFILE)
+        || (cfg!(target_vendor = "apple") && errno == libc::EMSGSIZE)
+}
 
 /// Little-endian payload builder.
 #[derive(Default)]
@@ -565,13 +762,17 @@ mod tests {
     }
 
     /// The wire is the holder's frozen format with its descriptors: a ring
-    /// SPAWNED frame is these exact bytes on the socket (what every older
-    /// holder and daemon reads), and its two descriptors arrive with it,
-    /// master first, then the ring segment.
+    /// SPAWNED frame of this build is these exact bytes on the socket (an
+    /// older build's, which states no count, still reads: its kind and
+    /// flags say two), and its two descriptors arrive with it, master
+    /// first, then the ring segment.
     #[test]
     fn a_frame_with_descriptors_is_the_frozen_bytes_in_order() {
-        const SPAWNED_RING: &[u8] = b"CMHX\x04\x00\x02\x00\x07\x00\x00\x00\x07\x00\x00\x00spawned";
-        let frame = encode_flagged(Kind::Spawned, FLAG_RING, 7, b"spawned");
+        // Flags 0x5002: FLAG_RING, FLAG_FDS_STATED and a count of 2.
+        const SPAWNED_RING: &[u8] = b"CMHX\x04\x00\x02\x50\x07\x00\x00\x00\x07\x00\x00\x00spawned";
+        const OLDER_SPAWNED_RING: &[u8] =
+            b"CMHX\x04\x00\x02\x00\x07\x00\x00\x00\x07\x00\x00\x00spawned";
+        let frame = encode_with_fds(Kind::Spawned, FLAG_RING, 7, b"spawned", 2);
         assert_eq!(frame, SPAWNED_RING);
         let (master, _master_write) = pipe();
         let (_ring_read, ring) = pipe();
@@ -582,21 +783,23 @@ mod tests {
         receiver.read_exact(&mut bytes).unwrap();
         assert_eq!(bytes, SPAWNED_RING, "the bytes on the socket are the encoded frame");
 
-        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
         let mut reader = Reader::default();
-        let frame = loop {
-            if let Some(frame) = reader.next_frame().unwrap() {
-                break frame;
-            }
-            assert!(reader.fill(receiver.as_raw_fd()).unwrap(), "the stream ended early");
-        };
-        assert_eq!((frame.kind, frame.flags, frame.chan), (Kind::Spawned as u16, FLAG_RING, 7));
-        assert_eq!(frame.payload, b"spawned");
-        assert_eq!(
-            frame.fds.iter().map(identity).collect::<Vec<_>>(),
-            [identity(&master), identity(&ring)],
-            "master first, then the ring segment"
-        );
+        for (bytes, flags) in [(SPAWNED_RING, 0x5002), (OLDER_SPAWNED_RING, FLAG_RING)] {
+            send_all(sender.as_raw_fd(), bytes, &[raw(&master), raw(&ring)]).unwrap();
+            let frame = loop {
+                if let Some(frame) = reader.next_frame().unwrap() {
+                    break frame;
+                }
+                assert!(reader.fill(receiver.as_raw_fd()).unwrap(), "the stream ended early");
+            };
+            assert_eq!((frame.kind, frame.flags, frame.chan), (Kind::Spawned as u16, flags, 7));
+            assert_eq!(frame.payload, b"spawned");
+            assert_eq!(
+                frame.fds.iter().map(identity).collect::<Vec<_>>(),
+                [identity(&master), identity(&ring)],
+                "master first, then the ring segment"
+            );
+        }
     }
 
     fn close_on_exec(fd: &OwnedFd) -> bool {
@@ -621,7 +824,7 @@ mod tests {
         let (read_end, write_end) =
             unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
         assert!(!close_on_exec(&read_end) && !close_on_exec(&write_end), "pipe() sets no flag");
-        let frame = encode_flagged(Kind::Spawned, FLAG_RING, 7, b"spawned");
+        let frame = encode_with_fds(Kind::Spawned, FLAG_RING, 7, b"spawned", 2);
         send_all(sender.as_raw_fd(), &frame, &[raw(&read_end), raw(&write_end)]).unwrap();
 
         let mut reader = Reader::default();

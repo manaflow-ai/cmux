@@ -59,9 +59,9 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
 }
 
 /// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
-/// are its resources.
-const PEER_RESOURCES: [&str; 8] =
-    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs"];
+/// are its resources, and what its health loop found wrong (`problems`).
+const PEER_RESOURCES: [&str; 9] =
+    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs", "problems"];
 
 /// A harness catalog without values that shape its process. The app and Web
 /// clients need the picker metadata, not literal argv or environment values.
@@ -188,7 +188,7 @@ fn has_content(value: &Value) -> bool {
 }
 
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
-fn url_without_secrets(url: &str) -> String {
+pub(crate) fn url_without_secrets(url: &str) -> String {
     let bare = url.split(['?', '#']).next().unwrap_or_default();
     let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
     let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));

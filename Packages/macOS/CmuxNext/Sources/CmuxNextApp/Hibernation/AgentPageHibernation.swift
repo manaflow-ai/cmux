@@ -13,7 +13,11 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import os
 
-/// Lets hidden agent chat pages go (cx-x15rz). Each chat tab's page is a web view with its own
+/// Lets hidden agent chat pages go (cx-x15rz), only once cmux.json sets `browser.hibernation`
+/// (`BrowserHibernationSetting.discardsAutomatically`), as for browser tabs: a page built again
+/// keeps what ``AgentPaneWakeState`` carries (chips, shell text, scroll) and acpmux's draft, but
+/// not an open menu or popover, the caret, a queued prompt being edited or an IME composition
+/// (Leo, 2026-10-26: "why does cmux-next's browser keep refreshing and reloading?"). Each chat tab's page is a web view with its own
 /// web content process (about 75 MB), and before this it stayed until the tab closed. A chat
 /// hidden past the browser pages' threshold (`browser.hibernation` and memory pressure, as
 /// `HibernationPlanner` sets it) lets its page go; its tab keeps its session, so showing it again
@@ -268,6 +272,8 @@ final class AgentPageHibernation {
     /// is still the same hidden page.
     func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
+        let hiddenFor = hiddenAt[key].map { Int((now() - $0).seconds) } ?? 0
+        let cause = pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
         read(view, frame: true) { [weak self] wake, frame in
             guard let self else { return }
             releasing.remove(key)
@@ -286,7 +292,7 @@ final class AgentPageHibernation {
                 tabs.launchImages.drop(key)
                 return replan()
             }
-            letGo(key, view, wake: wake, in: tabs)
+            letGo(key, view, wake: wake, in: tabs, cause: cause)
         }
     }
 
@@ -296,8 +302,9 @@ final class AgentPageHibernation {
     }
 
     /// Lets `view`, tab `key`'s hidden page, go. The tab keeps its session and every other state, and
-    /// `wake`, what the page held that acpmux does not: the next show builds the page again.
-    func letGo(_ key: String, _ view: AgentPaneView, wake: AgentPaneWakeState?, in tabs: AgentTabStore) {
+    /// `wake`, what the page held that acpmux does not: the next show builds the page again. `cause`
+    /// (why it goes) is logged.
+    func letGo(_ key: String, _ view: AgentPaneView, wake: AgentPaneWakeState?, in tabs: AgentTabStore, cause: String) {
         displace(key)
         let stored = tabs.resolve(key)
         if let session = view.model.sessionId { tabs.sessions[stored] = session }
@@ -310,7 +317,8 @@ final class AgentPageHibernation {
         onRelease()
         noteDiscard(.discarding(key, .agentPage, HibernationPlanner.discardReason(at: pressure)))
         noteDiscard(.discarded(key))
-        logger.info("released agent page \(key, privacy: .public)")
+        // Notice, not info: the field log keeps it (the page is built again when shown).
+        logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
     }
 }
 
@@ -332,7 +340,10 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
         if pane.model.shell.hasRuns { reasons.insert(.shellCommandRan) }
         if tabs.unsentDrafts.hasDraft(stored) || holdsUnsavedState(key, pane: pane) { reasons.insert(.draft) }
         guard let (record, _) = tabs.lookup(stored) else { return reasons.union([.unrestorable]) }
-        switch AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) {
+        // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
+        if pane.showsCrashNotice { reasons.insert(.unrestorable) }
+        // Listed here: the tab is in this Mac's tree, so a `chief:<home id>` it names is this Mac's (#25262).
+        switch AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) {
         case .remote: reasons.insert(.remoteChat)
         case .chief: reasons.insert(.unrestorable) // a Chief home's chat is not rebuilt here, as before
         case .local:
@@ -447,7 +458,7 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
         if let picture = pane.page.hideState.encoded {
             tabs.launchImages.hold(key, encoded: picture.data, size: pane.page.bounds.size, appearance: read?.appearance)
         }
-        letGo(key, pane, wake: read?.wake, in: tabs)
+        letGo(key, pane, wake: read?.wake, in: tabs, cause: "page-lifecycle")
     }
 
     /// Hands the lifecycle tab `key`'s keep reasons now: one that blocks a freeze thaws a frozen page in

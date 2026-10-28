@@ -45,6 +45,9 @@ package nonisolated enum CannotDiscardReason: String, Hashable, Sendable, CaseIt
     case downloading
     /// An agent holds the page's browser lease.
     case agentLease = "agent_lease"
+    /// cmux.json does not set `browser.hibernation`: hidden pages only freeze, so they keep their
+    /// state, and are never discarded on their own (`BrowserHibernationSetting.discardsAutomatically`).
+    case keepsState = "keeps_state"
 
     /// The content is not something the planner discards (Chrome's `kNotATab`).
     case notATab = "not_a_tab"

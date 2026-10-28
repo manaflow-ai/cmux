@@ -21,11 +21,15 @@ fn the_daemon_agent_runs_at_the_process_roles_table_value() {
 #[test]
 fn a_reload_sets_the_table_value_before_launchd_reads_the_plist() {
     let set = format!(
-        "plutil -replace ProcessType -string {} ~/Library/LaunchAgents/com.acpmux.daemon.plist",
+        "plutil -replace ProcessType -string {} \"$acpmux_plist\"",
         LaunchdJob::AcpmuxDaemon.process_type()
     );
-    let at = LAUNCHD_RELOAD.find(&set).expect("the reload sets ProcessType");
-    let bootstrap = LAUNCHD_RELOAD.find("launchctl bootstrap").unwrap();
-    assert!(at < bootstrap, "{LAUNCHD_RELOAD}");
-    assert!(LAUNCHD_RELOAD.find("launchctl bootout").unwrap() < at, "{LAUNCHD_RELOAD}");
+    for json in [false, true] {
+        let reload = launchd_reload(json);
+        let at = reload.find(&set).expect("the reload sets ProcessType");
+        let bootstrap =
+            reload.find("launchctl bootstrap gui/$acpmux_uid \"$acpmux_plist\"").unwrap();
+        assert!(at < bootstrap, "{reload}");
+        assert!(reload.find("launchctl bootout \"$acpmux_job\"").unwrap() < at, "{reload}");
+    }
 }

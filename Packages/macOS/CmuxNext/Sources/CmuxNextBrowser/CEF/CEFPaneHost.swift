@@ -186,6 +186,7 @@ final class CEFPaneHost {
             ensureOwnWindow(for: tab)
         } else {
             showBrowser(of: tab)
+            tab.grantPendingFocusIfShown()
         }
     }
 

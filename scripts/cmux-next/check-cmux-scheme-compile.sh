@@ -82,6 +82,10 @@ else
 fi
 remove_log=0
 remove_derived_data=0
+# With metrics on, each attempt also writes a result bundle (outside the
+# uploaded metrics directory), read once for the build timeline below.
+timeline_dir=""
+[[ -z "$metrics_dir" ]] || timeline_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-scheme-timeline.XXXXXX")" || timeline_dir=""
 [[ -n "$metrics_dir" ]] || remove_log=1
 (( kept_path )) || remove_derived_data=1
 browser_sources="Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
@@ -100,6 +104,7 @@ on_exit() {
   [[ "${GITHUB_ACTIONS:-}" != true ]] || cmux_next_restore_workspace_resolved "$repo_root"
   if (( remove_log )); then rm -f "$log"; fi
   if (( remove_derived_data )); then rm -rf -- "$derived_data"; fi
+  if [[ -n "$timeline_dir" ]]; then rm -rf -- "$timeline_dir"; fi
 }
 trap on_exit EXIT
 swift_import_flags=""
@@ -107,7 +112,7 @@ if [[ "$browser_data_import" == compiled-out ]]; then
   swift_import_flags="-DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT"
   browser_sources_backup="$(mktemp "${TMPDIR:-/tmp}/browser-sources.XXXXXX")"
   cp -f "$browser_sources" "$browser_sources_backup"
-  printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' > "$browser_sources"
+  cp -f "$repo_root/scripts/cmux-next/lib/browser-sources-compiled-out.json" "$browser_sources"
 fi
 echo "check-cmux-scheme-compile: browser-data import ${browser_data_import} (flags: ${swift_import_flags:-none})"
 build_attempt=0
@@ -116,6 +121,8 @@ build() {
   if [[ -n "$metrics_dir" ]]; then
     log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
   fi
+  result_bundle=""
+  [[ -z "$timeline_dir" ]] || result_bundle="$timeline_dir/attempt-${build_attempt}.xcresult"
   xcode_args=(
     -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
     -destination 'platform=macOS,arch=arm64'
@@ -127,14 +134,24 @@ build() {
     DEBUG_INFORMATION_FORMAT=dwarf
   )
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
+  # A dev bundle id (the DEV Release app) never claims http/https at Default
+  # rank, whatever the configuration (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+  if [[ -n "$bundle_id" ]]; then
+    web_url_handler_rank=Default
+    case "$bundle_id" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) web_url_handler_rank=Alternate ;; esac
+    xcode_args+=("CMUX_WEB_URL_HANDLER_RANK=$web_url_handler_rank")
+  fi
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   [[ -n "$swift_import_flags" ]] && xcode_args+=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_import_flags")
   [[ -n "$swift_compilation_mode" ]] && xcode_args+=("SWIFT_COMPILATION_MODE=$swift_compilation_mode")
+  # The Linux whole-app build's REF capture (hybrid_ref_capture.py) reads the frontend lines from the log.
+  [[ "${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1 ]] && xcode_args+=(EMIT_FRONTEND_COMMAND_LINES=YES)
   if (( use_cache )); then
     while IFS= read -r setting; do xcode_args+=("$setting"); done < <(cmux_next_cas_settings)
   fi
+  [[ -z "$result_bundle" ]] || xcode_args+=(-resultBundlePath "$result_bundle")
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild "${xcode_args[@]}" \
@@ -218,5 +235,12 @@ if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
   [[ -n "${CMUX_BUILD_METRICS_SUMMARY:-}" ]] && metrics_args+=(--summary "$CMUX_BUILD_METRICS_SUMMARY")
   python3 "$repo_root/scripts/ci/build_metrics.py" "$derived_data" "${metrics_args[@]}" \
     || echo "check-cmux-scheme-compile: warning: could not write build metrics" >&2
+fi
+# Where the time went: per task kind and the slowest tasks
+# (scripts/ci/xcode_build_timeline.py). Advisory and after the
+# metrics, so it changes neither the verdict nor the recorded compile seconds.
+if [[ -n "$timeline_dir" && -d "${result_bundle:-}" ]]; then
+  python3 "$repo_root/scripts/ci/xcode_build_timeline.py" --xcresult "$result_bundle" \
+    --json "$metrics_dir/build-timeline.json" || true
 fi
 exit "$status"

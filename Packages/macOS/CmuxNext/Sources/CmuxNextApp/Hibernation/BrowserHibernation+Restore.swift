@@ -98,6 +98,17 @@ extension BrowserHibernation {
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
+        // The page was discarded (logged with its cause); restoring it loads it again.
+        // The kind of request only: a URL is the person's browsing and stays out of the log.
+        let prewarm = prewarmCauses.removeValue(forKey: key)
+        let reason = switch pendingWakes[key] {
+        case .load?: "navigation"
+        case .reload?: "reload"
+        case .goBack?: "back"
+        case .goForward?: "forward"
+        case nil: prewarm.map { "prewarm \($0)" } ?? "shown or woken"
+        }
+        logger.notice("restore \(key, privacy: .public): the discarded page reloads from its saved history (\(reason, privacy: .public))")
         if case .appPage(let saved) = placeholder.restoreState {
             return restoreAppPage(key, saved, token: token)
         }
@@ -259,13 +270,31 @@ extension BrowserHibernation {
 extension BrowserHibernation: IntentPrewarmWarming {
     /// Wakes a hidden page early (a neighbor, a hovered tab, an intent prewarm): thaws a frozen one,
     /// restores a hibernated one in the background (the lifecycle keeps it hidden until selected).
-    /// `requester` is `.person` for a press on its row, which commits on its release.
-    func warm(_ key: String, by requester: WakeAdmission.Requester = .prewarm) {
+    /// `requester` is `.person` for a press on its row, which commits on its release. A guess
+    /// (`.prewarm`) restores only when ``mayPrewarmRestore(_:)``; `cause` names it in the restore's log.
+    func warm(_ key: String, by requester: WakeAdmission.Requester = .prewarm, cause: String = "intent") {
         guard let cache else { return }
         thaw(key, prewarm: true)
+        if cache.lifecycle.phase(key) == .hibernated {
+            if requester == .prewarm, !mayPrewarmRestore(key) {
+                cache.trace(key, "prewarm restore skipped (\(cause))")
+                return
+            }
+            // A restore loads the page again: logged with its cause, as every non-user reload is.
+            logger.notice("prewarm restore \(key, privacy: .public) cause=\(cause, privacy: .public)")
+            prewarmCauses[key] = cause
+        }
         guard wake(key, by: requester) == .started else { return }
         prewarmedCount += 1
         cache.trace(key, "prewarmed (restore)")
+    }
+
+    /// Whether a neighbor, hover or intent prewarm may restore hibernated page `key` before it shows. A
+    /// restore reloads the page, so a page the person discarded (Hibernate Tab) restores only when shown
+    /// or woken, and with no `browser.hibernation` written (no automatic discards) no discarded page
+    /// restores early at all.
+    func mayPrewarmRestore(_ key: String) -> Bool {
+        setting.isEnabled && setting.discardsAutomatically && !discardedByUser.contains(key)
     }
 
     func isCold(_ key: String) -> Bool {
@@ -283,6 +312,8 @@ extension BrowserHibernation: IntentPrewarmWarming {
             if let size, let view = cache?.browsers[key]?.tab.contentView, view.window == nil { view.setFrameSize(size) }
             return
         }
+        // A guess restores a hibernated page only when ``mayPrewarmRestore(_:)``: no cover decode for one that stays.
+        guard requester == .person || mayPrewarmRestore(key) else { return warm(key, by: requester) }
         prewarmKinds.target(key, size: size)
         // A decode already running restores the page when it lands.
         guard prewarmKinds.decodes[key] == nil else { return }

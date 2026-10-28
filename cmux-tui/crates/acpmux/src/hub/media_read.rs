@@ -373,8 +373,22 @@ pub async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let session = hub.resolve(crate::server::session_key(params)?)?;
+    // A range for a chat that is gone closes its handle, which nothing can read again: a
+    // forwarding daemon closes a departed client's handles so (`server/media_forward.rs`). Only
+    // the handle's own chat counts: a purged chat closes its own handles, and a chat that no
+    // longer resolves only a handle whose chat no longer exists at all.
+    let range_handle = (m == method::MUX_MEDIA_RANGE)
+        .then(|| params.get("handle").and_then(Value::as_str))
+        .flatten();
+    let session = hub.resolve(crate::server::session_key(params)?).inspect_err(|_| {
+        if let Some(handle) = range_handle {
+            handles.forget_orphan(handle);
+        }
+    })?;
     if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Some(handle) = range_handle {
+            handles.close(&session, handle);
+        }
         return Err(RpcError::invalid_params("no such chat"));
     }
     if m == method::MUX_MEDIA_OPEN {
@@ -404,6 +418,7 @@ pub async fn handle(
             .map(|bytes| (offset, bytes)),
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
+    // A refused range closes the handle: a reader that asks wrong opens the file again.
     let (offset, bytes) = read.inspect_err(|_| handles.close(&session, handle))?;
     let end = offset.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
     if end >= identity.size {

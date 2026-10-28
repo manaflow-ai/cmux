@@ -74,7 +74,7 @@ public final class MacScreenHubHost {
     public func setSharing(_ on: Bool) async throws {
         guard let hub = hub() else { throw DeviceHubError.notSignedIn }
         if on {
-            share.refreshPermissions()
+            await share.refreshPermissions()
             if !share.screenRecordingGranted {
                 share.requestScreenRecording()
             } else if !share.accessibilityGranted {

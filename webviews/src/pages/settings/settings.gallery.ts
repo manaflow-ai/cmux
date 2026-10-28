@@ -86,6 +86,16 @@ const host: Partial<HostLists> = {
       color: "#7F5FA8",
       color_key: "research build machine",
     },
+    // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
+    {
+      id: "sample-cloud",
+      title: "Sample cloud machine",
+      subtitle: null,
+      active: true,
+      color: "#3F7FBF",
+      color_key: "sample cloud machine",
+      vm_host: { on: true, busy: false, error: null },
+    },
   ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Settings › Server (ServerCard), its only card: the servers the host heard from, sent with every
@@ -322,6 +332,15 @@ Object.assign(variants, {
           attribution: "macOS system wallpaper · Grid Green",
           collection: "apple",
           collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "macOS system wallpaper · Iceland Dusk",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
           downloaded: false,
         },
       ],
@@ -837,6 +856,17 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "Computer Use off: both grants Unknown, the card says to turn it on.",
   }),
+  "computer-use-failed": variant("agents", {
+    host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
+    steps: [
+      wait('[data-card="computer-use"]'),
+      {
+        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
+        action: "focus",
+      },
+    ],
+    note: "The helper did not respond. Restart Helper is the only action.",
+  }),
   "computer-use-granted": variant("agents", {
     host: {
       ...host,
@@ -858,6 +888,120 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  "agents-harness-update-ready": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          ownerUpdate: true,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.5",
+          latest: "2.0.9",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+          ownerUpdate: false,
+        },
+        {
+          id: "github-copilot-cli",
+          name: "GitHub Copilot",
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "1.4.0",
+          latest: "1.4.0",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="codex"]'),
+      { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
+    ],
+    note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
+  }),
+  "agents-harness-update-manual": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.5",
+          latest: "2.0.9",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+          ownerUpdate: false,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="claude"]'),
+      { selector: "[data-harness-update-command]", action: "focus" },
+    ],
+    note: "An outdated harness whose installer needs admin rights: the card gives the exact manual command and no unsafe one-click action.",
+  }),
+  "agents-harness-update-failed": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          ownerUpdate: true,
+        },
+      ],
+      jobs: [
+        {
+          machine: "sample-machine",
+          session: "sample-session",
+          cli: "codex",
+          profiles: ["codex"],
+          terminal: "sample-terminal",
+          state: "exited",
+          exit_code: 23,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="codex"]'),
+      { selector: '[data-agent-update-job="exited"]', action: "focus" },
+    ],
+    note: "An update that finished with an error: the receipt stays visible while the card keeps a retryable Update action.",
+  }),
   // Settings > Chief > Chiefs (u2586): every Chief; a row opens the same editor as Home.
   "chief-chiefs": variant("chief", {
     steps: [wait('[data-card="chiefs"] [data-chief]')],
@@ -871,6 +1015,12 @@ Object.assign(variants, {
   "chief-pet-off": variant("chief", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
+  }),
+  // Settings > Chief > Chief Pet with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("chief", {
+    focus: "home.chiefPetMascot",
+    options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
+    note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",
   }),
   // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
   "chief-look-bubbles": variant("chief", {

@@ -10,7 +10,7 @@
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
 mod activity;
-mod brand;
+pub(crate) mod brand;
 mod open;
 mod query;
 mod settings;

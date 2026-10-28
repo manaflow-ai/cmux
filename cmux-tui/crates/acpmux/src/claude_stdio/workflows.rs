@@ -174,10 +174,7 @@ impl Translator {
             return None;
         }
         let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
-        let tool = match text("tool_use_id") {
-            Some(tool) => tool.to_owned(),
-            None => self.subagent_tasks.lock().await.get(text("task_id")?)?.clone(),
-        };
+        let tool = self.task_tool(line).await?;
         let child = self.subagents.lock().await.get(&tool)?.clone();
         let snapshot = line.get("workflow_progress").and_then(Value::as_array);
         let (workflow, journal, rows, resume) = {

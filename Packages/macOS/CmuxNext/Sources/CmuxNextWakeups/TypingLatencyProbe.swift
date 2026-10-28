@@ -71,6 +71,9 @@ public final class TypingLatencyProbe: Sendable {
         var event: UInt64
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)
         var ioWriteOnMain = false
+        /// The object each hop must come from, set by the hop before it (``mark(_:source:next:)``);
+        /// nil: any source.
+        var expected = [Source?](repeating: nil, count: Mark.allCases.count)
         /// Written at ``Mark/commit`` instead of ``Mark/contents`` (``closeAtCommit()``).
         var closesAtCommit = false
         /// The terminal the key router handed the press to (``keyReachedTerminal(_:display:)``); nil while none.
@@ -243,8 +246,8 @@ public final class TypingLatencyProbe: Sendable {
     /// with echo sampling) and does one load while the probe is off.
     func observeCommits() {
         guard observing.compareExchange(expected: false, desired: true, ordering: .relaxed).exchanged else { return }
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
-                                                          true, 2_000_100) { [weak self] _, _ in
+        // It only stamps the commit mark: its context says so to the commit-boundary audit.
+        let observer = MainRunLoopObserver.afterCommitObserver(activities: [.beforeWaiting, .exit], order: 2_000_100) { [weak self] _ in
             guard let self, isRecording else { return }
             turnDidEnd()
         }

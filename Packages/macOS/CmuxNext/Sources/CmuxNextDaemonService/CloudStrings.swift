@@ -3,12 +3,12 @@ import Foundation
 
 /// User-facing Cloud text. Keys live in Resources/Cloud.xcstrings (en, ja).
 public enum CloudStrings {
-    public static var localBackend: String {
+    nonisolated public static var localBackend: String {
         String(localized: "cloud.unavailable.localBackend", defaultValue: "This build has no Cloud backend. Rebuild it with ./scripts/reload.sh --tag <tag> --direct-backend.", table: "Cloud", bundle: .module)
     }
-    public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect.", table: "Cloud", bundle: .module) }
-    public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines.", table: "Cloud", bundle: .module) }
-    public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>.", table: "Cloud", bundle: .module) }
+    public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download, or rebuild a local build with cmux-tui bundled.", table: "Cloud", bundle: .module) }
+    nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
+    public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.
     public static func compatibility(_ compat: DaemonCompatibility) -> String {
@@ -33,16 +33,16 @@ public enum CloudStrings {
     public static func linkFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .module), detail)
     }
-    public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
-    public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass a command to run on the Cloud machine.", table: "Cloud", bundle: .module) }
-    public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
+    public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet. Wait for it to connect; if it is paused, run `cmux cloud resume-machine --target machine:<id>`.", table: "Cloud", bundle: .module) }
+    public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass the command to run on the Cloud machine with --command \"<command>\".", table: "Cloud", bundle: .module) }
+    public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in. To switch accounts, run `cmux cloud sign-out`, then sign in again.", table: "Cloud", bundle: .module) }
     /// Team Picker's `team` names no team of this account.
     public static func noSuchTeam(_ team: String) -> String {
         String(format: String(localized: "cloud.failed.noSuchTeam", defaultValue: "No team named “%@” in this account.", table: "Cloud", bundle: .module), team)
     }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
-    public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet.", table: "Cloud", bundle: .module) }
+    public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine --target machine:<id>` first.", table: "Cloud", bundle: .module) }
     public static var killMachineTitle: String { String(localized: "cloud.prompt.killMachine", defaultValue: "Kill this Cloud machine?", table: "Cloud", bundle: .module) }
     public static var killMachineBody: String { String(localized: "cloud.prompt.killMachineBody", defaultValue: "The machine and every terminal on it are deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
     public static var kill: String { String(localized: "cloud.button.kill", defaultValue: "Kill Machine", table: "Cloud", bundle: .module) }
@@ -110,11 +110,13 @@ public enum CloudStrings {
     public static var templateTitle: String { String(localized: "cloud.result.templateTitle", defaultValue: "Template Created", table: "Cloud", bundle: .module) }
     public static var failedTitle: String { String(localized: "cloud.result.failedTitle", defaultValue: "Cloud Action Failed", table: "Cloud", bundle: .module) }
 
-    public static var snapshotRequired: String { String(localized: "cloud.failed.snapshotRequired", defaultValue: "Pass the snapshot id to restore (--snapshot <id>).", table: "Cloud", bundle: .module) }
+    public static var snapshotRequired: String { String(localized: "cloud.failed.snapshotRequired", defaultValue: "Pass the snapshot id with --snapshot <id>.", table: "Cloud", bundle: .module) }
 
     public static var filePathRequired: String { String(localized: "cloud.failed.filePathRequired", defaultValue: "Pass an absolute Cloud file path without '..'.", table: "Cloud", bundle: .module) }
-    public static var fileContentsRequired: String { String(localized: "cloud.failed.fileContentsRequired", defaultValue: "Pass file contents to write.", table: "Cloud", bundle: .module) }
-    public static var publicKeyRequired: String { String(localized: "cloud.failed.publicKeyRequired", defaultValue: "Pass an Ed25519 SSH public key for the transfer.", table: "Cloud", bundle: .module) }
+    public static var fileContentsRequired: String { String(localized: "cloud.failed.fileContentsRequired", defaultValue: "Pass the file's contents with --contents \"<text>\".", table: "Cloud", bundle: .module) }
+    public static var publicKeyRequired: String { String(localized: "cloud.failed.publicKeyRequired", defaultValue: "Pass an Ed25519 SSH public key with --public-key \"$(cat ~/.ssh/id_ed25519.pub)\".", table: "Cloud", bundle: .module) }
+    /// Rotate Cloud Tunnel Key without a key: a WireGuard key, not an SSH one.
+    public static var tunnelKeyRequired: String { String(localized: "cloud.failed.tunnelKeyRequired", defaultValue: "Pass this Mac's new WireGuard public key for the tunnel with --public-key <key>.", table: "Cloud", bundle: .module) }
     public static var filesTitle: String { String(localized: "cloud.result.filesTitle", defaultValue: "Cloud Files", table: "Cloud", bundle: .module) }
     public static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .module) }
     public static var fileStatTitle: String { String(localized: "cloud.result.fileStatTitle", defaultValue: "Cloud File Details", table: "Cloud", bundle: .module) }

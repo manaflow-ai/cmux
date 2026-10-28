@@ -284,6 +284,9 @@ impl Hub {
                         cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
                         remote,
+                        // Never at the VM boundary (`vm_boundary.rs`): a handoff target runs
+                        // sandboxed; only a caller's own `session/new` asks for it.
+                        vm_boundary: false,
                         // Never wider than the source: full access only
                         // from a full-access source, and never `narrower`.
                         keep_harness_mode: narrower
@@ -596,12 +599,15 @@ impl Hub {
             trust_gate: false,
             steer_only: false,
             interrupt: false,
+            steer_now: false,
+            interrupt_turn: None,
             provenance: None,
             agent: None,
             after_turn: None,
             supersede: None,
             display_parts: None,
             full_access_device: None,
+            no_queue: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

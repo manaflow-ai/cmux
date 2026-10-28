@@ -62,6 +62,7 @@ export const CARD_CHUNKS: Record<CategoryCard, SectionChunk> = {
   chiefs: "chief",
   chiefPet: "chief",
   voiceInput: "chief",
+  notices: "chief",
   browserProfiles: "browser",
   importSuggestions: "import",
   accounts: "accounts",

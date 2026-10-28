@@ -35,6 +35,7 @@ impl TerminalSink for Collect {
     fn exit(&self, status: ExitStatus, _end: u64) {
         *self.exit.lock().unwrap() = Some(status);
     }
+    fn refused(&self, _message: &str) {}
 }
 
 impl Collect {

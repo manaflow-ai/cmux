@@ -130,6 +130,12 @@ public final class TerminalHostFramePresenter {
         guard let surface = view.surface else { return }
         // SAFETY: the view's live surface (TerminalSurfaceView.surface).
         unsafe ghostty_surface_set_occlusion(surface, visible)
-        if visible { presenter?.sizeChanged(of: view) }
+        guard visible else { return }
+        // A surface can parse a renderer-affecting OSC action (Copilot's OSC 11 background) before its view
+        // ever joined a window; a first display after that off-window parse could keep an empty IOSurface.
+        // The reveal edge refreshes, so the state already parsed off screen shows (#22282, cmux#24816).
+        // SAFETY: as above.
+        unsafe ghostty_surface_refresh(surface)
+        presenter?.sizeChanged(of: view)
     }
 }

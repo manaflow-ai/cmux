@@ -60,6 +60,7 @@ final class ChangelogPageProvider: PageProvider {
     static func cardLinks(_ replies: AgentReplyPullRequests) -> AgentPaneReplyLinks {
         let links = AgentPaneReplyLinks()
         links.pullRequest = { replies.answer($0) }
+        links.cachedPullRequest = { replies.answer($0, read: false) }
         return links
     }
 

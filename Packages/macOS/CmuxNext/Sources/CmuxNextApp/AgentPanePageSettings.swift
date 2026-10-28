@@ -116,7 +116,9 @@ final class AgentPanePageSettings {
     /// `path` (`agentPane.showContextUsage`, `agentPane.showDictation`), which the observation
     /// above then pushes to every page.
     func setComposer(_ path: [String], _ show: Bool) async throws {
-        try await settings?.set(.bool(show), at: path)
+        guard let settings else { return }
+        let writer: SettingWriter = path == AgentPaneComposerSetting.scrollToBottomOnSendPath ? .user : .caller("page")
+        try await settings.setSetting(at: path, to: .bool(show), by: writer)
     }
 
     /// Gives `view` the current values (the view pushes only a change).

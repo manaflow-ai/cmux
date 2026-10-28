@@ -30,6 +30,8 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
+    var onQuitRefused: (() -> Void)?
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
@@ -118,6 +120,7 @@ final class QuitCoordinator {
         guard await resolveUnsaved(origin, services: services) else {
             isQuitting = false
             sender.reply(toApplicationShouldTerminate: false)
+            quitRefused()
             return
         }
         let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
@@ -128,6 +131,13 @@ final class QuitCoordinator {
             ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
                                                               noActivate: WindowPlacement.noActivate), services: services)
         }
+    }
+
+    /// The quit was refused: whatever waited on it learns so, once.
+    private func quitRefused() {
+        let refused = onQuitRefused
+        onQuitRefused = nil
+        refused?()
     }
 
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
@@ -154,6 +164,7 @@ final class QuitCoordinator {
             case .cancel:
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                self.quitRefused()
             case .quit(let choice, let remember):
                 // No services: nothing is left to save.
                 guard let services else { return sender.reply(toApplicationShouldTerminate: true) }
@@ -182,6 +193,8 @@ final class QuitCoordinator {
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        // The Codex broker shuts down with the app (#26212); only a Cloud service already built can have one running.
+        await services.cloudIfBuilt?.prepareForTermination()
         #if DEBUG || CMUX_BENCH_HOOKS
         let wedgeIfAsked: @MainActor () -> Void = { [weak self] in
             if let self, wedgesEngineStop { deadline.wedgeMainThread(watchdog) }

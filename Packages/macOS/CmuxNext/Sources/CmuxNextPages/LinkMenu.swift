@@ -87,6 +87,9 @@ public struct LinkMenu {
     /// What the items a waiting submenu gets when its answers land go through, as the caller's own items went (the
     /// agent pane makes an SVG's rows write its rebuilt copy first); nil adds them as drawn.
     public var filledItems: (([NSMenuItem]) -> [NSMenuItem])?
+    /// Whether a row may still act, checked when it runs and when its panel answers (an agent
+    /// chat's: still on this Mac); nil: always.
+    public var allowed: (@MainActor () -> Bool)?
     /// The most apps a submenu lists.
     nonisolated static let appLimit = 24
 
@@ -289,6 +292,7 @@ public struct LinkMenu {
     }
 
     func perform(_ row: LinkMenuRow, link: URL?, file: URL?) {
+        guard allowed?() ?? true else { return }
         let copy = copy ?? router.copy
         if let link {
             switch row.kind {
@@ -317,9 +321,11 @@ public struct LinkMenu {
     /// system lane names it.
     private func openInEditor(_ file: URL, app: URL?) {
         if let app { return router.open(file, withApplicationAt: app) }
-        let router = router
+        let router = router, allowed = allowed
         queries?.value(Self.textEditor(setting: router.textEditor()), priority: .userBlocking) { editor in
-            if let editor { router.open(file, withApplicationAt: editor) }
+            // Checked again when the answer lands, as Other…'s panel answer is (``openChosen(_:for:)``).
+            guard let editor, allowed?() ?? true else { return }
+            router.open(file, withApplicationAt: editor)
         }
     }
 
@@ -331,11 +337,17 @@ public struct LinkMenu {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.prompt = Strings.open
-        let router = router
+        let menu = self
         panel.begin { response in
             guard response == .OK, let app = panel.url else { return }
-            router.open(file, withApplicationAt: app)
+            menu.openChosen(app, for: file)
         }
+    }
+
+    /// Other…'s answer: `file` in `app`, unless the menu may no longer act.
+    func openChosen(_ app: URL, for file: URL) {
+        guard allowed?() ?? true else { return }
+        router.open(file, withApplicationAt: app)
     }
 
     enum Strings {

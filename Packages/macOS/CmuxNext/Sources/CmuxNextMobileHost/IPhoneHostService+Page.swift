@@ -1,4 +1,4 @@
-import CmuxNextMobile
+public import CmuxNextMobile
 public import CmuxNextSettings
 import Foundation
 
@@ -38,6 +38,15 @@ extension IPhoneHostService {
         ]
     }
 
+    /// `mobile.allowIPhoneConnections` as the service follows it (the Mobile Pairing page's switch).
+    public var allowsConnections: Bool { allowed }
+
+    /// hostd's phase (the Mobile Pairing page's step).
+    public var phase: MobileHostState.Phase { state.phase }
+
+    /// What a removed Mac says (the Mobile Pairing page's detail line).
+    public static var removedText: String { IPhoneHostStrings.removed }
+
     /// The waiting pairing requests, oldest first: who asks, as which account, since when.
     private var pendingRows: [JSONValue] {
         guard allowed else { return [] }
@@ -54,9 +63,13 @@ extension IPhoneHostService {
     /// live link the list does not have yet. Only a known phone can be removed.
     /// The phones Settings > Devices lists (plans/cmux-next/add-device-DESIGN.md 2.4): each one the
     /// account knows, and whether it has a live link now. Remove is ``removePhone(id:)``.
+    /// A paired phone's row is its link id, the id its acpmux record is named for (its Full-access
+    /// switch); Remove takes any of its ids.
     public var devicePhones: [(id: String, name: String, connected: Bool)] {
         guard allowed else { return [] }
-        return knownPhones.map { phone in (phone.id, phone.name, state.phones.contains { phone.owns($0.phoneDeviceID) }) }
+        return knownPhones.map { phone in
+            (paired?.pairing(of: phone)?.id ?? phone.id, phone.name, state.phones.contains { phone.owns($0.phoneDeviceID) })
+        }
     }
 
     private var phoneRows: [JSONValue] {
@@ -66,7 +79,7 @@ extension IPhoneHostService {
             let link = links.first { phone.owns($0.phoneDeviceID) }
             // Paired here (cmux-next-ios verify/phone-approvals.md): its links and Face ID approvals
             // count; Remove also forgets the pairing.
-            let pairing = paired?.devices.first { phone.owns($0.id) }
+            let pairing = paired?.pairing(of: phone)
             return ["id": .string(phone.id), "title": .string(phone.name),
                     "subtitle": .string(link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected),
                     "connected": .bool(link != nil), "removable": .bool(true),

@@ -2,7 +2,7 @@
 /// it once with ``forProcess()`` and passes it to what installs the sink (the app's hang reports wiring),
 /// the `debug.blocking` control method and the Debug menu.
 ///
-/// In Debug, bench-checks and nightly-next builds (`-DCMUX_BLOCKING_CHECKS`) it refers to the detector's
+/// In Debug, bench-checks and cmux NEXT Nightly builds (`-DCMUX_BLOCKING_CHECKS`) it refers to the detector's
 /// process-wide table (see ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do
 /// nothing, and no detector code is in the app (`scripts/measure/blocking-checks.sh --app APP --expect release`).
 ///
@@ -36,7 +36,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Whether this build has the detector (Debug, bench-checks and nightly-next builds).
+    /// Whether this build has the detector (Debug, bench-checks and Nightly builds).
     public var isCompiledIn: Bool {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         true

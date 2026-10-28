@@ -51,6 +51,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var workspaceObservation: ServiceObservation<Void>?
     private var titleObservation: VisibleObservation<String>?
     private var startupObservation: VisibleObservation<DaemonStartupState>?
+    /// Leaves a preview page (App Store, What's New) when `labs.previewFeatures` turns off, also while the window hides.
+    private var previewFeaturesObservation: ServiceObservation<Bool>?
     /// Set by ``teardown()``: an observation that starts later does not start.
     var tornDown = false
     /// The room theme: every workspace without its own theme. The window's
@@ -74,6 +76,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let rightSidebar: RightSidebarModel
     /// Its view, made the first time it shows.
     var rightSidebarView: RightSidebarView?
+    /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
+    var pagePresentation: BrowserPagePresentation?
+    /// A full screen enter is under way (AppKit ignores a toggle until it ends).
+    var isEnteringFullScreen = false
+    /// The page that entered full screen left during the enter: the window leaves once it ends.
+    var pageFullScreenExitPending = false
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services, windowNode: visibility)
 
@@ -133,6 +141,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.inputDispatch = services.inputDispatch
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
+        observePreviewFeatures()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
@@ -156,6 +165,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
+        previewFeaturesObservation?.cancel()
         roomObservation?.cancel()
         roomBrowserProfileObservation?.cancel()
         state.roomBrowserProfileOf = nil
@@ -167,6 +177,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         topPages.teardown()
         sidebar.teardown()
         visibility.detach()
+    }
+
+    /// Preview pages are removed immediately when Labs is switched off,
+    /// including when another window currently shows one.
+    private func observePreviewFeatures() {
+        guard let settings = services.settings else { return }
+        // Until the settings load, nothing is turned off (true): no page leaves.
+        previewFeaturesObservation = ServiceObservation(.visible, owner: "WindowController.previewFeatures", on: services.mainWork) {
+            [weak settings] () -> Bool in
+            guard let settings, settings.loadCount > 0 else { return true }
+            return settings.snapshot.previewFeatures
+        } apply: { [weak self] enabled in
+            guard !enabled, let self, let page = state.page,
+                  page == .page(.appStore) || page == .page(.changelog) else { return }
+            _ = leaveTopPage()
+        }
     }
 
     // MARK: Workspace
@@ -244,6 +270,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, restoring: record)
         }
         content = controller
+        // Panes pan and spring per display frame: shortcut chips over them follow.
+        controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
@@ -282,6 +310,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
         DebugWorkspaceSwitch.shown(self, in: window)
+        revalidatePagePresentation()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -292,6 +321,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let current = content { park(current) }
         content = nil
         arrangeOnScreen()
+        revalidatePagePresentation()
     }
 
     // MARK: NSWindowDelegate
@@ -323,6 +353,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
+    /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
+    func windowDidResize(_ notification: Notification) {
+        guard window?.inLiveResize != true else { return }
+        services.windows.recordSaver.geometryDidChange(state)
+    }
+    func windowDidChangeScreen(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     var sidebarObservation: ServiceObservation<Bool>?
 
@@ -360,13 +397,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var closeMotion: WindowCloseMotion?
 
     /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
-    /// Motion, not on screen, an automation's close, or a second close while it fades).
+    /// Motion, not on screen, an automation's close, a second close while it fades, or the launch restore still runs).
     private func fadeOutThenClose(_ window: NSWindow, fades: Bool) -> Bool {
         if let closeMotion {
             closeMotion.finish()
             return true
         }
-        guard fades, WindowCloseMotion.fades(window) else { return false }
+        // Before the restore finished the close lands at once: a fade could outlive the restore,
+        // which would then not know the window was closed and open it again.
+        let windows = services.windows
+        guard fades, windows.restored, !windows.restoring, WindowCloseMotion.fades(window) else { return false }
         let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
         closeMotion = motion
         let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }
@@ -375,6 +415,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        pagePresentation = nil
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)

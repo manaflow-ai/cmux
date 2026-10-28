@@ -341,7 +341,8 @@ import Testing
     }
 
     /// The app's tab content cache and hibernation, under critical memory pressure (a hidden page
-    /// is due at once), with one pane that shows and hides pages.
+    /// is due at once: `hide` moves the hibernation's clock past the pressure's minimum hidden
+    /// time), with one pane that shows and hides pages.
     @MainActor final class Rig {
         let services: AppServices
         let hibernation: BrowserHibernation
@@ -350,6 +351,8 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         var keys: [String] = []
+        /// How far the hibernation's clock (`BrowserHibernation.now`) runs ahead of the wall clock.
+        var skipped: Duration = .zero
 
         init() throws {
             _ = NSApplication.shared
@@ -363,6 +366,11 @@ import Testing
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.isReleasedWhenClosed = false
             window.orderFrontRegardless()
+            hibernation.now = { [weak self] in .now + (self?.skipped ?? .zero) }
+            // No test here checks a page that does not answer (UnansweredPageProbeTests does): a probe
+            // starved past its 2 s by a full parallel run would keep the page as `unanswered`, and
+            // nothing would ask it again.
+            hibernation.pageDeadline = .seconds(120)
         }
 
         /// A loaded WebKit page showing `body`, titled `name`.
@@ -386,6 +394,14 @@ import Testing
             try #require(services.cache.phase(of: key) == .mountedVisible)
             services.cache.withdraw(key, by: pane)
             try #require(services.cache.phase(of: key) == .mountedHidden)
+            // Critical pressure takes only a page hidden `Pace.critical.minimumHidden` (10 s; the
+            // person may come straight back). Waiting that out on the wall clock put a 10 s timer
+            // inside every 15 s wait for a hibernation, which a starved parallel run overran:
+            // the page is that old now, and planned at once.
+            if hibernation.pressure == .critical {
+                skipped += .seconds(HibernationPlanner.criticalPace.minimumHidden)
+                hibernation.replan()
+            }
             return key
         }
 
@@ -417,11 +433,25 @@ import Testing
         func isHibernated(_ key: String) -> Bool { services.cache.browsers[key]?.tab is HibernatedBrowserTab }
         func exemption(_ key: String) -> HibernationPlanner.Exemption? { hibernation.exemptions[key] }
 
+        /// Polls `condition` every 25 ms until it holds. The budget is a count of idle polls (15 s on
+        /// an idle machine), not a wall-clock deadline: in the full parallel CmuxNextAppTests run the
+        /// main actor and the pages' content processes are starved (tests that do nothing took
+        /// over 300 s), so the wait stretches with the load instead of running out. A poll while the
+        /// hibernation asks a page (a discard probe with its snapshot and `beforeunload`, or a freeze
+        /// probe, each bounded by `pageDeadline`) is not idle: the page is still on its way to
+        /// hibernating, freezing or being kept, however slowly its content process answers. A
+        /// condition that never holds still fails.
         func until(_ what: @autoclosure () -> String, _ condition: () async -> Bool) async throws {
-            let deadline = ContinuousClock.now + .seconds(15)
-            while !(await condition()), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
+            var idle = 0
+            while idle < Self.polls {
+                if await condition() { return }
+                if hibernation.probing.isEmpty, hibernation.freezeProbing.isEmpty { idle += 1 }
+                try await Task.sleep(for: .milliseconds(25))
+            }
             try #require(await condition(), "\(what()) never happened")
         }
+
+        static let polls = 600
 
         func close() {
             for key in keys { services.cache.release(key) }

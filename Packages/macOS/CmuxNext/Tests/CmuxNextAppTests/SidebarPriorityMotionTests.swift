@@ -251,6 +251,9 @@ struct SidebarPriorityMotionTests {
         }
         #expect(spilled.isEmpty, "b drew unclipped while it opened, at heights \(spilled.prefix(3)) of \(whole)")
         #expect(Self.near(b.frame.height, whole) && Self.near(Self.shownHeight(b), whole), "b did not open whole: \(b.frame)")
+        // The unclip runs in the move's completion, which a loaded main actor (the full parallel run) can deliver
+        // after the window above; wait for it rather than read it at a fixed time.
+        try await Self.runFrames { !b.clipsToBounds }
         #expect(!b.clipsToBounds, "b still clips after its open ended")
     }
 

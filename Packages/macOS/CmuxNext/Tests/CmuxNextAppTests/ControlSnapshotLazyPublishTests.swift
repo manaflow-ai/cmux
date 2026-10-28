@@ -80,6 +80,10 @@ struct ControlSnapshotLazyPublishTests {
 
     /// One workspace with one tab and a started publisher; its first (background) publish done unless `launching`,
     /// which holds background work as the app's launch does until reveal.
+    ///
+    /// The publisher hears its notices on a private notification center (`appEvents`, else one of its own): in the
+    /// full parallel run the windows other suites open, key and close post on the default one, and each publish
+    /// counted as a build here (4 and 11 extra builds, jobs 122238887723 and 122242789085).
     private static func rig(launching: Bool = false, appEvents: AppEvents? = nil) async -> Rig {
         _ = NSApplication.shared
         let clock = LazyPublishClock()
@@ -101,7 +105,8 @@ struct ControlSnapshotLazyPublishTests {
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)),
                                    frameSource: BudgetedSoonFrames(budget: work.budget))
-        let publisher = ControlSnapshotPublisher(router: router, services: services, appEvents: appEvents)
+        let publisher = ControlSnapshotPublisher(router: router, services: services,
+                                                 appEvents: appEvents ?? AppEvents(center: NotificationCenter()))
         publisher.start()
         let rig = Rig(clock: clock, work: work, keeper: keeper, services: services, router: router, publisher: publisher)
         #expect(publisher.builds == 0, "start built the snapshot in its own turn")

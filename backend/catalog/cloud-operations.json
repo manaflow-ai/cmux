@@ -323,6 +323,44 @@
               "type": {
                 "kind": "enum",
                 "values": [
+                  "chief"
+                ]
+              }
+            },
+            "chief": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+              }
+            },
+            "conversation": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "ConversationId"
+              }
+            },
+            "prompt": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8000
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
                   "code"
                 ]
               }
@@ -8475,6 +8513,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -8598,6 +8641,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -9172,6 +9245,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -9295,6 +9373,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -10188,6 +10296,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -10311,6 +10424,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -11045,6 +11188,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -11168,6 +11316,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -12016,6 +12194,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -12139,6 +12322,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -13719,6 +13932,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -13842,6 +14060,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -14416,6 +14664,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -14539,6 +14792,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -51705,6 +51988,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -51828,6 +52116,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },

@@ -26,7 +26,7 @@ impl Hub {
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
-        let (harnesses, default_harness, retained) = {
+        let (harnesses, default_harness, retained, boundaries) = {
             let mut current = self.config.write().await;
             let mut retained = Vec::new();
             for session in self.sessions.lock().unwrap().values() {
@@ -69,6 +69,14 @@ impl Hub {
             current.pool = next.pool;
             current.web_roots = next.web_roots;
             current.vm_host = next.vm_host;
+            // The peers stay put, but a saved peer's VM boundary follows the file at once: a
+            // `false` there is the caller taking it back (`vm_boundary.rs`).
+            let mut boundaries = Vec::new();
+            for (name, pc) in current.peers.iter_mut() {
+                pc.vm_boundary =
+                    next.peers.get(name).is_some_and(|n| n.url == pc.url && n.vm_boundary);
+                boundaries.push((name.clone(), pc.vm_boundary));
+            }
             current.web_asking_modes = next.web_asking_modes;
             // The start budget applies from the next start, like a restart would.
             current.agent_start_timeout_ms = next.agent_start_timeout_ms;
@@ -76,13 +84,8 @@ impl Hub {
             current.silent_turn_ms = next.silent_turn_ms;
             current.stalled_turn_ms = next.stalled_turn_ms;
             current.stalled_turn_end_ms = next.stalled_turn_end_ms;
-            let start_changed = current.default_permission_mode != next.default_permission_mode
-                || current.last_permission_mode != next.last_permission_mode
-                || current.last_permission_mode_change != next.last_permission_mode_change;
+            let start_changed = current.default_permission_mode != next.default_permission_mode;
             current.default_permission_mode = next.default_permission_mode;
-            current.last_permission_mode = next.last_permission_mode;
-            current.last_permission_mode_change = next.last_permission_mode_change;
-            current.last_permission_mode_setting = next.last_permission_mode_setting;
             if start_changed {
                 self.start_mode_changed();
             }
@@ -91,8 +94,10 @@ impl Hub {
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),
                 current.default_harness.clone(),
                 retained,
+                boundaries,
             )
         };
+        self.reload_peer_boundaries(&boundaries);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.

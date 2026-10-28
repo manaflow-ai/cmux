@@ -62,7 +62,7 @@ extension CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if !captured { CloudPresenter.failure(error, in: window(context)) }
-                return .failure(ActionWorkFailure("\(label): \(error)"))
+                return .failure(ActionWorkFailure("\(label): \(CloudStrings.errorText(error))"))
             }
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
@@ -133,6 +133,16 @@ extension CloudHandlers {
                 continuation.resume(returning: state)
             }
         }
+    }
+
+    /// How long a run that answers `pending` itself (``createRequested(_:flow:window:_:)``) lets the create settle:
+    /// past the server's same-key create retries (``CloudService/inProgressRetries`` 15 s apart, ~17.5 min).
+    static let creationSettleLimit: Duration = .seconds(1800)
+
+    /// ``settledCreation(_:in:within:work:deadlines:)`` bounded by ``creationSettleLimit``.
+    static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations,
+                                services: AppServices) async -> CreatedMachine? {
+        await settledCreation(creation, in: creations, within: creationSettleLimit, work: services.mainWork, deadlines: services.mainDeadlines)
     }
 
     static func createdMachineFields(_ session: CloudMachineSession, workspaceID: String?) -> [String: ActionResultValue] {

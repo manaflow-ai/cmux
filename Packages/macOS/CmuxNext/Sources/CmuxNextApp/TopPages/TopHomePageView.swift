@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextChiefMemory
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -63,7 +64,7 @@ final class TopHomePageView: NSView {
     private typealias RowFacts = (landed: Bool, all: [InboxRow], archived: Set<String>, owned: [HomeInboxRequest.Response?])
     private var rowsObservation: ServiceObservation<RowFacts>?
     private var selectionObservation: ServiceObservation<(pending: ConversationID?, listed: [ConversationID])>?
-    private var chiefObservation: ServiceObservation<String?>?
+    private var chiefObservation: ServiceObservation<ChiefKey>?
     private var accountObservation: ServiceObservation<String?>?
     /// View observations on ``visibility``.
     private var requestsObservation: VisibleObservation<Int>?
@@ -73,7 +74,12 @@ final class TopHomePageView: NSView {
     private var listedConversations: Set<ConversationID> = []
     private var picturedRows: [HomeInboxRequest.Response?]?
     private var picturedChiefs: Set<String>?
-    private var previousChief: String?
+    /// The preferred Chief and the Engine row's choice the Chief observation last acted on.
+    private var lastChiefKey: ChiefKey?
+    /// The conversation the page opened by itself, which a later Chief replaces (``followUp``).
+    /// What the person picked is never this, so it is never taken off them: ``show(_:)`` clears it
+    /// and only the two paths that open one themselves set it again.
+    private(set) var followedChief: String?
     /// A conversation shown before the page had a window: the keyboard goes to it when the page gets one.
     private var focusesOnWindow = false
     /// False in the turn that builds the page: the observations' first applies fill the list but pick no conversation,
@@ -178,7 +184,7 @@ final class TopHomePageView: NSView {
             work.task(.userBlocking) { _ = try? await store.perform(.setReadCursor(conversation: id, seq: seq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Conversation Info (sharing a Cloud Chief), Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -194,8 +200,13 @@ final class TopHomePageView: NSView {
                     ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
                 // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
                 let delete = home.deletableChief(of: row).map { item("home.deleteChief", nil, ["chief": .string($0.id)]) } ?? []
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage + delete }
-                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
+                // Import Memories… (chief.importMemories): into this Mac's Chief, or into the Cloud Chief the row is.
+                let cloudChief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first
+                let bring = item(ChiefMemoryImportHandlers.actionID, nil, cloudChief.map { ["chief": .string($0.id)] } ?? [:])
+                guard let chief = cloudChief else { return usage + bring + delete }
+                // A Cloud Chief's conversation is shared with teammates from its info (Add People…).
+                let info = item("home.conversationInfo", nil, ["conversation": .string(id.rawValue)])
+                return info + usage + bring + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
@@ -208,8 +219,11 @@ final class TopHomePageView: NSView {
                 items += item(muted ? "home.unmuteConversation" : "home.muteConversation", nil, conversation)
             }
             if row.kind == .group {
-                items += item("home.renameConversation", nil, conversation)
-                items += item("home.addMembers", nil, conversation)
+                // Someone else's Chief conversation shared with me: its owner names it and adds people.
+                if row.summary.declaredKind != .chief {
+                    items += item("home.renameConversation", nil, conversation)
+                    items += item("home.addMembers", nil, conversation)
+                }
                 items += item("home.leaveConversation", nil, conversation)
             }
             return items
@@ -248,9 +262,10 @@ final class TopHomePageView: NSView {
             self?.rowsChanged(facts, home: home)
         }
         // The chief placed on a paired server (G6) replaces the local chief while the page shows the local one.
-        previousChief = Self.chief(home)
-        chiefObservation = ServiceObservation(.visible, owner: "TopHomePage.chief", on: work) { Self.chief(home) } apply: { [weak self] chief in
-            self?.chiefChanged(chief, home: home)
+        followedChief = Self.chief(home)
+        lastChiefKey = Self.chiefKey(home)
+        chiefObservation = ServiceObservation(.visible, owner: "TopHomePage.chief", on: work) { Self.chiefKey(home) } apply: { [weak self] key in
+            self?.chiefChanged(key, home: home)
         }
         // Another account has its own pins.
         accountObservation = ServiceObservation(.visible, owner: "TopHomePage.account", on: work) { auth.user?.id } apply: { _ in
@@ -287,8 +302,10 @@ final class TopHomePageView: NSView {
 
     /// With nothing shown (and no New Message page), shows the Chief conversation, else the newest one.
     private func showDefaultConversation(_ home: HomeService) {
-        guard picksConversation, shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) else { return }
+        guard picksConversation, shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) else { return }
         show(first)
+        // The page opened it, not the person, so a Chief that arrives later replaces it.
+        followedChief = first.rawValue
     }
 
     /// The inbox rows changed: the Chiefs' engines and pictures are read again when their Chiefs or the owner's rows
@@ -323,19 +340,31 @@ final class TopHomePageView: NSView {
         if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
     }
 
-    private func chiefChanged(_ chief: String?, home: HomeService) {
-        guard let chief, chief != previousChief else { return }
-        if shownIsGone(home.homeStore) {
+    /// The preferred Chief or the Engine row's choice changed: a gone conversation gives way to the
+    /// Chief, and what the page opened by itself follows the new Chief (``followUp``).
+    private func chiefChanged(_ key: ChiefKey, home: HomeService) {
+        guard key != lastChiefKey else { return }
+        lastChiefKey = key
+        if let chief = key.chief, shownIsGone(home.homeStore) {
             replaceGone(with: ConversationID(chief), store: home.homeStore)
-        } else if shown == nil || shown?.rawValue == previousChief {
-            show(ConversationID(chief))
+            followedChief = chief
+            return
         }
-        previousChief = chief
+        let next = Self.followUp(chief: key.chief, shown: shown, followed: followedChief,
+                                 composing: isComposingNewMessage, rows: rows, home: home)
+        // After the open, which clears it: every other ``show(_:)`` is the person's.
+        if let open = next.open { show(open) }
+        followedChief = next.followed
     }
 
     /// Shows `id` in the transcript column and selects it in the list (the
     /// New Message row shows the New Message page).
     func show(_ id: ConversationID) {
+        // Whatever the page was following, it is not following it now. The two observations that
+        // open a conversation by themselves set ``followedChief`` again right after this call, so
+        // every other way in here (the list, the palette, an action, a close's neighbour) is the
+        // person's choice and a Chief that arrives later leaves it alone.
+        followedChief = nil
         guard id != HomeSidebarView.draftRowID else { return presentNewMessage() }
         list.select(id)
         let leftNewMessage = leaveNewMessage()
@@ -491,9 +520,13 @@ final class TopHomePageView: NSView {
     }
 
     /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
+    /// A neighbor the Engine row excludes (a cloud Chief under This Mac) is not one: the default
+    /// conversation decides instead.
     func conversationLeft(_ id: ConversationID, next: ConversationID?) {
         guard shown == id, let services else { return }
-        let fallback = next.flatMap { $0 == id ? nil : $0 } ?? defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
+        let excluded = services.home.excludedChiefConversations
+        let neighbor = next.flatMap { $0 == id || excluded.contains($0.rawValue) ? nil : $0 }
+        let fallback = neighbor ?? Self.defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
         guard let fallback, fallback != id else { return }
         show(fallback)
     }

@@ -119,6 +119,7 @@ extension UpdateDriver {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
         relaunchGate.cancel()
+        endAutomaticInstallHold()
         relaunchIsAutomatic = false
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }

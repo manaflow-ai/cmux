@@ -13,7 +13,7 @@ extension HomeFirstRunView {
     /// coordinates; nil when it shows none (`home-chief-long-draft`).
     var debugShownBottom: CGFloat? {
         // visibility-walk-allow: DEBUG capture read of what AppKit draws: the panel hides the parts that do not fit, and no node holds them
-        ([hero, switchCard, agentsHeader] + rows).filter { !$0.isHiddenOrHasHiddenAncestor }
+        ([hero, starters, switchCard, agentsHeader] + rows).filter { !$0.isHiddenOrHasHiddenAncestor }
             .map { convert($0.bounds, from: $0).maxY }.max()
     }
 

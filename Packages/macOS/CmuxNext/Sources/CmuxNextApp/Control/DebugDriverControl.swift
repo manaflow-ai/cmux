@@ -132,10 +132,7 @@ enum DebugDriverControl {
                 return .value(DebugWindowList.list(services: services))
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
-            .async("debug.window_snapshot") { [weak services] call in
-                guard let services else { return .null }
-                return await DebugWindowSnapshot.captureAsync(call.params, services: services)
-            },
+            DebugWindowSnapshot.controlMethod(services: services),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))
@@ -293,6 +290,16 @@ enum DebugDriverControl {
             .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            // Captures of Add Device: a fixture listing (network and ~/.ssh/config rows), never the capture host's tailnet.
+            .mainActor("debug.add_device") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.show(call.params, services: services))
+            },
+            // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
+            .mainActor("debug.daemon_update") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
             },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }

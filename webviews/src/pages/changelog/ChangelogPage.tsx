@@ -7,16 +7,18 @@ import { DigestPage } from "./DigestPage";
 import { JournalPage } from "./JournalPage";
 import { RailPage } from "./RailPage";
 import type { ChangelogStore } from "./store";
-import type { ChangelogDesign } from "./types";
+import type { ChangelogDesign, NewsLayout } from "./types";
 
 export function ChangelogPage({
   store,
   strings,
   design = "ledger",
+  news,
 }: {
   store: ChangelogStore;
   strings: Strings;
   design?: ChangelogDesign;
+  news?: NewsLayout;
 }) {
   const s = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (s.loading)
@@ -27,5 +29,5 @@ export function ChangelogPage({
     );
   if (design === "rail") return <RailPage store={store} strings={strings} s={s} />;
   if (design === "digest") return <DigestPage store={store} strings={strings} s={s} />;
-  return <JournalPage store={store} strings={strings} s={s} ledger={design === "ledger"} />;
+  return <JournalPage store={store} strings={strings} s={s} ledger={design === "ledger"} news={news} />;
 }

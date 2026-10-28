@@ -109,9 +109,13 @@ public final class WebUpdater {
     /// Between scheduled checks while cmux is in the front; the pointer is a small cached file
     /// read with its ETag (a 304 while unchanged), the archive is fetched only for a new update.
     let interval: Duration
-    /// Between scheduled checks while cmux is behind other apps (a swap waits for it to come back
-    /// anyway, and an idle app should not wake every minute).
+    /// Between scheduled checks while cmux is behind other apps. A swap there runs once cmux has
+    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets:
+    /// at 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25),
+    /// past the five minutes Leo asked for. Each check is a small pointer read (a 304 while
+    /// unchanged), so every two minutes stays quiet.
     let backgroundInterval: Duration
+    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(120)
     /// The app's Energy Saver policy: each wait is stretched by its `pollStretch`.
     let energy: EnergyPolicySource
     /// The next scheduled check: a `background` deadline (nobody waits on it) aligned to the app's
@@ -145,7 +149,7 @@ public final class WebUpdater {
     ///   - kept: What the app's launch read found on disk (``readKept(store:app:)``); nil reads it in ``launchTree()``.
     ///   - checksHeld: Holds the network back until ``startChecks()`` (the app: until startup completes).
     public init(store: WebUpdateStore, app: App, keys: KeySource, base: URL = WebUpdater.defaultBase,
-                interval: Duration = .seconds(60), backgroundInterval: Duration = .seconds(600),
+                interval: Duration = .seconds(60), backgroundInterval: Duration = WebUpdater.defaultBackgroundInterval,
                 energy: EnergyPolicySource, deadlines: MainDeadlineScheduler, checkNode: VisibilityNode? = nil, work: BackgroundWork,
                 kept: Kept? = nil, checksHeld: Bool = false,
                 fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },

@@ -13,7 +13,7 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
@@ -169,6 +169,20 @@ export function MediaPlayer({
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
+  const media = useRef<HTMLSpanElement>(null);
+  const [short, setShort] = useState(false);
+  useLayoutEffect(() => {
+    if (kind !== "video") return;
+    const video = media.current?.querySelector("video");
+    if (!video) return;
+    // Two native 37 px bars, two 8 px clearances, our 28 px target and its 4 px margin.
+    // If they cannot fit, reserve an action row above the player, including before playback.
+    const update = () => setShort(video.getBoundingClientRect().height < 126);
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(video);
+    return () => observer?.disconnect();
+  }, [kind]);
   if (kind === "audio")
     return (
       <span className="cv-media is-audio" data-path={path}>
@@ -182,28 +196,32 @@ export function MediaPlayer({
     );
   const open = mediaOpenRequest(source);
   return (
-    <span className="cv-media is-video" data-path={path}>
+    <span ref={media} className={`cv-media is-video${short ? " has-short-video" : ""}`} data-path={path}>
       <VideoThumbnail src={src} name={name} onError={onError} />
       <span className="cv-media__actions">
         {open && (
           <button
             type="button"
-            className="ui-glass cv-media__action"
+            className="cv-media__action"
             aria-label={t("media.openInTab")}
             title={t("media.openInTab")}
             onClick={() => void callChipHost(open.method, open.params)}
           >
-            <OpenTab size={14} />
+            <span className="ui-glass cv-media__glass" aria-hidden="true">
+              <OpenTab size={14} />
+            </span>
           </button>
         )}
         <button
           type="button"
-          className="ui-glass cv-media__action cv-media__expand"
+          className="cv-media__action cv-media__expand"
           aria-label={t("media.expand")}
           title={t("media.expand")}
           onClick={() => setExpanded(true)}
         >
-          <Expand size={14} />
+          <span className="ui-glass cv-media__glass" aria-hidden="true">
+            <Expand size={14} />
+          </span>
         </button>
       </span>
       {expanded && (

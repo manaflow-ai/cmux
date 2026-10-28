@@ -9,7 +9,8 @@
 //! agent session id stay, so the next prompt resumes it (`session/load`).
 //!
 //! The same task ends a running turn whose model has said nothing for
-//! `stalledTurnEndMs` (`stalled_turn.rs`).
+//! `stalledTurnEndMs` (`stalled_turn.rs`), and an agent a mode write moved
+//! into full access while MDM forces it off (`full_access_bound.rs`).
 //!
 //! One task per hub waits on the injected clock for the earliest deadline
 //! and on a wake signal for a new child; it never polls, so idle costs no
@@ -45,6 +46,8 @@ impl Hub {
             // A process still running in the background (a dev server, a
             // watcher) ends with the harness: never reap it for idleness.
             && !self.any_process_running(session)
+            // Nor a background subagent, which the harness's exit would end too.
+            && session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() == 0
     }
 
     /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then
@@ -87,6 +90,7 @@ impl Hub {
                 None => wake.notified().await,
             }
             let Some(hub) = weak.upgrade() else { return };
+            hub.end_every_managed_full_access(hub.full_access_managed_off()).await;
             if let Some(stalled) = hub.config.read().await.stalled_turn_end() {
                 hub.settle_stalled_turns(stalled);
             }

@@ -31,7 +31,8 @@ final class RenderPassMeter {
             // main-proof: the observer is only ever added to CFRunLoopGetMain(), whose callouts run on the main thread
             MainActor.assumeIsolated { box.start = uptimeNanos() }
         }
-        let last = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, MainRunLoopObserver.lastOrder) { _, _ in
+        // The pass's end only reads the clock: its context says so to the commit-boundary audit.
+        let last = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: MainRunLoopObserver.lastOrder) { _ in
             // main-proof: the observer is only ever added to CFRunLoopGetMain(), whose callouts run on the main thread
             MainActor.assumeIsolated {
                 guard box.start != 0 else { return }

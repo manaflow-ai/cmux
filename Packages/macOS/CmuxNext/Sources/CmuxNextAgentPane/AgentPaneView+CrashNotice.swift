@@ -2,10 +2,13 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 
-/// A crashed page: the page host reloads it, unless it keeps crashing; then the pane says so and
-/// waits for the user.
+/// A crashed page shows the crash notice and waits for the person's Reload when its page host
+/// keeps no automatic reload for it (the agent chat: a reload by itself would build the chat again
+/// without what its page held, an open menu or popover, the caret, an IME composition, chips not
+/// yet sent; Leo, 2026-10-26: "why does cmux-next's browser keep refreshing and reloading?").
+/// The page host owns that policy (`PageWebView.reloadsAfterCrash`).
 extension AgentPaneView {
-    /// The page host's crash report; `reloading` is false once the page keeps crashing.
+    /// The page host's crash report; `reloading` is false when the page host does not reload it.
     func pageCrashed(reloading: Bool) {
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)

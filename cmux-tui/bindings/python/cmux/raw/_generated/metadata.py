@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d'
+IR_SHA256 = '97fae7532bc81d02548556e2d40b406e7eabcab008a423db16a632b02ea97edc'
 
 
 @dataclass(frozen=True)
@@ -1269,6 +1269,18 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-presence': CommandMetadata(
+        'cloud-conversation-presence',
+        'local-admin',
+        12,
+        'cloud-conversation-presence-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'viewing': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-conversation-run': CommandMetadata(
@@ -4861,6 +4873,7 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),
+    'cloud-conversation-presence': EventMetadata('cloud-conversation-presence', 12, 'cloud-conversation-presence-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-run-changed': EventMetadata('cloud-conversation-run-changed', 12, 'cloud-conversation-runs-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-typing': EventMetadata('cloud-conversation-typing', 12, 'cloud-conversation-typing-v1', ('subscribe',), 'emitted'),

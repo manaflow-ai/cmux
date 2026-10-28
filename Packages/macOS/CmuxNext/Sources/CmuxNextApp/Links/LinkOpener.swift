@@ -138,11 +138,24 @@ final class LinkOpener {
     /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
     /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
     /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
+    /// `reusesTab` (an agent chat's links and cards): a page the pane on the right already shows is
+    /// selected there instead of opened again; a terminal's Cmd-click stays a new, fresh tab.
     @discardableResult
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool) -> Bool {
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
         // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
         if !background { _ = from?.workspace?.beginFocusIntent() }
+        // The same link clicked again (a chat's PR link or card): the pane on the right selects the
+        // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
+        // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
+        if reusesTab, !background, let from, case .pane(let id) = target(from: from), id != from.layoutPaneID,
+           let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
+            // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
+            if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
+            pane.select(StripTabID(shown.id))
+            pane.focusContent()
+            return true
+        }
         return open(from: from, background: background) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             let opener = here ? from?.selectedTab?.surface : nil
@@ -155,6 +168,16 @@ final class LinkOpener {
                 }
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
+        }
+    }
+
+    /// A browser tab of `pane` showing `url`'s page (``SidebarBridge/samePage(_:_:)``) at the same
+    /// fragment, so a link to a comment still opens at it: the live page first, else the daemon's record.
+    func browserTab(showing url: URL, in pane: PaneController) -> TabModel? {
+        pane.pane.tabs.first { tab in
+            guard tab.kind == .browser, !ProvisionalTab.isProvisional(tab.id),
+                  let shown = services?.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:)) else { return false }
+            return SidebarBridge.samePage(shown, url) && shown.fragment == url.fragment
         }
     }
 

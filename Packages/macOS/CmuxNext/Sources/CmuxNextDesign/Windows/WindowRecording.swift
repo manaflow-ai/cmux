@@ -17,6 +17,8 @@ public nonisolated final class WindowRecording: Sendable {
         var times: [Double] = []
         var means: [Double] = []
         var peaks: [Double] = []
+        /// Each frame's time since the process started (a `--record-launch` recording only).
+        var processMs: [Double] = []
         /// Frames queued and not yet run.
         var queued = 0
     }
@@ -35,8 +37,9 @@ public nonisolated final class WindowRecording: Sendable {
     }
 
     /// Queues the frame `plan` names, taken `time` seconds after the first; false when it is dropped.
+    /// `processMs`: the frame's time since the process started (a launch recording), written as `frames.json`'s `processMs`.
     @discardableResult
-    public func record(_ plan: WindowCapturePlan, at time: Double) -> Bool {
+    public func record(_ plan: WindowCapturePlan, at time: Double, processMs: Double? = nil) -> Bool {
         let taken = series.withLock { series -> Bool in
             guard series.queued < Self.queuedLimit else { return false }
             series.queued += 1
@@ -51,6 +54,7 @@ public nonisolated final class WindowRecording: Sendable {
                 series.times.append(time)
                 series.means.append(reading.mean)
                 series.peaks.append(reading.peak)
+                if let processMs { series.processMs.append(processMs) }
                 return series.times.count - 1
             }
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
@@ -65,7 +69,9 @@ public nonisolated final class WindowRecording: Sendable {
     public func finish() {
         queue.async { [self] in
             let frames = series.withLock { series -> [String: [Double]] in
-                ["times": series.times, "luminance": series.means, "peak": series.peaks]
+                var frames = ["times": series.times, "luminance": series.means, "peak": series.peaks]
+                if !series.processMs.isEmpty { frames["processMs"] = series.processMs }
+                return frames
             }
             if let data = try? JSONSerialization.data(withJSONObject: frames) {
                 try? data.blockingWrite(to: dir.appendingPathComponent("frames.json"))

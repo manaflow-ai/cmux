@@ -8,6 +8,10 @@ import Testing
 struct WebDevOverrideTests {
     private let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
 
+    @Test func liveReloadIsOffByDefault() {
+        #expect(PageTunables.webDevOverride.defaultValue == false)
+    }
+
     @Test func parsesALoopbackServerAndAHomeOverlay() throws {
         let value = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "overlay": "~/web-overlay"}"#.utf8), home: home)
         #expect(value.server?.root.absoluteString == "http://127.0.0.1:4181/")

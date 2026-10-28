@@ -40,6 +40,19 @@ public final class DeviceDirectory {
     /// The id prefix of an acpmux pairing row, the only kind with a Full-access setting.
     public static let pairedPrefix = "paired:"
 
+    /// The acpmux pairing name of a phone paired with this Mac (acpmux role `phone`). The app's
+    /// iPhone host issues the phone's credential under it (`MobileHostPairedDevices.acpmuxRecordName`,
+    /// kept equal by a test), so a phone row joins that record for its Full-access setting.
+    public static func phoneRecordName(_ phoneID: String) -> String {
+        "phone-" + String(phoneID.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }.prefix(74))
+    }
+
+    /// Phone `phoneID`'s own acpmux record in the listing (a `phone` row named for it), if any.
+    private func phoneRecord(_ phoneID: String) -> DeviceListing.Device? {
+        let name = Self.phoneRecordName(phoneID)
+        return listing?.devices.first { $0.kind == "phone" && $0.name == name && $0.id.hasPrefix(Self.pairedPrefix) }
+    }
+
     /// Reads the list and the activity again; a read already running makes this a no-op.
     public func refresh() async {
         guard !reading else { return }
@@ -74,30 +87,35 @@ public final class DeviceDirectory {
         return lastError
     }
 
-    /// Lets a paired client machine run chats here in Full access, or stops it (at once: acpmux
-    /// holds its running chats again), then reads again. Returns the error to show, nil when set.
+    /// Lets a paired client machine or phone run chats here in Full access, or stops it (at once:
+    /// acpmux holds its running chats again), then reads again. Returns the error to show, nil when
+    /// set. A phone row sets its own acpmux record, found by kind and name, never by name alone.
     @discardableResult
     public func setFullAccess(id: String, on: Bool) async -> String? {
-        guard id.hasPrefix(Self.pairedPrefix) else { return nil }
-        let ok = await pairSet?(String(id.dropFirst(Self.pairedPrefix.count)), on) ?? false
+        let record = id.hasPrefix(Self.phonePrefix) ? phoneRecord(String(id.dropFirst(Self.phonePrefix.count)))?.id : id
+        guard let record, record.hasPrefix(Self.pairedPrefix) else { return nil }
+        let ok = await pairSet?(String(record.dropFirst(Self.pairedPrefix.count)), on) ?? false
         lastError = ok ? nil : on ? AddDeviceStrings.fullAccessOnFailed : AddDeviceStrings.fullAccessOffFailed
         await refresh()
         return lastError
     }
 
     /// The rows Settings shows: the CLI's devices, then `phones` (the Mac's paired phones as
-    /// `(id, name, connected)`), with words a person reads.
+    /// `(id, name, connected)`, each with its own acpmux record's Full-access setting), with words
+    /// a person reads. A phone's acpmux record is not a row of its own.
     public func rows(phones: [(id: String, name: String, connected: Bool)]) -> [DeviceListRow] {
-        var rows = (listing?.devices ?? []).map { device in
+        var rows = (listing?.devices ?? []).filter { $0.kind != "phone" }.map { device in
             let roles = device.roles.map(AddDeviceStrings.role).joined(separator: ", ")
             return DeviceListRow(id: device.id, title: device.name, subtitle: [roles, AddDeviceStrings.state(device.state)].filter { !$0.isEmpty }.joined(separator: " · "),
                              detail: device.detail, state: device.state, removable: true, fullAccess: device.fullAccess,
                              fullAccessHelp: device.fullAccess == nil ? nil : AddDeviceStrings.fullAccessHelp)
         }
         rows += phones.map { phone in
-            DeviceListRow(id: Self.phonePrefix + phone.id, title: phone.name,
+            let fullAccess = phoneRecord(phone.id)?.fullAccess
+            return DeviceListRow(id: Self.phonePrefix + phone.id, title: phone.name,
                       subtitle: [AddDeviceStrings.phoneRole, AddDeviceStrings.state(phone.connected ? "connected" : "offline")].joined(separator: " · "),
-                      detail: nil, state: phone.connected ? "connected" : "offline", removable: true)
+                      detail: nil, state: phone.connected ? "connected" : "offline", removable: true,
+                      fullAccess: fullAccess, fullAccessHelp: fullAccess == nil ? nil : AddDeviceStrings.fullAccessHelp)
         }
         return rows
     }

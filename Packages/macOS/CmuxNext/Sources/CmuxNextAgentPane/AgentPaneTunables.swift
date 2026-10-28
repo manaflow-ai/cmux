@@ -135,12 +135,12 @@ public nonisolated struct AgentPaneTunables {
         default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
-    /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
+    /// with a header toggle that shows and hides it. Off by default; on replaces the summary card.
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
     public static let inspector = Tunable<Bool>.toggle(
         "agent.inspector", PageTunables.section, "Session Info",
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
-        default: true, code: "AgentPaneTunables.inspector")
+        default: false, code: "AgentPaneTunables.inspector")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -212,6 +212,16 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.debug.streamWords", PageTunables.section, "Stream replies a word at a time",
         help: "A streaming reply grows by whole words, each fading in. Off: a character at a time. New agent tabs.",
         default: true, code: "AgentPaneTunables.streamWords")
+
+    /// A mouse wheel's notch glides the transcript over the motion scale's standard 180 ms instead
+    /// of jumping (webviews agent-session/acpmux/wheelGlide.ts); trackpad scrolling is the engine's
+    /// either way. On by default (Leo 2026-10-22: "smoother scrolling in webkit: i mean with a
+    /// mouse"); off (`data-wheel-glide="off"`), the wheel scrolls as WebKit does. New agent tabs
+    /// read it.
+    public static let wheelGlide = Tunable<Bool>.toggle(
+        "agentPane.debug.wheelGlide", PageTunables.section, "Smooth mouse wheel in the transcript",
+        help: "Each mouse wheel notch glides the transcript instead of jumping. Trackpads are unchanged. New agent tabs.",
+        default: true, code: "AgentPaneTunables.wheelGlide")
 
     /// Which done thoughts fold (``foldLongThoughts``): every one by default (Leo 2026-10-20), or,
     /// as before, only a tall one. New agent tabs read it.
@@ -304,7 +314,8 @@ public nonisolated struct AgentPaneTunables {
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
                    needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   streamWords: streamWords.value, iconFamily: IconFamily.tunable.value)
+                   streamWords: streamWords.value, iconFamily: IconFamily.tunable.value,
+                   wheelGlide: wheelGlide.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
@@ -313,7 +324,8 @@ public nonisolated struct AgentPaneTunables {
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
                            turnPreviewCards: Bool = false,
-                           streamWords: Bool = true, iconFamily: IconFamily = .pack) -> [String: String] {
+                           streamWords: Bool = true, iconFamily: IconFamily = .pack,
+                           wheelGlide: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
         if !needsYouPill { attributes["needs-you-pill"] = "off" }
@@ -326,6 +338,7 @@ public nonisolated struct AgentPaneTunables {
         if !streamWords { attributes["stream-words"] = "off" }
         // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
         if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
+        if !wheelGlide { attributes["wheel-glide"] = "off" }
         return attributes
     }
 
@@ -377,6 +390,16 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
+    /// Whether a prompt the daemon dropped with its connection before acpmux took it (an acpmux
+    /// restart, a reset socket) goes again on the pane's next connection, under its promptId, so
+    /// acpmux runs it at most once (``AgentPanePromptJournal``). Off (the default), the page says
+    /// "Not sent" with Retry, as before; the page's recovery for a prompt sent again after its
+    /// "Not sent" lands with turning this on.
+    public static let lostPromptReplay = Tunable<Bool>.toggle(
+        "agentPane.debug.lostPromptReplay", PageTunables.section, "Send again a prompt a dropped connection lost",
+        help: "A prompt acpmux never took because its connection dropped goes again on the next connection.",
+        default: false, code: "AgentPaneTunables.lostPromptReplay")
+
     public static var all: [TunableDescriptor] {
         [
             agentPairGuard.descriptor,
@@ -391,6 +414,7 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
+            lostPromptReplay.descriptor,
             modelMenu.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
@@ -400,6 +424,8 @@ public nonisolated struct AgentPaneTunables {
             openOutsideChatsViewOnly.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
+            updatePeersAutomatically.descriptor,
+            restartUnresponsiveAcpmux.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,
@@ -415,6 +441,7 @@ public nonisolated struct AgentPaneTunables {
             topStripStyle.descriptor,
             turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
+            wheelGlide.descriptor,
             agentLinks.descriptor,
             pointerInspector.descriptor,
         ]

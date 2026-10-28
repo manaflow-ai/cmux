@@ -38,6 +38,11 @@ export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
 /** The rows the Chief Pet card draws in place of their group. */
 export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, CHIEF_BUBBLE_STYLE]);
 
+/** `home.chiefEngine`: the Chief's engine (Auto, This Mac, Hosted). The Chiefs card draws it. */
+export const CHIEF_ENGINE = "home.chiefEngine";
+/** The rows the Chiefs card draws in place of their group. */
+export const CHIEFS_ROWS: ReadonlySet<string> = new Set([CHIEF_ENGINE]);
+
 /** `appearance.machineColors`: a machine's color, keyed by its color key. The Machines card draws it,
  * not a map row. */
 export const MACHINE_COLORS_KEY = "appearance.machineColors";

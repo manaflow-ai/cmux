@@ -107,6 +107,44 @@ import Testing
         #expect(rig.hibernation.prewarmedCount >= 2)
     }
 
+    /// A restore loads the page again. A page the person hibernated (Hibernate Tab) never restores
+    /// as a neighbor or a hovered tab, whatever the setting, and with no `browser.hibernation`
+    /// written no hibernated page restores early: only a show or a wake brings it back.
+    @Test func aPageThePersonHibernatedRestoresOnlyWhenShownOrWoken() async throws {
+        let rig = try Rig(freezes: false)
+        defer { rig.close() }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        let keys = try await rig.pages(["a", "b", "c", "d", "e"])
+        let asleep = Array(keys.dropFirst())
+        for key in asleep { #expect(rig.hibernation.hibernateNow(key) == nil) }
+        try await rig.until("the person's pages hibernate") { asleep.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
+
+        // a shows: b and e (the strip wraps) become neighbors; c, a far tab, is hovered past the dwell.
+        rig.show(keys[0], order: keys)
+        #expect(rig.hibernation.awakeNeighbors == [keys[1], keys[4]])
+        rig.hibernation.noteHover(keys[2])
+        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 3)
+        for key in asleep {
+            #expect(rig.services.cache.phase(of: key) == .hibernated, "a prewarm reloaded a page nobody asked for")
+        }
+        #expect(!rig.hibernation.mayPrewarmRestore(keys[1]))
+
+        // A timeout written to cmux.json: pages the person hibernated still wait for a show.
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
+        rig.hibernation.noteHover(keys[2])
+        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 3)
+        #expect(rig.services.cache.phase(of: keys[2]) == .hibernated)
+        #expect(!rig.hibernation.mayPrewarmRestore(keys[2]))
+        #expect(rig.hibernation.mayPrewarmRestore(keys[0]), "an opted-in timeout's own discards may prewarm")
+
+        // Shown, or woken: it restores.
+        rig.show(keys[3], order: keys)
+        try await rig.until("the shown page restores") { !(rig.services.cache.browsers[keys[3]]?.tab is HibernatedBrowserTab) }
+        #expect(rig.hibernation.wake(keys[2], by: .person) == .started)
+        try await rig.until("the woken page restores") { !(rig.services.cache.browsers[keys[2]]?.tab is HibernatedBrowserTab) }
+        #expect(rig.services.cache.phase(of: keys[1]) == .hibernated)
+    }
+
     /// Memory pressure and Energy Saver shrink the neighbor set to nothing; a policy change that
     /// leaves the saver as it was (the power source) changes nothing.
     @Test func pressureAndEnergySaverKeepNoNeighborAwake() async throws {

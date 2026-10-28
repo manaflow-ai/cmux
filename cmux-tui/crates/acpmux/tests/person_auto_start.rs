@@ -544,8 +544,8 @@ async fn mode(c: &mut Rpc, id: Value) -> String {
 
 /// The start mode of a new chat (`hub/start_mode.rs`: full access by
 /// default) never widens a caller session: a session in a mode that asks
-/// starts its chats in the harness's own mode; one in full access starts
-/// them in full access, as the person's chats start.
+/// starts its chats in that mode (`start_mode.rs`, "Inherit"); one in full
+/// access starts them in full access, as the person's chats start.
 #[tokio::test]
 async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_asks() {
     let d = Daemon::start("default");
@@ -555,7 +555,7 @@ async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_a
     let (asking, token) = parent_in(&mut app, &d, "wide", "strict").await;
     let mut agent = Rpc::in_session(&d.socket, &asking, &token).await;
     let child = agent.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
-    assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "normal", "{child}");
+    assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "strict", "{child}");
     let (wide, token) = parent_in(&mut app, &d, "wide", "full-access").await;
     let mut agent = Rpc::in_session(&d.socket, &wide, &token).await;
     let child = agent.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;

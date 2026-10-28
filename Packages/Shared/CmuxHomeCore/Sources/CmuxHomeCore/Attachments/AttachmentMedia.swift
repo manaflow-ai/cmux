@@ -251,6 +251,31 @@ enum AttachmentMedia {
         return (data as Data, target, hasAlpha ? "png" : "jpg")
     }
 
+    /// The file-backed form of ``convertedImage``.  ImageIO writes directly to
+    /// the cache instead of materialising an arbitrarily large source image in
+    /// a `Data` value.  The data form remains for pasted/in-memory attachments,
+    /// whose caller already owns the bytes.
+    private static func convertedImageFile(_ makeSource: () -> CGImageSource?, root: URL) throws
+        -> (url: URL, type: UTType, fileExtension: String)?
+    {
+        guard let source = makeSource(), CGImageSourceGetCount(source) > 0 else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let hasAlpha = (properties?[kCGImagePropertyHasAlpha] as? Bool) ?? false
+        let target: UTType = hasAlpha ? .png : .jpeg
+        let output = root.appendingPathComponent(".converted-\(UUID().uuidString).\(hasAlpha ? "png" : "jpg")")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        guard let destination = CGImageDestinationCreateWithURL(output as CFURL, target.identifier as CFString, 1, nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let options: [CFString: Any] = hasAlpha ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.9]
+        CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            try? FileManager.default.removeItem(at: output)
+            throw HomeRejection.invalid("not_an_image")
+        }
+        return (output, target, hasAlpha ? "png" : "jpg")
+    }
+
     // MARK: Video and audio
 
     struct Movie {
@@ -326,12 +351,13 @@ enum AttachmentMedia {
             mime = owned
         case .convert:
             // An image ImageIO cannot read goes as its bytes (text or a generic file).
-            guard let converted = try convertedImage({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) }) else {
+            guard let converted = try convertedImageFile({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) }, root: root) else {
                 mime = try sniffedMimeType(ofFile: fileURL)
                 break
             }
             let base = (name as NSString).deletingPathExtension
-            return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
+            defer { try? FileManager.default.removeItem(at: converted.url) }
+            return try await prepare(fileURL: converted.url, root: root,
                                      name: "\(base).\(converted.fileExtension)", keepLocation: keepLocation)
         case .sniff:
             mime = try sniffedMimeType(ofFile: fileURL)
@@ -340,8 +366,9 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-               let clean = try imageWithoutLocation(source, name: name, bytes: { try Data(contentsOf: fileURL) }) {
-                return try await prepare(data: clean.data, typeIdentifier: clean.type.identifier, root: root,
+               let clean = try imageWithoutLocationFile(source, sourceURL: fileURL, name: name, root: root) {
+                defer { try? FileManager.default.removeItem(at: clean.url) }
+                return try await prepare(fileURL: clean.url, root: root,
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
             }
             if hasMovieMetadata(mime), let clean = try await movieWithoutLocation(fileURL, mimeType: mime, name: name, root: root) {
@@ -524,6 +551,139 @@ enum AttachmentMedia {
         let target: UTType = hasAlpha ? .png : .jpeg
         if let data = reencoded(source, as: target.identifier as CFString, frames: 1, verified: verified) { return (data, target) }
         throw HomeAttachmentError.locationNotRemoved(name: name)
+    }
+
+    /// File-backed metadata removal. ImageIO's URL source and destination keep
+    /// the encoded bytes out of memory; WebP is copied chunk-by-chunk because
+    /// ImageIO cannot write it. The result is a temporary file owned by the
+    /// caller, which must remove it after ingesting it.
+    private static func imageWithoutLocationFile(_ source: CGImageSource, sourceURL: URL, name: String,
+                                                 root: URL) throws -> (url: URL, type: UTType)? {
+        let count = CGImageSourceGetCount(source)
+        guard count > 0, (0..<count).contains(where: { hasLocation(source, at: $0) }) else { return nil }
+        let orientations = (0..<count).map { index -> Int in
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+            return (properties?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        }
+        func verified(_ url: URL, frames: Int) -> Bool {
+            guard let result = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(result) == frames else { return false }
+            for index in 0..<frames {
+                let after = CGImageSourceCopyPropertiesAtIndex(result, index, nil) as? [CFString: Any] ?? [:]
+                let kept = (after[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+                guard !hasLocation(result, at: index), kept == orientations[index] else { return false }
+            }
+            return true
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let writable = Set((CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? [])
+        if let type = CGImageSourceGetType(source), writable.contains(type as String), let utType = UTType(type as String) {
+            let extensionName = utType.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let output = root.appendingPathComponent(".cleaned-\(UUID().uuidString)\(extensionName)")
+            if let destination = CGImageDestinationCreateWithURL(output as CFURL, type, count, nil) {
+                var options: [CFString: Any] = [kCGImageMetadataShouldExcludeGPS: true,
+                                                kCGImageDestinationOrientation: orientations[0],
+                                                kCGImageDestinationMergeMetadata: false]
+                if let metadata = metadataWithoutLocation(source, at: 0).metadata { options[kCGImageDestinationMetadata] = metadata }
+                if CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil), verified(output, frames: count) {
+                    return (output, utType)
+                }
+            }
+            try? FileManager.default.removeItem(at: output)
+            let reencoded = root.appendingPathComponent(".cleaned-\(UUID().uuidString)\(extensionName)")
+            if reencodedImage(source, as: type, frames: count, to: reencoded, verified: verified) {
+                return (reencoded, utType)
+            }
+            try? FileManager.default.removeItem(at: reencoded)
+        }
+        if CGImageSourceGetType(source) as String? == UTType.webP.identifier {
+            let output = root.appendingPathComponent(".cleaned-\(UUID().uuidString).webp")
+            if try webPWithoutMetadataChunks(from: sourceURL, to: output), verified(output, frames: count) {
+                return (output, .webP)
+            }
+            try? FileManager.default.removeItem(at: output)
+        }
+        let hasAlpha = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyHasAlpha] as? Bool ?? false
+        let target: UTType = hasAlpha ? .png : .jpeg
+        let extensionName = target.preferredFilenameExtension.map { ".\($0)" } ?? ""
+        let output = root.appendingPathComponent(".cleaned-\(UUID().uuidString)\(extensionName)")
+        if reencodedImage(source, as: target.identifier as CFString, frames: 1, to: output, verified: verified) {
+            return (output, target)
+        }
+        try? FileManager.default.removeItem(at: output)
+        throw HomeAttachmentError.locationNotRemoved(name: name)
+    }
+
+    private static func reencodedImage(_ source: CGImageSource, as type: CFString, frames: Int, to url: URL,
+                                       verified: (URL, Int) -> Bool) -> Bool {
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type, frames, nil) else { return false }
+        for index in 0..<frames {
+            guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else { return false }
+            let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.95]
+            if let metadata = metadataWithoutLocation(source, at: index).metadata {
+                CGImageDestinationAddImageAndMetadata(destination, image, metadata, options as CFDictionary)
+            } else {
+                CGImageDestinationAddImage(destination, image, options as CFDictionary)
+            }
+        }
+        return CGImageDestinationFinalize(destination) && verified(url, frames)
+    }
+
+    private static func readExactly(_ handle: FileHandle, count: Int) throws -> Data? {
+        var result = Data()
+        while result.count < count {
+            guard let chunk = try handle.read(upToCount: count - result.count), !chunk.isEmpty else { return nil }
+            result.append(chunk)
+        }
+        return result
+    }
+
+    /// Streams a WebP RIFF while dropping EXIF/XMP chunks. At most one 1 MiB
+    /// payload is resident, regardless of the original's size.
+    private static func webPWithoutMetadataChunks(from source: URL, to destination: URL) throws -> Bool {
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else { return false }
+        let output = try FileHandle(forWritingTo: destination)
+        defer { try? output.close() }
+        guard let header = try readExactly(input, count: 12) else { return false }
+        let bytes = [UInt8](header)
+        guard bytes[0..<4].elementsEqual("RIFF".utf8), bytes[8..<12].elementsEqual("WEBP".utf8) else { return false }
+        let riffSize = Int(bytes[4]) | Int(bytes[5]) << 8 | Int(bytes[6]) << 16 | Int(bytes[7]) << 24
+        guard riffSize >= 4 else { return false }
+        try output.write(contentsOf: Data(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WEBP".utf8)))
+        var remaining = riffSize - 4
+        var bodySize = 4
+        while remaining > 0 {
+            guard remaining >= 8, let chunkHeader = try readExactly(input, count: 8) else { return false }
+            let chunk = [UInt8](chunkHeader)
+            let size = Int(chunk[4]) | Int(chunk[5]) << 8 | Int(chunk[6]) << 16 | Int(chunk[7]) << 24
+            let padded = size + (size & 1)
+            guard size >= 0, padded <= remaining - 8 else { return false }
+            let tag = String(decoding: chunk[0..<4], as: UTF8.self)
+            let keep = tag != "EXIF" && tag != "XMP "
+            if keep {
+                try output.write(contentsOf: chunkHeader)
+                bodySize += 8 + padded
+            }
+            var offset = 0
+            while offset < padded {
+                let amount = min(chunkSize, padded - offset)
+                guard let part = try readExactly(input, count: amount) else { return false }
+                if keep {
+                    var payload = [UInt8](part)
+                    if tag == "VP8X", offset == 0, !payload.isEmpty { payload[0] &= ~UInt8(0x0C) }
+                    try output.write(contentsOf: Data(payload))
+                }
+                offset += amount
+            }
+            remaining -= 8 + padded
+        }
+        try output.seek(toFileOffset: 4)
+        try output.write(contentsOf: Data([UInt8(truncatingIfNeeded: bodySize),
+                                           UInt8(truncatingIfNeeded: bodySize >> 8),
+                                           UInt8(truncatingIfNeeded: bodySize >> 16),
+                                           UInt8(truncatingIfNeeded: bodySize >> 24)]))
+        return true
     }
 
     /// A WebP without its `EXIF` and `XMP ` chunks, the VP8X flags for them

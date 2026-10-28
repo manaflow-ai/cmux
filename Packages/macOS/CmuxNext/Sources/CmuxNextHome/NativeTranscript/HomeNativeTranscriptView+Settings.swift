@@ -2,11 +2,15 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 
-/// The settings a Home transcript follows live, read in one pass: the interface scale, Settings >
-/// Chief > Chief Chat > Bubble Style, the Chief pet, and Debug Settings > Home's hero, top of the
-/// chat and mic button.
+/// The settings a Home transcript follows live, read in one pass: the interface scale, Agent Chat
+/// Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`), Settings > Chief > Chief Chat >
+/// Bubble Style, the Chief pet, and Debug Settings > Home's hero, top of the chat and mic button.
 struct HomeTranscriptSettings: Equatable {
+    /// The native first-run chrome's scale: the interface scale times the Chief chat's ``zoom``, so the
+    /// empty chat's panel grows with the header and field around it.
     var textScale: CGFloat
+    /// Agent Chat Zoom: the Chief chat is drawn at it, live, as an agent chat is.
+    var zoom: CGFloat
     var bubblesThemed: Bool
     var chiefPet: Bool
     var hero: Bool
@@ -15,7 +19,8 @@ struct HomeTranscriptSettings: Equatable {
 
     /// The settings now (each read is tracked under a ``FrameObservation``).
     static func current() -> HomeTranscriptSettings {
-        HomeTranscriptSettings(textScale: Typography.userScale,
+        HomeTranscriptSettings(textScale: Typography.userScale * DesignSettings.shared.agentPaneZoom,
+                               zoom: DesignSettings.shared.agentPaneZoom,
                                bubblesThemed: DesignSettings.shared.homeChiefBubblesThemed,
                                chiefPet: DesignSettings.shared.homeChiefPetEnabled,
                                hero: HomeTunables.firstRunHero.value,
@@ -64,6 +69,10 @@ extension HomeNativeTranscriptView {
         appliedSettings = settings
         if last?.voiceInput != settings.voiceInput { applyVoiceInput(settings.voiceInput) }
         if last?.textScale != settings.textScale { applyTextScale(settings.textScale) }
+        if last?.zoom != settings.zoom {
+            transcript.zoom = settings.zoom
+            needsLayout = true // invalidate: the zoom changed the transcript's and the panel's metrics
+        }
         bubbleStyle = settings.bubblesThemed ? .theme : .iMessage
         if last?.hero != settings.hero { firstRun.showsHero = settings.hero }
         // The first-run panel's pet row reads Show or Hide Chief Pet.

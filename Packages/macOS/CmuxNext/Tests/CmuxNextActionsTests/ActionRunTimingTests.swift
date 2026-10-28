@@ -304,22 +304,41 @@ private final class RunTimingRecorder: ActionRunTiming {
     /// tracking, a modal panel). A handler that spins the default mode waiting for a helper's reply is a
     /// stall: its wakes stay out of the count, so its sample stays in action.perform / action.commit.
     @Test func onlyAPersonDrivenNestedLoopCountsAsDwell() {
-        func spin(_ mode: CFRunLoopMode) {
+        // AppKit puts the event-tracking mode in the common modes the watch observes.
+        _ = NSApplication.shared
+        let tracking = CFRunLoopMode("NSEventTrackingRunLoopMode" as CFString)
+        let watch = RunLoopWakeWatch()
+        watch.begin()
+        #expect(Self.runUntilItSleepsAndWakes(in: .defaultMode), "the default-mode loop never slept")
+        #expect(watch.wakes == 0, "a default-mode wait inside a handler counted as the person's dwell")
+        #expect(Self.runUntilItSleepsAndWakes(in: tracking), "the event-tracking loop never slept")
+        #expect(watch.wakes >= 1, "a menu's event-tracking loop was not counted")
+        watch.end()
+        let after = watch.wakes
+        #expect(Self.runUntilItSleepsAndWakes(in: tracking), "the event-tracking loop never slept")
+        #expect(watch.wakes == after, "an ended watch still counted")
+    }
+
+    /// Runs the main run loop in `mode` until it has slept and woken in that mode (a 20 ms timer wakes
+    /// it), as this test's own observer sees: the check after it then reads a wake that happened. One
+    /// `CFRunLoopRunInMode` pass is not enough: with `returnAfterSourceHandled` it returns as soon as
+    /// it serves the main queue or a source, without sleeping, and other tests' main-actor jobs keep
+    /// the main queue busy. False when no pass slept within a minute.
+    private static func runUntilItSleepsAndWakes(in mode: CFRunLoopMode) -> Bool {
+        var woke = false
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, _ in
+            woke = true
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
+        defer { CFRunLoopObserverInvalidate(observer) }
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !woke, ContinuousClock.now < deadline {
             let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
             CFRunLoopAddTimer(CFRunLoopGetMain(), timer, mode)
             _ = CFRunLoopRunInMode(mode, 1, true)
             CFRunLoopTimerInvalidate(timer)
         }
-        let watch = RunLoopWakeWatch()
-        watch.begin()
-        spin(.defaultMode)
-        #expect(watch.wakes == 0, "a default-mode wait inside a handler counted as the person's dwell")
-        spin(CFRunLoopMode("NSEventTrackingRunLoopMode" as CFString))
-        #expect(watch.wakes >= 1, "a menu's event-tracking loop was not counted")
-        watch.end()
-        let after = watch.wakes
-        spin(CFRunLoopMode("NSEventTrackingRunLoopMode" as CFString))
-        #expect(watch.wakes == after, "an ended watch still counted")
+        return woke
     }
 
     // MARK: Previews

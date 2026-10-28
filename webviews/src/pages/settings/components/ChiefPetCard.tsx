@@ -24,6 +24,7 @@ import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascot
 import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
 import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
 import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
+import mascotMochi from "../../../agent-session/acpmux/mascots/ChiefMascotMochi.png";
 
 /** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
@@ -38,6 +39,7 @@ export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
   { id: "moon", art: mascotMoon },
   { id: "moon-blue", art: mascotMoonBlue },
   { id: "fox", art: mascotFox },
+  { id: "mochi", art: mascotMochi },
 ];
 
 /** The rail under the pet, as the pet draws it: compose and the chevron. */

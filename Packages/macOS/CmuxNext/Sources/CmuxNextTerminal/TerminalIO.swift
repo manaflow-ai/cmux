@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// Byte transport for one terminal, the seam between a Ghostty surface and
 /// whatever owns the PTY.

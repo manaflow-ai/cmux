@@ -91,6 +91,16 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// Holds the fixture's activity state for matching light/dark captures.
+    /// No agent runs and no timer is installed; closing the fixture stops its store.
+    public func debugTyping(_ on: Bool) -> Bool {
+        guard let shown else { return false }
+        let source = self.source
+        // task-owner: one mock event, finishes after it is published
+        Task { await source.typing(shown.chief, in: shown.conversation, on: on) }
+        return true
+    }
+
     private func addAttachments(in id: ConversationID) async {
         guard let files = try? await HomeFixtureMedia.make(on: work), !Task.isCancelled else { return }
         for file in files {

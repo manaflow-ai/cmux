@@ -302,7 +302,9 @@ nonisolated enum AcpmuxServerPeer {
         return unsafe getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
-    private static func connect(_ socketPath: String) throws -> Int32 {
+    /// A connected unix socket to `socketPath`, unchecked: the caller reads its peer on this
+    /// very descriptor (``UnixSocketPeer``) before it writes anything.
+    static func connect(_ socketPath: String) throws -> Int32 {
         guard let address = UnixSocketAddress(path: socketPath) else { throw Refusal.unreachable("path too long") }
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw Refusal.unreachable(POSIXErrorText(errno).description) }
@@ -373,7 +375,7 @@ nonisolated enum AcpmuxServerPeer {
         guard ready > 0 else { throw ready == 0 ? Refusal.timedOut : Refusal.closed }
     }
 
-    private static func write(_ data: Data, to descriptor: Int32, until: Date) throws {
+    static func write(_ data: Data, to descriptor: Int32, until: Date) throws {
         var offset = 0
         while offset < data.count {
             try wait(descriptor, for: Int16(POLLOUT), until: until)
@@ -389,7 +391,7 @@ nonisolated enum AcpmuxServerPeer {
         }
     }
 
-    private static func read(from descriptor: Int32, until: Date) throws -> Data {
+    static func read(from descriptor: Int32, until: Date) throws -> Data {
         try wait(descriptor, for: Int16(POLLIN), until: until)
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         // SAFETY: recv writes at most chunk.count bytes into the array's own storage, lent for the call.

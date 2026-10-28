@@ -43,6 +43,8 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
         "build": crate::hub::BUILD,
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
@@ -70,6 +72,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     }
     v["pressure"] =
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect();
+    // What the machine health loop found wrong and could not fix
+    // (`machine_health.rs`); none on a machine without the loop.
+    if let Some(problems) = super::machine_health::problems().await {
+        v["problems"] = problems;
+    }
     if !origin.web_class() {
         v["host"] = json!(crate::hub::host_label());
     }
@@ -137,6 +144,10 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             }
             row["name"] = json!(name);
             row["self"] = json!(false);
+            // A peer's words reach a terminal and the app: cleaned and capped like this machine's own.
+            if let Some(problems) = health.get("problems") {
+                row["problems"] = super::machine_health::sanitize(problems);
+            }
             row["outdated"] = json!(health["build"].as_str() != Some(crate::hub::BUILD));
         }
         // It answered, so it is up: an older build without this method.
@@ -145,7 +156,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row["latencyMs"] = json!(started.elapsed().as_millis() as u64);
             row["healthUnsupported"] = json!(true);
             row["error"] = json!(format!(
-                "{}; `acpmux host update {name}` brings it to this build",
+                "{}; peer target is unknown: run `acpmux host update {name}` only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md)",
                 e.message
             ));
         }

@@ -21,6 +21,7 @@
     "CmuxNextDaemon": {"layer": "service"},
     "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge, Layout: lift the shared types to Core or a protocol seam"},
     "CmuxNextCloud": {"layer": "service"},
+    "CmuxNextCloudCredentials": {"layer": "domain"},
     "CmuxNextRemote": {"layer": "service"},
     "CmuxNextCodeRouter": {"layer": "service"},
     "CmuxNextMobile": {"layer": "service"},
@@ -82,6 +83,7 @@
     "CmuxNextUpdater": {"layer": "ui", "mixes": ["service", "domain"]},
 
     "CmuxNextDesign": {"layer": "ui", "mixes": ["core", "domain"], "plan": "split: DesignTokens (core values, Tunables), Appearance (DesignSettings, ThemeStore: domain), Design (UI kit)"},
+    "CmuxNextCloudUI": {"layer": "ui", "plan": "Cloud workspace setup dialog specs and policy; app supplies creation and credential services"},
     "CmuxNextIcons": {"layer": "ui", "mixes": ["core"]},
     "CmuxNextSidebar": {"layer": "ui", "mixes": ["domain"], "plan": "Model/Store/Logic to a domain package (owner a590)"},
     "CmuxNextTabs": {"layer": "ui", "mixes": ["domain"]},

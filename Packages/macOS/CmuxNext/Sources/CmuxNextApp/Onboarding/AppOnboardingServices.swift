@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
@@ -25,7 +26,11 @@ final class AppOnboardingServices: OnboardingServices {
     /// Folder grants (Debug Settings `browserImport.folderGrant`).
     private let folderAccess = BrowserFolderAccess()
 
-    func detectBrowsers() async -> [BrowserSource] { await folderAccess.detect() }
+    /// None while `browser.import.enabled` is off: nothing reads another browser's folders.
+    func detectBrowsers() async -> [BrowserSource] {
+        guard services.browserImportEnabled else { return [] }
+        return await folderAccess.detect()
+    }
 
     func browserIcons(_ browsers: [(browser: ImportBrowser, app: URL?)]) async -> [ImportBrowser: NSImage] {
         // Launch Services and the disk, on the system lane.
@@ -36,6 +41,7 @@ final class AppOnboardingServices: OnboardingServices {
             }
         }
         return icons ?? [:]
+    }
     }
     func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
     func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
@@ -52,6 +58,8 @@ final class AppOnboardingServices: OnboardingServices {
     /// cards' one plan per profile) asks macOS once per browser rather than once per plan.
     func runImport(_ plan: ImportPlan, keys: any SafeStorageKeyProviding,
                    progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
+        // `browser.import.enabled` off: a window or card still on screen starts no run.
+        guard services.browserImportEnabled else { throw BrowserImportTurnedOff(BrowserImportOfferStrings.turnedOff) }
         let destination = SavingImportDestination.app(services, bookmarks: services.importedBookmarkSink)
         let cef = services.cache.cef
         let cookies = CookieImporter(destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },

@@ -33,7 +33,7 @@ extension HomeService {
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
-                         fallback: HomeHostView.defaultTileAvatar(mascot: services?.settings?.snapshot.homeChiefPetMascot),
+                         fallback: HomeHostView.defaultTileAvatar(picture: services?.characterPicture(of: nil)),
                          harnesses: directory.chiefHarnesses)
     }
 
@@ -159,7 +159,7 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
-            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services?.settings?.snapshot.homeChiefPetMascot) },
+            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services?.characterPicture(of: nil)) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
             chiefNames: { [weak self] in self?.chiefNames ?? [:] })
@@ -213,14 +213,11 @@ extension HomeService {
     /// for one Chief never shows on another.
     var chiefFaces: [String: HomeChiefAvatar] {
         guard let services else { return [:] }
-        let picks = services.chiefMascotPicks, snapshot = services.settings?.snapshot
         var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         #if DEBUG
         chiefs.formUnion(debugChiefs)
         #endif
-        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) {
-            ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: snapshot))
-        }
+        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
     }
 
     /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.

@@ -2,7 +2,9 @@
 //! and HANG_REPORT, granted in WELCOME, wire version still 5.
 //!
 //! The conformance corpus below is the byte-exact form of every exchange
-//! the bits add (tests/hang_report.rs covers HANG_REPORT's grant). A holder whose tracer records answers the recorded
+//! the bits add, as this build sends it: every header states the
+//! descriptors its frame passes (flags `0x1000`, `wire::FLAG_FDS_STATED`,
+//! with a count of 0) (tests/hang_report.rs covers HANG_REPORT's grant). A holder whose tracer records answers the recorded
 //! HELLO with the recorded WELCOME, one without a tracer grants only
 //! WRITE_FLOW; a daemon that asks for nothing (an older build) is granted
 //! nothing, and a frame of a capability a link was not granted is an
@@ -42,32 +44,32 @@ fn hex(text: &str) -> Vec<u8> {
 
 /// HELLO, version 5, token `11` x 32, wanted TRACE_CONTROL | WRITE_FLOW.
 fn corpus_hello() -> Vec<u8> {
-    let mut bytes = hex("434d4858 0100 0000 00000000 26000000 0500");
+    let mut bytes = hex("434d4858 0100 0010 00000000 26000000 0500");
     bytes.extend_from_slice(&TOKEN);
     bytes.extend_from_slice(&hex("03000000"));
     bytes
 }
 /// WELCOME, version 5, no terminal, granted TRACE_CONTROL | WRITE_FLOW.
-const CORPUS_WELCOME: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 03000000";
+const CORPUS_WELCOME: &str = "434d4858 0200 0010 00000000 0a000000 0500 00000000 03000000";
 /// WELCOME of a holder whose tracer does not run: granted WRITE_FLOW only.
-const CORPUS_WELCOME_UNTRACED: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 02000000";
+const CORPUS_WELCOME_UNTRACED: &str = "434d4858 0200 0010 00000000 0a000000 0500 00000000 02000000";
 /// WELCOME to a daemon that asked for nothing: granted 0.
-const CORPUS_WELCOME_NONE: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 00000000";
+const CORPUS_WELCOME_NONE: &str = "434d4858 0200 0010 00000000 0a000000 0500 00000000 00000000";
 /// TRACE_START: categories 0x4400 (FRAME | INPUT), a budget of 16 MiB of
 /// ring bytes (room for the holder's recording ring).
 const CORPUS_TRACE_START: &str =
-    "434d4858 1600 0000 00000000 10000000 0044000000000000 0000000100000000";
+    "434d4858 1600 0010 00000000 10000000 0044000000000000 0000000100000000";
 const CORPUS_BUDGET: u64 = 16 << 20;
 /// TRACE_STOP.
-const CORPUS_TRACE_STOP: &str = "434d4858 1700 0000 00000000 00000000";
+const CORPUS_TRACE_STOP: &str = "434d4858 1700 0010 00000000 00000000";
 /// WRITE with FLAG_FLOW on channel 7: `ls\r`, then flow 42.
-const CORPUS_WRITE_FLOW: &str = "434d4858 0900 0400 07000000 0b000000 6c730d 2a00000000000000";
+const CORPUS_WRITE_FLOW: &str = "434d4858 0900 0410 07000000 0b000000 6c730d 2a00000000000000";
 /// WRITE with FLAG_FLOW and no input: a flow mark for input written on the
 /// daemon's custody master.
-const CORPUS_FLOW_MARK: &str = "434d4858 0900 0400 07000000 08000000 2a00000000000000";
+const CORPUS_FLOW_MARK: &str = "434d4858 0900 0410 07000000 08000000 2a00000000000000";
 /// HANG (HANG_REPORT): a `holder-loop` pass busy 153 ms past its 100 ms.
 const CORPUS_HANG: &str =
-    "434d4858 1800 0000 00000000 1b000000 6400000000000000 9900000000000000 686f6c6465722d6c6f6f70";
+    "434d4858 1800 0010 00000000 1b000000 6400000000000000 9900000000000000 686f6c6465722d6c6f6f70";
 
 #[test]
 fn the_corpus_is_what_this_build_encodes() {
@@ -122,9 +124,14 @@ fn read_frame(stream: &UnixStream, reader: &mut wire::Reader) -> wire::Frame {
     }
 }
 
+/// The header bits of the stated descriptor count: `wire::FLAG_FDS_STATED`
+/// and the three bits above it.
+const STATED_FDS_BITS: u16 = wire::FLAG_FDS_STATED | (0b111 << 13);
+
 fn raw_frame(frame: &wire::Frame) -> Vec<u8> {
     let kind = Kind::from_u16(frame.kind).unwrap();
-    wire::encode_flagged(kind, frame.flags, frame.chan, &frame.payload)
+    let flags = frame.flags & !STATED_FDS_BITS;
+    wire::encode_with_fds(kind, flags, frame.chan, &frame.payload, frame.fds.len())
 }
 
 /// The ERROR a frame got: (request kind, code).
@@ -330,6 +337,7 @@ impl TerminalSink for Collect {
     fn exit(&self, status: ExitStatus, _end: u64) {
         *self.exit.lock().unwrap() = Some(status);
     }
+    fn refused(&self, _message: &str) {}
 }
 
 fn cat(chan: u32) -> SpawnRequest {

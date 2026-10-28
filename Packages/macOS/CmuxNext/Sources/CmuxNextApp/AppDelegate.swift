@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextImportCards
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMemory
@@ -21,6 +22,7 @@ import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextUpdater
 import CmuxNextWakeups
 import os
 
@@ -149,6 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
             // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
             TerminalThemeSetting.prime(read.snapshot)
+            // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
+            BrowserImportGate.prime(read.snapshot)
             // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory (p07-memory-083).
             GhosttyRuntime.shared.setImageStorageBytesPerScreen(GhosttyImageStorageBudget.startingBytes(memoryBudget: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface, sizedFromMemory: features?.isEnabled(.memorySmallAppStores) == true))
         }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
@@ -159,10 +163,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
+        // The glass tint and the Desktop Wallpaper background follow the desktop picture.
+        BackdropImageStore.shared.desktop.start()
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
+        // Peer-route approvals: where this Mac's approver key lives, before any pane connects.
+        PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, terminalLaunchFrames: launchReads.frames, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
@@ -239,6 +247,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
         daemonPrompts = services.startLocalDaemon(after: daemonStart)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
+        // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
+        DaemonUpdateBoard.shared.openDetails = { [weak services] in
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
+        }
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once): its indicators and its first
@@ -297,6 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.post(.afterFirstFrame, "MouseSideButtons.start", on: .main) { [weak self, weak services] in
             self?.mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         }
+        order.startup.post(.afterFirstFrame, "HarnessIcons.start", on: .main) { [weak services] in services?.harnessIcons.start() }  // the harness icons follow acpmux's list
         order.startup.post(.afterFirstFrame, "KeybindingsFile.start", on: .main) { [weak services] in services?.keybindingsFile.start() }
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
@@ -379,6 +392,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.post(.afterFirstFrame, "Settings.followActivation", on: .main) { [weak settings, events = services.appEvents] in
             settings?.followActivation(on: events)
         }
+        // A full-screen window an update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
+        order.startup.post(.afterFirstFrame, "Windows.enterRestoredFullScreensOnActivation", on: .main) { [weak services] in
+            guard let services else { return }
+            services.lifetimeFollowers.append(services.appEvents.subscribeToActivation(owner: "Windows.enterRestoredFullScreens") { [weak services] in
+                services?.windows.enterRestoredFullScreens()
+            })
+        }
         // Every palette-exposed schema setting in the palette (R93), and the recorder's writes; neither builds the palette.
         order.startup.post(.afterFirstFrame, "Palette.settingsSource", on: .main) { [weak services, weak settings] in
             guard let services, let settings else { return }
@@ -421,6 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath,
                                                                  on: services.mainWork)
             AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+            AgentPageChats.wireSandbox(services.agentTabs, services: services)  // Sandboxed sends (sandbox.run)
         }
         services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
@@ -445,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         services.lifetimeFollowers += BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)
         // The look of the first frame: the loaded theme, background and backdrop art, then each workspace's theme and the app accent.
+        order.startup.post(.afterStartup, "AutoArchive.start", on: .main) { [weak services] in services?.autoArchive.start() }  // workspaces.autoArchive: first pass 30 s after launch
         order.startup.post(.critical, "TerminalTheme.follow", on: .main) { services.terminalTheme.follow(settings) }
         order.startup.post(.critical, "Themes.start", on: .main) { services.themes.start(); services.themes.followChromeTheme(settings) }
         services.bookmarks.follow(settings)
@@ -513,6 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             launchOpens.hold(.activity(type: userActivity.activityType, webpageURL: userActivity.webpageURL))
             return true
         }
+        services.input.endRelaunchBehind("handoff")
         return services.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL)
     }
 
@@ -521,6 +544,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
         guard let services else { return launchOpens.hold(.url(url)) }  // routed when the launch builds them
+        // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
+        services.input.endRelaunchBehind("external open")
         let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
@@ -529,6 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        // The release push's socket closes and nothing reconnects (ReleasePushListener).
+        services?.updater.stopReleasePush()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
@@ -560,6 +587,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // A Dock click in an update relaunch's startup: the user chose cmux.
+        services?.input.endRelaunchBehind("dock click", activating: true)
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

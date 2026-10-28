@@ -58,7 +58,19 @@ pub(in crate::server) async fn new_on(
     p: Value,
 ) -> Result<Value, RpcError> {
     let method = crate::rpc::method::SESSION_NEW;
-    peer.request(method, p).await.map_err(|e| explain(peer, params, e))
+    let web = via_web(&p);
+    peer.request(method, p).await.map_err(|e| {
+        let (build, served_peer) =
+            (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
+        update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
+            .unwrap_or_else(|| explain(peer, params, e))
+    })
+}
+
+/// Whether this daemon forwarded `p` for a Web client (`mark_forwarded`'s `via: web`): the
+/// peer runs such a start under Web rules on any build, so no update gives it a scratch folder.
+fn via_web(p: &Value) -> bool {
+    p.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web")
 }
 
 /// `e`, with `data.host`, `data.try` (and `data.runOn` when it runs on HOST) and the command
@@ -75,8 +87,10 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     // `missing` (mkdir -p makes it) or `unusable`; an older peer does not say.
     let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
     let found = Found { served, try_cwd, cause };
-    let (command, why) = match suggest(&Start::of(params), reason, found) {
-        Hint::Here(start) => (start.command(Some(&peer.name)), String::new()),
+    let (command, why) = match suggest(&Start::of(params), &reason, found) {
+        Hint::Here(start) => {
+            (command(params, &start, Some(&peer.name), false).render(None), String::new())
+        }
         Hint::OnHost(start) => {
             let then = start
                 .name
@@ -92,7 +106,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
                 run_on = Some(peer.name.clone());
             }
             (
-                on_host(ssh.as_deref(), &start.on_host_command()),
+                command(params, &start, None, true).render(ssh.as_deref()),
                 format!("{served}: run it on {} itself{then}", peer.name),
             )
         }
@@ -111,6 +125,46 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     RpcError::new(e.code, message).with_data(data)
 }
 
+/// A start with no folder that `peer_name` refused as outside its roots, from a peer of
+/// another build that serves this daemon as a peer (`served_peer`: its handshake, for a start
+/// this daemon did not forward for a Web client) but names no
+/// `servedAs` in the refusal: one older than the peer scratch folder (#24442), which treats
+/// an absent folder as the home folder. Its way out is updating it once no session there is
+/// mid-turn (`--if-idle`), then the same command;
+/// the peer's own folder rule is unchanged. None for any other refusal.
+fn update_first(
+    e: &RpcError,
+    peer_name: &str,
+    build: Option<&str>,
+    served_peer: bool,
+    params: &Value,
+) -> Option<RpcError> {
+    let named_folder = params.get("cwd").is_some_and(|c| !c.is_null());
+    let served = e.data.as_ref().and_then(|d| d.get("servedAs")).is_some();
+    if !served_peer || named_folder || served || build == Some(crate::hub::BUILD) {
+        return None;
+    }
+    if reason_of(e).as_deref() != Some(CWD_OUTSIDE_ROOTS) {
+        return None;
+    }
+    // `--if-idle`: the update never restarts the peer under a session mid-turn there.
+    let update = format!("acpmux host update {peer_name} --if-idle");
+    let then = command(params, &Start::of(params), Some(peer_name), false).render(None);
+    let message = format!(
+        "{}: {peer_name} runs acpmux build {} (this daemon: {}), from before a start with no folder runs in a scratch folder there; run `{update}`, then `{then}`",
+        e.message,
+        build.unwrap_or("unknown"),
+        crate::hub::BUILD
+    );
+    Some(RpcError::new(e.code, message).with_data(json!({
+        "reason": "peer_version_skew",
+        "refused": CWD_OUTSIDE_ROOTS,
+        "host": peer_name,
+        "try": update,
+        "then": then,
+    })))
+}
+
 /// `inner` as run on the peer's machine: through ssh to `dest` (an `ssh://` peer's checked
 /// destination, after `--` so it is never read as an option), else as it is, for that machine.
 fn on_host(dest: Option<&str>, inner: &str) -> String {
@@ -121,24 +175,123 @@ fn on_host(dest: Option<&str>, inner: &str) -> String {
 }
 
 /// The refusal's reason, from its data or, from a peer on an older build, its message.
-fn reason_of(e: &RpcError) -> Option<&'static str> {
+fn reason_of(e: &RpcError) -> Option<String> {
     let named = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
-    let known = [POLICY_REFUSED, MODE_REFUSED, CWD_MISSING, CWD_OUTSIDE_ROOTS];
-    if let Some(r) = named {
-        return known.into_iter().find(|k| *k == r);
+    if let Some(r) = named
+        && r.starts_with("remote.")
+    {
+        return Some(r.to_owned());
     }
     let m = e.message.as_str();
     if m.starts_with("a permission policy other than ask or deny-all is accepted only") {
-        Some(POLICY_REFUSED)
+        Some(POLICY_REFUSED.to_owned())
     } else if m.starts_with("a mode at session start is accepted only") {
-        Some(MODE_REFUSED)
+        Some(MODE_REFUSED.to_owned())
     } else if m.starts_with("cwd is refused: from a WebSocket connection it must be") {
-        Some(CWD_MISSING)
+        Some(CWD_MISSING.to_owned())
     } else if m.starts_with("cwd is refused: a remote WebSocket connection may use only") {
-        Some(CWD_OUTSIDE_ROOTS)
+        Some(CWD_OUTSIDE_ROOTS.to_owned())
     } else {
         None
     }
+}
+
+/// A command and optional prompt-file input, rendered together only at the outer shell.
+struct Retry {
+    command: String,
+    input: Option<String>,
+}
+
+impl Retry {
+    fn render(&self, ssh: Option<&str>) -> String {
+        let command = on_host(ssh, &self.command);
+        match &self.input {
+            // Keep file text outside ssh's command argument: accepted files can be 1 MiB,
+            // larger than exec's per-argument limit. The shell's printf streams it over stdin.
+            Some(text) => format!("printf %s {} | ({command})", quote(text)),
+            None => command,
+        }
+    }
+}
+
+/// Build a refusal's runnable command from the original CLI argv when available. The CLI
+/// adds this metadata before forwarding a request, so prompts and launcher flags survive intact.
+fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> Retry {
+    let Some(mut words) = params
+        .pointer("/_meta/acpmux/argv")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>())
+    else {
+        return Retry {
+            command: if on_host { start.on_host_command() } else { start.command(host) },
+            input: None,
+        };
+    };
+    if on_host {
+        change_option(&mut words, "--host", None);
+    } else if let Some(host) = host {
+        // Pin an automatic placement to the peer that actually refused this start.
+        change_option(&mut words, "--host", Some(host));
+    }
+    change_option(&mut words, "--mode", None);
+    // `suggest` already selected the usable folder (or the scratch-folder fallback).
+    change_option(&mut words, "--cwd", start.cwd.as_deref());
+    let prompt_file = params.pointer("/_meta/acpmux/promptFileText").and_then(Value::as_str);
+    let input = prompt_file
+        .filter(|_| change_option(&mut words, "--prompt-file", Some("/dev/stdin")))
+        .map(str::to_owned);
+    let rendered = words.iter().map(|w| quote(w)).collect::<Vec<_>>();
+    let inner = format!("acpmux {}", rendered.join(" "));
+    let command = if on_host && let Some(cwd) = start.cwd.as_deref() {
+        format!("mkdir -p {} && {inner}", quote(cwd))
+    } else {
+        inner
+    };
+    Retry { command, input }
+}
+
+/// Change only actual options, never another option's value or prompt words after `--`.
+/// Read value-taking flags from clap's grammar so future launcher options are preserved too.
+fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> bool {
+    use clap::Args;
+    // Only creation flags take values here (the global flags are switches). Building the
+    // whole CLI grammar inside the request handler exhausts a debug worker's 2 MiB stack.
+    let new = crate::cli::command::NewArgs::augment_args(clap::Command::new("new"));
+    let args: Vec<_> = new.get_arguments().collect();
+    let mut i = 0;
+    while i < words.len() {
+        let word = &words[i];
+        if word == "--" {
+            break;
+        }
+        if let Some(long) = word.strip_prefix("--") {
+            let (name, inline) = long.split_once('=').map_or((long, false), |(k, _)| (k, true));
+            let takes =
+                args.iter().any(|a| a.get_long() == Some(name) && a.get_action().takes_values());
+            let end = (i + if takes && !inline { 2 } else { 1 }).min(words.len());
+            if name == option.trim_start_matches('-') {
+                let replacement = value.map(|v| format!("{option}={v}"));
+                words.splice(i..end, replacement);
+                return true;
+            }
+            i = end;
+        } else if let Some(shorts) = word.strip_prefix('-').filter(|s| !s.is_empty()) {
+            let mut separate_value = false;
+            for (offset, short) in shorts.char_indices() {
+                if args
+                    .iter()
+                    .any(|a| a.get_short() == Some(short) && a.get_action().takes_values())
+                {
+                    separate_value = offset + short.len_utf8() == shorts.len();
+                    break;
+                }
+            }
+            i += if separate_value { 2 } else { 1 };
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
 
 /// What the caller asked to start, as `acpmux new` flags.
@@ -336,22 +489,226 @@ mod tests {
     }
 
     #[test]
+    fn original_argv_keeps_prompts_launcher_flags_and_quotes_shell_input() {
+        let params = json!({
+            "_meta": {"acpmux": {
+                "argv": ["new", "--host", "b", "-m", "codex", "--prompt-file", "brief.md",
+                         "--tag", "a=$()", "a prompt with 'quotes' and\nnewlines"],
+                "promptFileText": "line 1; $(touch nope)\nline 'two'"
+            }},
+            "cwd": "/remote/project"
+        });
+        let start = Start { cwd: Some("/remote/project".into()), ..Start::default() };
+        let got = command(&params, &start, Some("b"), false).render(None);
+        assert_eq!(
+            got,
+            r#"printf %s 'line 1; $(touch nope)
+line '\''two'\''' | (acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+newlines')"#
+        );
+    }
+
+    #[test]
+    fn option_rewrites_do_not_touch_values_or_prompt_words() {
+        let mut words: Vec<String> = [
+            "new",
+            "--name",
+            "--host=x",
+            "-m--cwd",
+            "--host",
+            "auto",
+            "--mode=yolo",
+            "--cwd=/bad",
+            "--",
+            "--host",
+            "prompt",
+            "--mode=yolo",
+            "--cwd=/bad",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        assert!(change_option(&mut words, "--host", Some("b")));
+        assert!(change_option(&mut words, "--mode", None));
+        assert!(change_option(&mut words, "--cwd", None));
+        assert_eq!(
+            words,
+            [
+                "new",
+                "--name",
+                "--host=x",
+                "-m--cwd",
+                "--host=b",
+                "--",
+                "--host",
+                "prompt",
+                "--mode=yolo",
+                "--cwd=/bad"
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn pasted_ssh_command_preserves_every_argument_and_prompt_file_byte() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-hint-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&dir).unwrap();
+        for (name, script) in [
+            ("ssh", "#!/bin/sh\n[ \"$1\" = -- ] || exit 9\nshift 2\nexec /bin/sh -c \"$1\"\n"),
+            ("acpmux", "#!/bin/sh\nprintf '%s\\0' \"$@\"\ncat\n"),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, script).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let prompt = "'quoted' \"double\" $HOME $(exit 99) `exit 98`\nsecond line";
+        let file = format!(
+            "{}file's text $HOME $(exit 97)\ntrailing newline\n",
+            "a".repeat((1 << 20) - 100)
+        );
+        let file = file.as_str();
+        let argv = json!([
+            "--json",
+            "new",
+            "--host=b",
+            "-n",
+            "demo",
+            "-m",
+            "codex",
+            "-e",
+            "xhigh",
+            "--policy",
+            "approve-all",
+            "--prompt-file=brief with spaces.md",
+            "--tag",
+            "a=b",
+            "--worktree",
+            "repo@main",
+            "--report-to",
+            "boss",
+            "-d",
+            "--",
+            prompt,
+            "--host",
+            "--mode"
+        ]);
+        let params = json!({"_meta":{"acpmux":{"argv":argv,"promptFileText":file}}});
+        let start = Start {
+            cwd: Some(dir.join("project").to_string_lossy().into_owned()),
+            ..Start::default()
+        };
+        let inner = command(&params, &start, None, true);
+        for ssh in [Some("example-host"), None] {
+            let tried = inner.render(ssh);
+            let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap());
+            use std::io::Write;
+            use std::process::Stdio;
+            let mut shell = std::process::Command::new("sh")
+                .env("PATH", path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            shell.stdin.take().unwrap().write_all(format!("{tried}\n").as_bytes()).unwrap();
+            let output = shell.wait_with_output().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let output = String::from_utf8(output.stdout).unwrap();
+            let actual: Vec<_> = output.split('\0').collect();
+            assert_eq!(
+                actual,
+                [
+                    "--json",
+                    "new",
+                    "-n",
+                    "demo",
+                    "-m",
+                    "codex",
+                    "-e",
+                    "xhigh",
+                    "--policy",
+                    "approve-all",
+                    "--prompt-file=/dev/stdin",
+                    "--tag",
+                    "a=b",
+                    "--worktree",
+                    "repo@main",
+                    "--report-to",
+                    "boss",
+                    "-d",
+                    "--",
+                    prompt,
+                    "--host",
+                    "--mode",
+                    file
+                ]
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn an_older_peers_refusal_is_known_by_its_message() {
         let e = |m: &str| RpcError::invalid_params(m);
         assert_eq!(
             reason_of(&e(
                 "a mode at session start is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
             )),
-            Some(MODE_REFUSED)
+            Some(MODE_REFUSED.to_owned())
         );
         assert_eq!(
             reason_of(&e(
                 "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
             )),
-            Some(CWD_OUTSIDE_ROOTS)
+            Some(CWD_OUTSIDE_ROOTS.to_owned())
         );
         assert_eq!(reason_of(&e("no peer \"x\"")), None);
         let other = e("x").with_data(json!({"reason": "trust.remote"}));
         assert_eq!(reason_of(&other), None);
+    }
+
+    /// `acpmux new --host H -m claude hi` with no --cwd, refused by a peer from before the
+    /// peer scratch folder: the way out is `acpmux host update H --if-idle`, then the same command.
+    #[test]
+    fn an_older_peer_refusing_a_start_with_no_folder_names_the_update() {
+        let refused = || {
+            RpcError::invalid_params(
+                "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder",
+            )
+        };
+        let argv = json!(["new", "--host", "gcp-codex-lane-1", "-m", "claude", "hi"]);
+        let params = json!({"_meta": {"acpmux": {"harness": "claude", "argv": argv}}});
+        let old = Some("972843ddd 2026-10-22");
+        let e = update_first(&refused(), "gcp-codex-lane-1", old, true, &params)
+            .expect("an update hint");
+        let data = e.data.clone().unwrap();
+        assert_eq!(data["reason"], "peer_version_skew");
+        assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
+        assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1 --if-idle");
+        assert_eq!(data["then"], "acpmux new --host=gcp-codex-lane-1 -m claude hi");
+        assert!(e.message.contains("972843ddd"), "{}", e.message);
+        let update = "`acpmux host update gcp-codex-lane-1 --if-idle`";
+        assert!(e.message.contains(update), "{}", e.message);
+        // A folder named, a peer that says how it served us, or one of this build: as before.
+        let named = json!({"cwd": "/tmp/x", "_meta": {"acpmux": {"argv": argv}}});
+        assert!(update_first(&refused(), "gcp-codex-lane-1", old, true, &named).is_none());
+        let told = refused().with_data(json!({"reason": CWD_OUTSIDE_ROOTS, "servedAs": "remote"}));
+        assert!(update_first(&told, "gcp-codex-lane-1", old, true, &params).is_none());
+        let same = Some(crate::hub::BUILD);
+        assert!(update_first(&refused(), "gcp-codex-lane-1", same, true, &params).is_none());
+        // A peer that serves this daemon as Web refuses no folder on any build: no update hint.
+        assert!(update_first(&refused(), "gcp-codex-lane-1", old, false, &params).is_none());
+    }
+
+    /// A start this daemon forwards for a Web client keeps Web rules on the peer after any
+    /// update, so `new_on` passes it as not served as a peer: no update hint for it.
+    #[test]
+    fn a_start_forwarded_for_web_gets_no_update_hint() {
+        let web = json!({"_meta": {"acpmux": {"harness": "claude", "via": "web"}}});
+        assert!(via_web(&web));
+        for p in [json!({"_meta": {"acpmux": {"via": "app"}}}), json!({"_meta": {"acpmux": {}}})] {
+            assert!(!via_web(&p), "{p}");
+        }
     }
 }

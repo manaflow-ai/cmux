@@ -605,6 +605,7 @@
       "cloud-conversation-unsubscribe",
       "cloud-conversation-live",
       "cloud-conversation-typing",
+      "cloud-conversation-presence",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
@@ -811,6 +812,12 @@
     },
     {
       "name": "cloud-conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-presence",
       "streams": [
         "subscribe"
       ]

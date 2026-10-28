@@ -20,6 +20,12 @@ extension UpdaterService {
     func wire(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        relaunchBehind = { [weak services] willQuit, declined, inFront in
+            let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
+            services?.quit.onQuitRefused = { behind.quitRefused() }
+            behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
+        }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
@@ -32,15 +38,23 @@ extension UpdaterService {
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).
         showsIndicator = { [weak services] in (services?.windows.active).map { !$0.state.sidebarHidden } ?? false }
-        openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
+        openChangelog = { [weak services] in
+            guard services?.settings?.snapshot.previewFeatures == true else { return false }
+            return services.map { ChangelogPageTab.open($0) } ?? false
+        }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
-        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
+        openChangelogSpan = { [weak services] from, to in
+            guard services?.settings?.snapshot.previewFeatures == true else { return false }
+            return services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false
+        }
         openReleaseNotesURL = { [weak services] url in
             guard let services, url.scheme == "https" else { return false }
             SidebarCardFeed.openUpdateLink(url, services: services)
             return true
         }
+        // What's New is a preview surface; keep its card hidden until settings explicitly enable Labs.
+        whatsNew.isItemEnabled = services.settings?.snapshot.previewFeatures == true && services.settings?.snapshot.updates.showWhatsNew != false
         // What's New after an update: the record (UserDefaults) decides the first frame's
         // Updated card; the bundled documents and this feed's digests load in its task.
         whatsNew.load()
@@ -99,18 +113,21 @@ extension UpdaterService {
         }
         settingsObservation = ServiceObservation(.visible, owner: "UpdaterService.settings", on: mainWork) { [weak settings] in
             guard let settings, settings.loadCount > 0 else { return }
-            _ = (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
+            _ = (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips,
+                 settings.snapshot.previewFeatures)
         } apply: { [weak self, weak settings] _ in
             guard let self, let settings, settings.loadCount > 0 else { return }
             followed(settings.snapshot)
         }
     }
 
-    /// Applies the `updates.*`, `announcements.*` and tips settings of `snapshot`.
+    /// Applies the `updates.*`, `announcements.*`, tips and `labs.previewFeatures` settings of `snapshot`.
     private func followed(_ snapshot: CmuxConfigSnapshot) {
         let updates = snapshot.updates, announcements = snapshot.announcements, tips = snapshot.sidebarSections.showsTips
         apply(updates)
-        if whatsNew.isItemEnabled != updates.showWhatsNew { whatsNew.isItemEnabled = updates.showWhatsNew }
+        // What's New is a preview surface: its card shows only with `labs.previewFeatures` on (#26138).
+        let whatsNewEnabled = updates.showWhatsNew && snapshot.previewFeatures
+        if whatsNew.isItemEnabled != whatsNewEnabled { whatsNew.isItemEnabled = whatsNewEnabled }
         if tipsEnabled != tips { tipsEnabled = tips }
         announcementsFetch = announcements.fetch
         if announcementsEnabled != announcements.enabled { announcementsEnabled = announcements.enabled }

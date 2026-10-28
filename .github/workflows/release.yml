@@ -148,8 +148,9 @@ jobs:
     # Notarization wait times vary on Apple's side; the app and the final DMG
     # serialize. v0.64.22 took 40 minutes with the legacy app's extra helper
     # builds and notarizations. Keep at least 25 percent above the measured
-    # duration.
-    timeout-minutes: 90
+    # duration. Ten more minutes are the release publisher's rate-limit budget
+    # (publish-release-assets.py, RATE_LIMIT_BUDGET_SECONDS), which waits at the end.
+    timeout-minutes: 100
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -294,7 +295,7 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'

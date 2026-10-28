@@ -157,23 +157,19 @@ final class SpaceSwitchBench {
 
     /// Samples this process with `/usr/bin/sample` while `rounds` switches run and prints the
     /// heaviest frames of the main thread (the "top of stack" table and the call tree lines with
-    /// at least `minimum` samples), for finding where a switch spends its time.
+    /// at least `minimum` samples), for finding where a switch spends its time. The wait for
+    /// `sample` is bounded and off the main thread (`SelfSampler`).
     func profile(rounds: Int, seconds: Int = 6, minimum: Int = 40) async throws {
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("space-switch-\(getpid()).sample.txt")
-        let sampler = Process()
-        sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        sampler.arguments = [String(getpid()), String(seconds), "1", "-mayDie", "-file", output.path]
-        sampler.standardOutput = FileHandle.nullDevice
-        sampler.standardError = FileHandle.nullDevice
-        try sampler.run()
-        try await Task.sleep(for: .milliseconds(500)) // sample attaches before the first timed switch
-        var round = 0
-        while sampler.isRunning, round < rounds {
-            _ = try await switchTo(rooms[(round + 1) % 2])
-            round += 1
+        let (report, round) = try await SelfSampler.run(name: "space-switch", seconds: seconds) { sampler in
+            try await Task.sleep(for: .milliseconds(500)) // sample attaches before the first timed switch
+            var round = 0
+            while sampler.isRunning, round < rounds {
+                _ = try await switchTo(rooms[(round + 1) % 2])
+                round += 1
+            }
+            return round
         }
-        sampler.waitUntilExit()
-        guard let text = try? String(contentsOf: output, encoding: .utf8) else { return print("SPACE-SWITCH-PROFILE no sample output") }
+        guard let text = report else { return print("SPACE-SWITCH-PROFILE no sample output") }
         print("SPACE-SWITCH-PROFILE rounds=\(round)")
         let lines = text.components(separatedBy: "\n")
         // The main thread's tree comes first; keep its heavy lines, trimmed.

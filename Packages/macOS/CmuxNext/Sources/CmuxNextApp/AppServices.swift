@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -15,9 +16,11 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextNowPlaying
 import CmuxNextDaemon
+import CmuxNextDaemonRecovery
 import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextFeed
+import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
@@ -104,6 +107,8 @@ final class AppServices {
     var restartControlListener: (@MainActor () throws -> Void)?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     private(set) lazy var machineAsks = SidebarAsks(mainWork: mainWork)
+    /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
+    private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
     /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
     /// CloudService. Its first token or restore reader starts the session restore (`CloudAuth.start`); a sign-in starts Cloud.
     private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild), workspaceQueries: workspaceQueries)
@@ -127,6 +132,8 @@ final class AppServices {
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self), mainWork: mainWork)
     private(set) lazy var devices = DeviceDirectory.app(self)
+    /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
     let machineHealth = MachineHealthStore()
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
@@ -201,7 +208,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }), mainWork: mainWork)  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); (NSApp as? CmuxApplication)?.followMainJobGate(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); (NSApp as? CmuxApplication)?.followMainJobGate(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor? {
         didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
@@ -216,6 +223,8 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
+    /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
+    let tabMirrors = TabMirrors()
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer))  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
@@ -563,6 +572,8 @@ final class AppServices {
             .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
     }
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
+    private var keyDownSubscription: InputSubscription?  // a key-down before the router (init): the notifications' view holds
+    private var leftButtonSubscription: InputSubscription?  // a left mouse-up or drag after dispatch (init): the strip press
     private var scrollerStyleWatch: EventSubscription?  // the scroll bar setting's notice, for every native scroller
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
@@ -581,6 +592,19 @@ final class AppServices {
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
     /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
+    /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
+    let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
+
+    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no
+    /// avatar of its own: its worn upload's first frame, else its pet character's.
+    func characterPicture(of chief: String?) -> URL? {
+        ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    }
+
+    /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.
+    func wornUpload(of chief: String?) -> ChiefAvatarUploads.Upload? {
+        ChiefPetSettingsRows.wornUpload(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    }
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
@@ -601,8 +625,15 @@ final class AppServices {
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
+    /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
+    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in self.flatMap(QuitAgents.environment) })
+    let harnessIconArtwork = HarnessIconArtwork()
+    /// The drawn harness icons the tab strip and sidebar mappings take.
+    var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
+    /// The `cmux://session/<id>` question before a link opens a new agent tab.
+    private(set) lazy var sessionLinks = SessionLinkGate.app(self)
     private(set) lazy var terminalTheme = TerminalThemeSetting(backdropScope: .app, deadlines: mainDeadlines, appEvents: appEvents,
                                                                       workspaceEvents: workspaceEvents)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
@@ -807,6 +838,8 @@ final class AppServices {
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch, crashKeys: crashKeys, deadlines: mainDeadlines, appEvents: appEvents)
+        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
+        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile, saved: environment.sidebarSnapshot ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work))
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -898,6 +931,9 @@ final class AppServices {
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
             if let overlayPageRelease { entry.chrome.releaseExtensionsMenuWhenUnused(overlayPageRelease) }
+            entry.chrome.onContentFullscreenChange = { [weak self, weak entry] on in
+                if let entry { self?.pageContentFullscreenChanged(entry, on: on) }
+            }
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }
@@ -954,7 +990,8 @@ final class AppServices {
         let updateSheet = self.updateSheet  // built here, as before
         updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.bind(registry: registry)
-        input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work)  // an NSApp input hook: before the app activates
+        // An NSApp input hook: before the app activates. An update relaunch nobody clicked starts behind the user's app.
+        input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work, relaunch: environment.relaunchBehind)
         notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
@@ -967,12 +1004,30 @@ final class AppServices {
         // ends link hints and a waiting chord (it may move the keyboard).
         mouseDownSubscription = inputTap.subscribePresses(.mouseDown, phase: .afterDispatch) { [weak self] event in
             guard let self else { return }
-            notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
+            let app = NSApp as? CmuxApplication
+            // A left press's screen point taken before AppKit dispatched it: a titlebar drag has moved the window since.
+            notifications.noteMouseDown(in: event.window, at: event.locationInWindow, left: event.type == .leftMouseDown,
+                                        screen: event.type == .leftMouseDown ? app?.mouseDownScreenLocation : nil,
+                                        synthetic: app?.currentEventIsSynthetic ?? false)
             browserHost?.noteInput(event)
             linkHints.cancel()
             windowHints.cancel()
             keyRouter.cancelChord()
         }
+        // A key-down, before anything handles it: a held notification view lets go.
+        keyDownSubscription = inputTap.subscribePresses(.keyDown) { [weak self] _ in self?.notifications.endViewHolds() }
+        // A left mouse-up, or a left-button drag, after AppKit dispatched it (a strip press's drag and release).
+        leftButtonSubscription = inputTap.subscribe(class: [.button, .drag], phase: .afterDispatch) { [weak self] event in
+            switch event.type {
+            case .leftMouseDragged: self?.notifications.noteMouseDragged(in: event.window, at: event.locationInWindow)
+            case .leftMouseUp: self?.notifications.noteMouseUp(in: event.window, at: event.locationInWindow)
+            default: break
+            }
+        }
+        // Builds with the detector (Nightly, bench, Debug) log each new main-thread blocking site once
+        // (kind + image UUID + offset frames only); Release compiles the detector out and this does nothing.
+        // The hang reports' sink replaces it when they start (`WatchdogReporting`), replaying the sites so far.
+        blocking.install(sink: BlockingLogSink())
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
         if let access = environment.actionCatalog.mainAccess {  // the registry's catalog read above (p08-startup-092)

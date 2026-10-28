@@ -4,6 +4,7 @@ import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
+import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
@@ -11,6 +12,7 @@ import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextInput
 import CmuxNextPages
+import CmuxNextSidebar
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
@@ -39,10 +41,16 @@ final class HomeHostView: NSView {
     private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels() } } }
     /// The header's top-right panel toggles follow their panels (HomeHostView+HeaderPanels.swift).
     var headerPanelsWatch: VisibleObservation<[HomeHeaderPanelItem]>?
+    /// The first-run memory offer's one read (off the main thread), cancelled with this view.
+    private var memoryOfferWatch: Task<Void, Never>?
+    /// UserDefaults: the first-run memory offer was clicked (it shows once).
+    static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
     /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
     /// else 🫡 if its picture is missing from the bundle.
-    static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { ChiefPetSettingsRows.avatarURL(of: mascot).map(HomeChiefAvatar.picture) ?? .chiefDefault }
+    static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { defaultTileAvatar(picture: ChiefPetSettingsRows.avatarURL(of: mascot)) }
+    /// The same from the picture the default Chief wears (`AppServices.characterPicture(of:)`: its upload, else its character).
+    static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, any Error>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private(set) var control: HomeChiefControl
@@ -63,7 +71,7 @@ final class HomeHostView: NSView {
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
-                                       picks: services.chiefMascotPicks)
+                                       picks: services.chiefMascotPicks, uploads: services.chiefAvatarUploads)
         visibility = ViewVisibility("home:\(conversation)")
         let work = services.mainWork
         mainWork = work
@@ -88,6 +96,7 @@ final class HomeHostView: NSView {
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }
         petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the header at once
+        petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, node: node, mainWork: work, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.onAvatar = { [weak self, weak service] in
@@ -194,7 +203,7 @@ final class HomeHostView: NSView {
         observations.append(VisibleObservation(node, owner: "HomeHost.bubbleAvatars", on: work) { [weak service, weak services] () -> [String: HomeChiefAvatar] in
             guard let service else { return [:] }
             let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
-            let fallback = HomeHostView.defaultTileAvatar(mascot: services?.settings?.snapshot.homeChiefPetMascot)
+            let fallback = HomeHostView.defaultTileAvatar(picture: services?.characterPicture(of: nil))
             return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: fallback)
         } apply: { [weak self] avatars in
             self?.transcript.setChiefBubbleAvatars(avatars)
@@ -208,24 +217,47 @@ final class HomeHostView: NSView {
         })
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
-        transcript.onFirstRunAction = { action in
+        transcript.onFirstRunAction = { [weak self] action in
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
             case .togglePet: "home.toggleChiefPet"
+            case .importMemories: ChiefMemoryImportHandlers.actionID
+            }
+            if action == .importMemories {
+                // The offer is used up by the click: the panel shows it once.
+                UserDefaults.standard.set(true, forKey: Self.memoryOfferUsedKey)
+                self?.transcript.setFirstRunMemoryOffer(nil)
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
+        // Onboarding: the Chief's front page (no messages yet) offers to bring memory from the other tools found on
+        // this Mac. One read off the main thread; nothing found, nothing shown, and a used offer never returns.
+        let muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path
+        // task-owner: lives as long as this view (deinit cancels it); one detection read, then it ends
+        memoryOfferWatch = Task { [weak self] in
+            guard !UserDefaults.standard.bool(forKey: Self.memoryOfferUsedKey) else { return }
+            let sources = await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)
+            guard !Task.isCancelled, !service.isCloudConversation(id), let title = MemorySource.offerTitle(sources),
+                  let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                  summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return }
+            self?.transcript.setFirstRunMemoryOffer(title)
+        }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
-        // The user's agents for the first-run glance, only while it can show (the Chief with no
-        // messages yet): otherwise no tab is read, so tab changes never wake a Chief with history.
-        observations.append(VisibleObservation(node, owner: "HomeHost.firstRunAgents", on: work) { [weak services] () -> [HomeAgentGlance] in
+        // The user's agents and the starter prompts for the first-run glance, only while it can show (the Chief
+        // with no messages yet): otherwise no tab is read, so tab changes never wake a Chief with history. Once
+        // the Chief has messages the last glance stays (the panel is gone).
+        observations.append(VisibleObservation(node, owner: "HomeHost.firstRunAgents", on: work) { [weak services] () -> FirstRunGlance? in
             guard let services, let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                  summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return [] }
-            return HomeAgentGlances(services: services).current
-        } apply: { [weak self] agents in
-            self?.transcript.setFirstRunAgents(agents)
+                  summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+            let glances = HomeAgentGlances(services: services)
+            let agents = glances.current
+            return FirstRunGlance(agents: agents, starters: glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
+        } apply: { [weak self] glance in
+            guard let glance else { return }
+            self?.transcript.setFirstRunAgents(glance.agents)
+            self?.transcript.setFirstRunStarters(glance.starters)
         })
         // The first-run rows' shortcuts and the Switching card follow rebinds
         // (Settings, cmux.json, keybindings.json) while the view lives.
@@ -245,11 +277,20 @@ final class HomeHostView: NSView {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
+        let reveal = services.launchReveal
         // task-owner: lives as long as this view; waits off the main actor for the first page, then
         // releases the first-run panel as visible work (recipe R-hop)
-        firstPage = services.work.task(.userVisible) { [weak self] in
+        firstPage = services.work.task(.userVisible) {
             await binding.opened()
-            work.postFromAnyThread(.visible, owner: "HomeHost.firstPage") { [weak self] in self?.transcript.holdsFirstRun = false }
+            // A Home released before its page came (deinit cancels this) must not
+            // reveal the Home that replaced it, which waits for its own page.
+            guard !Task.isCancelled else { return }
+            work.postFromAnyThread(.visible, owner: "HomeHost.firstPage") { [weak self] in
+                guard let self else { return }
+                transcript.holdsFirstRun = false
+                // A launch holds a Home still being made until here (WorkspaceContentController).
+                reveal.markReady(.home)
+            }
         }
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
@@ -288,6 +329,11 @@ final class HomeHostView: NSView {
     /// Cloud service or not, and the one Chief participant.
     private typealias ChiefLine = (isChief: Bool, version: Int, title: String, cloud: Bool, typing: Bool, named: String?,
                                    hosted: Bool, participant: String?)
+    /// What the first-run observation reads: the agents' glance and the starter prompts built from it.
+    private struct FirstRunGlance: Equatable {
+        let agents: [HomeAgentGlance]
+        let starters: HomeStarterContext
+    }
     /// What the availability observation reads.
     private typealias Availability = (available: Bool, explained: Bool, online: Bool, why: String, notice: String?)
 
@@ -328,6 +374,7 @@ final class HomeHostView: NSView {
     // (both outlive this view). A guard that returned off main skipped all of it.
     nonisolated deinit {
         firstPage?.cancel()
+        memoryOfferWatch?.cancel()
         let settings = settings, transcript = transcript
         mainWork.postFromAnyThread(.visible, owner: "HomeHost.release") {
             settings.close()

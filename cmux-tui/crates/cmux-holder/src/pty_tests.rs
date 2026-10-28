@@ -1,13 +1,18 @@
 use super::*;
 
 #[test]
-fn a_bare_program_name_resolves_on_the_requests_path() {
-    let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir:/bin:/usr/bin".to_vec()];
-    let resolved = resolve_program(b"sh", &env, b"/").unwrap();
-    assert!(resolved.to_bytes().ends_with(b"/sh"), "{resolved:?}");
-    assert_eq!(resolve_program(b"/bin/sh", &[], b"/").unwrap().to_bytes(), b"/bin/sh");
-    let missing = resolve_program(b"cmux-no-such-program", &env, b"/").unwrap_err();
-    assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+fn a_bare_program_name_is_tried_in_each_path_entry_and_a_path_as_it_is() {
+    let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir::bin:/usr/bin".to_vec()];
+    let tried = program_candidates(b"sh", &env).unwrap();
+    let tried: Vec<&[u8]> = tried.iter().map(|path| path.to_bytes()).collect();
+    assert_eq!(tried, [&b"/nonexistent-cmux-dir/sh"[..], b"./sh", b"bin/sh", b"/usr/bin/sh"]);
+    let default = program_candidates(b"sh", &[]).unwrap();
+    let default: Vec<&[u8]> = default.iter().map(|path| path.to_bytes()).collect();
+    assert_eq!(default, [&b"/usr/bin/sh"[..], b"/bin/sh"]);
+    let named = program_candidates(b"/bin/sh", &env).unwrap();
+    assert_eq!(named.len(), 1);
+    assert_eq!(named[0].to_bytes(), b"/bin/sh");
+    assert!(program_candidates(b"", &env).is_err());
 }
 
 /// A `/bin/sleep 30` on a new PTY, as a terminal's shell.
@@ -19,6 +24,21 @@ fn sleeper() -> SpawnRequest {
         argv: vec![b"/bin/sleep".to_vec(), b"30".to_vec()],
         env: vec![b"PATH=/bin:/usr/bin".to_vec()],
         ..SpawnRequest::default()
+    }
+}
+
+/// Waits until the child [`spawn`] forked runs its program ([`Start::poll`]):
+/// `spawn` returns right after the fork.
+fn started(spawned: &mut Spawned) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match spawned.start.poll() {
+            Some(result) => return result.unwrap(),
+            None => {
+                assert!(std::time::Instant::now() < deadline, "the child never started");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
     }
 }
 
@@ -46,7 +66,8 @@ fn a_shell_forked_from_a_user_interactive_thread_runs_at_default() {
     assert_ne!(default, interactive);
     let child = std::thread::spawn(|| {
         assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
-        let spawned = spawn(&sleeper(), None).unwrap();
+        let mut spawned = spawn(&sleeper(), None).unwrap();
+        started(&mut spawned);
         let priority = probe::first_thread_base_priority(spawned.pid);
         end(spawned);
         assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
@@ -72,7 +93,8 @@ fn a_shell_keeps_the_holders_nice_value_on_linux() {
     std::thread::spawn(move || {
         // SAFETY: gettid has no preconditions.
         let tid = unsafe { libc::gettid() };
-        let spawned = spawn(&sleeper(), None).unwrap();
+        let mut spawned = spawn(&sleeper(), None).unwrap();
+        started(&mut spawned);
         let (parent, child) = (nice_of(tid), nice_of(spawned.pid));
         end(spawned);
         assert_eq!(child, parent);

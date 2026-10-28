@@ -512,7 +512,7 @@ public final class MacScreenDevicesSettings {
         do {
             switch run.action {
             case "refresh":
-                share.refreshPermissions()
+                await share.refreshPermissions()
                 await hub.refreshAll()
                 await hub.refreshAudit()
             case "rename":

@@ -199,6 +199,17 @@ enum ChiefMoveHandlers {
         }
     }
 
+    /// The Cloud session token in a 0600 file inside a 0700 folder of its own, written on `work`'s files lane
+    /// (the memory import's token file, `ChiefMemoryImportHandlers`). Returns the folder and the file; the caller
+    /// deletes the folder when its run ends.
+    static func writeToken(_ cloud: CloudService, work: BackgroundWork) async throws -> (URL, URL) {
+        let token = try await cloud.auth.tokens().access
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-move-\(UUID().uuidString)")
+        let file = dir.appendingPathComponent("session-token")
+        try await work.run(.userVisible, mayBlock: .files) { try writeToken(token, dir: dir, file: file) }
+        return (dir, file)
+    }
+
     /// The Cloud session token in a 0600 file inside a 0700 folder of its own. Blocking file calls: the files lane only.
     nonisolated private static func writeToken(_ token: String, dir: URL, file: URL) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

@@ -61,6 +61,11 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 public final class ScrollEdgeFadeView: NSView, ScrollGeometryClient {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
+    /// Whether hidden content fades at the edges. Off, the mask stays opaque at every edge, so the
+    /// whole list shows (`sidebar.noFade`). Setting it re-reads the edges at once.
+    public var fades = true {
+        didSet { if oldValue != fades { updateFade(animated: true) } }
+    }
     private let fadeMask = CAGradientLayer()
     /// The layer size and fade fraction the mask geometry was last set for; a scroll that finds
     /// either changed (a tunable edit, a resize with no layout yet) sets the geometry again.
@@ -153,7 +158,7 @@ public final class ScrollEdgeFadeView: NSView, ScrollGeometryClient {
     /// Re-reads the scroll position.
     public func updateFade(animated: Bool = true) {
         guard let layer else { return }
-        let next = Self.hiddenEdges(of: scrollView)
+        let next = fades ? Self.hiddenEdges(of: scrollView) : []
         let shown = shownRect(in: layer.bounds, topDown: Self.rendersTopDown(layer))
         let fade = Self.fadeFraction(height: shown.height)
         maskedSize = layer.bounds.size
@@ -176,7 +181,7 @@ public final class ScrollEdgeFadeView: NSView, ScrollGeometryClient {
     func updateEdges() {
         guard let layer, layer.mask === fadeMask, layer.bounds.size == maskedSize,
               Self.fadeFraction(height: shownRect(in: layer.bounds, topDown: true).height) == maskedFraction else { return updateFade() }
-        setEdges(Self.hiddenEdges(of: scrollView), animated: true)
+        setEdges(fades ? Self.hiddenEdges(of: scrollView) : [], animated: true)
     }
 
     /// The part of `bounds` that shows: all of it, or its top ``shownHeight`` points (`topDown`:

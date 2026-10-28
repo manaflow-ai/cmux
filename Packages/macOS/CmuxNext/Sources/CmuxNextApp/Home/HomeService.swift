@@ -59,7 +59,10 @@ final class HomeService {
             host?.ensureAppAcpmux = { try? await local.prewarm() }
             return host
         },
-        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
+        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) },
+        // The default Chief is this Mac's while its brain runs, so a brain that
+        // just started or died re-runs the Chief tab check (HomeService+ChiefRoster).
+        hostChanged: { [weak self] _ in self?.localChiefHostChanged() })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
     /// The services' schedulers and the app's launch read of this owner's list, taken at init: the lazy parts made
@@ -107,14 +110,25 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
-    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
-    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
+    /// whenever it is the default Chief: ``prefersLocalChief``).
+    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
+    var localChiefRunning = false
+    /// How many reads of that lock have started, and the newest one that published its answer, so
+    /// an older read never lands on top of a newer one (``readLocalChiefRunning``).
+    @ObservationIgnored var chiefRunningReads = 0
+    @ObservationIgnored var chiefRunningPublished = 0
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: ServiceObservation<(DaemonConnection?, String?)>?
+    /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefRoster).
+    @ObservationIgnored var chiefEngineObservation: ServiceObservation<String?>?
+    /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
+    @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
@@ -246,6 +260,7 @@ final class HomeService {
         }
         watchReplies()
         chief.start(work: services.work)
+        observeChiefEngine()
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation). After the list's seed: its cache is read.
         listLaunch.whenRead { [weak self] _ in self?.homeStore.start(); self?.keepHomeListForLaunch() }

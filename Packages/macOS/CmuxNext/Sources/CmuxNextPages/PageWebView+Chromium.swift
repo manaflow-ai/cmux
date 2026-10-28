@@ -100,7 +100,11 @@ extension PageWebView {
     func loadDocument(_ url: URL) {
         guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
-        if let chromiumSession { chromiumSession.page.load(url) } else { webKitPieces?.view.load(URLRequest(url: url)) }
+        if let chromiumSession { chromiumSession.page.load(url) } else {
+            // The host loaded a document itself: the crash notice's pending WebKit load is moot.
+            webKitLoadsOnReload = false
+            webKitPieces?.view.load(URLRequest(url: url))
+        }
     }
 
     /// Reloads the document in whichever engine shows it; a Chromium page on its way loads fresh when it
@@ -216,8 +220,12 @@ extension PageWebView {
     }
 
     /// Chromium failed for this page: it builds its WebKit engine and reopens there, in this turn, at
-    /// the route it showed; a wait for the supervisor ends.
-    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
+    /// the route it showed; a wait for the supervisor ends. A host that shows the crash notice
+    /// (``reloadsAfterCrash`` false) gets the notice instead when Chromium ended under a page that had
+    /// loaded (`ended`), and the WebKit load waits for its Reload.
+    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false) {
+        // A Chromium start that fails after the tab closed: the closed page loads nothing again.
+        guard !router.isEnded else { return }
         chromiumStart?.cancel()
         chromiumStart = nil
         chromiumRecovery = nil
@@ -235,6 +243,15 @@ extension PageWebView {
         if window?.firstResponder === self { window?.makeFirstResponder(engine.view) }
         router.reset()
         loaded = false
+        if ended, !reloadsAfterCrash {
+            // The notice, not a load: the page reopens in WebKit only on its Reload (``reloadAfterCrashes()``).
+            logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
+            webKitLoadsOnReload = true
+            loadState.set(loading: false, page: self) // no load follows now
+            carryFreezeToWebKit()
+            onCrash?(self, false)
+            return
+        }
         traceOpenLoadStarted(.reload)
         engine.view.load(URLRequest(url: descriptor.url(route: route)))
         carryFreezeToWebKit()
@@ -307,6 +324,11 @@ extension PageWebView {
     private func chromiumBrowserEnded() {
         // A closed page waiting for its engine close asks no supervisor for a new browser.
         guard !router.isEnded, chromiumSession != nil || chromiumStart != nil else { return }
+        // A host that shows the crash notice (the agent chat) never gets its page back by itself: the
+        // notice shows, and the page reopens in WebKit on its Reload (cmux#25920).
+        if !reloadsAfterCrash, chromiumSession != nil {
+            return fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
+        }
         PageChromiumRecovery.browserEnded(self)
     }
 

@@ -28,7 +28,7 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     /// is not recursive. A ranked mutex taken out of order stops the process
     /// in Debug (``MutexRank``).
     ///
-    /// In Debug and bench-checks builds (Nightly to come) a wait for the lock longer than
+    /// In Debug and bench-checks builds (and cmux NEXT Nightly) a wait for the lock longer than
     /// ``BlockingKind/lockWaitLimitNanos`` on the main thread, or in a `BackgroundWork` lane item (a
     /// ``BlockingContext/laneSync`` site; a ``BlockingContext/cpuLane`` one in a `.cpu` item), is recorded, with
     /// the wait as its time, by the blocking detector at the caller's `fileID`:`line` (never a trap: the wait
@@ -45,8 +45,7 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result {
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        // A long main-thread or lane wait is recorded after the unlock (Debug and bench-checks builds;
-        // Nightly to come).
+        // A long main-thread or lane wait is recorded after the unlock (Debug, bench-checks and Nightly builds).
         return try base.withLock(observedBy: LockWaitObserver(fileID: fileID, line: line), body)
         #else
         return try base.withLock(body)

@@ -178,12 +178,6 @@ public final class RemoteMachinesSidebar {
                          olderShown: olderShown, older: older, displayName: { [host] in host?.displayName($0) })
     }
 
-    /// The rows the sidebar draws: remote chats as plain rows, not a block of machine groups.
-    /// Read inside an observation scope, so a change re-yields.
-    public func mergedRows() -> [SidebarTransientItem] {
-        Self.mergedRows(machines: machines, displayName: { [host] in host?.displayName($0) })
-    }
-
     /// Runs a click on one of the rows; false for any other item. A header folds or unfolds its
     /// group, Show More adds a page, Older opens or closes the machine's closed chats (its first
     /// page read once), a chat opens.
@@ -357,24 +351,6 @@ public final class RemoteMachinesSidebar {
         if chats.contains(where: { $0.activity == .waiting }) { return .waiting }
         if chats.contains(where: { $0.activity == .working }) { return .working }
         return .idle
-    }
-
-    /// The live chats of every reachable machine as plain rows, newest first, one page at most. A row
-    /// carries only its machine's name as a caption; a machine has no row of its own, and an offline
-    /// one shows nothing. Clicking a row opens its chat (same ids as an unfolded group's chat).
-    @MainActor
-    static func mergedRows(machines: [Machine], displayName: (String) -> String?) -> [SidebarTransientItem] {
-        var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref, SidebarLayoutDocument.homeRef,
-                                         .builtIn(.home)]
-        let chats = machines.filter(\.online).flatMap { machine in machine.chats.map { (machine.peer, $0) } }
-        return chats.sorted { ($0.1.since, $1.0) > ($1.1.since, $0.0) }.prefix(pageSize).map { peer, chat in
-            var info = SidebarItemInfo(title: chat.title, symbol: "bubble.left", brand: chat.harness)
-            info.activity = chat.activity
-            info.caption = displayName(peer) ?? peer
-            let item = SidebarTransientItem(id: LayoutItemID(sessionPrefix + chat.id), info: info, after: previous)
-            previous = [item.item.ref]
-            return item
-        }
     }
 
     @MainActor

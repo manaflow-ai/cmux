@@ -115,7 +115,10 @@ public final class ScreenVideoView: NSView {
 }
 
 /// libwebrtc's renderer callback (decode thread): each frame as a sample
-/// buffer for the display layer, shown at once.
+/// buffer for the display layer, shown at once. Frames are pushed, not
+/// pulled on a display link, and `DisplayImmediately` puts each one on the
+/// next refresh, so a 120 fps stream presents at 120 Hz on a ProMotion
+/// display with no frame rate hint (macOS has no 60 Hz cap to lift).
 // Threads: libwebrtc delivers frames on its one decode thread, one at a time (its VideoBroadcaster), and only that thread
 // touches `size`, `format` and `pool`; the main thread sets `onSize` in the view's init, before `attach` adds the sink to
 // a track (libwebrtc's sink lock publishes it). No lock: the fields are confined to that thread, and a Mutex<State> cannot

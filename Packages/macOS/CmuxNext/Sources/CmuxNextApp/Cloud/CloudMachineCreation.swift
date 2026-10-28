@@ -33,10 +33,40 @@ final class CloudMachineCreation: Identifiable {
     /// The run that owns the creation's steps (bumped by each run: the first, and every Retry). A cancelled run's
     /// step already queued on main finds a newer attempt, or the creation unlisted, and changes nothing.
     @ObservationIgnored private(set) var attempt: UInt64 = 0
+    /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
+    private(set) var bootstrap: CloudMachineBootstrap.Outcome?
+    /// How the started bootstrap ended (`CloudMachineBootstrap.waitForCompletion(on:)`): nil until the
+    /// bootstrap finishes; if ``isTornDown`` turns true first, it never will. The New Cloud Workspace wizard
+    /// observes both, to open the clone at `repoPath` or stop waiting.
+    private(set) var bootstrapCompletion: CloudMachineBootstrap.Completion?
+    /// The wait behind ``bootstrapCompletion``. Its own task, not a child of ``task``: the row's normal
+    /// removal (the workspace is mirrored) cancels ``task`` and must not end this wait. It ends with its
+    /// bound, a new start (Retry), ``tearDown()`` or the creation's release (it holds the creation weakly).
+    @ObservationIgnored private(set) var completionTask: Task<Void, Never>?
+    /// The bootstrap start in flight (``beginBootstrapAttempt()``): a start that returns after a newer one
+    /// began (a Retry while it was out on the machine) changes nothing.
+    @ObservationIgnored private var bootstrapAttempt = 0
+    /// ``tearDown()`` ran: the bootstrap wait stopped, and a start that returns after it (its flow was
+    /// cancelled mid-start) starts none. Observed: a caller waiting on ``bootstrapCompletion`` stops on it.
+    private(set) var isTornDown = false
+    /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
+    private(set) var machineConfig: CloudMachineBootstrap.Outcome?
+    /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
+    /// the same idempotency key.
+    private(set) var request: CloudMachineRequest
 
-    init(windowID: String?, session: CloudMachineSession? = nil, clock: ContinuousClock = ContinuousClock()) {
+    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
+    /// goes to that same team.
+    func markRequestSent(team: String?) {
+        if !request.wasSent { request.team = team }
+        request.wasSent = true
+    }
+
+    init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
+         clock: ContinuousClock = ContinuousClock()) {
         self.windowID = windowID
         self.session = session
+        self.request = request
         phase = session == nil ? .requesting : .created
         startedAt = clock.now
     }
@@ -66,8 +96,62 @@ final class CloudMachineCreation: Identifiable {
         phase = .created
     }
 
+    func noteBootstrap(_ outcome: CloudMachineBootstrap.Outcome) {
+        bootstrap = outcome
+    }
+
+    func noteBootstrapCompletion(_ completion: CloudMachineBootstrap.Completion) {
+        bootstrapCompletion = completion
+    }
+
+    /// Waits for the run a start began (`wait`, which reads the machine) in a task of its own; a start
+    /// that failed ends at once with its reason (a Retry starts it again).
+    /// A new bootstrap start: the last one's wait stops and its completion goes, before the start is sent.
+    func beginBootstrapAttempt() -> Int {
+        completionTask?.cancel()
+        completionTask = nil
+        bootstrapCompletion = nil
+        bootstrapAttempt += 1
+        return bootstrapAttempt
+    }
+
+    /// `attempt` is the start's ``beginBootstrapAttempt()``; an older one's outcome is dropped.
+    func awaitBootstrapCompletion(_ outcome: CloudMachineBootstrap.Outcome, attempt: Int,
+                                  wait: @escaping @Sendable () async -> CloudMachineBootstrap.Completion) {
+        guard !isTornDown, attempt == bootstrapAttempt else { return }
+        noteBootstrap(outcome)
+        guard outcome.status != "failed" else {
+            bootstrapCompletion = .failed(reason: CloudStrings.bootstrapStartFailed(outcome.reason ?? ""))
+            return
+        }
+        // task-owner: the creation (completionTask); cancelled by a new start, tearDown() or deinit
+        completionTask = Task { [weak self] in
+            let completion = await wait()
+            guard !Task.isCancelled else { return }
+            self?.noteBootstrapCompletion(completion)
+        }
+    }
+
+    /// The creation ends for good (dismissed, or its machine deleted): its work stops, the
+    /// bootstrap wait too.
+    func tearDown() {
+        isTornDown = true
+        task?.cancel()
+        completionTask?.cancel()
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // A task handle cancels from any thread.
+    nonisolated deinit {
+        completionTask?.cancel()
+    }
+
+    func noteMachineConfig(_ outcome: CloudMachineBootstrap.Outcome) {
+        machineConfig = outcome
+    }
+
     func fail(_ error: any Error) {
-        phase = .failed(RefusalStrings.describe(error))
+        phase = .failed(CloudStrings.errorText(error))
     }
 
     /// A new run owns the creation's steps from here on.
@@ -108,8 +192,8 @@ final class CloudCreations {
 
     /// A new creation, listed at once.
     @discardableResult
-    func begin(window: String?, session: CloudMachineSession? = nil) -> CloudMachineCreation {
-        let creation = CloudMachineCreation(windowID: window, session: session)
+    func begin(window: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+        let creation = CloudMachineCreation(windowID: window, session: session, request: request)
         all.append(creation)
         return creation
     }
@@ -136,14 +220,22 @@ final class CloudCreations {
         creation.attempt == attempt && all.contains { $0 === creation }
     }
 
+    /// The row leaves (its workspace is mirrored, or the person declined): the flow's task stops, and
+    /// a bootstrap wait goes on for whoever still holds the creation (the wizard waits for its clone).
     func remove(_ creation: CloudMachineCreation) {
         creation.task?.cancel()
         all.removeAll { $0 === creation }
     }
 
+    /// The creation ends for good: the row leaves and every wait of it stops.
+    func end(_ creation: CloudMachineCreation) {
+        creation.tearDown()
+        remove(creation)
+    }
+
     /// The machine was deleted or left the list: its creation ends.
     func machineRemoved(_ machineID: String) {
-        for creation in all where creation.session?.machineID == machineID { remove(creation) }
+        for creation in all where creation.session?.machineID == machineID { end(creation) }
     }
 }
 
@@ -159,12 +251,49 @@ struct CloudCreationFlow {
     let open: @MainActor (CloudMachineSession) async throws -> String
     /// Places the opened workspace (`creation.workspaceID`) in its window.
     let show: @MainActor (String, CloudMachineCreation) -> Void
+    /// Starts the requested bootstrap (``CloudMachineRequest/script``), then applies the requested
+    /// machine config (``CloudMachineRequest/machineConfig``), each only while ``needsScript`` or
+    /// ``needsMachineConfig`` says so, noting the outcomes on the creation. A run calls it after the
+    /// create, and a Retry calls it again while either has not started (``needsBootstrap``), so a
+    /// failed start is tried again with the machine.
+    var bootstrap: @MainActor (CloudMachineCreation, CloudMachineSession) async -> Void = { _, _ in }
+
+    /// A requested bootstrap script that has not started on the machine yet, or whose start failed.
+    static func needsScript(_ creation: CloudMachineCreation) -> Bool {
+        creation.request.script != nil && (creation.bootstrap.map { $0.status == "failed" } ?? true)
+    }
+
+    /// A requested machine config whose apply has not started yet, or whose start failed.
+    static func needsMachineConfig(_ creation: CloudMachineCreation) -> Bool {
+        creation.request.machineConfig != nil && (creation.machineConfig.map { $0.status == "failed" } ?? true)
+    }
+
+    /// Either of the above: the ``bootstrap`` hook has work left.
+    static func needsBootstrap(_ creation: CloudMachineCreation) -> Bool { needsScript(creation) || needsMachineConfig(creation) }
+
+    /// The ``bootstrap`` hook's work on `machine`: starts the requested bootstrap and, in the creation's own
+    /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:attempt:wait:)``), waits for its end without holding
+    /// up the open; then applies the requested machine config. The first workspace still opens at the
+    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`.
+    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine) async {
+        if let script = creation.request.script, needsScript(creation) {
+            let attempt = creation.beginBootstrapAttempt()
+            let outcome = await script.start(name: creation.request.name, on: machine)
+            creation.awaitBootstrapCompletion(outcome, attempt: attempt) { await script.waitForCompletion(on: machine) }
+        }
+        // A flow cancelled (Retry, Dismiss) while the start was out applies nothing: its Retry applies it.
+        guard !Task.isCancelled, !creation.isTornDown else { return }
+        // After the bootstrap's start: the applier waits for its lock, so a --repo clone is there first.
+        if let config = creation.request.machineConfig, needsMachineConfig(creation) {
+            creation.noteMachineConfig(await config.apply(on: machine))
+        }
+    }
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
     @discardableResult
-    func start(in window: WindowState?, existing: CloudMachineSession?) -> CloudMachineCreation {
-        let creation = creations.begin(window: window?.id, session: existing)
+    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+        let creation = creations.begin(window: window?.id, session: existing, request: request)
         if let window {
             window.page = nil
             window.cloudCreation = creation.id
@@ -183,12 +312,12 @@ struct CloudCreationFlow {
     /// Dismiss (a failed creation): the row and the view go; a created
     /// machine stays in the sidebar with its own status.
     func dismiss(_ creation: CloudMachineCreation, in window: WindowState?) {
-        creations.remove(creation)
+        creations.end(creation)
         if let window, window.cloudCreation == creation.id { window.cloudCreation = nil }
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, creations = creations
+        let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations
         let mainWork = creations.mainWork, existing = creation.session, attempt = creation.beginAttempt()
         // A detached task inherits no task local: the run carries the caller's action scopes, so the person's
         // New Cloud Workspace still owns the daemon commands of the create and the open, and the window's show.
@@ -203,9 +332,19 @@ struct CloudCreationFlow {
                     let session: CloudMachineSession
                     if let existing {
                         session = existing
+                        // A Retry starts a bootstrap or machine config that has not started (or failed) again.
+                        if await Self.needsBootstrap(creation) {
+                            await bootstrap(creation, session)
+                            try Task.checkCancellation()
+                        }
                     } else {
                         session = try await create(creation)
                         try Task.checkCancellation()
+                        // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
+                        if await Self.needsBootstrap(creation) {
+                            await bootstrap(creation, session)
+                            try Task.checkCancellation()
+                        }
                         await mainWork.apply(.visible, owner: "CloudCreation.attach") {
                             guard creations.owns(attempt, of: creation) else { return }
                             creation.attach(session)
@@ -264,5 +403,27 @@ struct CloudCreationFlow {
     /// Whether the machine's store lists workspace `id` (its keyed wait): false after ``mirrorLimit`` or when cancelled.
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
         await session.daemon.store.waitForWorkspace(id: id, timeout: mirrorLimit) != nil
+    }
+}
+
+extension CloudMachineBootstrap {
+    /// The end of the run a start began, in words a person reads: the New Cloud Workspace wizard opens
+    /// its project at `finished`'s `repoPath`, or shows `failed`'s reason. Blocks on the machine's runner
+    /// (``waitForRun(on:bound:)``), never on a timer.
+    func waitForCompletion(on machine: Machine) async -> Completion {
+        Self.completion(await waitForRun(on: machine))
+    }
+
+    static func completion(_ run: Run) -> Completion {
+        switch run {
+        case let .finished(repoPath): .finished(repoPath: repoPath)
+        case let .needsGitHub(repo): .failed(reason: CloudStrings.bootstrapNeedsGitHub(repo))
+        case let .repoFailed(repo): .failed(reason: CloudStrings.bootstrapRepoFailed(repo, log: logPath))
+        case let .scriptFailed(code): .failed(reason: CloudStrings.bootstrapScriptFailed(code, log: logPath))
+        case .runnerNeverCame: .failed(reason: CloudStrings.bootstrapRunnerNeverCame)
+        case .stopped: .failed(reason: CloudStrings.bootstrapStopped(log: logPath))
+        case .stillRunning: .failed(reason: CloudStrings.bootstrapStillRunning(log: logPath))
+        case let .unreachable(error): .failed(reason: CloudStrings.bootstrapUnreachable(error))
+        }
     }
 }

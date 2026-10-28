@@ -10,6 +10,12 @@ enum TabMirror {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.tab-mirror")
     private static let owner = "TabMirror.reaches"
 
+    /// A creation reply is not yet a usable placement target until its tree has the tab.
+    @MainActor static func performWhenReached(_ key: String, in locate: @escaping Locate, perform: @MainActor () -> Void) async {
+        guard await reaches(key, in: locate), !Task.isCancelled else { return }
+        perform()
+    }
+
     /// Whether `locate` finds tab `key` within 10 s (at once when it already does); logs when not.
     /// One keyed wait (recipe R-wait): a ServiceObservation of the lookup on `mainWork` settles it, and
     /// its timeout is a deadline on the scheduler's one wake-up queue, so nothing polls and no Task

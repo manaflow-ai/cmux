@@ -108,11 +108,17 @@ extension PageWebView {
         traceOpenEnd(.closedBeforePaint)
     }
 
-    /// The second half of ``close()``: the Chromium page ends (a WebKit page has no engine page to end; its
-    /// view goes with its last owner). ``WebUIHost/close(_:)`` runs it at its retirer's deadline.
+    /// The second half of ``close()``: the Chromium page ends, and the WebKit view, if one was built, is retired
+    /// (``WebViewRetirement``: stopped, its page closed only after its scrolling ended, so macOS 26.6's WebKit never
+    /// leaves a freed display-link client registered, cmux#25322). ``WebUIHost/close(_:)`` runs it at its retirer's
+    /// deadline.
     func closeEngine() {
         endChromium()
         chromiumRecovery = nil
+        if let view = webKitPieces?.view {
+            view.stopLoading()
+            WebViewRetirement.retire(view)
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         censusState.engineClosed?()
         #endif
@@ -150,14 +156,29 @@ extension PageWebView {
     }
 
     /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now, when it shows, or not
-    /// at all once it keeps crashing. A closed page waiting for its engine close (``WebUIHost/close(_:)``) never reloads.
+    /// at all once it keeps crashing. A host that shows the crash notice instead (``reloadsAfterCrash`` false) gets every
+    /// crash and no reload. A closed page waiting for its engine close (``WebUIHost/close(_:)``) never reloads.
     func contentProcessTerminated() {
         guard !router.isEnded else { return }
+        guard reloadsAfterCrash else {
+            loaded = false
+            router.reset()
+            loadState.set(loading: false, page: self) // no load follows now
+            // A renderer that crashed before the page reached the host leaves the Chromium start
+            // deadline armed: its fallback would load the page in WebKit by itself.
+            chromiumSession?.deadline.cancel()
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; no automatic reload (the crash notice offers Reload)")
+            onCrash?(self, false)
+            return
+        }
         crash.crashed(self)
     }
 
     /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash notice's Reload button).
     public func reloadAfterCrashes() {
-        crash.reloadAfterCrashes(self)
+        guard webKitLoadsOnReload else { return crash.reloadAfterCrashes(self) }
+        // Chromium ended while the notice showed: the page reopens in WebKit now.
+        webKitLoadsOnReload = false
+        loadDocument(descriptor.url(route: route))
     }
 }

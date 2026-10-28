@@ -99,6 +99,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   let eventReads = 0;
   /// Set once the late `queued` record (`queued a beat late`) went out.
   let lateQueued = false;
+  /// `_acpmux/attach` requests: the page reads the chat again on each connection.
+  let attaches = 0;
 
   /// The waits on what the daemon heard: each message it takes, and each record it sends late, wakes them.
   const waiting = new Set<() => void>();
@@ -132,6 +134,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [idleChat ? idleSummary() : summary] };
       case "_acpmux/attach":
+        attaches += 1;
         if (idleChat) {
           const events = [...opening, ...finished.map((each, index) => ({ ...each, seq: opening.length + index + 1 }))];
           return { session: idleSummary(), lastSeq: events.length, events };
@@ -146,7 +149,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   }
 
   /// acpmux's answer to a prompt while the turn runs: no reply until its turn, only an event.
-  function prompted(ws: { send(data: string): void }, params: Record<string, any>, id?: number): void {
+  function prompted(ws: { send(data: string): void; close(): void }, params: Record<string, any>, id?: number): void {
     prompts.push(params);
     const meta = params._meta?.acpmux ?? {};
     const text = (params.prompt ?? []).map((block: { text?: string }) => block.text ?? "").join("");
@@ -181,6 +184,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         const error = { code: -32602, message: "web_control.refused: the chat's mode changed" };
         ws.send(JSON.stringify({ jsonrpc: "2.0", id, error }));
       }, 300);
+    // A steer acpmux took (its echo is out) whose request ends in an error later: the agent's, or
+    // the connection's when it drops while the steer waits to be read.
+    if (text === "steer then the agent errs")
+      ws.send(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "agent exited" } }));
+    if (text === "steer then the connection drops") ws.close();
   }
 
   let socket: { send(data: string): void } | undefined;
@@ -365,6 +373,32 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       expect(await failed.getByRole("button", { name: "Retry" }).count()).toBe(1);
       await page.close();
     });
+
+    // A steer acpmux took is in the transcript: whatever ends its request later never puts it back
+    // in the composer, where the next Enter would send it twice (2026-10-23).
+    for (const text of ["steer then the agent errs", "steer then the connection drops"])
+      test(`a steer acpmux took stays out of the composer: ${text}`, async () => {
+        summary.steering = true;
+        try {
+          const page = await openChat();
+          const before = attaches;
+          await page.locator(".acpmux-composer-prompt").click();
+          await page.keyboard.type(text);
+          await page.keyboard.press("Enter");
+          await page.locator("[data-row-id]", { hasText: text }).first().waitFor({ timeout: 5_000 });
+          if (text.endsWith("drops")) await until(() => attaches > before, "the page read the chat again");
+          // The page has drawn a refetch that came after the request ended.
+          await lag(page);
+          expect({
+            steers: prompts.filter((p) => p._meta?.acpmux?.steer).length,
+            composer: (await composerText(page)).trim(),
+            failed: await page.locator(".cv-user__status--failed").count(),
+          }).toEqual({ steers: 1, composer: "", failed: 0 });
+          await page.close();
+        } finally {
+          summary.steering = false;
+        }
+      });
 
     test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
       const page = await openChat();

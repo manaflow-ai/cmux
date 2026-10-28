@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d.
+// cmux-tui mux protocol 12, IR 97fae7532bc81d02548556e2d40b406e7eabcab008a423db16a632b02ea97edc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -220,6 +220,15 @@ pub struct CloudConversationLiveEvent {
     pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub frame: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationPresenceEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub participants: Vec<T::CloudConversationPresenceParticipant>,
 }
 
 #[rustfmt::skip]
@@ -1276,6 +1285,7 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
     CloudConversationLive(CloudConversationLiveEvent),
+    CloudConversationPresence(CloudConversationPresenceEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
     CloudConversationTyping(CloudConversationTypingEvent),
@@ -1378,6 +1388,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
             Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
+            Self::CloudConversationPresence(_) => Some("cloud-conversation-presence"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
             Self::CloudConversationTyping(_) => Some("cloud-conversation-typing"),
@@ -1479,6 +1490,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
             Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
+            Self::CloudConversationPresence(_) => Some(&CLOUD_CONVERSATION_PRESENCE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::CloudConversationTyping(_) => Some(&CLOUD_CONVERSATION_TYPING_EVENT_METADATA),
@@ -1682,6 +1694,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-conversation-live") => match serde_json::from_value::<CloudConversationLiveEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationLive(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-presence") => match serde_json::from_value::<CloudConversationPresenceEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationPresence(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

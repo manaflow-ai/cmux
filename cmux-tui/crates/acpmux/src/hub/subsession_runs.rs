@@ -209,7 +209,9 @@ impl Hub {
     /// `None` when it needs none (not a family prompt, not a sub-session, an offered chat, or
     /// a parent this daemon no longer has).
     fn run_gate(&self, session: &Session, provenance: Option<&Value>) -> Option<(String, u32)> {
-        if !super::subsession_guard::is_family_prompt(provenance) {
+        let family = super::subsession_guard::is_family_prompt(provenance)
+            || super::subsession_guard::is_family_retry(provenance);
+        if !family {
             return None;
         }
         let link = session.meta().subsession.filter(|l| !l.offered)?;
@@ -255,15 +257,20 @@ impl Hub {
         self.subsession_runs.changed.notified()
     }
 
-    /// Takes every family prompt (`subsessions::PROVENANCE_KIND`) out of `session`'s queue, its
-    /// `queue_removed` naming `reason`: a stopped or closed sub-session starts no turn later.
+    /// Takes every family prompt (`subsessions::PROVENANCE_KIND`) and every retry a sub-session
+    /// asked for (`is_family_retry`) out of `session`'s queue, its `queue_removed` naming
+    /// `reason`: a stopped or closed sub-session starts no turn later.
     pub(super) fn withdraw_family_prompts(&self, session: &Arc<Session>, reason: &str) {
         let ids: Vec<String> = session
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
-            .filter(|q| super::subsession_guard::is_family_prompt(q.run.provenance.as_ref()))
+            .filter(|q| {
+                let p = q.run.provenance.as_ref();
+                super::subsession_guard::is_family_prompt(p)
+                    || super::subsession_guard::is_family_retry(p)
+            })
             .map(|q| q.prompt_id.clone())
             .collect();
         for id in ids {

@@ -40,8 +40,18 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 9] = [
-    "send", "reply", "react", "stop", "sleep", "spawn", "tell", "control", "profile",
+const TURN_GATED: [&str; 11] = [
+    "send",
+    "reply",
+    "react",
+    "stop",
+    "sleep",
+    "spawn",
+    "tell",
+    "control",
+    "profile",
+    "remember",
+    "cloud_workspace",
 ];
 
 /// Section 9's subagent tools, answered by the host (subagents.rs).
@@ -137,6 +147,18 @@ pub trait Orchestrator: Send + Sync {
     fn sleep(&self, call: SleepCall) -> Result<String, String> {
         let _ = call;
         Err("this Chief host cannot sleep".into())
+    }
+    /// `remember(text)` (remember.rs): keeps a lasting preference of the
+    /// person in their profile.
+    fn remember(&self, text: &str) -> Result<String, String> {
+        let _ = text;
+        Err("this Chief host has no person profile to remember in".into())
+    }
+    /// `cloud_workspace` (cloud_workspace.rs): a cmux Cloud machine and a
+    /// workspace on it for a task, in the person's sidebar.
+    fn cloud_workspace(&self, request: &crate::cloud_workspace::Request) -> Result<String, String> {
+        let _ = request;
+        Err("cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in".into())
     }
     /// `escalate_auth`: subagent `agent` needs the user's sign-in; the Chief
     /// gets it as an urgent note (ahead of the queue, steered into a running
@@ -388,6 +410,23 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("send", text) if !text.is_empty() && text[0] != "--reply-to" => {
             Call::parse("send", &serde_json::json!({"text": text.join(" ")}))
         }
+        ("cloud-workspace" | "cloud_workspace", words) if !words.is_empty() => {
+            // `[--size S] [--machine M] TITLE...`, the flags in any place.
+            let mut v = serde_json::json!({});
+            let mut title = Vec::new();
+            let mut rest = words.iter();
+            while let Some(word) = rest.next() {
+                match *word {
+                    flag @ ("--size" | "--machine") => match rest.next() {
+                        Some(value) => v[&flag[2..]] = serde_json::json!(value),
+                        None => return Ok(Command::Usage(usage(tool))),
+                    },
+                    word => title.push(word),
+                }
+            }
+            v["title"] = serde_json::json!(title.join(" "));
+            Call::parse("cloud_workspace", &v)
+        }
         ("stop", []) => Call::parse("stop", &serde_json::json!({})),
         ("transcript", []) => Call::parse("transcript", &serde_json::json!({})),
         ("transcript", [n]) => Call::parse("transcript", &serde_json::json!({"n": n})),
@@ -400,6 +439,9 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
                 v["note"] = serde_json::json!(note.join(" "));
             }
             Call::parse("sleep", &v)
+        }
+        ("remember", text) if !text.is_empty() => {
+            Call::parse("remember", &serde_json::json!({"text": text.join(" ")}))
         }
         ("peers", []) => Call::parse("peers", &serde_json::json!({})),
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
@@ -470,10 +512,14 @@ pub fn usage(tool: &str) -> String {
             "stop" => "",
             "transcript" => "[N] [--before SEQ]",
             "sleep" => "SECONDS [\"note\"]",
+            "remember" => "\"the preference, one short line\"",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
             "peers" => "",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
+            "cloud-workspace" | "cloud_workspace" => {
+                "[--size small|medium|large|xlarge] [--machine machine:ID] \"task title\""
+            }
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
@@ -655,8 +701,15 @@ pub enum Call {
     Stop,
     /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
     Sleep(SleepCall),
+    /// `remember` (remember.rs): a lasting preference into the profile.
+    Remember {
+        text: String,
+    },
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
+    /// `cloud_workspace` (cloud_workspace.rs): a Cloud machine and its
+    /// workspace for a task.
+    CloudWorkspace(crate::cloud_workspace::Request),
     /// `escalate_auth` (a subagent's only write tool): the Chief drives a
     /// sign-in for it. `agent` is the caller's own id as it claims it; the
     /// host prefers the id its session binding gives (turn_caller.rs).
@@ -823,7 +876,28 @@ impl Call {
             "send" => SendCall::parse(args).map(Call::Send),
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
+            "remember" => {
+                let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
+                crate::remember::clean(text).map(|text| Call::Remember { text })
+            }
             "control" => ControlCall::parse(args).map(Call::Control),
+            "cloud_workspace" => {
+                let text = |key: &str| {
+                    args.get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_owned)
+                };
+                let title = text("title").ok_or_else(|| {
+                    "cloud_workspace: `title` names the task in a few words".to_owned()
+                })?;
+                Ok(Call::CloudWorkspace(crate::cloud_workspace::Request {
+                    title,
+                    size: text("size"),
+                    machine: text("machine"),
+                }))
+            }
             "escalate_auth" => {
                 let text = |key: &str| {
                     args.get(key)
@@ -894,7 +968,9 @@ impl Call {
             | Call::Transcript { .. }
             | Call::Stop
             | Call::Sleep(_)
+            | Call::Remember { .. }
             | Call::Control(_)
+            | Call::CloudWorkspace(_)
             | Call::Peers
             | Call::ZoomAgent { .. }
             | Call::EscalateAuth { .. }
@@ -961,7 +1037,18 @@ impl Call {
             // reaches this socket as a bare `{"tool": "stop"}`.
             Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
+            Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
+            Call::CloudWorkspace(r) => {
+                let mut v = json!({"tool": "cloud_workspace", "title": r.title});
+                if let Some(size) = &r.size {
+                    v["size"] = json!(size);
+                }
+                if let Some(machine) = &r.machine {
+                    v["machine"] = json!(machine);
+                }
+                v
+            }
             Call::EscalateAuth { request, agent } => {
                 let mut v = json!({
                     "tool": "escalate_auth",
@@ -1329,11 +1416,13 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Transcript { .. }
                         | Call::Stop
                         | Call::Sleep(_)
+                        | Call::Remember { .. }
                         | Call::Control(_)
+                        | Call::CloudWorkspace(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, react, reply, send, transcript, stop, sleep, control, profile or chiefs"
+                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, remember, control, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
@@ -1355,7 +1444,10 @@ fn connection(conn: UnixStream, served: &Served) {
                         None => Err(crate::chief_profile::Grant::refusal("chiefs")),
                     },
                     // The person's grant (chief_profile.rs), by the tool's name.
-                    Ok(Call::Spawn { .. }) if grant.is_some_and(|g| !g.allows("spawn")) => {
+                    // cloud_workspace rides on the spawn grant: both start work elsewhere.
+                    Ok(Call::Spawn { .. } | Call::CloudWorkspace(_))
+                        if grant.is_some_and(|g| !g.allows("spawn")) =>
+                    {
                         Err(crate::chief_profile::Grant::refusal("spawn"))
                     }
                     // control rides on the tell grant: both steer subagents.
@@ -1424,9 +1516,20 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(o) => o.sleep(call),
                         None => Err("this Chief host runs no turns".to_owned()),
                     },
+                    Ok(Call::Remember { text }) => match &served.orchestrator {
+                        Some(o) => o.remember(&text),
+                        None => Err("this Chief host has no person profile to remember in".to_owned()),
+                    },
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),
                         None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::CloudWorkspace(request)) => match &served.orchestrator {
+                        Some(o) => o.cloud_workspace(&request),
+                        None => Err(
+                            "cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in"
+                                .to_owned(),
+                        ),
                     },
                     // Only a subagent escalates; its id comes from its bound
                     // session when there is one, else from what it says.

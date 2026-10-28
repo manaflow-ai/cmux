@@ -193,6 +193,16 @@ impl fmt::Display for ConnectionBadMessage {
     }
 }
 
+/// Where a connection is in the window a host proxy's bind must come in
+/// (`AgentSessions::first_line_done`).
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FirstLine {
+    Unread,
+    Read,
+    Done,
+}
+
 /// How a connection ended.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ConnectionEnd {
@@ -289,6 +299,10 @@ pub(super) fn serve_connection(
     );
     let mut input = ConnectionInput::new(stream);
     let carries_frames = matches!(transport, ClientTransport::Unix) && admission.admits_frames();
+    // A host proxy binds a teammate only on the connection's first line, a
+    // blank one included (agent_session_proxy.rs).
+    #[cfg(unix)]
+    let mut first_line = FirstLine::Unread;
     // A panic while serving (a handler's, or a blocking call's in the
     // detector's panic mode) still ends the connection below, then goes on
     // as the thread's panic. Before, the teardown never ran: the client
@@ -342,6 +356,19 @@ pub(super) fn serve_connection(
             };
             // The line's arrival, for its request span (server/request_spans.rs).
             let arrived = Instant::now();
+            // The first line's window closes as the next line arrives, not as
+            // the first returns here: a bind runs on the connection's request
+            // sequence, maybe after this reader went on, and the proxy sends
+            // nothing more until the bind's reply.
+            #[cfg(unix)]
+            {
+                if first_line == FirstLine::Read {
+                    mux.control_clients.agent_sessions.first_line_done(client);
+                    first_line = FirstLine::Done;
+                } else if first_line == FirstLine::Unread {
+                    first_line = FirstLine::Read;
+                }
+            }
             if line.trim().is_empty() {
                 zeroize_string(&mut line);
                 continue;

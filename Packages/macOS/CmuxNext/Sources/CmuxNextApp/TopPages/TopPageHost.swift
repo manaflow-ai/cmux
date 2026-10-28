@@ -52,6 +52,9 @@ final class TopPageHost {
     /// The page's say in its discard: classic Home's view, an internal page's provider; nil: never discarded.
     private let discardable: (TopPageRoute, NSView) -> (any PageDiscardable)?
     private let titles: (TopPageRoute) -> String
+    /// Whether a route may show now (App Store and What's New only with `labs.previewFeatures`): a
+    /// page that may not show is not returned, even one made before the setting turned off.
+    private let available: (TopPageRoute) -> Bool
     /// The `topPageDiscard` feature.
     private let discards: Bool
     /// How many hidden top pages stay live across all windows.
@@ -84,6 +87,7 @@ final class TopPageHost {
     init(make: @escaping (TopPageRoute, WindowController?) -> (view: NSView, key: String?)?,
          closed: @escaping (TopPageRoute, String) -> Void,
          discardable: @escaping (TopPageRoute, NSView) -> (any PageDiscardable)?, title: @escaping (TopPageRoute) -> String,
+         available: @escaping (TopPageRoute) -> Bool = { _ in true },
          discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline,
          memory: (any MemoryConsumerRegistry)? = nil, windowNode: VisibilityNode? = nil,
          pageNode: ((String) -> VisibilityNode)? = nil) {
@@ -93,6 +97,7 @@ final class TopPageHost {
         self.closed = closed
         self.discardable = discardable
         titles = title
+        self.available = available
         self.discards = discards
         self.hiddenLimit = hiddenLimit
         self.hosts = hosts
@@ -122,6 +127,11 @@ final class TopPageHost {
                       case .page(let id): services?.pages.provider(id)?.title ?? ""
                       }
                   },
+                  available: { [weak services] route in
+                      // App Store and What's New are hidden unless `labs.previewFeatures` is on (#26138).
+                      guard case .page(let id) = route, id == .appStore || id == .changelog else { return true }
+                      return services?.settings?.snapshot.previewFeatures == true
+                  },
                   discards: services.features.isEnabled(.topPageDiscard),
                   hiddenLimit: SubsystemBudget.forThisMac(gpuResidentAvailable: false).liveHiddenInternalPages,
                   hosts: { [weak services] in services?.windows.controllers.map { $0.topPages } ?? [] },
@@ -150,6 +160,7 @@ final class TopPageHost {
 
     /// The page's view, made on first show and after a release; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController?) -> NSView? {
+        guard available(route) else { return nil }
         if let view = views[route] { return view }
         guard let made = make(route, window) else { return nil }
         views[route] = made.view

@@ -3,8 +3,8 @@
 public import Darwin
 #endif
 
-/// Runs `body`, a call that blocks, as a checked blocking call: in builds with the detector (Debug, bench, and
-/// Nightly to come), `body` on the main thread outside ``allowBlocking(_:_:)`` or on a shared pool thread
+/// Runs `body`, a call that blocks, as a checked blocking call: in builds with the detector (Debug, bench and
+/// Nightly), `body` on the main thread outside ``allowBlocking(_:_:)`` or on a shared pool thread
 /// (``BlockingContext/pool``: the Swift cooperative pool, a GCD root queue) is a violation, and while a
 /// violation is recorded its wall time adds to the call site's total and maximum (`debug.blocking` prints
 /// `total_ms` and `max_ms`). On a dedicated queue or thread it is allowed. On a `BackgroundWork` lane that may
@@ -25,13 +25,13 @@ public import Darwin
 /// runs the primitive through it and passes its caller's `#fileID` and `#line`, which name the call site.
 ///
 /// A violation: every checked build records it once per call site by default (Debug: one unified-log line,
-/// the Debug menu and `debug.blocking`; bench-checks builds, `-DCMUX_BLOCKING_CHECKS`: `debug.blocking`). A
-/// Debug build, or a Nightly built with `-DCMUX_BLOCKING_CHECKS`, started with `CMUX_BLOCKING_TRAP=1` hands the
-/// main-thread site to the sink (waiting at most 50 ms), logs one fault and stops the process (the opt-in crash
-/// mode); a bench build never stops. To come: a Nightly sends what it records to the opt-in hang reports once
-/// their sink is installed. A pool violation is recorded the same way (once per site, its own `pool` sites);
-/// it traps only in a Debug build started with `CMUX_BLOCKING_TRAP_POOL=1` (Chrome's task_tracker.cc runs a task
-/// without `MayBlock()` under `ScopedDisallowBlocking`).
+/// the Debug menu and `debug.blocking`; bench-checks builds, `-DCMUX_BLOCKING_CHECKS`: `debug.blocking`; a
+/// cmux NEXT Nightly, also built with `-DCMUX_BLOCKING_CHECKS`: one public unified-log line of kind + image UUID
+/// + offset frames per call site, ``BlockingLogSink``). A Debug build, or a Nightly, started with
+/// `CMUX_BLOCKING_TRAP=1` hands the main-thread site to the sink (waiting at most 50 ms), logs one fault and stops
+/// the process (the opt-in crash mode); a bench build never stops. A pool violation is recorded the same way (once
+/// per site, its own `pool` sites); it traps only in a Debug build started with `CMUX_BLOCKING_TRAP_POOL=1`
+/// (Chrome's task_tracker.cc runs a task without `MayBlock()` under `ScopedDisallowBlocking`).
 ///
 /// Off the main thread and off the pool it is the trace hook's load, one `pthread_main_np()` call, one
 /// thread-specific read and at most the queue label's compare (on a lane, one test of `kind`), with no clock read.
@@ -62,7 +62,7 @@ public func blockingCall<Result, Failure: Error>(
 }
 
 /// ``blockingCall(_:fileID:line:_:)`` without its trace interval: the detector's check and timing around `body`
-/// (Debug and bench-checks builds), or `body` alone (Release).
+/// (Debug, bench-checks and Nightly builds), or `body` alone (Release).
 @inlinable @inline(__always)
 func checkedBlockingCall<Result, Failure: Error>(
     _ kind: BlockingKind, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result

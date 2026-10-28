@@ -247,14 +247,14 @@ impl Mux {
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
-        if let Err(error) =
-            self.workspace_registry.lock().recover_poison().put_journal_reducer_state(
-                AGENT_ROSTER_REDUCER_ID,
-                AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
-        {
+        // The connection alone, never the workspace registry lock, so state
+        // commits do not wait behind the snapshot write (issue 23038).
+        if let Err(error) = self.registry_connection.put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            cursor,
+            &snapshot,
+        ) {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
         for delta in deltas {

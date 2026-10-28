@@ -215,6 +215,15 @@ public final class MainActorWorkQueue: Sendable {
                     continuation.resume(throwing: error)
                 }
             )
+            // Already past its deadline (a later step of a request whose earlier step held the
+            // main actor, such as an `action.batch` transaction after a slow one): it times out
+            // here and never runs. Queued, it would race its deadline timer for the drain, and a
+            // transaction the caller was told timed out could still run.
+            if engineStart.movedDeadline(deadline, countingFrom: mark) <= .now {
+                item.expire(timeout)
+                state.withLock { $0.stats.expired += 1 }
+                return
+            }
             if let rejection = enqueue(item, post: post) {
                 item.expire(rejection)
                 return

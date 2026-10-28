@@ -133,7 +133,7 @@ import Testing
                     // The reveal fades "⋮" in, and an offscreen fade never ends: show it revealed.
                     bar.moreButton.alphaValue = 1
                     bar.layoutSubtreeIfNeeded()
-                    bar.moreButton.frame = bar.moreFrame(revealed: true)
+                    bar.moreButton.frame = bar.moreFrame()
                     apply(look, to: bar.moreButton)
                 }
             }

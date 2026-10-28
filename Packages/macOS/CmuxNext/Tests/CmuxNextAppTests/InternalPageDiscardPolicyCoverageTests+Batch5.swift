@@ -354,7 +354,7 @@ import CmuxNextWakeups
 
     static func macScreenPages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()), work: BackgroundWork())
     }
 
     static func phones() -> PhoneService {

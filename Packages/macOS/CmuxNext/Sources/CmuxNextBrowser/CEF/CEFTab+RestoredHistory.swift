@@ -35,7 +35,6 @@ extension CEFTab {
     /// keeps its crash page until they reload it. A spare's placeholder has nothing to bring back.
     func beginHostRestore(in restores: CEFHostPageRestores, generation: UInt64) -> Bool {
         guard !isClosed, browserID == nil, host.placeholder !== self, hostRestoreURL != nil else { return false }
-        reloadWhenShown = false
         guard !restored.showsFormSubmission else { return false }
         restores.set(.reading(generation), for: self)
         return true
@@ -71,10 +70,9 @@ extension CEFTab {
         if case .reading = phase { runtime.createAfterHostRestart(self) }
     }
 
-    /// The next host did not start: the page keeps its crash page and reloads when it shows, as without a restore.
+    /// The next host did not start: the page keeps its crash page until the person reloads it, as without a restore.
     func hostRestoreFailed(in restores: CEFHostPageRestores) {
         restores.set(nil, for: self)
-        reloadWhenShown = host.visibleTab !== self
     }
 
     /// The crash page goes and the restored page starts, as a load before its browser exists does (``load(_:)``),

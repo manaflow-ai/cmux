@@ -581,7 +581,10 @@ fn identify_and_ping_return_build_metadata() {
     // this crate installs one, so this value is the one every reader sees.
     const BUILD_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
     const GHOSTTY_COMMIT: &str = "fedcba9876543210fedcba9876543210fedcba98";
-    install_build_stamp(BuildStamp::new(Some(BUILD_COMMIT), Some(GHOSTTY_COMMIT)));
+    const BUILD_TIME: u64 = 1_793_095_467;
+    install_build_stamp(
+        BuildStamp::new(Some(BUILD_COMMIT), Some(GHOSTTY_COMMIT)).with_build_time(BUILD_TIME),
+    );
     let mux = test_mux();
     let identity = handle_command(
         &mux,
@@ -595,6 +598,16 @@ fn identify_and_ping_return_build_metadata() {
     assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
     assert_eq!(identity["build_commit"].as_str(), Some(BUILD_COMMIT));
     assert_eq!(identity["ghostty_commit"].as_str(), Some(GHOSTTY_COMMIT));
+    // The build time only on request: strict old SDKs read the default reply.
+    assert!(identity.get("build_time").is_none(), "{identity}");
+    let revisions = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false, revisions: true },
+        &test_writer(),
+    )
+    .unwrap();
+    assert_eq!(revisions["build_time"].as_u64(), Some(BUILD_TIME));
 
     let data =
         handle_command(&mux, mux.local_test_client(0), Command::Ping, &test_writer()).unwrap();

@@ -58,6 +58,9 @@ public final class PulledBuildWatch {
     public private(set) var pulled: PulledBuild?
     /// The kept build a rollback would go to, or nil (none kept, or it cannot read the stores).
     public private(set) var rollbackTarget: KeptVersion?
+    /// Every build on the pulled list: the Updated card leaves them out when it counts the newer
+    /// builds ("2 builds behind newest"), since no Mac is offered them.
+    public private(set) var pulledBuilds: [String] = []
     /// The build whose banner the person answered "Wait for the Fix" (kept in defaults).
     public private(set) var waitingBuild: String?
     /// A rollback that failed: its reason replaces the detail line.
@@ -128,10 +131,14 @@ public final class PulledBuildWatch {
         // main-actor async UpdateDropBack read; once at launch and per Sparkle cycle, never per frame
         let task = Task { [weak self] in
             var entry: PulledBuild?
+            var all: [String] = []
             for url in urls {
                 guard let data = await fetch(url) else { continue }
-                if let found = PulledBuild.decode(data).first(where: { $0.build == build }) { entry = found; break }
+                let list = PulledBuild.decode(data)
+                all += list.map(\.build).filter { !all.contains($0) }
+                if entry == nil, let found = list.first(where: { $0.build == build }) { entry = found }
             }
+            if self?.pulledBuilds != all { self?.pulledBuilds = all }
             await self?.apply(entry)
             self?.refreshTask = nil
         }

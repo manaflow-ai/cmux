@@ -21,10 +21,15 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// This process's server: nil in Release, or without a valid ``variable``.
     public static let current = resolve(environment: ProcessInfo.processInfo.environment, allowsDevServer: allowed)
 
-    /// The pages the server serves: the React pages, the three viewers and the agent pane (its
-    /// document at `/agent-pane/`). An app page is never served from it.
+    /// The agent pane's page: served from `webviews/src/agent-session/acpmux/` (at `/agent-pane/`), not from a
+    /// `webviews/src/pages/` folder.
+    static let agentPageID = "cmux.agent"
+
+    /// The pages the server serves: one per `webviews/src/pages/<resource>/` (``PageDevServerTests``
+    /// keeps them equal), plus the agent pane (``agentPageID``, its document at `/agent-pane/`). An
+    /// app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.agent", "cmux.apps", "cmux.changelog", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
+        agentPageID, "cmux.apps", "cmux.changelog", "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
         "cmux.icon-picker", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
     ]
 

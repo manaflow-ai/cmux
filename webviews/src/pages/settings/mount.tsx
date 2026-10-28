@@ -11,6 +11,7 @@ import { SettingsStore } from "./store";
 import { setLocale, t } from "./strings";
 import { holdPaintUntil } from "../shared/paintGate";
 import { PARKED_NAME } from "../shared/pageClient";
+import { setHarnessSymbolHost } from "../../agent-session/shared/harnessIcons";
 
 /** The page name its saved state carries (pageState.ts). */
 export const SETTINGS_PAGE = "settings";
@@ -31,6 +32,12 @@ export async function mountSettingsPage(
   document.documentElement.dataset.settingsLook = "refined";
   document.title = t("settingsPage.title");
   const store = new SettingsStore(client);
+  // A custom harness's SF Symbol icon: the host draws it (`agents.run {action: "symbol"}`).
+  setHarnessSymbolHost(async (name) => {
+    const reply = await store.runAgents({ action: "symbol", name });
+    const src = reply.ok ? (reply.value as { src?: unknown } | null)?.src : undefined;
+    return typeof src === "string" ? src : null;
+  });
   const reactRoot = createRoot(root);
   reactRoot.render(<SettingsPage store={store} sections={sections} />);
   const started = store.start();

@@ -291,6 +291,12 @@ impl LineFrame<'_> {
 /// more; an error reply may parse it again for its `id`.
 pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> bool {
     let LineFrame { mux, client, message, writer, scheduler, arrived, watched } = *line;
+    // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
+    // daemon serves (agent_session_proxy.rs).
+    #[cfg(unix)]
+    if agent_session_attach::proxy_bound(mux, client) {
+        return agent_session_attach::handle_bound(mux, client, message, writer);
+    }
     if head.is_resource()
         && let Some(keep_open) = resource_line(line, &head)
     {

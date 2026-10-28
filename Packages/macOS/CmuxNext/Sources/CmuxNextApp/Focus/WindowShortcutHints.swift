@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -18,6 +19,10 @@ final class WindowShortcutHints {
     /// Follows `ui.showModifierHoldHints`: on subscribes the hold watcher to the input tap, off unsubscribes it.
     private var settingsWatch: ServiceObservation<Bool>?
     private var held: NSEvent.ModifierFlags?
+    /// Scrolls in this window while chips show (``scrollDidChange()``).
+    private var scrollSubscription: InputSubscription?
+    /// One chip refresh is posted for the scrolls of this turn.
+    private var scrollRefreshPending = false
 
     init(controller: WindowController) {
         self.controller = controller
@@ -29,6 +34,12 @@ final class WindowShortcutHints {
                                                           keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
+        }
+        // Chips are a snapshot of where rows, tabs and panes are. A scroll moves them without a window
+        // layout, so a scroll in this window while chips show re-places them (after the scrolled view took it).
+        scrollSubscription = controller.services.inputTap.subscribe(class: .scroll, phase: .afterDispatch, window: .window(window),
+                                                                   while: { [weak self] in self?.held != nil }) { [weak self] _ in
+            self?.scrollDidChange()
         }
         // A subscription change, not view work: it holds while the window is hidden too.
         settingsWatch = ServiceObservation(.visible, owner: "ShortcutHints.enabled", on: controller.services.mainWork) {
@@ -42,6 +53,18 @@ final class WindowShortcutHints {
         guard let controller else { return }
         overlay.frame = controller.root.bounds
         overlay.hints = held.map(hints(held:)) ?? []
+    }
+
+    /// Content scrolled while chips show: re-place them once the scrolled view has taken the event
+    /// (the subscription runs after dispatch), one posted refresh for any burst of events in the same turn.
+    func scrollDidChange() {
+        guard held != nil, !scrollRefreshPending, let mainWork = controller?.services.mainWork else { return }
+        scrollRefreshPending = true
+        mainWork.post(.visible, owner: "ShortcutHints.scroll") { [weak self] in
+            guard let self, scrollRefreshPending else { return }
+            scrollRefreshPending = false
+            if held != nil { refresh() }
+        }
     }
 
     /// The chips a hold of `held` shows in this window now, from its resolved binding table.
@@ -150,6 +173,11 @@ final class WindowShortcutHints {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
+    /// Shows the chips of a hold without the 0.3 s intentional-hold wait or key-window checks.
+    func debugShow(_ flags: NSEvent.ModifierFlags) {
+        held = flags
+        refresh()
+    }
     func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
         guard let monitor, let window = controller?.window else { return false }
         return await monitor.debugHold(flags, window: window)
@@ -159,6 +187,8 @@ final class WindowShortcutHints {
     func stop() {
         monitor?.stop()
         settingsWatch?.cancel()
+        scrollSubscription = nil
+        scrollRefreshPending = false
         overlay.removeFromSuperview()
     }
 }

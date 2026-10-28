@@ -378,7 +378,7 @@ nonisolated struct HostFilesCase {
     }
 
     func check(in directory: URL) throws {
-        let file = MobileHostPairedDevicesFile(directory: directory)
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostMemoryPairingSeal())
         let empty = MobileHostPairedDevices(userID: "user-1")
         switch paired {
         case .saved:

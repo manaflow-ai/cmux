@@ -145,3 +145,99 @@ async fn withdraw_takes_back_a_steer_the_agent_has_not_read() {
     let (_, seen) = c.response(turn).await;
     assert!(!said(&seen, "read: PINEAPPLE"), "the agent read the withdrawn steer: {seen:?}");
 }
+
+/// A send-now whose turn ended before the agent took it runs next (`steer_end.rs`), but it stops
+/// only the turn it was aimed at. A turn that began meanwhile, such as another agent's queued
+/// message, runs on (Leo, 2026-10-21: "me sending that ... might have accidentally swallowed up
+/// a queued message").
+#[tokio::test]
+async fn a_send_now_that_missed_its_turn_does_not_stop_the_turn_after_it() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let session = hub.resolve(&id).unwrap();
+    let running = session.turn().expect("the long step runs").turn_id;
+    // The fallback's options: a send-now aimed at a turn that has ended.
+    let opts = acpmux::hub::PromptOptions {
+        prompt_id: Some("p-late".into()),
+        interrupt: true,
+        interrupt_turn: Some("t-ended".into()),
+        ..Default::default()
+    };
+    let late = tokio::spawn({
+        let (hub, session) = (hub.clone(), session.clone());
+        async move {
+            let blocks = vec![json!({"type": "text", "text": "LATE"})];
+            hub.prompt_with(&session, blocks, "pane", false, opts).await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(
+        session.turn().map(|t| t.turn_id),
+        Some(running),
+        "the send-now stopped a turn it was not aimed at"
+    );
+    // It still goes next: Stop ends the long step, and LATE runs.
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "cancelled");
+    let late = tokio::time::timeout(Duration::from_secs(20), late).await.unwrap().unwrap();
+    assert!(late.is_ok(), "the send-now never ran: {late:?}");
+}
+
+/// In a chat several people share (`author.rs`), only the person who sent a steer takes it back:
+/// another person, or the owner, gets `queue.not_author`, and the steer stays.
+#[tokio::test]
+async fn only_the_sender_takes_back_a_persons_steer() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
+    let mut a = connect(&hub).await;
+    let mut steer = prompt(&id, "p-steer", "PINEAPPLE", true);
+    steer["_meta"]["acpmux"]["author"] = ana.clone();
+    let steered = a.send(method::SESSION_PROMPT, steer).await;
+    a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-steer").await;
+
+    let mut e = connect(&hub).await;
+    let withdraw = |author: Option<&Value>| {
+        let mut p = json!({"sessionId": id, "promptId": "p-steer", "op": "withdraw"});
+        if let Some(author) = author {
+            p["_meta"] = json!({"acpmux": {"author": author}});
+        }
+        p
+    };
+    for other in [Some(json!({"id": "user_bo", "name": "Bo"})), None] {
+        let refused = e.request("_acpmux/queue_edit", withdraw(other.as_ref())).await;
+        assert!(
+            refused.as_ref().is_err_and(|m| m.starts_with("queue.not_author")),
+            "{other:?}: {refused:?}"
+        );
+    }
+    let took = e.request("_acpmux/queue_edit", withdraw(Some(&ana))).await.unwrap();
+    assert_eq!(took["ok"], true, "{took}");
+    let (answer, _) = a.response(steered).await;
+    assert_eq!(answer.unwrap()["stopReason"], "withdrawn");
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (_, seen) = c.response(turn).await;
+    assert!(!said(&seen, "read: PINEAPPLE"), "the agent read the withdrawn steer: {seen:?}");
+}
+
+/// A steer that asks to be read now when it is sent (`_meta.acpmux.steerNow`): the Chief's tell
+/// (Lawrence, 2026-10-26: a Chief message lands in the agent's chat "with interrupt by default").
+/// It stops the agent's current step as the pane's Send now does, without a second request, and
+/// the turn runs on. A steer without it still waits for the step (the tests above).
+#[tokio::test]
+async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let mut a = connect(&hub).await;
+    let mut steer = prompt(&id, "p-now", "PINEAPPLE", true);
+    steer["_meta"]["acpmux"]["steerNow"] = json!(true);
+    a.send(method::SESSION_PROMPT, steer).await;
+    let accepted = a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-now").await;
+    assert_eq!(accepted["steer"], true, "{accepted}");
+    // The long step runs until it is stopped: without steerNow the turn never ends.
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(20), c.response(turn)).await;
+    let (answer, seen) = ended.expect("steerNow did not stop the step: the turn still runs");
+    assert!(said(&seen, "read: PINEAPPLE"), "the agent never read the steer: {seen:?}");
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
+}

@@ -104,6 +104,7 @@
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-chip.selected {
@@ -145,6 +146,7 @@
   color: var(--page-text);
   font-size: var(--text-detail);
   font-weight: 650;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-card {
@@ -199,6 +201,7 @@
   color: var(--page-text-3);
   font-size: var(--text-caption);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-verified {
@@ -211,6 +214,7 @@
   background: var(--page-text-2);
   font-size: var(--text-caption);
   font-weight: 700;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-name {
@@ -292,6 +296,7 @@
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-button {
@@ -697,11 +702,13 @@ code {
 .apps-state strong {
   color: var(--page-text);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .apps-state > span:last-child {
   max-width: 340px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-state-mark {
@@ -715,6 +722,7 @@ code {
   color: var(--page-text-2);
   background: var(--page-hover);
   font-size: var(--text-title);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .apps-state-empty {
@@ -766,6 +774,7 @@ code {
 .apps-cloud-feature-title {
   font-size: var(--text-title);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .apps-cloud-feature-body {
@@ -773,6 +782,7 @@ code {
   line-height: 1.4;
   color: var(--page-text-2);
   text-wrap: pretty;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-cloud-feature-art {

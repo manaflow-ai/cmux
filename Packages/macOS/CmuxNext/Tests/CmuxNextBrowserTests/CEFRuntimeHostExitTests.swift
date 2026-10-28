@@ -342,12 +342,11 @@ import Testing
 
         #expect(supervisor.asked == 1, "a host started to send a form again")
         #expect(tab.state.processExit == Self.killed)
-        #expect(!tab.reloadWhenShown, "the form's page would load again when it shows")
         #expect(runtime.hostStart?.pageRestores.phase(of: tab) == nil)
     }
 
-    /// p01-process-083: past the restart budget nothing comes back on its own: each page keeps its crash page and
-    /// reloads when it shows, as before.
+    /// p01-process-083: past the restart budget nothing comes back on its own: each page keeps its crash page
+    /// until the person reloads it (cmux#25791: a page never reloads by itself).
     @Test func aCrashPastTheBudgetRestoresNothing() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
         defer { wire.close() }
@@ -359,7 +358,6 @@ import Testing
 
         #expect(supervisor.asked == 1)
         #expect(tab.state.processExit == Self.killed)
-        #expect(tab.reloadWhenShown)
         #expect(runtime.hostStart?.pageRestores.phase(of: tab) == nil)
     }
 

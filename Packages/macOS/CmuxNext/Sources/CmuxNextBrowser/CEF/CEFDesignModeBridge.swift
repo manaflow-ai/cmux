@@ -21,9 +21,13 @@ final class CEFDesignModeBridge {
     func prepare() async throws {
         guard let tab, let browser = tab.browserID else { throw BrowserTabError.closed }
         tab.agentRelay.designModeListens = true
+        // `CEFTab.runtime` is `unowned`, so it is read before the evaluate below, while it is known
+        // alive: reading it after that await would trap once the runtime's last owner went, which
+        // aborts the process rather than failing this call (see `CEFMediaBridge.run`).
+        let runtime = tab.runtime
         _ = try await tab.evaluate("true", world: .isolated, gesture: .cmux)
-        _ = try await tab.runtime.devTools(browser, method: "Runtime.addBinding",
-                                           params: ["name": BrowserDesignModeScript.chromiumBinding, "executionContextName": Self.world])
+        _ = try await runtime.devTools(browser, method: "Runtime.addBinding",
+                                       params: ["name": BrowserDesignModeScript.chromiumBinding, "executionContextName": Self.world])
     }
 
     /// A `Runtime.bindingCalled` of the design mode binding: emits its JSON payload. False for

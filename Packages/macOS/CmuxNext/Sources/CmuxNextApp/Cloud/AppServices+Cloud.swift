@@ -107,6 +107,11 @@ extension AppServices {
         notifications.followHandApprovals(cloud.hands)
         if let settings { followHostReplica(settings) }
         cloud.start()
+        // A pane may outlive the Cloud teardown. Clear the agent tabs' credential recovery as soon as sign-out
+        // begins so an already-open page cannot call a recovery action that native recovery rejects.
+        cloud.willSignOut.append { [weak self] in self?.madeAgentTabs?.cloudCredentialTransfer = nil }
+        // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
+        CloudMachineUpdates.start(self)
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },
@@ -135,6 +140,7 @@ extension AppServices {
         let follow: @MainActor (CloudContextFacts) -> Void = { [weak self] state in
             guard let self, let context = cloudContext, !context.isCancelled else { return }
             cloudContextDidChange()
+            madeAgentTabs?.syncCloudCredentialTransferAvailability(services: self)  // agent tabs made later sync when built
             // The local model relay follows the signed-in user (ModelRouterLease).
             let user = state.signedIn ? state.user : nil
             if routerUser != .some(user) {
