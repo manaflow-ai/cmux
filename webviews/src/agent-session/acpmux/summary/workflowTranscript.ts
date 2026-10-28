@@ -136,6 +136,24 @@ export class WorkflowTranscript {
         const previous = page;
         page = pageOf(await this.read({ ...this.request, after: previous.end }));
         if (this.stopped) return;
+        if (page.truncated) {
+          // The bounded daemon window moved while catching up. The page can share the
+          // previous numeric cursor while belonging to a different file origin, so
+          // discard the partial join and read a fresh tail before publishing it.
+          page = pageOf(await this.read(this.request));
+          if (this.stopped) return;
+          this.pages = [page];
+          this.version += 1;
+          const freshEntries: ChildEntry[] = [];
+          page.updates.forEach((update, index) =>
+            freshEntries.push({ event: { seq: index, at: 0 }, update }),
+          );
+          this.rows = childRows(workflowPaneId(this.request), freshEntries, new Map(), this.version).map((row) => ({
+            ...row,
+            version: this.version,
+          }));
+          return;
+        }
         if (page.start !== previous.end || page.end <= previous.end)
           throw new Error("Transcript cursor did not advance");
         page.offset = previous.offset + previous.updates.length;
