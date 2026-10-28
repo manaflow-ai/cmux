@@ -15,7 +15,7 @@ import Foundation
 /// `team` (at most 12) lists that many fixture team members with no DM after the conversations
 /// (`team: 0` removes them). `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
-/// `new_message` (a team size) fills the open New Message list with fixture Chiefs and teammates;
+/// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
 /// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
 @MainActor
 enum DebugHomeSidebarFixture {
@@ -29,6 +29,7 @@ enum DebugHomeSidebarFixture {
         }
         if let raw = params["intro"]?.stringValue, let kind = ChiefIntroKind(rawValue: raw) { page.host?.transcript.showFirstRunIntro(kind) }
         if let size = params["new_message"]?.intValue {
+            if !page.isComposingNewMessage { page.presentNewMessage() }
             page.newMessage?.field.debugFillFixture(team: Array(names.prefix(min(names.count, max(0, size)))))
             return .object(["rows": .number(Double(page.newMessage?.field.suggestions.rows.count ?? -1))])
         }
