@@ -125,7 +125,21 @@ public actor SSHMachineLink {
     public func socketPath() async throws -> String {
         if let socket, child?.isRunning == true, FileManager.default.fileExists(atPath: socket) { return socket }
         if let starting { return try await starting.value }
-        let task = Task { try await self.start() }
+        let task = Task {
+            do {
+                return try await self.start()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Probe decoding, local state preparation and process launch can
+                // fail before the link has a child to report an SSH error.
+                // Preserve typed remote failures, install consent and disconnect.
+                if self.machine.status == .connecting || self.machine.status == .reconnecting {
+                    self.handle(.failed(.remoteFailed(String(describing: error))))
+                }
+                throw error
+            }
+        }
         starting = task
         defer { starting = nil }
         return try await task.value
