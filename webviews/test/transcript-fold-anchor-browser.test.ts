@@ -217,6 +217,82 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("completion folds received reports without remounting the answer, and keeps one-click open state", async () => {
+    const page = await open("reduce");
+    const reports = Array.from({ length: 24 }, (_, index) =>
+      row(`received-${index}`, "user", `Report ${index + 1}: the focused checks passed.`, {
+        steer: "landed",
+        promptId: `report-${index}`,
+        incoming: {
+          kind: "message",
+          message: {
+            name: `worker-${index + 1}`,
+            text: `Report ${index + 1}: the focused checks passed.`,
+            raw: `Report ${index + 1}: the focused checks passed.`,
+          },
+        },
+      }),
+    );
+    const pending = [
+      ...Array.from({ length: 30 }, (_, index) => turn(index + 100)).flat(),
+      row("completed-user", "user", "Collect the reports and summarize the result."),
+      row("completed-progress", "assistant", "I will collect each worker's result before the final answer."),
+      ...reports,
+      row("completed-answer", "assistant", "All 24 reports are in. The focused checks passed."),
+    ];
+    await show(page, pending);
+    await settle(page);
+    await page.evaluate(() => {
+      const answer = document.querySelector('[data-row-id="completed-answer"]')!;
+      if (!answer) throw new Error("the live answer was not mounted");
+      (window as unknown as { savedAnswer: Element }).savedAnswer = answer;
+    });
+    const completed = [
+      ...pending,
+      row("completed-summary", "turnSummary", undefined, { status: "completed", durationMs: 282_000 }),
+    ];
+    await show(page, completed);
+    await settle(page);
+    expect(
+      await page.evaluate(
+        () =>
+          document.querySelector('[data-row-id="completed-answer"]') ===
+          (window as unknown as { savedAnswer: Element }).savedAnswer,
+      ),
+    ).toBe(true);
+    expect(await page.locator('[data-row-id^="received-"]').count()).toBe(0);
+    const line = page.locator('[data-row-id="worked-completed-user"] .cv-worked');
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    await probe(page, '[data-row-id="worked-completed-user"] .cv-worked');
+    const opened = await clickAndWatch(page);
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    const position = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const position = scroller.scrollTop;
+      scroller.scrollTop = 0;
+      return position;
+    });
+    await settle(page);
+    expect(await line.count()).toBe(0);
+    await page.evaluate((position) => {
+      document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = position;
+    }, position);
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    await show(
+      page,
+      completed.map((entry) => ({ ...entry })),
+    );
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    await line.click();
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    expect(await page.locator('[data-row-id^="received-"]').count()).toBe(0);
+    await page.close();
+  });
+
   test("mid-transcript, Worked for opens and closes with its line on its pixel", async () => {
     const page = await open("no-preference");
     await show(page, done);

@@ -355,8 +355,8 @@ const shellDisclosureChecks = {
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
 /// commands, short narration, a compaction and a subagent ending, two answers to the person, a
-/// command after the second and a closing line. Only the work folds, each stretch under its own
-/// line between the answers (turns.ts `foldSegments`).
+/// command after the second and a closing line. Once complete, everything before the closing
+/// answer folds under the turn's one Worked-for line.
 const takeawayTurnRows = [
   user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
   activity(
@@ -1571,11 +1571,11 @@ export default agentPaneEntry({
       },
     },
     "takeaways-stay-open": {
-      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      note: 'A long finished turn (synthetic text): the closing "Pushed." stays in sight, and the earlier dialogue folds into one Worked-for line.',
       snapshot: chat(takeawayTurnRows),
     },
     "takeaways-fold-open": {
-      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      note: "The same turn with Worked for opened: every command, intermediate answer, short note, and compaction remains in order.",
       snapshot: chat(takeawayTurnRows),
       play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
