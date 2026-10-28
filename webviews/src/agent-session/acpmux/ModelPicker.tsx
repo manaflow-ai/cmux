@@ -1049,17 +1049,18 @@ export function ModelPicker(props: ModelPickerProps) {
   // visible on the closed control and offer its login command without making the user send first.
   const selectedLogin = props.currentAuth?.login.trim() ?? (current ? loginFor(current) : undefined);
   const authLabel = selectedLogin !== undefined ? t("harnesses.signedOut") : undefined;
-  const authAction = current && selectedLogin && onLogIn ? (
-    <button
-      type="button"
-      className="acpmux-picker-auth-action h-[var(--ui-row-height,28px)] flex-none cursor-pointer rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent px-1.5 font-[inherit] text-detail text-danger hover:bg-hover"
-      data-auth-action="login"
-      title={authLabel}
-      onClick={() => onLogIn(current.acpmuxHarness ?? current.id, selectedLogin)}
-    >
-      {t("harness.logIn")}
-    </button>
-  ) : null;
+  const authAction =
+    current && selectedLogin && onLogIn ? (
+      <button
+        type="button"
+        className="acpmux-picker-auth-action h-[var(--ui-row-height,28px)] flex-none cursor-pointer rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent px-1.5 font-[inherit] text-detail text-danger hover:bg-hover"
+        data-auth-action="login"
+        title={authLabel}
+        onClick={() => onLogIn(current.acpmuxHarness ?? current.id, selectedLogin)}
+      >
+        {t("harness.logIn")}
+      </button>
+    ) : null;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
