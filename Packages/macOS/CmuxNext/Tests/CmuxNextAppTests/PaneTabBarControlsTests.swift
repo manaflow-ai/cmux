@@ -48,7 +48,11 @@ import Testing
         #expect(plus.accessibilityRole() == .button)
     }
 
-    @Test func theScreenBarPlusIsTheOneWithACaret() throws {
+    /// Lawrence 2026-10-28 (screenshot of the screen bar's "+⌄"): "make sure to bring this button back to
+    /// how it originally looked". The screen bar's + is again the plain square + of every tab strip: no
+    /// caret, the strip's standard width and height, a press makes a screen; a hold or a right-click
+    /// opens the screen menu.
+    @Test func theScreenBarPlusIsThePlainSquarePlus() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -59,8 +63,10 @@ import Testing
         let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: WindowState(record: record))
         defer { withExtendedLifetime(services) { content.teardown() } }
         let bar = content.screenBar.view
-        #expect(bar.opensNewTabMenuOnPress, "the screen bar's + opens its menu on press")
-        #expect(bar.newTabButton.showsChevron, "the caret belongs on the screen bar's + only")
+        #expect(!bar.opensNewTabMenuOnPress, "a press makes a screen; a hold or a right-click opens the menu")
+        #expect(!bar.newTabButton.showsChevron, "no caret on the screen bar's +")
+        #expect(bar.newTabButton.accessibilityRole() == .button)
+        #expect(bar.metrics.newTabButtonWidth == TabStripMetrics().newTabButtonWidth, "the plain + keeps the strip's square size")
         #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")
     }
 }
