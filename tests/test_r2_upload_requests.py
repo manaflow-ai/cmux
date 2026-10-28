@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 
@@ -217,6 +218,40 @@ class R2UploadRequestsTests(unittest.TestCase):
                 self.assertEqual([r[0] for r in requests].count("PUT"), 1)
                 if not flags:
                     self.assertIn("immutable-r2-conflict", result.stdout)
+
+    def test_a_download_that_trickles_is_cut_at_its_deadline(self):
+        # Never idle long enough for the socket timeout, never done.
+        self.env.update(CMUX_R2_UPLOAD_RETRY_DELAY="0", CMUX_R2_UPLOAD_ATTEMPTS="2",
+                        CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS="1")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(1 << 30))
+                self.end_headers()
+                try:
+                    for _ in range(100):
+                        self.wfile.write(b"x" * (1 << 16))
+                        self.wfile.flush()
+                        time.sleep(0.05)
+                except OSError:
+                    pass
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        started = time.monotonic()
+        result, target = self.download(f"https://127.0.0.1:{server.server_port}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(time.monotonic() - started, 8)
+        self.assertIn("too slow", result.stderr)
+        self.assertFalse(target.exists())
+        self.assertFalse(target.with_name("downloaded.partial").exists())
 
     def test_a_failed_download_keeps_the_destination(self):
         self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"

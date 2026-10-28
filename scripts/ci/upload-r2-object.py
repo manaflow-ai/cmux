@@ -318,6 +318,9 @@ def _download(args: argparse.Namespace) -> int:
     attempts = max(1, int(os.environ.get("CMUX_R2_UPLOAD_ATTEMPTS", "4")))
     retry_delay = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_DELAY", "5"))
     partial = f"{args.download_to}.partial"
+    # A read that trickles (files.cmux.com at 4-35 KB/s) never trips the idle
+    # socket timeout: each attempt also has a whole-transfer deadline.
+    deadline = float(os.environ.get("CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS", "300"))
     for attempt in range(1, attempts + 1):
         amz_date = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE") or dt.datetime.now(dt.timezone.utc).strftime(
             "%Y%m%dT%H%M%SZ"
@@ -327,9 +330,12 @@ def _download(args: argparse.Namespace) -> int:
             with _open_signed_request(get, timeout=60) as response, open(partial, "wb") as out:
                 expected = response.headers.get("Content-Length")
                 size = 0
-                while chunk := response.read(1 << 20):
+                started = time.monotonic()
+                while chunk := response.read(1 << 16):
                     out.write(chunk)
                     size += len(chunk)
+                    if time.monotonic() - started > deadline:
+                        raise TimeoutError(f"read {size} bytes in {deadline:g}s, too slow")
             if expected is not None and size != int(expected):
                 raise ConnectionError(f"read {size} of {expected} bytes")
             os.replace(partial, args.download_to)
@@ -393,7 +399,7 @@ def _report_upload_error(args: argparse.Namespace, error: BaseException, amz_dat
                 ):
                     print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
                     return 0
-            except (urllib.error.HTTPError, RuntimeError) as retry_error:
+            except (urllib.error.HTTPError, RuntimeError, OSError, http.client.HTTPException) as retry_error:
                 if isinstance(retry_error, ImmutableConflict):
                     if args.conflict_exit_code is not None:
                         sys.stderr.write(f"another publisher wrote it first: {retry_error}\n")
