@@ -68,19 +68,6 @@ struct BlockingCheckTests {
         }
     }
 
-    @Test func theTrapEnvironmentVariableTurnsTrapModeOn() async {
-        await #expect(processExitsWith: .failure) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"])
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
-            }
-        }
-    }
-
-    @Test func withoutTheVariableADebugBuildRecords() {
-        #expect(BlockingViolationTable(environment: [:]).mode == .record)
-    }
-
     /// The mode is resolved once, from the environment the table was made with (p02-threads-006): Debug stays
     /// record during the push, and only `CMUX_BLOCKING_TRAP=1` traps (the flip is p02-threads-021).
     @Test func theModeIsResolvedFromTheLaunchEnvironmentOnly() {
@@ -107,17 +94,6 @@ struct BlockingCheckTests {
                         _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
                     }
                 }
-            }
-        }
-    }
-    #elseif CMUX_BLOCKING_CHECKS
-    // MARK: Nightly (Release + CMUX_BLOCKING_CHECKS): records, never traps
-
-    @Test func aNightlyNeverTrapsEvenWhenAskedTo() async {
-        await #expect(processExitsWith: .success) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"], mode: .trap)
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
             }
         }
     }

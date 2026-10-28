@@ -133,3 +133,73 @@ fn api_revision_too_old_refusal_names_the_clients_update_command() {
     assert!(identity["install"].is_string());
     mux.shutdown();
 }
+
+/// A writer answering a framed request.
+fn frame_writer(writer: &MessageWriter) -> MessageWriter {
+    let tables = cmux_ipc::MethodTables::schema();
+    let method = tables.v12_id("ping").and_then(|id| tables.method(id)).unwrap();
+    let call = cmux_ipc::CallAux {
+        request_id: 1,
+        method_id: method.id.raw(),
+        priority: method.priority,
+        flags: cmux_ipc::CallFlags::empty(),
+    };
+    writer.replying_to(Arc::new(frame_dispatch::FrameCall::new(0, call)))
+}
+
+/// The upgrade of `line` through `writer`, and the JSON parses it took.
+fn upgrade_with_parses(writer: &MessageWriter, line: &str) -> (String, u64) {
+    let stats = crate::diagnostics::IpcStats::default();
+    let upgraded = {
+        let _scope = crate::diagnostics::JsonParseScope::enter(
+            &stats,
+            crate::diagnostics::IpcTransport::Frames,
+        );
+        writer.upgrade_request(line).into_owned()
+    };
+    (upgraded, stats.snapshot().parses.frames.json_parses)
+}
+
+/// A framed body is never upgraded: frames exist only at this daemon's
+/// revision, so not even a parse runs for one, while the same connection's
+/// line from its older revision is upgraded.
+#[test]
+fn api_revision_frames_take_no_upgrade_parse() {
+    let line = r#"{"id":"r1","cmd":"rename-tab","tab":4,"title":"logs"}"#;
+    let (writer, _outbound) = translating_writer(12);
+    let (framed, parses) = upgrade_with_parses(&frame_writer(&writer), line);
+    assert_eq!((framed.as_str(), parses), (line, 0));
+    let (upgraded, parses) = upgrade_with_parses(&writer, line);
+    assert_eq!(parses, 1);
+    assert_eq!(
+        serde_json::from_str::<Value>(&upgraded).unwrap(),
+        json!({"id":"r1","cmd":"rename-tab","tab":4,"name":"logs"})
+    );
+
+    let (writer, _outbound) = translating_writer(13);
+    assert!(writer.api_revision.is_current());
+    assert_eq!(upgrade_with_parses(&frame_writer(&writer), line), (line.to_string(), 0));
+}
+
+/// An N-1 client is not current, so it is offered and granted no frames
+/// (capabilities.rs), and gets its replies as JSON lines downgraded to its
+/// revision.
+#[test]
+fn api_revision_frames_n_minus_one_client_gets_downgraded_json() {
+    let (writer, outbound) = translating_writer(12);
+    assert!(!writer.api_revision.is_current());
+    assert!(!writer.api_revision.current_or_undeclared());
+    let frames = capabilities::IpcCapability::ALL
+        .into_iter()
+        .filter(|capability| {
+            capability.allowed(capabilities::IpcPeer::Local, writer.api_revision.is_current())
+        })
+        .map(capabilities::IpcCapability::name)
+        .collect::<Vec<_>>();
+    assert!(!frames.contains(&line_connection::IPC_FRAMES_CAPABILITY), "{frames:?}");
+
+    let line = r#"{"id":"r1","cmd":"rename-tab","tab":4,"title":"logs"}"#;
+    let _ = writer.upgrade_request(line);
+    writer.send_reply(&json!({"id":"r1","ok":true,"data":{"name":"logs"}})).unwrap();
+    assert_eq!(pop(&outbound), json!({"id":"r1","ok":true,"data":{"title":"logs"}}));
+}

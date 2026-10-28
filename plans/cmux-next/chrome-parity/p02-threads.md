@@ -449,7 +449,7 @@ Each hit or row is one task item; the orchestrator chunks at 25 hits by call-gra
 - **MQ-20 std lock types in daemon request paths.** clippy disallowed_types for std::sync::{Mutex,RwLock,Condvar} opted in per module in server/ and mux/. Task 227.
 - **MQ-21 one-shot daemon threads.** Spawns whose closure has no loop, and every `name(format!(` per-id thread (16 in cmux-tui-core). Task 230.
 - **MQ-22 once-blocking.** `--rule once-blocking` (11). Task 122.
-- **MQ-23 compiler permit queue.** After task 111: `swift build 2>&1 | rg 'blocking.*deprecated|unavailable from asynchronous'` on the fleet. Each diagnostic is an MQ-1/MQ-3 item; the queue is empty when INV-1 is.
+- **MQ-23 compiler permit queue.** After task 111: `swift build 2>&1 | rg 'is deprecated: Pass the BlockingPermit|unavailable from asynchronous'` on the fleet. Each diagnostic is an MQ-1/MQ-3 item; the queue is empty when INV-1 is.
 
 ## 7. Schedule and test phases (72 h)
 

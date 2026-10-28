@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextWakeups
 
@@ -28,7 +28,7 @@ public import CmuxNextWakeups
 /// - Fullscreen hides the location bar (`PopupBrowserSupportsWindowFeature`).
 /// - Escape stops a load and never closes the window
 ///   (`IDC_CLOSE_FIND_OR_STOP`); Cmd-W and `window.close()` close it.
-public final class BrowserPopupWindow: NSWindow, InputTapHosting {
+public final class BrowserPopupWindow: NSWindow, PageSurfaceHosting, InputTapHosting, TextInputStageHosting {
     /// The toolbar under the title bar: the location bar, with the 1 pt
     /// separator to the page inside it so the page gets the size it asked for.
     static let toolbarHeight: CGFloat = 34
@@ -45,6 +45,10 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
     public static var chromeHeight: CGFloat { titlebarHeight + toolbarHeight }
 
     public let page: any BrowserTab
+    /// Where the popup's page draws (``CEFTab/pageSurface``, the process's backend): in process the fork's
+    /// page window is a child of this window; with the Chromium Host the page is a view in it, and the
+    /// window's overlay host runs no page-window order check.
+    public let pageSurface: PageSurface
     public var onClose: (() -> Void)?
     /// Set for a system sign-in window (`WebAuthSessionWindow`), where
     /// Escape cancels like the system sheet's Cancel button; a page's popup
@@ -59,10 +63,15 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
     /// The app's input tap: the omnibar and find pill read the event in dispatch from it, as they do
     /// in a main window (a click that focuses the omnibar selects the whole address).
     public let inputTap: InputEventTap?
-    private var observation: Task<Void, Never>?
+    /// The app's text input stage: the omnibar's field editor times its input method calls in the key's latency
+    /// slot with it, as in a main window (``TextInputStageHosting``).
+    public let textInputStage: TextInputStage?
+    /// The window title following the page's (``observeTitle(on:)``).
+    private var titleWatch: ServiceObservation<String>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
-    private var fullscreenObservers: [MainActorObservation] = []
+    /// The window's own full-screen notices, through its ``WindowEvents`` (``observeFullscreen()``).
+    private var fullscreenWatches: [EventSubscription] = []
 
     /// A popup window showing `page`.
     ///
@@ -76,10 +85,15 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
     ///     lose the sign-in).
     ///   - mainWork: The app's one main-thread scheduler; the location bar follows the page on it.
     ///   - inputTap: The app's one input tap (``InputTapHosting``).
+    ///   - textInputStage: The app's one text input stage (``TextInputStageHosting``); nil where no address is
+    ///     typed (a system sign-in window) or in tests.
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
-                readOnlyAddress: Bool = false, mainWork: MainWorkScheduler, inputTap: InputEventTap?) {
+                readOnlyAddress: Bool = false, mainWork: MainWorkScheduler, inputTap: InputEventTap?,
+                textInputStage: TextInputStage? = nil) {
         self.page = page
+        pageSurface = (page as? CEFTab)?.pageSurface ?? .childWindows
         self.inputTap = inputTap
+        self.textInputStage = textInputStage
         locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine, mainWork: mainWork)
         locationBar.addressBar.isReadOnly = readOnlyAddress
         locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)
@@ -97,18 +111,19 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
         // Kind `.browserPopup`: the three traffic lights and the one surface
         // background; the opener's scope is adopted when it opens.
         install(kind: .browserPopup, content: makeContent(), scope: .app)
-        title = Self.title(for: page.state)
-        observeTitle()
+        observeTitle(on: mainWork)
         observeFullscreen()
     }
 
-    /// Page title, live.
-    private func observeTitle() {
+    /// Page title, live: set now, then once per change of the title it shows. A window's title shows while the
+    /// window is occluded too (the Window menu, Mission Control), so it follows the page as a visible service,
+    /// not by a view's node; the page's own changes are its program's, flushed as one visible task.
+    private func observeTitle(on mainWork: MainWorkScheduler) {
         let page = page
-        observation = Task { [weak self] in
-            for await state in ObservationStream({ page.state }) {
-                self?.title = Self.title(for: state)
-            }
+        titleWatch = ServiceObservation(.visible, owner: "BrowserPopupWindow.title", on: mainWork) {
+            Self.title(for: page.state)
+        } apply: { [weak self] title in
+            self?.title = title
         }
     }
 
@@ -179,14 +194,18 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
         }
     }
 
-    /// Fullscreen shows only the page (Chrome hides a popup's location bar there).
+    /// Fullscreen shows only the page (Chrome hides a popup's location bar there). The window's one
+    /// ``WindowEvents`` observes each notice once for every subscriber in it.
     private func observeFullscreen() {
-        let center = NotificationCenter.default
-        for (name, isFull) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
-            fullscreenObservers.append(MainActorObservation(name, object: self, center: center) { [weak self] in
-                self?.showToolbar(!isFull)
-            })
-        }
+        let events = WindowEvents.of(self)
+        fullscreenWatches = [
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "BrowserPopupWindow.fullscreen") { [weak self] in
+                self?.showToolbar(false)
+            },
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "BrowserPopupWindow.fullscreen") { [weak self] in
+                self?.showToolbar(true)
+            },
+        ]
     }
 
     /// Shows or hides the title bar gap, the location bar and its separator.
@@ -226,9 +245,10 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
 
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.
     override public func close() {
-        observation?.cancel()
-        observation = nil
-        fullscreenObservers.removeAll()
+        titleWatch?.cancel()
+        titleWatch = nil
+        for watch in fullscreenWatches { watch.cancel() }
+        fullscreenWatches.removeAll()
         omnibar.stop()
         let closed = onClose
         onClose = nil

@@ -72,7 +72,9 @@ enum CheckedFont {
     /// non-optional type and fold the test away.
     @inline(never)
     nonisolated static func nonNull(_ font: NSFont) -> NSFont? {
-        unsafeBitCast(font, to: NSFont?.self)
+        // SAFETY: NSFont and NSFont? are both one object reference (nil is the null pointer), so the cast only
+        // lets a null that AppKit returned against its nonnull annotation be tested; it never invents a font.
+        unsafe unsafeBitCast(font, to: NSFont?.self)
     }
 
     /// The font `make` returns, else the system font at `size`, else
@@ -92,7 +94,8 @@ enum CheckedFont {
         logger.fault("AppKit returned a nil font at \(Double(size), privacy: .public) pt; falling back")
         let system = NSFont.systemFont(ofSize: pointSize)
         if let font = nonNull(system) { return (font, true) }
-        let helvetica = unsafeBitCast(CTFontCreateWithName("Helvetica" as CFString, pointSize, nil), to: NSFont.self)
+        // SAFETY: CTFont and NSFont are toll-free bridged: one CTFontRef is a valid NSFont reference.
+        let helvetica = unsafe unsafeBitCast(CTFontCreateWithName("Helvetica" as CFString, pointSize, nil), to: NSFont.self)
         if let font = nonNull(helvetica) { return (font, true) }
         // The last resolved font is at another size, but never null once any
         // font resolved in this process (the first chrome draw does).

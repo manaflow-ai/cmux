@@ -27,29 +27,40 @@ no `unavailable`, no WebKit fallback, state ready, no web-dev.json dev server) a
 `debug.layers`; anything else exits 2 without measuring (a WebKit page would be measured silently otherwise). The
 report records the host, its macOS and each display's resolution line with its refresh rate.
 
-Each key is `debug.key` with the client's send time as the event's timestamp (CLOCK_UPTIME_RAW), so the probe's
-`contents_ms` is send to the frame that shows the echo, the wait for the main thread included. Per phase: key to frame
-p50/p95/p99/max (scripts/perf-lab/perf_stats.py through typing_report.distribution), the main-thread stalls over 8 ms (`debug.hangs`, each naming the scheduled task it caught), the tasks past
-their class budget with stacks (`debug.hangs` over_budget), the scheduler counters (`debug.main_budget`), the agents'
-operation counts and latencies. Each layout's key-to-frame samples, all rounds of a phase kind together, are also one
+Input (--input, bench_input.py, shared with sidebar-churn-typing.py): `real` posts each key at the HID event tap, so
+it takes a person's path through the window server and the app's event queue, and the probe's `contents_ms` is the
+event's HID time to the frame that shows the echo (the number to quote; the job needs the GUI session and the input
+grant, and the app runs frontmost). `debug` (default) is `debug.key` with the client's send time as the event's
+timestamp (CLOCK_UPTIME_RAW): the socket's injected-input lane, never quoted as key latency. Per phase: key to frame
+p50/p95/p99/max (scripts/perf-lab/perf_stats.py through typing_report.distribution), the scheduler's turn p99,
+unattributed share, input yields and input-response yields (debug.main_budget; None until the app reports them), the
+main-thread stalls over 8 ms (`debug.hangs`, each naming the scheduled task it caught), the tasks past their class
+budget with stacks (`debug.hangs` over_budget), the scheduler counters (`debug.main_budget`), the agents' operation
+counts and latencies. Each layout's key-to-frame samples, all rounds of a phase kind together, are also one
 cmux-perf-result/v1 file per series in --out (BenchApp.record): story --story (default `automation-typing`) for the
-light layout and `<story>-stress` for STRESS, metrics `idle.key_to_frame` and `automation.key_to_frame`, engine
-chromium (the browser agent's page).
+light layout and `<story>-stress` for STRESS, metrics `idle.key_to_frame` and `automation.key_to_frame`
+(`hid_key_to_frame` with --input real: another path, another series), engine chromium (the browser agent's page).
 
   automation-typing-bench.py --app APP --out DIR [--json DIR/report.json] [--layouts light,stress] [--agents 10]
-      [--agent-hz 40] [--samples 120] [--rounds 1] [--ax] [--gate-p95-ms 8] [--gate-stall-ms 8] [--story ID]
+      [--agent-hz 40] [--samples 120] [--rounds 1] [--ax] [--input debug|real] [--gate-p95-ms 8] [--gate-stall-ms 8]
+      [--story ID]
+
+The summary per layout keeps its idle/automation p95 and p99 keys and adds `modes`: {input mode: idle and storm
+(automation) key-to-frame p50/p95/p99/max, storm minus idle p99, and each side's turn p99, unattributed share and
+yield counts}.
 
 Gates (exit 1): any layout's automation phase key-to-frame p95 over --gate-p95-ms, or a main-thread stall longer than
 --gate-stall-ms. Fleet: `cmux-ci run --class exclusive --measurement --label measure --script
 scripts/measure/split-spring.sh --ref SHA --artifact artifacts/split-spring/report.json --arg=--suite=automation-typing`.
 """
-import argparse, csv, importlib.util, json, os, pathlib, random, subprocess, sys, threading, time
+import argparse, csv, importlib.util, json, os, pathlib, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_tagged  # noqa: E402
 import typing_report  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_input import INPUT_HELP, INPUT_MODES, KeySender, budget_summary, frame_samples, mode_summary, typed_key  # noqa: E402
 
 
 def load(name, file):
@@ -72,6 +83,7 @@ parser.add_argument("--agent-hz", type=float, default=40.0, help="terminal agent
 parser.add_argument("--samples", type=int, default=120)
 parser.add_argument("--interval", type=float, default=0.12, help="seconds between keys (wider than one echo)")
 parser.add_argument("--rounds", type=int, default=1)
+parser.add_argument("--input", choices=INPUT_MODES, default="debug", help=INPUT_HELP)
 parser.add_argument("--ax", action="store_true", help="also walk the app's AX tree in a loop (needs the Accessibility grant)")
 parser.add_argument("--rows", type=int, default=3000, help="rows on the browser agent's page")
 parser.add_argument("--gate-p95-ms", type=float)
@@ -86,7 +98,7 @@ OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 PROBE = os.path.join(OUT, "typing.csv")
 results = {"host": load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "opts": vars(opts), "log": [],
-           "phases": []}
+           "input": opts.input, "phases": []}
 SAMPLES = {}  # layout -> result-v1 metric -> key-to-frame samples, every round together
 
 
@@ -119,13 +131,13 @@ def probe_rows():
         return []
 
 
-APP = BenchApp(opts.app, out=OUT, env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"},
-               window=(40, 40, 1200, 900))
-
-
 def rpc(method, params=None, timeout=60):
-    reply = APP.rpc(method, params, timeout=timeout)
-    return reply
+    return APP.rpc(method, params, timeout=timeout)
+
+
+KEYS = KeySender(opts.input, lambda key, timestamp: rpc("debug.key", {"key": key, "timestamp": timestamp}, timeout=10))
+APP = BenchApp(opts.app, out=OUT, env=KEYS.launch_env({"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}),
+               window=(40, 40, 1200, 900))
 
 
 def cli(*args, timeout=60):
@@ -250,12 +262,10 @@ def ax_client(pid, seconds):
 
 # ---------------------------------------------------------------- typing
 def type_keys(count, label):
-    keys = "abcdefghijklmnopqrstuvwxyz"
     trips, stalls = [], 0
     for index in range(count):
         t0 = time.perf_counter()
-        key = "return" if index % 50 == 49 else keys[index % len(keys)]
-        reply = rpc("debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
+        reply = KEYS.send(typed_key(index))
         trip = (time.perf_counter() - t0) * 1000
         trips.append(trip)
         if trip > 2000 or (isinstance(reply, dict) and reply.get("error")):
@@ -271,7 +281,8 @@ def type_keys(count, label):
 
 
 def phase(name, loads, pid, ax=False, series=None):
-    """One typing phase; `series` is (layout, metric) whose result-v1 samples get this phase's key-to-frame values."""
+    """One typing phase; `series` is (layout, phase kind: idle or automation) whose result-v1 series gets this phase's
+    key-to-frame values."""
     rows_before = len(probe_rows())
     rpc("debug.hangs", {"clear": True})
     rpc("debug.main_budget", {"reset": True})
@@ -299,16 +310,19 @@ def phase(name, loads, pid, ax=False, series=None):
     budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
+    samples = frame_samples(rows)
     if series:
-        layout, metric = series
-        SAMPLES.setdefault(layout, {}).setdefault(metric, []).extend(float(r["contents_ms"]) for r in complete)
+        layout, phase_kind = series
+        metric = typing_report.churn_metric(phase_kind, KEYS.real)
+        SAMPLES.setdefault(layout, {}).setdefault(metric, []).extend(samples)
     hangs = hangs if isinstance(hangs, dict) else {}
     entry = {
         "phase": name, "wall_s": round(wall, 1), "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": dist(trips),
-        "complete": len(complete), "key_to_frame_ms": dist([float(r["contents_ms"]) for r in complete]),
+        "complete": len(complete), "key_to_frame_ms": dist(samples), "key_to_frame_samples_ms": samples,
         "key_to_dispatch_ms": dist([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms", "over_budget_count")},
         "hang_records": hangs.get("records"), "over_budget": hangs.get("over_budget"), "main_budget": budget,
+        "budget": budget_summary(budget),
         "loads": {load.name_: load.report(wall) for load in loads}, "ax": ax_out or ax_note,
     }
     k = entry["key_to_frame_ms"] or {}
@@ -337,12 +351,16 @@ def chromium_problems(cef):
 def run_layout(layout, tabs, browser_tab, pid):
     """The idle and automation phases of `layout` (--rounds each), typed into the focused terminal."""
     rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal
+    KEYS.bring_front(pid)  # a real key goes to the frontmost app's key window
     time.sleep(4)
+    rows_before_warmup = len(probe_rows())
     type_keys(10, f"{layout}-warmup")
+    if KEYS.real and len(probe_rows()) <= rows_before_warmup:
+        sys.exit(f"--input real ({layout}): no key reached the app (not frontmost, or this session has no input grant)")
     for r in range(opts.rounds):
-        phase(f"{layout}-idle-{r}", [], pid, series=(layout, "idle.key_to_frame"))
+        phase(f"{layout}-idle-{r}", [], pid, series=(layout, "idle"))
         loads = ([terminal_agents(tabs)] if tabs else []) + ([browser_agent(browser_tab)] if browser_tab else [])
-        phase(f"{layout}-automation-{r}", loads, pid, ax=opts.ax, series=(layout, "automation.key_to_frame"))
+        phase(f"{layout}-automation-{r}", loads, pid, ax=opts.ax, series=(layout, "automation"))
     idle = [p for p in results["phases"] if p["phase"].startswith(f"{layout}-idle") and p.get("key_to_frame_ms")]
     busy = [p for p in results["phases"] if p["phase"].startswith(f"{layout}-automation") and p.get("key_to_frame_ms")]
     if not (idle and busy):
@@ -353,7 +371,8 @@ def run_layout(layout, tabs, browser_tab, pid):
             "automation_p99_ms": max(p["key_to_frame_ms"]["p99"] for p in busy),
             "automation_max_ms": max(p["key_to_frame_ms"]["max"] for p in busy),
             "automation_stalls": sum(p["hangs"].get("count") or 0 for p in busy),
-            "automation_stall_max_ms": max((p["hangs"].get("max_ms") or 0) for p in busy)}
+            "automation_stall_max_ms": max((p["hangs"].get("max_ms") or 0) for p in busy),
+            "modes": {opts.input: mode_summary(opts.input, idle, busy)}}
 
 
 def record_results():

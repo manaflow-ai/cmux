@@ -68,7 +68,7 @@ impl WorkspaceRoot {
         let unix = {
             let canonical = canonical.clone();
             let expected = (metadata.dev(), metadata.ino());
-            tokio::task::spawn_blocking(move || UnixWorkspaceRoot::open(canonical, expected))
+            cmux_blocking::spawn_blocking(move || UnixWorkspaceRoot::open(canonical, expected))
                 .await
                 .map_err(|error| {
                     RpcError::new("internal", format!("workspace root open task failed: {error}"))
@@ -117,7 +117,7 @@ impl WorkspaceRoot {
         #[cfg(unix)]
         {
             let unix = self.unix.clone();
-            tokio::task::spawn_blocking(move || unix.resolve_existing(&relative)).await.map_err(
+            cmux_blocking::spawn_blocking(move || unix.resolve_existing(&relative)).await.map_err(
                 |error| {
                     RpcError::new(
                         "internal",
@@ -143,7 +143,7 @@ impl WorkspaceRoot {
         #[cfg(unix)]
         {
             let unix = self.unix.clone();
-            tokio::task::spawn_blocking(move || unix.resolve_entry(&relative)).await.map_err(
+            cmux_blocking::spawn_blocking(move || unix.resolve_entry(&relative)).await.map_err(
                 |error| {
                     RpcError::new(
                         "internal",
@@ -419,7 +419,7 @@ impl UnixWorkspaceRoot {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound && create_missing => {
                     match mkdir_at(current.as_raw_fd(), &name) {
                         Ok(()) => {
-                            current.sync_all().map_err(|error| {
+                            cmux_threads::checked::fs::sync_all(&current).map_err(|error| {
                                 io_error(
                                     "sync-directory",
                                     display.parent().unwrap_or(&display),
@@ -491,7 +491,7 @@ impl UnixWorkspaceRoot {
                 relative.to_owned()
             } else {
                 self.require_registered_path_identity(target)?;
-                let canonical = std::fs::canonicalize(target)
+                let canonical = cmux_blocking::fs::canonicalize(target)
                     .map_err(|error| io_error("resolve-symlink", target, error))?;
                 canonical
                     .strip_prefix(&self.display)
@@ -512,7 +512,7 @@ impl UnixWorkspaceRoot {
     }
 
     fn require_registered_path_identity(&self, target: &Path) -> Result<(), RpcError> {
-        let metadata = std::fs::metadata(&self.display).map_err(|_| {
+        let metadata = cmux_blocking::fs::metadata(&self.display).map_err(|_| {
             RpcError::new(
                 "path-outside-workspace",
                 format!(
@@ -699,9 +699,7 @@ impl UnixWorkspaceTarget {
     }
 
     pub(crate) fn sync_parent(&self) -> Result<(), RpcError> {
-        self.parent
-            .directory
-            .sync_all()
+        cmux_threads::checked::fs::sync_all(&self.parent.directory)
             .map_err(|error| io_error("sync-directory", self.parent_display(), error))
     }
 

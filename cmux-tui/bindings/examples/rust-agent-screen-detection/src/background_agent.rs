@@ -233,6 +233,8 @@ mod platform {
     }
 
     fn process_bsdinfo(pid: u32) -> Option<libc::proc_bsdinfo> {
+        // SAFETY: proc_bsdinfo is a plain C struct of integers and char arrays, so all-zero bytes
+        // are a valid value.
         let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
         let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
         // SAFETY: `info` is a writable proc_bsdinfo of exactly `size` bytes.

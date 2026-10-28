@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// `sidebar.border` and `sidebar.borderWidth` in cmux-next.json (R93): a
 /// line on the sidebar's trailing edge. Off by default: the sidebar sits on

@@ -1,0 +1,18 @@
+{
+  "id": "swift-tab-switch-swap",
+  "tier": "builder",
+  "description": "TabSwitchViewSwapBench: a warm tab switch's view swap (PaneContentView.show and that frame) for a parked and an unparked internal page with a live web process and for a WebKit browser tab.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-tab-switch-swap", "--filter", "TabSwitchViewSwapBench", "--env", "CMUX_TAB_SWITCH_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.tab_switch_swap\\.[a-z-]+\\.switch", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabSwitchViewSwapBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-switch",
+  "component": "Switch>Tab",
+  "hot_paths": ["tab-switch"]
+}

@@ -1,20 +1,14 @@
 /// Parses an RFC 3339 / ISO 8601 timestamp (`2026-10-01T10:00:00.123Z`,
 /// offsets `+02:00`, a space instead of `T`) to Unix milliseconds.
 pub fn parse_rfc3339_ms(text: &str) -> Option<i64> {
-    let bytes = text.trim().as_bytes();
-    if bytes.len() < 19
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || bytes[13] != b':'
-        || bytes[16] != b':'
-    {
+    let (head, mut rest) = text.trim().as_bytes().split_at_checked(19)?;
+    let [_, _, _, _, b'-', _, _, b'-', _, _, b'T' | b't' | b' ', _, _, b':', _, _, b':', _, _] =
+        head
+    else {
         return None;
-    }
-    if !matches!(bytes[10], b'T' | b't' | b' ') {
-        return None;
-    }
+    };
     let num = |range: std::ops::Range<usize>| -> Option<i64> {
-        let digits = bytes.get(range)?;
+        let digits = head.get(range)?;
         if !digits.iter().all(u8::is_ascii_digit) {
             return None;
         }
@@ -30,27 +24,26 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     {
         return None;
     }
-    let mut rest = &bytes[19..];
     let mut millis = 0i64;
     if let Some((b'.', frac)) = rest.split_first() {
         let len = frac.iter().take_while(|byte| byte.is_ascii_digit()).count();
-        if len == 0 {
+        let (digits, after) = frac.split_at_checked(len)?;
+        if digits.is_empty() {
             return None;
         }
-        for (index, digit) in frac[..len.min(3)].iter().enumerate() {
-            millis += i64::from(digit - b'0') * [100, 10, 1][index];
+        for (digit, scale) in digits.iter().zip([100, 10, 1]) {
+            millis += i64::from(digit - b'0') * scale;
         }
-        rest = &frac[len..];
+        rest = after;
     }
     let offset_minutes = match rest {
         [] | [b'Z' | b'z'] => 0,
         [sign @ (b'+' | b'-'), h1, h2, b':', m1, m2] | [sign @ (b'+' | b'-'), h1, h2, m1, m2] => {
-            let digits = [*h1, *h2, *m1, *m2];
-            if !digits.iter().all(u8::is_ascii_digit) {
+            if ![h1, h2, m1, m2].iter().all(|digit| digit.is_ascii_digit()) {
                 return None;
             }
             let value = |a: u8, b: u8| i64::from(a - b'0') * 10 + i64::from(b - b'0');
-            let minutes = value(digits[0], digits[1]) * 60 + value(digits[2], digits[3]);
+            let minutes = value(*h1, *h2) * 60 + value(*m1, *m2);
             if *sign == b'-' { -minutes } else { minutes }
         }
         _ => return None,

@@ -1,6 +1,5 @@
 import CmuxNextDesign
 import CoreGraphics
-import CmuxNextWakeups
 
 /// Group-related state of a `TabStripView`, kept in one struct so the view
 /// file stays small.
@@ -42,15 +41,6 @@ struct TabStripGroupState {
     var dropPayload: TabDragPayload?
     /// Width of the gap an external group drag opens.
     var phantomWidth: CGFloat?
-    /// Click-and-hold timer for the editor bubble.
-    var holdTask: Task<Void, Never>?
-    /// Injected so tests and demos can drive the hold delay.
-    var sleep: @Sendable (Duration) async throws -> Void = {
-        // wakeup-allow: deadline of one click-and-hold (injected for tests), cancelled on mouse up;
-        // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
-        try await ContinuousClock().sleep(for: $0, tolerance: WakeLeeway.window(delay: $0).tolerance)
-    }
-
     func chipWidths() -> [TabGroupID: CGFloat] {
         chips.mapValues(\.slotWidth)
     }
