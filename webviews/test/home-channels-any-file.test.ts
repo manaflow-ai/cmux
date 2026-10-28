@@ -50,7 +50,7 @@ describe("Channels attachments: any file", () => {
 
   test("a UTF-8 character just beyond the sniff prefix remains text", () => {
     const body = new Uint8Array([...bytes("a".repeat(65_535)), ...bytes("é")]);
-    const file = new File([body], "boundary.txt", { type: "" });
+    const file = new File([body], "boundary.unknown", { type: "" });
     expect(resolvedType(file, body.subarray(0, 64 * 1024))).toBe("text/plain");
   });
 
@@ -125,6 +125,7 @@ describe("Channels attachments: any file", () => {
     };
     const header = new Uint8Array(24);
     header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    header.set(bytes("IHDR"), 12);
     new DataView(header.buffer).setUint32(16, 0xffff_ffff);
     new DataView(header.buffer).setUint32(20, 0xffff_ffff);
     const file = new File([header], "bomb.png", { type: "image/png" });
