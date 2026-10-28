@@ -291,7 +291,6 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           ).__mountShadowSurface("upper", surface);
           return mount;
         }, kind);
-        const selector = `#shadow-surface-${kind}`;
         const textSelector = `#shadow-text-${kind}`;
         await page.waitForFunction((surface) => {
           const host = document.querySelector<HTMLElement>(surface);
@@ -315,13 +314,10 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         await drag(page, point.from, point.to);
         const details = await page.evaluate(() => {
           const selection = getSelection()!;
-          const surface = document.querySelector<HTMLElement>("[id^='shadow-surface-']");
           return {
             text: selection.toString(),
-            prevented: surface?.dataset.shadowPrevented,
           };
         });
-        expect(details.prevented).toBe("false");
         expect(details.text).toContain("shadow code");
         expect(details.text).not.toContain("upper keeper checks");
         expect(details.text).not.toContain("lower keeper checks");

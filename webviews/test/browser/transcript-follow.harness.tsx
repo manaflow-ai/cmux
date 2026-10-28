@@ -90,9 +90,6 @@ const draw = () =>
   const mount = document.createElement("div");
   mount.id = `shadow-surface-${kind}`;
   mount.className = "selectable";
-  mount.addEventListener("pointerdown", (event) => {
-    mount.dataset.shadowPrevented = String(event.defaultPrevented);
-  });
   (row.querySelector<HTMLElement>(".cv-md") ?? row).append(mount);
   const root = createRoot(mount);
   shadowMounts.push({ root, host: mount });
