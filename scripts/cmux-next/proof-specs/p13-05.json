@@ -1,0 +1,17 @@
+{
+ "row": "p13-05",
+ "toggle": "rendererlessSpareWindow",
+ "inner": "memory",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "footprint=^samples\\.\\*\\.total_footprint_mb$"
+ ],
+ "validity": [],
+ "probe": [],
+ "inner_args": [
+  "--workspaces=1,10",
+  "--mix=terminal,terminal+browser,terminal+chat",
+  "--settle=30"
+ ]
+}

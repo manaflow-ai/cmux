@@ -1,0 +1,19 @@
+{
+ "row": "p06-04",
+ "toggle": "renderStarvationGuard",
+ "inner": "anim-perf",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "dropped=^summary\\.\\*\\.dropped$",
+  "frame_p95=^summary\\.\\*\\.p95_ms$",
+  "main_ms=^summary\\.\\*\\.main_ms_max$"
+ ],
+ "validity": [],
+ "probe": [
+  "starvation guard held main work|debug.main_budget|{}|^render_starvation\\.(held_tasks\\.[^.]+|held_slices)$|1"
+ ],
+ "inner_args": [
+  "--rounds=1"
+ ]
+}

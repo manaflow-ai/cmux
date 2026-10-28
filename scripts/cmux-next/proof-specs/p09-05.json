@@ -1,0 +1,23 @@
+{
+ "row": "p09-05",
+ "toggle": "metricsView",
+ "inner": "typing-frame",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "term_idle=^summary_p95_ms\\.stress\\.terminal\\.idle\\.\\*$",
+  "term_load=^summary_p95_ms\\.stress\\.terminal\\.load\\.\\*$",
+  "omni_load=^summary_p95_ms\\.stress\\.omnibar\\.load\\.\\*$"
+ ],
+ "validity": [],
+ "probe": [
+  "key.frame field histogram samples served by metrics.snapshot|metrics.snapshot|{\"names\":[\"key.frame\"]}|^histograms\\.\\*\\.count$|1"
+ ],
+ "inner_args": [
+  "--sessions=stress",
+  "--surfaces=terminal,omnibar",
+  "--phases=idle,load",
+  "--rounds=1",
+  "--samples=60"
+ ]
+}

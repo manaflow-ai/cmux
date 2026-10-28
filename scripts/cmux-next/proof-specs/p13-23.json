@@ -1,0 +1,21 @@
+{
+ "row": "p13-23",
+ "toggle": "pagePushChannel",
+ "inner": "typing-frame",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "term_idle=^summary_p95_ms\\.light\\.terminal\\.idle\\.\\*$",
+  "term_load=^summary_p95_ms\\.light\\.terminal\\.load\\.\\*$",
+  "omni_load=^summary_p95_ms\\.light\\.omnibar\\.load\\.\\*$"
+ ],
+ "validity": [],
+ "probe": [],
+ "inner_args": [
+  "--sessions=light",
+  "--surfaces=terminal,omnibar",
+  "--phases=idle,load",
+  "--rounds=1",
+  "--samples=60"
+ ]
+}

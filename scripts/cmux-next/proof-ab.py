@@ -274,12 +274,27 @@ def main():
     parser.add_argument("--row", default="", help="the prove-or-remove row id(s) this A/B is for (reported)")
     parser.add_argument("--keep-raw", type=int, default=1)
     parser.add_argument("--summarize", help="offline: summarize this report again")
+    parser.add_argument("--spec", help="a JSON file in this checkout (proof-specs/<row>.json) with toggle, inner, runs, row, "
+                                       "metric, validity, probe and inner_args: the fleet controller allows only "
+                                       "[A-Za-z0-9._/@+=,:-] and 16 args per step, so regexes and JSON travel in the file")
     argv = sys.argv[1:]
     inner_args = []
     if "--" in argv:
         cut = argv.index("--")
         argv, inner_args = argv[:cut], argv[cut + 1:]
     opts = parser.parse_args([a for a in argv if a != "--suite=proof-ab"])
+    if opts.spec:
+        here_root = os.path.dirname(os.path.dirname(HERE))
+        path = opts.spec if os.path.isabs(opts.spec) else os.path.join(here_root, opts.spec)
+        with open(path) as handle:
+            spec = json.load(handle)
+        for name in ("toggle", "inner", "runs", "row", "run_timeout"):
+            if name in spec and spec[name] is not None:
+                setattr(opts, name, spec[name])
+        opts.metric = list(opts.metric) + list(spec.get("metric") or [])
+        opts.validity = list(opts.validity) + list(spec.get("validity") or [])
+        opts.probe = list(opts.probe) + list(spec.get("probe") or [])
+        inner_args = list(spec.get("inner_args") or []) + inner_args
     metrics = [parse_metric(m) for m in opts.metric]
     opts.validity_parsed = [parse_validity(v) for v in opts.validity]
     opts.probes_parsed = [parse_probe(p) for p in opts.probe]

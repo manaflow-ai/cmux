@@ -1,0 +1,18 @@
+{
+ "row": "p07-04",
+ "toggle": "memorySaverSetting,memoryDiscardInternalPages,memoryDiscardPageTabs,memoryDiscardConversations,topPageDiscard,memoryDiscardSidebarSections,memoryDiscardRemoteTabs,memoryDiscardAgentPagesOverBudget",
+ "inner": "memory",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "footprint=^samples\\.\\*\\.total_footprint_mb$"
+ ],
+ "validity": [],
+ "probe": [],
+ "inner_args": [
+  "--workspaces=1,10",
+  "--mix=terminal+browser,terminal+chat,terminal",
+  "--settle=360",
+  "--config={\"memory\":{\"saver\":\"aggressive\"}}"
+ ]
+}

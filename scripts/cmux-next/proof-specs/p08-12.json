@@ -1,0 +1,23 @@
+{
+ "row": "p08-12",
+ "toggle": "cefLaunchOrigin",
+ "inner": "launch",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "first_frame=\\.(cold|warm)\\.\\*\\.first_window_frame_committed$",
+  "first_terminal=\\.(cold|warm)\\.\\*\\.first_terminal_frame$"
+ ],
+ "validity": [],
+ "probe": [],
+ "inner_args": [
+  "--mode",
+  "cold",
+  "--mode",
+  "warm",
+  "--runs",
+  "1",
+  "--profile",
+  "realistic"
+ ]
+}
