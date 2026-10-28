@@ -52,7 +52,7 @@ set -euo pipefail
 # The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
 # commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
-SPLIT_SPRING_MEASURE_VERSION=5  # 5: suites first5s (first-5s-typing.py) and bench-idle (bench_idle.py); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
+SPLIT_SPRING_MEASURE_VERSION=5  # 5: suites first5s and bench-idle; first-5s numbers before 5 came from a sender whose late time.sleep stamped keys with their plan (a fake 100-150 ms floor), so they are not comparable; 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 bench_script=scripts/cmux-next/split-spring-terminal.py
