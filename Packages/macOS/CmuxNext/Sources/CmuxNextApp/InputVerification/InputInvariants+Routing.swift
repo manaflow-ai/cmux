@@ -2,7 +2,7 @@ import CmuxNextActions
 import CmuxNextFocus
 import CmuxNextInputModel
 
-// The key routing invariants (K) and the per-reduction step check: they ask the App's KeyRouter for its tier rules,
+// The key routing invariants (K) and the App's replay of them: they ask the App's KeyRouter for its tier rules,
 // so they stay in the App while the model and transition rules live in CmuxNextInputModel.
 nonisolated extension InputInvariants {
     // MARK: Key routing (K)
@@ -31,13 +31,8 @@ nonisolated extension InputInvariants {
         return out
     }
 
-    /// The App's rules for `InputReplay`: the routing checks on each replayed state.
+    /// `InputReplay` with the routing checks on each replayed state (`debug.replay`).
     static func replay(_ entries: [InputJournalEntry]) -> InputReplay {
         InputReplay(entries) { state, window in routing(state, window: window) }
-    }
-
-    /// Model, transition and routing checks for one reduction.
-    static func step(from old: FocusState, _ event: FocusEvent, to new: FocusState, window: String? = nil) -> [InputViolation] {
-        model(new, window: window) + transition(from: old, event, to: new, window: window) + routing(new, window: window)
     }
 }
