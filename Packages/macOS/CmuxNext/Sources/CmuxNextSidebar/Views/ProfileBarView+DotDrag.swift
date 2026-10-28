@@ -30,8 +30,7 @@ extension ProfileBarView {
         drag.dots[drag.from].position = CGPoint(x: x, y: bounds.midY)
         CATransaction.commit()
         drag.overBand = footerBand(contains: point)
-        let insertion = ProfileBarLogic.insertionIndex(forX: Double(x), centers: centers.map { Double($0) })
-        let target = drag.overBand ? ProfileBarLogic.finalIndex(from: drag.from, insertion: insertion, count: centers.count) ?? drag.from : drag.from
+        let target = drag.overBand ? ProfileBarLogic.dropPosition(from: drag.from, x: Double(x), centers: centers.map { Double($0) }) : drag.from
         guard target != drag.target else { return }
         drag.target = target
         placeDots(drag, includingDragged: false)
@@ -42,9 +41,8 @@ extension ProfileBarView {
         guard let drag = dotDrag, !drag.landing else { return dotDrag != nil }
         drag.landing = true
         if !drag.overBand { drag.target = drag.from }
-        if drag.target != drag.from {
-            // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.
-            let insertion = drag.target > drag.from ? drag.target + 1 : drag.target
+        // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.
+        if let insertion = ProfileBarLogic.moveInsertion(from: drag.from, to: drag.target, count: model.profiles.count) {
             model.send(.reorderProfile(model.profiles[drag.from].id, index: insertion))
         }
         CATransaction.begin()

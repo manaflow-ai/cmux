@@ -78,6 +78,19 @@ import Testing
         #expect(bar.order.first == Self.keys[index], "\(bar.order)")
     }
 
+    /// The one `move-profile` index rule the drag and Move Left/Right/to Start/to End/to Position
+    /// send (`ProfileBarLogic.moveInsertion`), over four spaces.
+    @Test func everyReorderSendsTheSameInsertionIndex() {
+        #expect(ProfileBarLogic.moveInsertion(from: 2, to: 0, count: 4) == 0) // to start
+        #expect(ProfileBarLogic.moveInsertion(from: 1, to: 3, count: 4) == 4) // to end
+        #expect(ProfileBarLogic.moveInsertion(from: 2, to: 1, count: 4) == 1) // left
+        #expect(ProfileBarLogic.moveInsertion(from: 1, to: 2, count: 4) == 3) // right
+        #expect(ProfileBarLogic.moveInsertion(from: 0, to: 0, count: 4) == nil, "already first: refused")
+        #expect(ProfileBarLogic.moveInsertion(from: 0, to: 0, count: 4, allowsStay: true) == 0, "to position 1 when first: no-op")
+        #expect(ProfileBarLogic.moveInsertion(from: 3, to: 4, count: 4) == nil, "past the end")
+        #expect(ProfileBarLogic.moveInsertion(from: 0, to: -1, count: 4) == nil, "before the start")
+    }
+
     /// While the dot sits on the first slot, the strip already shows it first.
     @Test func theStripPreviewsTheFirstSlotWhileTheDotIsThere() {
         let bar = Bar()
