@@ -8,6 +8,7 @@ import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import type { SubsessionRow } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
+import { sessionRetry } from "../subagents/retryState";
 import { subagentTally } from "./SubagentsSection";
 import "./SubagentSummaryCard.css";
 
@@ -25,7 +26,8 @@ type Props = {
 const countSubsessions = (rows: readonly SubsessionRow[]) => {
   const counts = { running: 0, queued: 0, done: 0, failed: 0 };
   for (const row of rows) {
-    if (row.state === "working") counts.running += 1;
+    const retry = sessionRetry(row);
+    if (retry.kind === "retrying" || row.state === "working") counts.running += 1;
     else if (row.state === "input" || row.slot) counts.queued += 1;
     else if (row.state === "done") counts.done += 1;
     else counts.failed += 1;

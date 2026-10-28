@@ -1178,7 +1178,7 @@ export function ChatInspector({
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
-  const subagentsSection = (listedAgents.length + sessions.length > 0 || limitSet) && (
+  const subagentsSection = (listedAgents.length + sessions.length + subsessions.length > 0 || limitSet) && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
@@ -1187,18 +1187,19 @@ export function ChatInspector({
       meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
     >
       <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
-      {listedAgents.length + sessions.length > 0 && (
+      {listedAgents.length + sessions.length + subsessions.length > 0 && (
         <SubagentsSection
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
           sessions={sessions}
+          subsessions={subsessions}
           onOpenSession={onOpenSession}
         />
       )}
     </InspectorSection>
   );
-  const agentSummary = (
+  const agentSummary = listedAgents.length + sessions.length + subsessions.length > 0 || workflows.some((workflow) => workflow.agents.length > 0) ? (
     <SubagentSummaryCard
       agents={listedAgents}
       waiting={waiting}
@@ -1207,7 +1208,7 @@ export function ChatInspector({
       workflows={workflows}
       onOpen={() => fold(workflows.length > 0 ? "tasks" : "subagents")(true)}
     />
-  );
+  ) : null;
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;

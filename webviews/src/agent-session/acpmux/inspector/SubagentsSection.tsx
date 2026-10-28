@@ -20,8 +20,9 @@ import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
-import { retrying } from "../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
+import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
+import { SUBSESSION_STATE_LABEL, type SubsessionRow, waitingLine } from "../subagents/subsessions";
+import { SUBSESSION_STATUS, subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
@@ -29,6 +30,7 @@ import { InspectorFold } from "./InspectorSection";
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 export type SubagentTally = { waiting: number; running: number; failed: number; stopped: number; done: number };
 
@@ -149,6 +151,7 @@ export function SubagentsSection({
   waiting,
   onOpen,
   sessions = NO_SESSIONS,
+  subsessions = NO_SUBSESSIONS,
   onOpenSession,
 }: {
   agents: readonly Subagent[];
@@ -157,6 +160,8 @@ export function SubagentsSection({
   onOpen?: (id: string) => void;
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
+  /// The chats started through acpmux's sub-session API, listed with the same detail.
+  subsessions?: readonly SubsessionRow[];
   onOpenSession?: (sessionId: string) => void;
 }) {
   const t = useT();
@@ -193,6 +198,24 @@ export function SubagentsSection({
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
   });
+  const subsessionLine = (session: SubsessionRow): Line => {
+    const retry = sessionRetry(session);
+    const status = retry.kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
+    const detail = session.waiting ? waitingLine(t, session.waiting) : session.doing;
+    return {
+      key: `subsession:${session.sessionId}`,
+      identity: session.sessionId,
+      name: session.name,
+      detail,
+      status,
+      state: retry.kind === "retrying" ? retryLabel(t, retry.retry) : t(SUBSESSION_STATE_LABEL[session.state]),
+      working: retry.kind === "retrying",
+      icon: "agent.session",
+      depth: session.depth,
+      at: 0,
+      open: onOpenSession && (() => onOpenSession(session.sessionId)),
+    };
+  };
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
   // parent), then the running chats.
@@ -204,11 +227,19 @@ export function SubagentsSection({
   );
   const children = orderedSessions(sessions);
   const runningLines = [
+    ...subsessions.filter((session) => {
+      const phase = sessionRetry(session);
+      return phase.kind === "retrying" || SUBSESSION_STATUS[session.state] === "waiting" || SUBSESSION_STATUS[session.state] === "running";
+    }).map(subsessionLine),
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
     ...runningAgents,
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const endedLines = [
+    ...subsessions.filter((session) => {
+      const phase = sessionRetry(session);
+      return phase.kind !== "retrying" && SUBSESSION_STATUS[session.state] !== "waiting" && SUBSESSION_STATUS[session.state] !== "running";
+    }).map(subsessionLine),
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
