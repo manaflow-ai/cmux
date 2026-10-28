@@ -43,6 +43,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
+  /// Gallery-only: panel width used by narrow workflow layout states.
+  panelWidth?: number;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -98,6 +100,7 @@ function GalleryInspector({
   header = "title",
   tones,
   ceiling,
+  panelWidth = 320,
   ...props
 }: Props) {
   return (
@@ -105,7 +108,7 @@ function GalleryInspector({
       {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <InspectorPanel
-        width={320}
+        width={panelWidth}
         placement={placement}
         chrome={chrome}
         // The head draws only with a close: as in the chat pane.
@@ -349,21 +352,49 @@ const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
 const workflowProps = (
   stage: WorkflowFixtureStage,
   workflowAgentRowVariant?: Props["workflowAgentRowVariant"],
+  panelWidth = 320,
+  modelOverride?: string,
 ): Props => {
   const nodes = workflowFixture(stage);
+  const workflowList = createWorkflowAdapter()(nodes, "gallery-chat").map((workflow) =>
+    modelOverride
+      ? {
+          ...workflow,
+          agents: workflow.agents.map((agent) =>
+            agent.index === 4 ? { ...agent, model: modelOverride, startedAt: Date.now() - 204_000 } : agent,
+          ),
+        }
+      : workflow,
+  );
   return {
     summary,
     machineName: "Studio",
     repository: "manaflow-ai/cmux",
     agents: nodes,
-    workflows: createWorkflowAdapter()(nodes, "gallery-chat"),
+    workflows: workflowList,
     onStopWorkflow: async () => undefined,
     onOpenSubagent: () => undefined,
     onOpenWorkflowAgent: () => undefined,
     workflowAgentRowVariant,
+    panelWidth,
     onSaveEnvironment: () => undefined,
     remoteControl: { on: true, set: () => undefined },
   };
+};
+
+const assertNarrowWorkflowLayout: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
+  const panel = ctx.find({ selector: ".acpmux-chat-inspector" }).getBoundingClientRect();
+  if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
+  const name = ctx.find({ selector: ".acpmux-workflow-agent__name" }).getBoundingClientRect();
+  const model = ctx.find({ selector: ".acpmux-workflow-agent__model" }).getBoundingClientRect();
+  const state = ctx.find({ selector: ".acpmux-workflow-agent__state" }).getBoundingClientRect();
+  const time = ctx
+    .find({ selector: ".acpmux-workflow-agent .acpmux-chat-inspector-task__time" })
+    .getBoundingClientRect();
+  if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
+  if (model.right > state.left + 0.5) throw new Error("workflow model overlaps the state column");
+  if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
 };
 /// Opens the workflow's `n`th phase (from 1).
 const openPhase =
@@ -556,7 +587,7 @@ export default componentEntry<Props>({
       play: checkTopBlockAlignment,
     },
     "workflow-running": {
-      note: "Chosen: the live workflow row keeps the agent name and model on one line, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
+      note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
       props: workflowProps("running"),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
@@ -575,7 +606,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-agent-row-detail": {
-      note: "Chosen workflow agent row: two lines give the action enough room to remain readable while the model, state and elapsed time stay scannable.",
+      note: "Chosen workflow agent row: name, model and action each have their own line so the name remains readable at narrow widths; state and elapsed time stay aligned on the right.",
       props: workflowProps("running", "detail"),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
@@ -587,6 +618,11 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
       },
+    },
+    "workflow-agent-row-narrow": {
+      note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
+      props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
+      play: assertNarrowWorkflowLayout,
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",

@@ -91,6 +91,22 @@ test("workflow agent rows never send a workflow agent id to the ordinary subagen
   expect(legacyOpened).toBe(false);
 });
 
+test("every workflow row exposes model, effort, last message, state and duration to assistive technology", () => {
+  const agent = {
+    ...summaries("running")[0]!.agents[0]!,
+    effort: "high",
+    doing: "Reading the source",
+    lastMessage: "Review complete",
+  };
+  for (const variant of ["compact", "detail", "grid"] as const) {
+    const document = new JSDOM(renderToStaticMarkup(<WorkflowAgentRow agent={agent} now={NOW} variant={variant} />));
+    expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toBe(
+      "punchy, Model: Opus 5.5 · high, Review complete, Done, 7s",
+    );
+    document.window.close();
+  }
+});
+
 test("a workflow agent row sends the full agent to the workflow opener", async () => {
   dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
   for (const [key, value] of Object.entries({

@@ -177,6 +177,7 @@
   text-overflow: ellipsis;
 }
 .acpmux-workflow-agent__name {
+  flex: 1 1 auto;
   font-weight: 500;
 }
 .acpmux-workflow-agent__model,
@@ -187,11 +188,19 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-workflow-agent__model {
-  flex: none;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .acpmux-workflow-agent__state {
   white-space: nowrap;
+}
+.acpmux-workflow-agent__button--detail .acpmux-workflow-agent__line {
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(var(--ds-space-1) / 4);
 }
 .acpmux-workflow-agent__button--compact {
   min-height: calc(var(--ds-control-row) - var(--ds-space-1) / 2);

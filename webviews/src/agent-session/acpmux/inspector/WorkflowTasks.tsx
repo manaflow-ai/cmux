@@ -254,6 +254,10 @@ export function WorkflowAgentRow({
   const state = agentStateWord(t, agent.state);
   const model = agent.model ? modelName(agent.model) : undefined;
   const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
+  const modelLabel = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
+  const message = agent.lastMessage ?? agent.doing;
+  const time = queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
+  const accessibleLabel = [agent.name, modelLabel, message, state, time].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
   // ordinary subagent opener.
@@ -263,7 +267,7 @@ export function WorkflowAgentRow({
       type="button"
       className={`acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`}
       disabled={!openable}
-      aria-label={`${agent.name}: ${state}`}
+      aria-label={accessibleLabel}
       onClick={() => {
         if (onOpenWorkflowAgent) onOpenWorkflowAgent(agent);
       }}
@@ -282,20 +286,16 @@ export function WorkflowAgentRow({
       <span className="acpmux-workflow-agent__text">
         <span className="acpmux-workflow-agent__line">
           <span className="acpmux-workflow-agent__name">{agent.name}</span>
-          {modelEffort && (
-            <span className="acpmux-workflow-agent__model">{t("workflow.model", { model: modelEffort })}</span>
-          )}
+          {modelLabel && <span className="acpmux-workflow-agent__model">{modelLabel}</span>}
         </span>
-        {(agent.lastMessage ?? agent.doing) && (
-          <span className="acpmux-workflow-agent__doing" title={agent.lastMessage ?? agent.doing}>
-            {agent.lastMessage ?? agent.doing}
+        {message && (
+          <span className="acpmux-workflow-agent__doing" title={message}>
+            {message}
           </span>
         )}
       </span>
       <span className="acpmux-workflow-agent__state">{state}</span>
-      <span className="acpmux-chat-inspector-task__time">
-        {queued ? "" : elapsed !== undefined ? formatDuration(elapsed) : ""}
-      </span>
+      <span className="acpmux-chat-inspector-task__time">{time}</span>
     </button>
   );
   return (
