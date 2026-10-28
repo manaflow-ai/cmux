@@ -37,6 +37,42 @@ test("native AX rules reject view frames", async () => {
   expect(report.passed).toBe(false);
 });
 
+test("native evidence requires a native frame source", () => {
+  const value = artifact();
+  value.elements[0]!.kind = "native";
+  expect(() => parseArtifact(value)).toThrow("native element a");
+  for (const source of ["ax-frame", "view-frame"] as const) {
+    value.elements[0]!.source = source;
+    expect(parseArtifact(value).elements[0]!.source).toBe(source);
+  }
+});
+
+test("accepted debt needs a reason and a non-negative limit", () => {
+  for (const debt of [{ maxDeltaPx: 1, reason: "" }, { maxDeltaPx: 1, reason: "  " }, { maxDeltaPx: -1, reason: "documented" }]) {
+    expect(() => parseConfig({ ...config(), acceptedFindings: { existing: debt } })).toThrow("acceptedFindings");
+  }
+  expect(parseConfig({ ...config(), acceptedFindings: { existing: { maxDeltaPx: 0, reason: "documented" } } }).acceptedFindings?.existing?.maxDeltaPx).toBe(0);
+});
+
+test("individual rules accept one element but still reject absent evidence", async () => {
+  const value = artifact();
+  value.elements = [{ ...value.elements[0]!, control: true, menuOpen: true, secondary: true, hoverRect: value.elements[0]!.rect, style: { borderRadius: 4, color: "#777", fontWeight: 400 } }];
+  const rules: GeometryRule[] = [
+    { id: "hover", kind: "hover-control-only", group: "icons", tolerancePx: 0, requireMenuOpen: true },
+    { id: "radius", kind: "style-token", group: "icons", tolerancePx: 0, property: "borderRadius", tokensPx: [4] },
+    { id: "secondary", kind: "secondary-text", group: "icons", tolerancePx: 0, colors: ["#777"], weights: [400] },
+    { id: "source", kind: "required-source", group: "icons", tolerancePx: 0, requiredSource: "dom-rect" },
+    { id: "inset", kind: "inset", group: "icons", containerGroup: "container", edge: "left", tolerancePx: 0, tokensPx: [10] },
+  ];
+  value.elements.push({ id: "container", kind: "web", source: "dom-rect", group: "container", rect: { x: 0, y: 0, width: 100, height: 100 } });
+  expect((await lint(value, rules)).passed).toBe(true);
+  expect((await lint(value, rules.map((entry) => ({ ...entry, minCount: 2 })))).findings).toHaveLength(5);
+  const peerRules: GeometryRule[] = [rule(), { id: "size", kind: "peer-size", group: "icons", tolerancePx: 0, dimension: "width" }, { id: "spacing", kind: "spacing", group: "icons", tolerancePx: 0, axis: "y", tokensPx: [4] }, { id: "baseline", kind: "text-baseline", group: "icons", tolerancePx: 0 }];
+  expect((await lint(value, peerRules)).findings.every((entry) => entry.message.includes("expected at least 2"))).toBe(true);
+  value.elements = value.elements.filter((entry) => entry.group !== "icons");
+  expect((await lint(value, rules)).findings).toHaveLength(5);
+});
+
 test("spacing tolerances are per rule and debt never hides missing evidence", async () => {
   const spacing: GeometryRule = { id: "row-gap", kind: "spacing", group: "icons", tolerancePx: 0.5, axis: "y", tokensPx: [4, 8] };
   expect((await lint(artifact(), [spacing])).passed).toBe(true);
