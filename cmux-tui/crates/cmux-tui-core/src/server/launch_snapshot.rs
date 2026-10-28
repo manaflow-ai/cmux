@@ -13,12 +13,11 @@
 //! to a temporary file that is renamed over the old one, owner-only.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use cmux_threads::checked::fs as files;
-use cmux_threads::checked::sync as waits;
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
-use std::thread::JoinHandle;
 
 use super::*;
 use crate::MuxEventReceiver;
@@ -56,7 +55,7 @@ pub struct LaunchSnapshotWriter {
     events: Arc<Mutex<MuxEventReceiver>>,
     writes: Arc<AtomicU64>,
     mux: Weak<Mux>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<SupervisedThread<()>>,
 }
 
 impl LaunchSnapshotWriter {
@@ -73,7 +72,7 @@ impl LaunchSnapshotWriter {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = waits::join(thread);
+            let _ = thread.join();
         }
     }
 
@@ -90,7 +89,7 @@ impl Drop for LaunchSnapshotWriter {
     fn drop(&mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = waits::join(thread);
+            let _ = thread.join();
         }
     }
 }
@@ -118,10 +117,11 @@ pub fn start_launch_snapshot_writer_with(
     let thread_writes = writes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
-    let thread = crate::thread_qos::spawn_raisable(
+    let thread = supervised::spawn_raisable(
         "mux-launch-snapshot",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             // Write once at start, so a relaunch finds the current layout even
             // if nothing changes while this daemon runs.

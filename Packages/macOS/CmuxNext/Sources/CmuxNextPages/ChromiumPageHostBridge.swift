@@ -25,7 +25,7 @@ import os
 /// sender's context (binding), or into the main frame with the sending document's id, so a reply
 /// to a document that has gone resolves nothing in the next one (page channel).
 ///
-/// With the page push channel (``PageChromiumPage/pushesToPage``, fork API 39) the router's
+/// With the page push channel (``PageChromiumPage/pushesToPage``, fork API 43) the router's
 /// envelopes (``push(envelopes:)``) and the replies go to the page as strings
 /// (``PageChromiumPage/push(_:)``) that the page script's receiver parses, the way Chrome's WebUI
 /// pages get Mojo messages instead of `WebUI::CallJavascriptFunction` scripts

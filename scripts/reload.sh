@@ -21,9 +21,11 @@ BUILD_CONFIGURATION="Debug"
 BENCH_HOOKS=0
 # --config bench-checks: bench plus the main-thread blocking detector (BLOCKING_CHECKS=1).
 BLOCKING_CHECKS=0
+# --config asan|tsan|ubsan: the Release configuration with that sanitizer (empty for every other config).
+SANITIZER=""
 # --config profile: bench plus LLVM PGO instrumentation (PGO_PROFILE=1), for scripts/cmux-next/pgo/build-profile.sh.
 PGO_PROFILE=0
-# The --config name (debug, release, bench, bench-checks, profile), stamped into a tagged app as CMUXBuildConfiguration.
+# The --config name (debug, release, bench, bench-checks, profile, asan, tsan, ubsan), stamped into a tagged app as CMUXBuildConfiguration.
 BUILD_CONFIG_NAME="debug"
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
@@ -739,7 +741,7 @@ Options:
   --release              Build the Release configuration (optimized, no DEBUG) of
                          this tagged app, for dogfooding real performance. The
                          debug.* socket commands are compiled out.
-  --config <debug|release|bench|bench-checks|profile>
+  --config <debug|release|bench|bench-checks|profile|asan|tsan|ubsan>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
                          -DCMUX_BENCH_HOOKS (no DEBUG), so the debug.* socket commands
@@ -754,6 +756,16 @@ Options:
                          product: scripts/cmux-next/check-no-bench-hooks.sh refuses
                          either in the release and nightly pipelines. A tagged app
                          records its config in Info.plist (CMUXBuildConfiguration).
+                         asan, tsan, ubsan: the Release configuration built with
+                         -sanitize=address, thread or undefined (Swift and C),
+                         debug symbols kept and the sanitizer runtime embedded in
+                         Contents/Frameworks, so it runs on a Mac without Xcode.
+                         The tag gets the config as a suffix (--tag foo: app
+                         "cmux DEV foo-asan", bundle id com.cmuxterm.app.debug.foo.asan).
+                         The app keeps Chromium unloaded and skips the early
+                         malloc zone unless launched with CMUX_NEXT_SANITIZER_CHROMIUM=1;
+                         reports go to /tmp/cmux-debug-<tag>.<config>.<pid>.
+                         check-no-bench-hooks.sh refuses such an app too.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -967,10 +979,13 @@ validate_app_bundle() {
   if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
     "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
   fi
-  # A bench build must carry the bench marker (the flags reached the app's modules); any other build
-  # must not (scripts/cmux-next/check-no-bench-hooks.sh, also run by the release and nightly pipelines).
+  # A bench build must carry the bench marker (the flags reached the app's modules), a sanitizer build
+  # its runtime, linked and embedded; any other build neither (scripts/cmux-next/check-no-bench-hooks.sh,
+  # also run by the release and nightly pipelines).
   if [[ -x "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" ]]; then
-    if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+    if [[ -n "$SANITIZER" ]]; then
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" --expect-sanitizer "$SANITIZER" "$app_path" || return 1
+    elif [[ "$BENCH_HOOKS" -eq 1 ]]; then
       "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" --expect "$app_path" || return 1
     else
       "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" "$app_path" || return 1
@@ -983,6 +998,23 @@ validate_app_bundle() {
     "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" "$app_path" \
       || echo "warning: the built app's version surfaces disagree (see above)" >&2
   fi
+}
+
+# The sanitizer runtime the app loads by @rpath, in Contents/Frameworks, so the app runs on a Mac
+# without Xcode (a lab VM). Xcode copies it for an app target; this copies it from the selected
+# toolchain when a build did not.
+embed_sanitizer_runtime() {
+  local app_path="$1" kind="$2" dylib resource_dir
+  dylib="libclang_rt.${kind}_osx_dynamic.dylib"
+  [[ -f "$app_path/Contents/Frameworks/$dylib" ]] && return 0
+  resource_dir="$(xcrun clang -print-resource-dir 2>/dev/null)" || resource_dir=""
+  if [[ -z "$resource_dir" || ! -f "$resource_dir/lib/darwin/$dylib" ]]; then
+    echo "error: the selected toolchain has no $dylib to embed in $app_path" >&2
+    return 1
+  fi
+  mkdir -p "$app_path/Contents/Frameworks"
+  /bin/cp "$resource_dir/lib/darwin/$dylib" "$app_path/Contents/Frameworks/$dylib"
+  echo "==> embedded $dylib from $resource_dir/lib/darwin"
 }
 
 # Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
@@ -1151,18 +1183,21 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release" SANITIZER=""
       shift
       ;;
     --config|--config=*)
       if [[ "$1" == --config=* ]]; then config_name="${1#--config=}"; shift; else config_name="${2:-}"; shift 2 || true; fi
+      # Only asan|tsan|ubsan set a sanitizer; a later --config of any other name clears it.
+      SANITIZER=""
       case "$config_name" in
         debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
         release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
         bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
         bench-checks) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=1 PGO_PROFILE=0 ;;
         profile) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=1 ;;
-        *) echo "error: --config takes debug, release, bench, bench-checks or profile (got '${config_name}')" >&2; exit 1 ;;
+        asan | tsan | ubsan) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 SANITIZER="$config_name" ;;
+        *) echo "error: --config takes debug, release, bench, bench-checks, profile, asan, tsan or ubsan (got '${config_name}')" >&2; exit 1 ;;
       esac
       BUILD_CONFIG_NAME="$config_name"
       ;;
@@ -1234,6 +1269,22 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
   usage
   exit 1
+fi
+
+# A sanitizer app is its own tagged build: the config is the tag's suffix, so its
+# bundle id ends in .asan/.tsan/.ubsan and its names (socket, daemon session, state)
+# never mix with the plain build of the same tag. The app derives those names from
+# a bundle id that ends in its tag, so the id and name come from the tag only.
+if [[ -n "$SANITIZER" ]]; then
+  if [[ "$BUNDLE_SET" -eq 1 || "$NAME_SET" -eq 1 ]]; then
+    echo "error: --config $SANITIZER names the app from the tag; drop --bundle-id and --name" >&2
+    exit 1
+  fi
+  if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
+    echo "error: --config $SANITIZER keeps debug symbols for its reports; the Swift frontend workaround drops them" >&2
+    exit 1
+  fi
+  TAG="${TAG}-${SANITIZER}"
 fi
 
 # Per-build isolation (cx-is1kf.4): a shipped build owns these names (its
@@ -1738,6 +1789,25 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
     echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS (no DEBUG)"
   fi
 fi
+if [[ -n "$SANITIZER" ]]; then
+  # The scheme-wide switch Xcode's Diagnostics tab sets: -sanitize for Swift, -fsanitize for C and
+  # Objective-C, in the app and every package target, and the runtime linked by @rpath. Chromium
+  # builds its sanitizer bots the same way, optimized (is_asan on a release build, docs/asan.md).
+  case "$SANITIZER" in
+    asan) XCODEBUILD_ARGS+=(-enableAddressSanitizer YES) ;;
+    tsan) XCODEBUILD_ARGS+=(-enableThreadSanitizer YES) ;;
+    ubsan) XCODEBUILD_ARGS+=(-enableUndefinedBehaviorSanitizer YES) ;;
+  esac
+  # Symbols stay in the binaries (and a dSYM beside the app), so a report names functions and lines.
+  XCODEBUILD_ARGS+=(
+    DEBUG_INFORMATION_FORMAT=dwarf-with-dsym
+    GCC_GENERATE_DEBUGGING_SYMBOLS=YES
+    COPY_PHASE_STRIP=NO
+    STRIP_INSTALLED_PRODUCT=NO
+    DEPLOYMENT_POSTPROCESSING=NO
+  )
+  echo "==> $SANITIZER configuration: Release optimization with the $SANITIZER sanitizer, symbols kept, runtime embedded"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
@@ -2009,6 +2079,9 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
 fi
+if [[ -n "$SANITIZER" ]]; then
+  embed_sanitizer_runtime "$APP_PATH" "$SANITIZER" || exit 1
+fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
 
@@ -2104,6 +2177,12 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi
+      # A Finder or `open` launch writes its sanitizer reports to a known file per process.
+      case "$SANITIZER" in
+        asan) set_plist_env "$INFO_PLIST" ASAN_OPTIONS "log_path=/tmp/cmux-debug-${TAG_SLUG}.asan" ;;
+        tsan) set_plist_env "$INFO_PLIST" TSAN_OPTIONS "log_path=/tmp/cmux-debug-${TAG_SLUG}.tsan" ;;
+        ubsan) set_plist_env "$INFO_PLIST" UBSAN_OPTIONS "log_path=/tmp/cmux-debug-${TAG_SLUG}.ubsan:print_stacktrace=1" ;;
+      esac
       if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_CREDENTIALS_FILE "$AUTH_CREDENTIALS_FILE"
       fi

@@ -14,6 +14,7 @@ use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
 };
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
 use crate::{Mux, panic_free::RecoverPoison};
 
@@ -393,17 +394,23 @@ impl JournalWriterCompletion {
 }
 
 struct JournalWriter {
-    thread: std::thread::JoinHandle<()>,
+    thread: supervised::SupervisedThread<()>,
     finished: Receiver<()>,
 }
 
 impl JournalWriter {
     fn spawn(name: &str, task: impl FnOnce() + Send + 'static) -> io::Result<Self> {
         let (finished_sender, finished) = sync_channel(1);
-        let thread = cmux_threads::spawn(name, writer_qos::WRITER_QOS, move || {
-            task();
-            let _ = finished_sender.send(());
-        })?;
+        let thread = supervised::spawn_at(
+            name,
+            writer_qos::WRITER_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                task();
+                let _ = finished_sender.send(());
+            },
+        )?;
         Ok(Self { thread, finished })
     }
 
@@ -413,16 +420,24 @@ impl JournalWriter {
         completion: Arc<JournalWriterCompletion>,
     ) -> anyhow::Result<()> {
         let Self { thread, finished } = self;
-        if thread.thread().id() == std::thread::current().id() {
+        if thread.is_current() {
             let reaper_completion = completion.clone();
             let reaper = "mux-session-journal-writer-reaper";
-            let spawn = cmux_threads::spawn(reaper, cmux_threads::ThreadQos::Utility, move || {
-                let result = waits::join(thread).map_err(|_| {
-                    eprintln!("cmux-tui: session journal writer panicked during self-join handoff");
-                    "session journal writer panicked during self-join handoff".to_string()
-                });
-                reaper_completion.finish(result);
-            });
+            let spawn = supervised::spawn_at(
+                reaper,
+                cmux_threads::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || {
+                    let result = thread.join().map_err(|_| {
+                        eprintln!(
+                            "cmux-tui: session journal writer panicked during self-join handoff"
+                        );
+                        "session journal writer panicked during self-join handoff".to_string()
+                    });
+                    reaper_completion.finish(result);
+                },
+            );
             if let Err(error) = spawn {
                 let error =
                     format!("hand off session journal writer self-join to reaper thread: {error}");
@@ -433,7 +448,8 @@ impl JournalWriter {
         }
         let wait = deadline.saturating_duration_since(Instant::now());
         let result = match waits::recv_timeout(&finished, wait) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => waits::join(thread)
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
+                .join()
                 .map_err(|_| "session journal writer panicked during shutdown".to_string()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
                 "session journal writer did not stop within {} ms; an admitted commit remains \
@@ -787,7 +803,7 @@ impl JournalIngressSender {
             matches!(
                 &*owner,
                 JournalWriterOwner::Running(writer)
-                    if writer.thread.thread().id() == std::thread::current().id()
+                    if writer.thread.is_current()
             )
         })
     }

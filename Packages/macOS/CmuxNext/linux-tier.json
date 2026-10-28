@@ -34,6 +34,7 @@
       "CmuxNextBrowserCore"
     ],
     [
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -111,6 +112,7 @@
       "CmuxNextVSCodeServer",
       "CmuxNextRemoteFetch",
       "CmuxNextBrowserCore",
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -251,9 +253,6 @@
       ],
       "CmuxNextHangReports": [
         "CmuxNextInputCore"
-      ],
-      "CmuxNextSettings": [
-        "CmuxNextDesign"
       ],
       "CmuxNextSignposts": [
         "CmuxNextSignpostsC"

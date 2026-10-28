@@ -141,18 +141,21 @@ fn is_single_emoji(value: &str) -> bool {
     if chars.len() == 2 && chars.iter().all(|ch| is_regional_indicator(*ch)) {
         return true;
     }
-    if chars.len() >= 2
-        && (chars[0].is_ascii_digit() || matches!(chars[0], '#' | '*'))
-        && chars[1..].iter().all(|ch| matches!(u32::from(*ch), 0xFE0F | 0x20E3))
+    let Some((&first, rest)) = chars.split_first() else {
+        return false;
+    };
+    if !rest.is_empty()
+        && (first.is_ascii_digit() || matches!(first, '#' | '*'))
+        && rest.iter().all(|ch| matches!(u32::from(*ch), 0xFE0F | 0x20E3))
         && chars.last() == Some(&'\u{20E3}')
     {
         return true;
     }
-    if !is_emoji_base(chars[0]) || is_regional_indicator(chars[0]) {
+    if !is_emoji_base(first) || is_regional_indicator(first) {
         return false;
     }
     let mut expect_base = false;
-    for ch in &chars[1..] {
+    for ch in rest {
         let code = u32::from(*ch);
         if expect_base {
             if !is_emoji_base(*ch) || is_regional_indicator(*ch) {

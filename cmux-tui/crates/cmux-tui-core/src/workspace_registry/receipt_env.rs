@@ -38,9 +38,10 @@ impl ResourceEffectPepper {
         key_block[..RESOURCE_EFFECT_PEPPER_BYTES].copy_from_slice(self.0.as_ref());
         let mut inner_pad = [0x36_u8; BLOCK_BYTES];
         let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
-        for index in 0..BLOCK_BYTES {
-            inner_pad[index] ^= key_block[index];
-            outer_pad[index] ^= key_block[index];
+        for ((inner, outer), key) in inner_pad.iter_mut().zip(outer_pad.iter_mut()).zip(&key_block)
+        {
+            *inner ^= key;
+            *outer ^= key;
         }
         let mut inner = Sha256::new();
         inner.update(inner_pad);
