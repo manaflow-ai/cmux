@@ -3,7 +3,7 @@
 // sessions so you can get to things faster/more efficiently"). Two runs qualify, never mixed:
 // - `step`: messages steered into the running turn that the agent has not read yet ("Read after
 //   this step"), received rows next to each other among the steers that wait (snapshot
-//   `waitingSteers`), grouped in the transcript (`groupWaitingSteps`);
+//   `waitingSteers`), grouped as the running turn is drawn (turns.ts `turnViewFrom`);
 // - `turn`: messages queued behind the running turn ("Read after this turn"), the transcript's
 //   queued tail (queuedMessages.ts), grouped with it (`groupWaitingTurn`).
 // A run of two or more becomes one WAITING_MESSAGES row (WaitingMessagesCard.tsx) that holds its
@@ -12,10 +12,9 @@
 // together. The card's row names every row it holds (`joined`), so Find reaches each.
 //
 // Cost: nothing while fewer than two steers wait and fewer than two messages are queued. The queue's
-// card is made once per queue change. The steers' rows are found where the last snapshot had them,
-// one lookup each; only a new steer, or rows that moved above them (an older page), looks for them
-// from the end back to the running turn's start, once. While a card shows, the drawn rows are a
-// copy of the rows with the card in its run's place.
+// card is made once per queue change. The steers' cards are made as the running turn's rows are
+// drawn, which every snapshot of a running turn does already: one pass over that turn's rows, never
+// the chat's.
 import { QUEUED_MESSAGE, WAITING_MESSAGES, type AcpmuxRow } from "../model";
 
 /// Whether `row` is another session's message that waits for the agent's current step.
@@ -57,68 +56,36 @@ export function groupWaitingTurn(tail: readonly AcpmuxRow[], last?: readonly Acp
   return card === before ? last! : [card];
 }
 
-/// The rows as drawn, the card rows among them by id, and where the steers' rows were.
-export type WaitingSteps = {
-  rows: AcpmuxRow[];
-  cards?: ReadonlyMap<string, AcpmuxRow>;
-  /// The steers looked for (`steers`), the index of each one found, and the ones not there.
-  steers?: readonly string[];
-  at?: ReadonlyMap<string, number>;
-  unseen?: ReadonlySet<string>;
-};
-
-/// Each steer's row index in `rows`: where `last` had it while that row is still there, else looked
-/// for from the end (before the `tail` rows) back to the running turn's start (the previous turn's
-/// footer). One `last` could not find stays unseen while the steers are the same list.
-function steerRows(rows: readonly AcpmuxRow[], steers: readonly string[], tail: number, last?: WaitingSteps) {
-  const at = new Map<string, number>();
-  const unseen = new Set<string>();
-  const sought = new Set<string>();
-  for (const id of steers) {
-    const index = last?.at?.get(id);
-    if (index !== undefined && rows[index]?.id === id) at.set(id, index);
-    else if (last?.steers === steers && last.unseen?.has(id)) unseen.add(id);
-    else sought.add(id);
-  }
-  for (let index = rows.length - 1 - tail; index >= 0 && sought.size > 0; index -= 1) {
-    const row = rows[index]!;
-    if (row.kind === "turnSummary") break;
-    if (!sought.delete(row.id)) continue;
-    at.set(row.id, index);
-  }
-  for (const id of sought) unseen.add(id);
-  return { at, unseen };
-}
-
-/// `rows` with each run of two or more of other sessions' messages among the steers that wait
-/// (`steers`, snapshot `waitingSteers`) as one card row. `tail`: how many rows at the end are the
-/// queued tail, where no steer is. `last`: the previous result, whose card rows are kept while they
-/// hold the same rows. `rows` comes back as it is when no run qualifies.
+/// A turn's drawn `rows` with each run of two or more of other sessions' messages among the steers
+/// that wait (`steers`, snapshot `waitingSteers`) as one card row, and those cards by id. `last`:
+/// the previous cards, each kept while it holds the same rows. `rows` comes back as it is when no
+/// run qualifies.
 export function groupWaitingSteps(
-  rows: AcpmuxRow[],
-  steers: readonly string[] | undefined,
-  tail = 0,
-  last?: WaitingSteps,
-): WaitingSteps {
-  if (!steers || steers.length < 2) return { rows };
-  const { at, unseen } = steerRows(rows, steers, tail, last);
-  const indices = [...at.values()].filter((index) => waitingStep(rows[index]!)).sort((a, b) => a - b);
+  rows: readonly AcpmuxRow[],
+  steers: ReadonlySet<string>,
+  last?: ReadonlyMap<string, AcpmuxRow>,
+): { rows: readonly AcpmuxRow[]; cards?: ReadonlyMap<string, AcpmuxRow> } {
   const runs: [number, number][] = [];
-  for (const index of indices) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (!steers.has(row.id) || !waitingStep(row)) continue;
     const run = runs[runs.length - 1];
     if (run && run[1] === index) run[1] = index + 1;
     else runs.push([index, index + 1]);
   }
   const grouped = runs.filter(([from, to]) => to - from >= 2);
-  if (!grouped.length) return { rows, steers, at, unseen };
+  if (!grouped.length) return { rows };
   const cards = new Map<string, AcpmuxRow>();
-  const next = [...rows];
-  // Spliced from the last run back, so the earlier runs keep their places.
-  for (const [from, to] of grouped.reverse()) {
-    const members = rows.slice(from, to);
-    const card = cardRow("step", members, last?.cards?.get(`waiting-step-${members[0]!.id}`));
+  const out: AcpmuxRow[] = [];
+  let from = 0;
+  for (const [start, end] of grouped) {
+    for (let index = from; index < start; index += 1) out.push(rows[index]!);
+    const members = rows.slice(start, end);
+    const card = cardRow("step", members, last?.get(`waiting-step-${members[0]!.id}`));
     cards.set(card.id, card);
-    next.splice(from, to - from, card);
+    out.push(card);
+    from = end;
   }
-  return { rows: next, cards, steers, at, unseen };
+  for (let index = from; index < rows.length; index += 1) out.push(rows[index]!);
+  return { rows: out, cards };
 }

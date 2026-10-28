@@ -19,6 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
+import { groupWaitingSteps } from "./waitingMessages";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
@@ -134,6 +135,10 @@ export type TurnView = {
   lineBelow: boolean;
   working: boolean;
   sessionStatus: boolean;
+  /// The steers that wait (snapshot `waitingSteers`), and the cards other sessions' messages among
+  /// them draw as in the running turn (waitingMessages.ts `groupWaitingSteps`).
+  waitingSteers?: readonly string[];
+  cards?: ReadonlyMap<string, AcpmuxRow>;
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -158,6 +163,7 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
+    waitingSteers,
   }: {
     now?: number;
     working?: boolean;
@@ -165,6 +171,8 @@ export function turnViewFrom(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
+    waitingSteers?: readonly string[];
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -177,6 +185,7 @@ export function turnViewFrom(
     previous.lineBelow === lineBelow &&
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
+    previous.waitingSteers === waitingSteers &&
     (!previous.starts.length ||
       showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
   )
@@ -232,6 +241,10 @@ export function turnViewFrom(
   }
   const first = starts.length;
   const fromStart = lead === 0;
+  // Other sessions' messages among the steers that wait, two or more in a run, as one card: they are
+  // all in the running turn, which every snapshot draws again (`reuse` keeps no last turn).
+  const steers = waitingSteers && waitingSteers.length > 1 ? new Set(waitingSteers) : undefined;
+  let cards: ReadonlyMap<string, AcpmuxRow> | undefined;
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
@@ -258,7 +271,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
-    for (const row of shapedTurn(
+    let shaped: readonly AcpmuxRow[] = shapedTurn(
       rows,
       start,
       end,
@@ -270,8 +283,9 @@ export function turnViewFrom(
       liveRuns,
       sessionStatus,
       lineBelow,
-    ))
-      out.push(row);
+    );
+    if (last && steers) ({ rows: shaped, cards } = groupWaitingSteps(shaped, steers, previous?.cards));
+    for (const row of shaped) out.push(row);
     ends.push(out.length);
   }
   return {
@@ -282,6 +296,8 @@ export function turnViewFrom(
     lineBelow,
     working,
     sessionStatus,
+    ...(waitingSteers ? { waitingSteers } : {}),
+    ...(cards ? { cards } : {}),
     lead,
     starts,
     times,

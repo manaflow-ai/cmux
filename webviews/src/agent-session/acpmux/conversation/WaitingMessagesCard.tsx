@@ -7,7 +7,7 @@
 // own actions (Send now, or the queued card's Steer, Edit message, Move, Delete). Whether it is open
 // lasts while the page does (incomingOpened.ts), so it survives the virtualized list, and the row
 // estimator reads it; Find opens it for a match in one of its messages. It never animates in.
-import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
+import { useContext, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
@@ -49,9 +49,12 @@ export function WaitingMessagesCard({
   const bodyId = useId();
   const waiting = row.waiting;
   const reveal = useContext(FindReveal);
-  // Find names the card's row for a match in one of its messages (chatFind.ts `findRowIndex`).
-  const holdsMatch = Boolean(
-    reveal && (reveal.rowId === row.id || waiting?.rows.some((message) => message.id === reveal.rowId)),
+  // Find names the card's row for a match in one of its messages (chatFind.ts `findRowIndex`), and
+  // that message (`member`), which it opens in turn as that message's own row would.
+  const holdsMatch = Boolean(reveal && reveal.rowId === row.id);
+  const memberReveal = useMemo(
+    () => (reveal?.member && reveal.rowId === row.id ? { ...reveal, rowId: reveal.member } : undefined),
+    [reveal, row.id],
   );
   useLayoutEffect(() => {
     if (!holdsMatch || open) return;
@@ -68,7 +71,7 @@ export function WaitingMessagesCard({
       : t("message.waitingFrom", { n, sessions: senders.length });
   return (
     <div className="cv-waiting" data-open={open || undefined} data-delivery={waiting.delivery}>
-      {/* Find counts the messages' text, not the head's names (App.tsx `drawnOccurrence`). */}
+      {/* Find counts the messages' text, not the head's names. */}
       <div className="cv-waiting__line" data-find-skip="">
         <button
           type="button"
@@ -95,7 +98,14 @@ export function WaitingMessagesCard({
         </span>
       </div>
       <div id={bodyId} className="cv-waiting__messages" hidden={!open}>
-        {open && waiting.rows.map((message) => <div key={message.id}>{renderMessage(message)}</div>)}
+        {open &&
+          waiting.rows.map((message) => (
+            <div key={message.id} data-find-member={message.id}>
+              <FindReveal.Provider value={memberReveal?.rowId === message.id ? memberReveal : reveal}>
+                {renderMessage(message)}
+              </FindReveal.Provider>
+            </div>
+          ))}
       </div>
     </div>
   );

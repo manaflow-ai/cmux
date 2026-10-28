@@ -52,7 +52,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
-import { groupWaitingSteps, groupWaitingTurn, type WaitingSteps } from "./conversation/waitingMessages";
+import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -2018,7 +2018,7 @@ function TranscriptContext({
 }
 
 export function VirtualTranscript({
-  rows: rowsIn,
+  rows,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2038,7 +2038,6 @@ export function VirtualTranscript({
   queueWithdrawn,
   queueIds,
   queuedTail,
-  waitingSteers,
   focusComposer,
   openAt,
   onAnchor,
@@ -2080,9 +2079,6 @@ export function VirtualTranscript({
   /// The waiting agent messages at the rows' end (conversation/queuedMessages.ts), one array while
   /// the queue holds them.
   queuedTail?: readonly AcpmuxRow[];
-  /// The rows of the steers the agent has not read yet (snapshot `waitingSteers`): where other
-  /// sessions' messages among them draw as one card (conversation/waitingMessages.ts).
-  waitingSteers?: readonly string[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -2126,13 +2122,6 @@ export function VirtualTranscript({
   showMinimap?: boolean;
 }) {
   const t = useT();
-  // Other sessions' messages steered in and not read, two or more in a run, as one card each run:
-  // the rows as drawn.
-  const waitingSteps = useRef<WaitingSteps | undefined>(undefined);
-  const { rows } = useMemo(
-    () => (waitingSteps.current = groupWaitingSteps(rowsIn, waitingSteers, queuedTail?.length, waitingSteps.current)),
-    [rowsIn, queuedTail, waitingSteers],
-  );
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -3387,21 +3376,13 @@ export function VirtualTranscript({
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
   // A card of waiting messages draws its messages in one row (conversation/WaitingMessagesCard.tsx):
-  // the match's place there counts the matches of the messages above it.
-  const findInCard = rows[findIndex]?.kind === WAITING_MESSAGES ? rows[findIndex]!.joined : undefined;
-  const drawnOccurrence = useMemo(() => {
-    if (findTargetOccurrence === undefined || !findInCard || !find) return findTargetOccurrence;
-    let above = 0;
-    for (let index = 0; index < find.active; index += 1) {
-      const match = find.matches[index]!;
-      if (match.rowId !== findTargetRowId && findInCard.includes(match.rowId)) above += 1;
-    }
-    return findTargetOccurrence + above;
-  }, [find, findInCard, findTargetRowId, findTargetOccurrence]);
+  // which of them holds the match.
+  const findMember =
+    rows[findIndex]?.kind === WAITING_MESSAGES && findTargetRowId !== drawnId ? findTargetRowId : undefined;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
+      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}${findMember ? `:${findMember}` : ""}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
@@ -3416,9 +3397,10 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
+            ...(findMember ? { member: findMember } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery],
+    [drawnId, drawnCard, findQuery, findMember],
   );
   // Find's scroll is the reader's: it stops following now, not when the browser reports the
   // scroll a frame later, or a re-measure before then puts the view back at the latest row.
@@ -3490,7 +3472,7 @@ export function VirtualTranscript({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: drawnOccurrence! }
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence, member: findMember }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -3539,7 +3521,7 @@ export function VirtualTranscript({
   }, [
     drawnCard,
     drawnId,
-    drawnOccurrence,
+    findMember,
     findQuery,
     findTargetOccurrence,
     findMoved,
@@ -5105,6 +5087,8 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
+          // Other sessions' messages among them, two or more in a run, draw as one card.
+          waitingSteers: snapshot.waitingSteers,
         },
         last?.turns,
       );
@@ -5123,6 +5107,7 @@ function AcpmuxPane() {
     codexRuns,
     sessionStatus,
     lineBelow,
+    snapshot.waitingSteers,
     chatShellRuns,
     panelAsks,
     subagentTray,
@@ -8787,7 +8772,6 @@ function AcpmuxPane() {
                                                   queueWithdrawn={snapshot.queueWithdrawn}
                                                   queueIds={quick ? undefined : queueIds}
                                                   queuedTail={queuedRows}
-                                                  waitingSteers={childRows ? undefined : snapshot.waitingSteers}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows
