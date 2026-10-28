@@ -6066,8 +6066,17 @@ export class AcpmuxDirectClient {
       newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
     );
-    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
-    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
+    // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
+    // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
+    // keeps its existing first-chat behavior; later chats start where acpmux defaults.
+    if (result?.sessionId) {
+      this.host = {
+        ...this.host,
+        ...(cwd ? {} : { cwd: undefined }),
+        harness: undefined,
+        model: undefined,
+      };
+    }
     return result?.sessionId ? String(result.sessionId) : undefined;
   }
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
