@@ -20,6 +20,7 @@ nonisolated enum DiffPatchPages {
                   let start = decimal(value["offset"]), start == offset,
                   let next = decimal(value["next_offset"]),
                   let length = decimal(value["total_bytes"]),
+                  length <= UInt64(DiffPatchResolver.maximumPatchBytes),
                   let identity = value["revision"]?.stringValue, identity.utf8.count == 64,
                   identity.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                   revision == nil || revision == identity,
@@ -37,6 +38,10 @@ nonisolated enum DiffPatchPages {
             total = length
         } while offset < (total ?? 0)
         return data
+    }
+
+    @concurrent static func text(_ bytes: Data) async -> String? {
+        String(data: bytes, encoding: .utf8)
     }
 
     private static func decimal(_ value: JSONValue?) -> UInt64? {

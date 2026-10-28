@@ -56,4 +56,15 @@ struct DiffPatchPagesTests {
         }
         await #expect(throws: CancellationError.self) { _ = try await task.value }
     }
+
+    @Test func aCapturePastTheExistingViewerBudgetIsRefusedBeforeAllocation() async {
+        var calls = 0
+        await #expect(throws: PageError.self) {
+            _ = try await DiffPatchPages.read { _, _ in
+                calls += 1
+                return reply(Data([0x61]), offset: 0, total: DiffPatchResolver.maximumPatchBytes + 1)
+            }
+        }
+        #expect(calls == 1)
+    }
 }

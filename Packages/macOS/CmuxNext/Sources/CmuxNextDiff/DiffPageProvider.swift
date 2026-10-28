@@ -58,6 +58,7 @@ public final class DiffPageProvider: PageProvider {
     var spentOpenGesture: TimeInterval?
 
     private struct RemoteSession {
+        let generation = UUID()
         let source: JSONValue
         let scope: AgentPaneGitScope
         let files: [JSONValue]
@@ -332,21 +333,26 @@ public final class DiffPageProvider: PageProvider {
         let patch: String?
         if file["patch_truncated"]?.boolValue == true {
             let bytes = try await DiffPatchPages.read { [self] offset, revision in
-                guard !isClosed, remoteSessions[id] != nil else { throw PageError.closed }
+                guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }
                 do {
                     return try await git.diff(tab.grant.repository, scope: scope, includePatch: true,
                         options: AgentPaneGitDiffOptions(paths: [path], contextLines: Self.remoteFullFileContextLines,
                                                         patchOffset: offset, patchRevision: revision))
                 } catch { throw Self.pageError(error) }
             }
-            guard !isClosed, remoteSessions[id] != nil else { throw PageError.closed }
-            patch = String(data: bytes, encoding: .utf8)
+            guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }
+            patch = await DiffPatchPages.text(bytes)
         } else {
             patch = file["patch"]?.stringValue
         }
-        guard let patch,
-              let sides = Self.remoteSides(patch, status: file["status"]?.stringValue ?? "modified",
-                                            contextLimit: Self.remoteFullFileContextLines) else {
+        guard let patch else {
+            return ["type": "fileContents", "value": ["tooLarge": true]]
+        }
+        let sides = await Self.remoteSides(patch, status: file["status"]?.stringValue ?? "modified",
+                                           contextLimit: Self.remoteFullFileContextLines)
+        try Task.checkCancellation()
+        guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }
+        guard let sides else {
             return ["type": "fileContents", "value": ["tooLarge": true]]
         }
         var value: [String: JSONValue] = [:]
@@ -375,7 +381,7 @@ public final class DiffPageProvider: PageProvider {
             && path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
-    private static func remoteSides(_ patch: String, status: String, contextLimit: Int) -> (old: String?, new: String?)? {
+    @concurrent private static func remoteSides(_ patch: String, status: String, contextLimit: Int) async -> (old: String?, new: String?)? {
         guard patch.contains("@@") else { return nil }
         var old = "", new = ""
         var inHunk = false
@@ -384,6 +390,7 @@ public final class DiffPageProvider: PageProvider {
         var leadingContext = 0, trailingContext = 0
         var changed = false
         for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+            if Task.isCancelled { return nil }
             let text = String(line)
             if text.hasPrefix("@@ ") {
                 if inHunk && (seenOld != expectedOld || seenNew != expectedNew) { return nil }
@@ -421,7 +428,7 @@ public final class DiffPageProvider: PageProvider {
                 status == "deleted" ? nil : new)
     }
 
-    private static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
+    nonisolated private static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
         guard let end = header.range(of: " @@") else { return nil }
         let ranges = header[header.index(header.startIndex, offsetBy: 3)..<end.lowerBound]
             .split(separator: " ")
@@ -431,7 +438,7 @@ public final class DiffPageProvider: PageProvider {
         return (old, new)
     }
 
-    private static func hunkCount(_ range: Substring, prefix: Character) -> Int? {
+    nonisolated private static func hunkCount(_ range: Substring, prefix: Character) -> Int? {
         guard range.first == prefix else { return nil }
         let value = range.dropFirst().split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
         guard let start = Int(value[0]), start >= 0 else { return nil }
