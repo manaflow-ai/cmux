@@ -122,14 +122,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
     }
 
-    private func colorSwatch(for hex: String) -> NSColor {
-        WorkspaceTabColorSettings.displayNSColor(
-            hex: hex,
-            colorScheme: colorScheme,
-            forceBright: true
-        ) ?? NSColor(hex: hex) ?? .gray
-    }
-
     private var shortcutHintPillText: String? {
         guard showsShortcutHint,
               let shortcutDigit,
@@ -389,51 +381,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: actions.onTogglePinned
             )
-            Menu(
-                String(
-                    localized: "workspaceGroup.contextMenu.color",
-                    defaultValue: "Group Color"
-                )
-            ) {
-                let colorPalette = WorkspaceTabColorSettings.palette()
-
-                if hasCustomColor {
-                    Button {
-                        actions.onSetColor(nil)
-                    } label: {
-                        Label(
-                            String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"),
-                            systemImage: "xmark.circle"
-                        )
-                    }
-                }
-
-                Button(action: actions.onChooseCustomColor) {
-                    Label(
-                        String(
-                            localized: "contextMenu.chooseCustomColor",
-                            defaultValue: "Choose Custom Color…"
-                        ),
-                        systemImage: "paintpalette"
-                    )
-                }
-
-                if !colorPalette.isEmpty {
-                    Divider()
-                }
-
-                ForEach(colorPalette, id: \.id) { entry in
-                    Button {
-                        actions.onSetColor(entry.hex)
-                    } label: {
-                        Label {
-                            Text(entry.name)
-                        } icon: {
-                            Image(nsImage: coloredCircleImage(color: colorSwatch(for: entry.hex)))
-                        }
-                    }
-                }
-            }
+            SidebarWorkspaceGroupColorMenu(tintHex: tintHex, hasCustomColor: hasCustomColor, actions: actions)
             Divider()
             Button(
                 String(

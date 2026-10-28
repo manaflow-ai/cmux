@@ -24,18 +24,16 @@ extension VerticalTabsSidebar {
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
-        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
-        let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-        let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-            explicit: group.iconSymbol,
-            configured: resolvedConfig?.iconSymbol
+        let appearance = SidebarWorkspaceGroupAppearance(
+            group: group,
+            workspaceById: renderContext.workspaceById,
+            configStore: cmuxConfigStore
         )
         let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: false,
             isMultiSelected: true,
-            customColorHex: effectiveColor,
+            customColorHex: appearance.colorHex,
             colorScheme: renderContext.environment.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
@@ -51,8 +49,6 @@ extension VerticalTabsSidebar {
             colorScheme: renderContext.environment.colorScheme,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
-        let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
-        let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         // The AppKit controller applies the current unread snapshot after row
         // construction, keeping this root projection outside Observation.
         let unreadSnapshot = SidebarUnreadSnapshot()
@@ -108,9 +104,9 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
-            iconSymbol: effectiveIcon,
-            tintHex: effectiveColor,
-            hasCustomColor: group.customColor != nil,
+            iconSymbol: appearance.iconSymbol,
+            tintHex: appearance.colorHex,
+            hasCustomColor: appearance.hasCustomColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -131,7 +127,7 @@ extension VerticalTabsSidebar {
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
             globalFontMagnificationPercent: renderContext.environment.globalFontMagnificationPercent,
-            cwdContextMenuItems: cwdContextMenuItems,
+            cwdContextMenuItems: appearance.config?.contextMenuItems ?? [],
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
             isBeingDragged: dragState.draggedTabId == dragIdentity,
@@ -145,7 +141,7 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             fallbackGroupName: group.name,
             fallbackAnchorWorkspaceId: group.anchorWorkspaceId,
-            placement: newWorkspacePlacement,
+            placement: appearance.config?.newWorkspacePlacement,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         )
@@ -212,18 +208,16 @@ extension VerticalTabsSidebar {
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
-        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
-        let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-        let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-            explicit: group.iconSymbol,
-            configured: resolvedConfig?.iconSymbol
+        let appearance = SidebarWorkspaceGroupAppearance(
+            group: group,
+            workspaceById: renderContext.workspaceById,
+            configStore: cmuxConfigStore
         )
         let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: false,
             isMultiSelected: true,
-            customColorHex: effectiveColor,
+            customColorHex: appearance.colorHex,
             colorScheme: renderContext.environment.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
@@ -239,8 +233,6 @@ extension VerticalTabsSidebar {
             colorScheme: renderContext.environment.colorScheme,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
-        let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
-        let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
                 return memberWorkspaceIds.reduce(0) { partial, workspaceId in
@@ -299,9 +291,9 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
-            iconSymbol: effectiveIcon,
-            tintHex: effectiveColor,
-            hasCustomColor: group.customColor != nil,
+            iconSymbol: appearance.iconSymbol,
+            tintHex: appearance.colorHex,
+            hasCustomColor: appearance.hasCustomColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -324,8 +316,8 @@ extension VerticalTabsSidebar {
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
-            cwdContextMenuItems: cwdContextMenuItems,
-            newWorkspacePlacement: newWorkspacePlacement,
+            cwdContextMenuItems: appearance.config?.contextMenuItems ?? [],
+            newWorkspacePlacement: appearance.config?.newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
             isBeingDragged: dragState.draggedTabId == dragIdentity,
@@ -430,6 +422,7 @@ extension VerticalTabsSidebar {
             }
             return (tabManager, anchorId)
         }
+        let colorCommands = SidebarWorkspaceGroupColorCommands(tabManager: tabManager, groupId: groupId)
         let resolvePlacement: () -> WorkspaceGroupNewPlacement = {
             placement
                 ?? UserDefaultsSettingsClient(defaults: .standard)
@@ -510,22 +503,8 @@ extension VerticalTabsSidebar {
             onTogglePinned: { [weak tabManager] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
-            onSetColor: { [weak tabManager] hex in
-                tabManager?.setWorkspaceGroupColor(groupId: groupId, hex: hex)
-            },
-            onChooseCustomColor: { [weak tabManager, resolveLiveAnchor] in
-                guard let tabManager else { return }
-                let currentHex = tabManager.workspaceGroups
-                    .first(where: { $0.id == groupId })?.customColor
-                guard let hex = WorkspaceCustomColorPrompt.run(
-                    title: String(localized: "alert.customGroupColor.title", defaultValue: "Custom Group Color"),
-                    currentHex: currentHex,
-                    presentingWindow: resolveLiveAnchor().flatMap {
-                        AppDelegate.shared?.mainWindowContainingWorkspace($0.1)
-                    }
-                ) else { return }
-                tabManager.setWorkspaceGroupColor(groupId: groupId, hex: hex)
-            },
+            onSetColor: { colorCommands.setColor($0) },
+            onChooseCustomColor: { colorCommands.chooseCustomColor() },
             onMarkRead: { [resolveLiveAnchor, weak notificationStore] in
                 guard let (_, anchorId) = resolveLiveAnchor(),
                       let notificationStore,
