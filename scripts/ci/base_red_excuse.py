@@ -21,6 +21,11 @@ failing test the base's run does not fail is the head's; a crash (signal,
 abort, EXC_*, Fatal error) is the head's whatever the base shows; and a run
 whose per-test results are cut short (no summary, ended early, stuck) is the
 head's, since nothing in it can be compared.
+
+A compile check that gave no verdict (the build fleet's "no result", "No build-fleet verdict") is never a
+base red, even with the base's identical line: nothing compiled the head. It is set aside only when the
+same head has a real compile pass (a green Mac Release compile or a cmux-next/compile success). Error
+lines are compared with commit shas masked, so a real red that names each run's own commit still matches.
 """
 from __future__ import annotations
 
@@ -68,6 +73,19 @@ STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
+# A commit sha inside an error line (7 to 40 hex digits with a digit and a letter, so a plain word or
+# number is not one): the same red on the head and the base names each run's own commit.
+SHA = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+# A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
+# for another head): nothing compiled the head, so it is never a base red, whatever the base shows
+# (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
+# controller was wedged). It is set aside only when another job compiled that same head: COMPILE_PASSES.
+NO_VERDICT = re.compile(r"cmux-next/compile is not a pass for \S+ \((?:no result|unavailable|mismatch|unreadable|"
+                        r"last: [^)]*)\)|No build-fleet verdict for ")
+# A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
+# commit status.
+COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
+COMPILE_PASS_STATUS = "cmux-next/compile"
 
 
 def lines_of(log: str) -> list[str]:
@@ -90,8 +108,30 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
             if match := pattern.search(text):
                 tests.add(match.group(1))
         if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
-            errors.add(re.sub(r"\d+", "#", text.replace("##[error]", "").strip()))
+            errors.add(re.sub(r"\d+", "#", SHA.sub("<sha>", text.replace("##[error]", "").strip())))
     return steps, tests, errors
+
+
+def no_verdict(log: str) -> str | None:
+    """The line where a compile check says it gave no verdict, if it does."""
+    return next((text for text in lines_of(log) if NO_VERDICT.search(text)), None)
+
+
+def compile_pass_at(repo: str, sha: str, github) -> str | None:
+    """What compiled SHA itself and passed: a green Mac Release compile or a cmux-next/compile success."""
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+        for check in page.get("check_runs") or []:
+            if (check.get("name") in COMPILE_PASS_CHECKS and check.get("conclusion") == "success"
+                    and check.get("head_sha") in (None, sha) and check.get("app", {}).get("slug") == "github-actions"):
+                return f"'{check['name']}' (check run {check.get('id')})"
+    status = github.json(f"repos/{repo}/commits/{sha}/status")
+    for found in status.get("statuses") or []:
+        if found.get("context") == COMPILE_PASS_STATUS:
+            # The combined status lists the newest per context.
+            if found.get("state") == "success":
+                return f"the {COMPILE_PASS_STATUS} status"
+            break
+    return None
 
 
 def crash_signals(log: str) -> set[str]:
@@ -155,6 +195,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        if (said := no_verdict(head_log)) is not None:
+            proof = compile_pass_at(repo, sha, github)
+            if proof is None:
+                raise Refused(f"'{name}' gave no compile verdict ({said[:300]}) and nothing else compiled {sha}: "
+                              "a no-verdict compile is never a base red; re-run it once the fleet answers")
+            audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
+            continue
         own = test_reds.read(head_log)
         if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]

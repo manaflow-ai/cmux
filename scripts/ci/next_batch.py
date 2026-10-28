@@ -1332,6 +1332,9 @@ class Controller:
             if base_red_excuse.test_reds.is_test_red(base_red_excuse.test_reds.Result(), name):
                 return {f"{name}: log unreadable (job {job_id}, never a base red)"}
             return {name}
+        if base_red_excuse.no_verdict(log) is not None:
+            # A compile check with no verdict compiled nothing: keyed by this job's id, it is never the base's.
+            return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
         steps, tests, errors = base_red_excuse.signature(job, log)
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.

@@ -337,6 +337,109 @@ class CrashIsNeverABaseRed(unittest.TestCase):
             self.judge()
 
 
+class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
+    """A compile check with no verdict (the build-fleet controller unreachable or timed out) compiled
+    nothing, so it is never a base red, even when the base shows the same "no result" with only its own
+    sha differing (2026-10-28, cmux#26798's run against base run 40656801765). It is set aside only when
+    another job at that same head compiled it and passed. A real red that differs only by the commit
+    sha it names is still excused."""
+
+    FLEET = "cmux-next fleet Release compile"
+    STEP = "Wait for the fleet Release compile and publish cmux-next/compile"
+
+    class GitHub(FakeGitHub):
+        def __init__(self):
+            super().__init__()
+            self.check_runs: list[dict] = []
+            self.statuses: list[dict] = []
+
+        def json(self, route, *, paginate=False):
+            if f"/commits/{HEAD}/check-runs" in route:
+                return [{"check_runs": copy.deepcopy(self.check_runs)}]
+            if route.endswith(f"/commits/{HEAD}/status"):
+                return {"statuses": copy.deepcopy(self.statuses)}
+            return super().json(route, paginate=paginate)
+
+    def setUp(self):
+        self.gh = self.GitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, self.FLEET, self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, self.FLEET, self.STEP)}
+        self.gh.logs[1] = self.no_result(self.FLEET, self.STEP, "df40f81342c8bb1eb135ced40728a4e7a090ed49")
+        self.gh.logs[2] = self.no_result(self.FLEET, self.STEP, "7ea21d1ce82ffaecc58599ae3f6bbf95afd92c51")
+
+    @staticmethod
+    def no_result(job, step, sha):
+        return log(job, step, f"##[warning]no result for {sha} from the controller (attempt 1)",
+                   f"##[error]cmux-next/compile is not a pass for {sha} (no result)",
+                   "##[error]Process completed with exit code 1.")
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_no_verdict_with_nothing_else_compiling_the_head_is_refused_even_when_the_base_has_it(self):
+        with self.assertRaisesRegex(excuse.Refused, r"no compile verdict.*never a base red"):
+            self.judge()
+
+    def test_the_app_compile_with_no_build_fleet_verdict_is_refused_too(self):
+        app = "cmux-next app compile (build fleet)"
+        step = "Compile-check the app at the pull request's head on the build fleet"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, app, step), 2: failed_job(2, 20, BASE_SHA, app, step)}
+        line = ("##[error]No build-fleet verdict for `{}` (controller unreachable or timed out: cmux-ci exit 69), "
+                "so nothing has compiled this head here.")
+        self.gh.logs[1] = log(app, step, line.format(HEAD))
+        self.gh.logs[2] = log(app, step, line.format(BASE_SHA))
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+
+    def test_no_verdict_is_ignored_when_the_mac_release_compile_passed_at_the_head(self):
+        self.gh.check_runs = [
+            {"id": 5, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "skipped", "head_sha": HEAD,
+             "app": {"slug": "github-actions"}},
+            {"id": 6, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success", "head_sha": HEAD,
+             "app": {"slug": "github-actions"}}]
+        text = "\n".join(self.judge())
+        self.assertIn(f"ignored '{self.FLEET}'", text)
+        self.assertIn("cmux-next Release compile (Xcode 26)", text)
+
+    def test_a_skipped_or_foreign_release_compile_is_not_a_pass(self):
+        self.gh.check_runs = [
+            {"id": 5, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "skipped", "head_sha": HEAD,
+             "app": {"slug": "github-actions"}},
+            {"id": 6, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success", "head_sha": HEAD,
+             "app": {"slug": "someone-else"}}]
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_no_verdict_is_ignored_when_cmux_next_compile_succeeded_at_the_head(self):
+        self.gh.statuses = [{"context": "cmux-next/compile", "state": "success"}]
+        self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
+
+    def test_a_failed_cmux_next_compile_status_is_not_a_pass(self):
+        self.gh.statuses = [{"context": "cmux-next/compile", "state": "failure"},
+                            {"context": "cmux-next/compile", "state": "success"}]
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_a_real_red_differing_only_by_its_embedded_sha_is_excused(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        line = "error: cmux-tui for this checkout's tree {} is not published after 0 min."
+        self.gh.logs[1] = log(scheme, "Build", line.format("5948da759b33dbe312f3108fab7dc39956c3dc56"))
+        self.gh.logs[2] = log(scheme, "Build", line.format("8f0c2e1"))
+        self.assertIn(f"excused '{scheme}'", "\n".join(self.judge()))
+
+    def test_a_different_error_is_not_excused(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        self.gh.logs[1] = log(scheme, "Build", "error: cmux-tui for this checkout's tree 5948da759b3 is not published.")
+        self.gh.logs[2] = log(scheme, "Build", "error: cmux-tui for this checkout's tree 8f0c2e1aa is corrupt.")
+        with self.assertRaisesRegex(excuse.Refused, "not published"):
+            self.judge()
+
+    def test_words_and_numbers_are_not_taken_for_shas(self):
+        self.assertEqual(excuse.SHA.sub("<sha>", "defaced 1234567 accede deadbeef1"), "defaced 1234567 accede <sha>")
+
+
 class Script(unittest.TestCase):
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
