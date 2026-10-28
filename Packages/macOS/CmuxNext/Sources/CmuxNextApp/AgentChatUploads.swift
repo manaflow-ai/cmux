@@ -165,6 +165,17 @@ extension AgentChatUploads {
         }
     }
 
+    /// A fresh upload folder for chat tab `tab`'s long dictation recording: in the chat's folder for
+    /// a chat on this Mac (it goes with the chat), else at the top. Either way the launch sweep
+    /// removes it after ``maximumAge``, as any upload. Nil without Application Support.
+    static func recordingFolder(tab: String, services: AppServices) -> URL? {
+        guard let root else { return nil }
+        let local = services.agentTabs.gitLink?(tab)?.isLocal == true
+        let session = local ? services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil } : nil
+        return (session.map { chatFolder($0, in: root) } ?? root)
+            .appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+    }
+
     /// Chat `session`'s folder under `root`.
     nonisolated static func chatFolder(_ session: String, in root: URL) -> URL {
         root.appending(path: sessions, directoryHint: .isDirectory).appending(path: session, directoryHint: .isDirectory)

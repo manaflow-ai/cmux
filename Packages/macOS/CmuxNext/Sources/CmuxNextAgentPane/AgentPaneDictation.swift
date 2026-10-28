@@ -55,6 +55,8 @@ final class AgentPaneDictation {
     /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
     /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
     private var recordsAudio = false
+    /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
+    var recordingFolder: () -> URL? = { nil }
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -218,6 +220,7 @@ final class AgentPaneDictation {
         if let session { return session }
         let made = makeSession()
         made.onUpdate = { [weak self] update in self?.deliver(update) }
+        made.recordingFolder = { [weak self] in self?.recordingFolder() }
         session = made
         return made
     }

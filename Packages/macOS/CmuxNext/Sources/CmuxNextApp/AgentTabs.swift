@@ -213,6 +213,8 @@ final class AgentTabStore {
     /// Whether a chat tab's (or its New Tab page's) dropped or pasted files go as their paths on this
     /// Mac (``AgentPaneModel/onLocalPaths``); nil: never.
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
+    /// A fresh folder for a chat tab's long dictation recording (``AgentPaneModel/onDictationFolder``).
+    var dictationFolder: (@MainActor (_ tab: String) -> URL?)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
@@ -512,6 +514,10 @@ final class AgentTabStore {
         model.onLocalPaths = { [weak self] in
             guard let self else { return false }
             return localPaths?(resolve(provisional)) ?? false
+        }
+        model.onDictationFolder = { [weak self] in
+            guard let self else { return nil }
+            return dictationFolder?(resolve(provisional))
         }
     }
 

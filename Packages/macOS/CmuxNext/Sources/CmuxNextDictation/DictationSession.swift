@@ -22,6 +22,10 @@ public final class DictationSession {
     /// update (``DictationUpdate/audio``): the pane's harness takes voice
     /// input. Read at each start.
     public var recordsAudio = false
+    /// A fresh folder for a session's recording (an upload folder of the pane's chat, so it goes
+    /// with the chat or after its uploads' age); nil: one under this user's temporary folder.
+    /// Asked at each start that records.
+    public var recordingFolder: (@MainActor () -> URL?)?
     /// Called on every change, on the main actor.
     public var onUpdate: ((DictationUpdate) -> Void)?
 
@@ -83,7 +87,7 @@ public final class DictationSession {
         transcript = DictationTranscript()
         committed = ""
         level = 0
-        recording = recordsAudio ? DictationAudioRecording() : nil
+        recording = recordsAudio ? DictationAudioRecording(folder: recordingFolder?()) : nil
         set(.starting)
         // task-owner: stored in listening; cancel() and the next start supersede it by generation
         listening = Task { [weak self] in await self?.listen(session) }

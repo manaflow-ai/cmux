@@ -205,6 +205,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
+    /// A fresh folder for this chat's dictation recording too long for a prompt (an upload folder of
+    /// the chat, ``AgentChatUploads``); nil: a temporary one.
+    @ObservationIgnored public var onDictationFolder: (@MainActor () -> URL?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?

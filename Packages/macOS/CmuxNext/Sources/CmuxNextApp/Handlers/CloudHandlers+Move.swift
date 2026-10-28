@@ -38,6 +38,10 @@ extension CloudHandlers {
             return services.cloud.uploads.uploader(tab: tab, services: services) == nil && AgentPeerUploads.target(tab: tab, services: services) == nil
                 && services.agentTabs.gitLink?(tab)?.isLocal == true
         }
+        // A dictation recording too long for a prompt is an upload of the chat (``AgentChatUploads``).
+        services.agentTabs.dictationFolder = { [weak services] tab in
+            services.flatMap { AgentChatUploads.recordingFolder(tab: tab, services: $0) }
+        }
         bind(CloudMove.action, registry, reason: reason) { invocation in
             if CloudMoveAsks.isAgent(invocation) { return try services.cloud.moveAsks.ask(invocation, services: services) }
             try CloudMove(services: services).start(invocation, context: context)

@@ -59,6 +59,9 @@ public final class DictationAudioRecording: Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let file: URL
+    /// The recording's own folder, removed with its file (``init(folder:)``); nil for a file given
+    /// alone (``init(file:)``), whose folder stays.
+    private let folder: URL?
     private let writer = DispatchQueue(label: "com.cmuxterm.dictation.recording", qos: .utility)
     /// The file as ``writer`` writes it. Only blocks on ``writer`` take this lock, one at a time,
     /// so it is never contended; it carries the state across that queue's blocks.
@@ -82,12 +85,25 @@ public final class DictationAudioRecording: Sendable {
 
     init(file: URL, flushTaken: (@Sendable () -> Void)?) {
         self.file = file
+        folder = nil
         self.flushTaken = flushTaken
     }
 
-    /// A recording in `folder` (default: this user's temporary folder) under a fresh name.
-    public convenience init(folder: URL = FileManager.default.temporaryDirectory.appending(path: "cmux-dictation", directoryHint: .isDirectory)) {
-        self.init(file: folder.appending(path: "Recording-\(UUID().uuidString.lowercased()).wav"))
+    /// A recording that owns `folder` (a fresh upload folder of the chat, made owner-only at the
+    /// first second heard; by default one under this user's temporary folder): its file is
+    /// `Recording.wav` there, and a recording sent inline or discarded removes the folder.
+    public init(folder: URL? = nil) {
+        let folder = folder
+            ?? FileManager.default.temporaryDirectory.appending(path: "cmux-dictation", directoryHint: .isDirectory)
+            .appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        self.folder = folder
+        file = folder.appending(path: "Recording.wav")
+        flushTaken = nil
+    }
+
+    /// Removes the file, and the recording's own folder with it.
+    private func removeFile() {
+        try? FileManager.checked.removeItem(at: folder ?? file)
     }
 
     /// Folds one tap buffer in.
@@ -171,7 +187,7 @@ public final class DictationAudioRecording: Sendable {
                 try? output.handle?.close()
                 output.handle = nil
             }
-            try? FileManager.checked.removeItem(at: self.file)
+            self.removeFile()
         }
     }
 
@@ -224,13 +240,13 @@ public final class DictationAudioRecording: Sendable {
             }
         }
         guard closed else {
-            try? FileManager.checked.removeItem(at: file)
+            removeFile()
             return nil
         }
         let byteCount = 44 + samples * MemoryLayout<Int16>.size
         guard byteCount <= Self.inlinePromptBytes else { return DictationAudio(file: file, byteCount: byteCount) }
         let data = try? Data(blockingContentsOf: file)
-        try? FileManager.checked.removeItem(at: file)
+        removeFile()
         return data.map { DictationAudio(byteCount: byteCount, data: $0) }
     }
 
