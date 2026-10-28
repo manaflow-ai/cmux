@@ -71,6 +71,11 @@ parser.add_argument("--no-shell", action="store_true", help="the host's own shel
 parser.add_argument("--slow-create-ms", type=int, default=0,
                     help="cmux-next DEBUG/bench builds: every pane or terminal create's reply comes this much later "
                          "(CMUX_NEXT_DEBUG_SLOW_CREATE_MS): keys typed meanwhile must still reach the PTY in order")
+parser.add_argument("--key-path", choices=("socket", "sequence"), default="socket",
+                    help="cmux-next: socket = one debug.key line per key (the socket's input lane: a 100-150 ms floor); "
+                         "sequence = the whole round as ONE debug.key {sequence}: the app posts each key as a CGEvent to its "
+                         "own event queue at its planned time, stamped with that time (a person's path: nextEvent, "
+                         "sendEvent, the key window), so a busy or holding app counts its wait and the socket adds none")
 parser.add_argument("--still", action="store_true", help="a JPEG of the window at the end of each round in the report")
 opts, _unknown = parser.parse_known_args()
 
@@ -307,6 +312,29 @@ class NextApp:
             params["modifiers"] = list(modifiers)
         return self.control.rpc("debug.key", params, timeout=20)
 
+    def play_sequence(self, name, modifiers, typed):
+        """The open shortcut, then a letter every --interval, as ONE `debug.key {sequence}`: the app posts every key
+        as a CGEvent to its own event queue at its planned offset, stamped with its planned time (DebugKeySequence),
+        so the keys take a person's path and the socket's input lane adds nothing. Returns (sent, reply, open_ns) like
+        `play`; open_ns is the sequence's base on this clock (`base_s` in the reply)."""
+        steps = [{"key_code": MODIFIER_CODES[m], "down": True} for m in modifiers]
+        steps += [{"key_code": KEY_CODES[name], "down": True}, {"key_code": KEY_CODES[name], "down": False, "after_ms": 5}]
+        steps += [{"key_code": MODIFIER_CODES[m], "down": False} for m in reversed(modifiers)]
+        offset = 5.0
+        for k, letter in enumerate(typed):
+            at = (k + 1) * opts.interval * 1000
+            steps.append({"key_code": KEY_CODES[letter], "down": True, "after_ms": max(0.0, at - offset)})
+            steps.append({"key_code": KEY_CODES[letter], "down": False, "after_ms": 5})
+            offset = at + 5
+        before = NOW_NS()
+        reply = self.control.rpc("debug.key", {"sequence": steps, "key_window": "shell"}, timeout=30) or {}
+        base = reply.get("base_s") if isinstance(reply, dict) else None
+        if not base:
+            raise RuntimeError(f"debug.key sequence refused: {json.dumps(reply)[:300]}")
+        open_ns = int(base * 1e9)
+        note(f"      sequence: {reply.get('scheduled')} steps, base {open_ns - before} ns after the request")
+        return [{} for _ in typed], reply, open_ns
+
     def play(self, name, modifiers, typed):
         """The open shortcut, then a letter every --interval, all on ONE control connection: each `debug.key` line
         is written at its scheduled time and stamped with it (the client's CLOCK_UPTIME_RAW, the probe's clock),
@@ -315,6 +343,8 @@ class NextApp:
         for a busy main thread or a held key counts that wait, as a person's key queued in the window server does.
         (A connection per key measured the server's accept and connection setup: a 0-150 ms sawtooth on every key.
         `debug.key {sequence}` refuses on hosts whose CGEvent has no timestamp.)"""
+        if opts.key_path == "sequence":
+            return self.play_sequence(name, modifiers, typed)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(60)
         conn.connect(self.control.socket_path)
