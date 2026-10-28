@@ -9,6 +9,7 @@ import http.client
 import json
 import mimetypes
 import os
+import signal
 import sys
 import time
 import urllib.error
@@ -319,25 +320,40 @@ def _download(args: argparse.Namespace) -> int:
     retry_delay = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_DELAY", "5"))
     partial = f"{args.download_to}.partial"
     # A read that trickles (files.cmux.com at 4-35 KB/s) never trips the idle
-    # socket timeout: each attempt also has a whole-transfer deadline.
+    # socket timeout: each attempt also has a whole-attempt deadline, from
+    # before the request opens to the last byte, enforced by SIGALRM so no
+    # blocking connect, header wait or read outlives it.
     deadline = float(os.environ.get("CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS", "300"))
+
+    def expire(_signum, _frame):
+        raise TimeoutError(f"the download did not finish within {deadline:g}s, too slow")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    try:
+        return _download_attempts(args, attempts, retry_delay, partial, deadline)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _download_attempts(args: argparse.Namespace, attempts: int, retry_delay: float, partial: str,
+                       deadline: float) -> int:
     for attempt in range(1, attempts + 1):
         amz_date = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE") or dt.datetime.now(dt.timezone.utc).strftime(
             "%Y%m%dT%H%M%SZ"
         )
         try:
-            get = _build_signed_request(args, b"", amz_date, method="GET")
-            with _open_signed_request(get, timeout=60) as response, open(partial, "wb") as out:
-                expected = response.headers.get("Content-Length")
-                size = 0
-                started = time.monotonic()
-                # read1 returns after at most one socket read, so a stream that trickles
-                # a byte at a time still reaches the deadline check.
-                while chunk := response.read1(1 << 16):
-                    out.write(chunk)
-                    size += len(chunk)
-                    if time.monotonic() - started > deadline:
-                        raise TimeoutError(f"read {size} bytes in {deadline:g}s, too slow")
+            signal.setitimer(signal.ITIMER_REAL, deadline)
+            try:
+                get = _build_signed_request(args, b"", amz_date, method="GET")
+                with _open_signed_request(get, timeout=60) as response, open(partial, "wb") as out:
+                    expected = response.headers.get("Content-Length")
+                    size = 0
+                    while chunk := response.read1(1 << 16):
+                        out.write(chunk)
+                        size += len(chunk)
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
             if expected is not None and size != int(expected):
                 raise ConnectionError(f"read {size} of {expected} bytes")
             os.replace(partial, args.download_to)

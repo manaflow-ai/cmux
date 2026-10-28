@@ -254,6 +254,30 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertFalse(target.with_name("downloaded.partial").exists())
 
+    def test_a_download_whose_answer_never_starts_is_cut_at_its_deadline(self):
+        # The deadline covers the request too, not only the body.
+        self.env.update(CMUX_R2_UPLOAD_RETRY_DELAY="0", CMUX_R2_UPLOAD_ATTEMPTS="2",
+                        CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS="1")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                time.sleep(5)
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        started = time.monotonic()
+        result, target = self.download(f"https://127.0.0.1:{server.server_port}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIn("too slow", result.stderr)
+
     def test_a_failed_download_keeps_the_destination(self):
         self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
         endpoint, requests, stored = self.start_flaky_endpoint([])
