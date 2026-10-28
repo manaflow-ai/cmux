@@ -162,6 +162,39 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no completed"):
             self.judge()
 
+    def dev_daily_runs(self, count, first_id=1000):
+        # A DEV daily dispatch of the same workflow: its swift-test job is skipped, so no verdict.
+        for offset in range(count):
+            run_id = first_id + offset
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA), conclusion="skipped", steps=[])
+        return [{"id": first_id + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                 "status": "completed", "conclusion": "success"} for offset in range(count)]
+
+    def test_the_tip_swift_suite_behind_a_burst_of_dev_daily_runs_is_the_base_verdict(self):
+        # 2026-10-28: 16 of the base's 20 newest completed runs were DEV daily dispatches, the tip
+        # suite run fell out of a 20-run window, and no Swift red on any PR could be compared.
+        self.gh.base_runs = self.dev_daily_runs(30) + self.gh.base_runs
+        text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
+        lookup = next(route for route in self.gh.routes if "/actions/workflows/7/runs?" in route)
+        self.assertIn(f"per_page={excuse.BASE_RUNS_PAGE}", lookup)
+
+    def test_the_base_lookup_reaches_past_the_tip_suites_cadence(self):
+        # The tip suite runs about once an hour (at most once per 25 minutes, tip_swift_suite_plan.js
+        # MIN_GAP_MS), and DEV daily runs land about every 3 minutes between them: 20 runs an hour.
+        # The job reads have to reach past more than one tip suite run, so one with no verdict (a
+        # lost runner) still leaves the one before it.
+        self.assertGreaterEqual(excuse.BASE_RUNS_PAGE, 100)
+        self.assertGreaterEqual(excuse.BASE_JOB_READS, 2 * 20)
+
+    def test_base_job_reads_are_bounded(self):
+        self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
+        with self.assertRaisesRegex(excuse.Refused, "no completed"):
+            self.judge()
+        reads = [route for route in self.gh.routes if route.endswith("/jobs?filter=latest&per_page=100")
+                 and "/runs/10/" not in route]
+        self.assertEqual(len(reads), excuse.BASE_JOB_READS)
+
     def test_a_setup_refusal_is_never_excused(self):
         self.gh.jobs[1]["steps"] = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
                                     {"name": "Set up runner", "status": "completed", "conclusion": "failure"}]

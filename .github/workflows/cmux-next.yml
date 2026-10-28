@@ -2403,10 +2403,14 @@ jobs:
   # Release compiles). It compiles and links the app at the PR's head, the
   # commit the landing gate (require-cmux-guards) asks about, in about a
   # minute. A fleet compile error fails this job: the PR's own red. No verdict
-  # (no client, the fleet down, a timeout) is a notice, and release-compile
-  # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch
-  # keep the Mac Release compile; the base push compiles Release after the
-  # merge, and push-attribution names the PR on a red.
+  # (no client, the controller unreachable or timed out: any cmux-ci exit but
+  # 0 and 1, 69 included) fails this job too, because nothing compiled the
+  # head: it went green on exit 69 with no compile at all (PR #26741's head
+  # 292b43ef, 2026-10-28, whose change runs no Mac Release compile). The
+  # verdict output stays unavailable, so release-compile still runs on a Mac
+  # where path_route's mac_release sends it. A full-ci PR, a fork, and every
+  # push and dispatch keep the Mac Release compile; the base push compiles
+  # Release after the merge, and push-attribution names the PR on a red.
   app-compile-fleet:
     needs: [path_route, push-head-preflight, macos-placement]
     # It takes the gateway, or a wider class of it, only while macos-placement saw a runner idle
@@ -2429,20 +2433,28 @@ jobs:
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
+          MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
         run: |
           set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::notice title=Build fleet compile::$client is not installed on runner $RUNNER_NAME; the Mac Release compile runs."
+          # No verdict is never a pass: the job fails and says why, and release-compile (a Mac)
+          # takes over only where path_route's mac_release sends it.
+          no_verdict() {  # reason
+            local fallback="No Mac Release compile runs for this change; re-run this job once the build fleet answers."
+            [[ "${MAC_RELEASE:-}" == true ]] && fallback="The Mac Release compile (cmux-next Release compile (Xcode 26)) runs as the fallback; re-run this job once the build fleet answers."
+            local summary="No build-fleet verdict for \`$REF\` ($1), so nothing has compiled this head here. $fallback"
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+            echo "### Build fleet app compile: no verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Build fleet compile: no verdict::$summary"
+            exit 1
+          }
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          [[ -x "$client" ]] || no_verdict "$client is not installed on runner $RUNNER_NAME"
           status=0
           "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Debug, swift.org toolchain). The Release compile runs on the base push after the merge." ;;
             1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
-            *) verdict=unavailable; summary="No build-fleet verdict (exit $status); the Mac Release compile runs instead." ;;
+            *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
@@ -2450,7 +2462,6 @@ jobs:
             echo "::error title=Build fleet compile::$summary"
             exit 1
           fi
-          [[ "$verdict" == pass ]] || echo "::notice title=Build fleet compile::$summary"
 
   # Small package-only Swift edits get a mini-first type-check/build canary.
   # This uses the same placement and linked SwiftPM scratch as the other Mac
@@ -2895,9 +2906,9 @@ jobs:
       # ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
       # unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
       # them first, each attempt under a deadline and retried.
-      - name: Fetch the ghostty-next Zig packages (retried)
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Run the fast tier (cargo entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
