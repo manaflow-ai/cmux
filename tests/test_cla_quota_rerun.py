@@ -407,6 +407,26 @@ class Tests(unittest.TestCase):
         self.assertIn("glaeda-route App budget spent", out)
         self.assertEqual(fake.posts, [])
 
+    def test_a_secondary_limit_with_budget_left_opens_no_app_hour(self):
+        # A 429 with X-RateLimit-Remaining above 0 is a secondary limit, even with a reset header.
+        reset = NOW + dt.timedelta(minutes=6)
+        fake = FakeGitHub([], [run(2, "b" * 40, number=2, name=GUARD)], {2: GUARD_LOG},
+                          finished={2: "2026-10-26T04:25:00Z"})
+        fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 429,
+                  X_RateLimit_Remaining="9000", Retry_After="30", X_RateLimit_Reset=str(int(reset.timestamp())))
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
+    def test_a_permission_refusal_opens_no_app_hour(self):
+        # A 403 with budget left (a missing permission, say) is no evidence that the App hour ran out.
+        reset = NOW + dt.timedelta(minutes=6)
+        fake = FakeGitHub([], [run(2, "b" * 40, number=2, name=GUARD)], {2: GUARD_LOG},
+                          finished={2: "2026-10-26T04:25:00Z"})
+        fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 403,
+                  X_RateLimit_Remaining="4000", X_RateLimit_Reset=str(int(reset.timestamp())))
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
     def test_a_spent_workflow_token_budget_is_not_called_the_apps(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=50))
         out = self.sweep(fake, code=1)

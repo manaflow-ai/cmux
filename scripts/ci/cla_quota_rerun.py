@@ -37,7 +37,8 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
 5. On main the guard reads on the glaeda-route App's token, the one this janitor reads and
    re-runs with (GH_TOKEN). When a call on it is refused for a spent budget, the pass says
    so ("the glaeda-route App budget is spent"), waits for that budget's reset like any spent
-   budget, and, when the refusal named its reset, counts a guard reject ("rejected the
+   budget, and, when the refusal said none is left (X-RateLimit-Remaining 0) and named its
+   reset, counts a guard reject ("rejected the
    proposed policy") that finished in the hour ending at that reset as evidence: the guard
    could not read, whatever the pull request changes. Other guard failures in that hour are not. (On 2026-10-28 from 06:44Z that budget
    ran out and the guard rejected every pull request into main until the reset.)
@@ -120,6 +121,8 @@ class SpentBudget(Exception):
         self.status, self.retry_after, self.reset = status, retry_after, reset
         # Set by one_pass when the refused call was on GH_TOKEN, the glaeda-route App's budget.
         self.app = False
+        # X-RateLimit-Remaining said 0: the hourly primary budget, not a secondary limit or a refusal.
+        self.exhausted = False
 
     def budget_name(self) -> str:
         return APP_BUDGET if self.app else "the budget"
@@ -154,7 +157,9 @@ def spent_headers(status: int, headers: Any, path: str, refused: bool = False) -
         reset = dt.datetime.fromtimestamp(int(headers.get("X-RateLimit-Reset")), dt.timezone.utc)
     except (TypeError, ValueError, OverflowError, OSError):
         pass
-    return SpentBudget(status, path, retry_after, reset)
+    spent = SpentBudget(status, path, retry_after, reset)
+    spent.exhausted = str(headers.get("X-RateLimit-Remaining", "")).strip() == "0"
+    return spent
 
 
 class Clock:
@@ -488,9 +493,10 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
                 print(f"::warning title=glaeda-route App budget spent::{APP_BUDGET} is spent until "
                       f"{resume:%H:%M:%SZ} ({spent}); CLA policy guard reads on it, so its rejects in "
                       "this hour are the spent budget, not a policy. They are re-run after the reset.")
-                # Only a known X-RateLimit-Reset bounds the App hour; Retry-After or the fallback
-                # wait (a secondary limit, or no header) says nothing about when that hour began.
-                if spent.reset is not None:
+                # Only an exhausted primary budget (X-RateLimit-Remaining 0) with its known
+                # X-RateLimit-Reset bounds the App hour. A secondary limit, a permission refusal,
+                # Retry-After or the fallback wait says nothing about that hour.
+                if spent.exhausted and spent.reset is not None:
                     app_spent.append(spent.reset)
             late = resume > deadline - PASS_TIME
             if late or attempt == SPENT_RETRIES:
