@@ -16,7 +16,7 @@ from pathlib import Path
 # Protocol frames/ranges, filename validation and terminal ACK buffers do not reject an
 # original: transfer loops split files at these boundaries. Never exempt a file/total cap.
 TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_PENDING_INPUT_ACK_BYTES", "maximumUploadStageChunk", "maximumChunkBytes", "maximumFrameBytes", "maximumRangeBytes"}
-FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*BYTES|maximum\w*(?:File|Bytes|Stage)\w*)\b")
+FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*)\b")
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 # Scan only Home's admission paths. Other attachment/upload files intentionally contain
@@ -111,7 +111,7 @@ def file_size(tokens: list[str]) -> bool:
     words = set(re.findall(r"[a-z]+", words))
     # These sizes bound one transfer unit, not the original or batch. In particular,
     # a named MAX_CHUNK_BYTES comparison can choose streaming for a large file.
-    return bool(words & {"size", "bytes"}) and not words & {"chunk", "chunks", "frame", "range"}
+    return bool(words & {"size", "bytes", "count", "length", "len"}) and not words & {"chunk", "chunks", "frame", "range"}
 
 
 def files(root: Path) -> list[Path]:
