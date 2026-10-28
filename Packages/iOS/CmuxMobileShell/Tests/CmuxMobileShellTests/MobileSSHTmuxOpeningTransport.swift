@@ -3,7 +3,9 @@ import CmuxMobileSSH
 import Foundation
 
 /// Acknowledges tmux commands so teardown does not depend on a live server.
-final class MobileSSHTmuxOpeningTransport: MobileSSHTmuxControlTransport {
+/// Test transport is only accessed from the MainActor test suite; the
+/// unchecked conformance preserves the protocol's cross-task test seam.
+final class MobileSSHTmuxOpeningTransport: MobileSSHTmuxControlTransport, @unchecked Sendable {
     let events: AsyncStream<SSHSessionEvent>
     private let continuation: AsyncStream<SSHSessionEvent>.Continuation
     let writes: AsyncStream<Data>
