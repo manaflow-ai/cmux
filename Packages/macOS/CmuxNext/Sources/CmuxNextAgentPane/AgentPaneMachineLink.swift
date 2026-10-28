@@ -54,8 +54,8 @@ public final class AgentPaneMachineLink {
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
     private var observation: Task<Void, Never>?
-    /// One wait per machine: every chat on it that needs the link shares it.
-    private var waits: [String: Task<Bool, Never>] = [:]
+    /// How many chats wait on each machine's link now: only the first runs its Reconnect.
+    private var waiting: [String: Int] = [:]
 
     public init() {}
 
@@ -131,21 +131,22 @@ public final class AgentPaneMachineLink {
 
     /// Reconnects `machine` when its link is down (``reconnect``) and waits up to ``budget`` for
     /// its handshake; true once it finished. A machine on its way is only waited for. Stops on the
-    /// handshake, the deadline or cancellation.
+    /// handshake, the deadline or the caller's cancellation (structured: a cancelled send stops
+    /// waiting at once and is not retried). Chats waiting on one machine run one Reconnect.
     func awaitLink(_ machine: String) async -> Bool {
-        if let wait = waits[machine] { return await wait.value && !Task.isCancelled }
+        let first = waiting[machine] == nil
         switch use(machine) {
         case .up, .stuck: return false
         case .coming: break
-        case .down: reconnect(machine)
+        case .down: if first { reconnect(machine) }
         }
-        let (budget, use) = (budget, use)
-        // task-owner: bounded by `budget`; removed from `waits` when it settles
-        let wait = Task { await Self.holds(within: budget) { if case .up = use(machine) { true } else { false } } }
-        waits[machine] = wait
-        defer { waits[machine] = nil }
-        let back = await wait.value
-        // A send the person cancelled meanwhile is not retried; the shared wait ends on its own bound.
+        waiting[machine, default: 0] += 1
+        defer {
+            let left = (waiting[machine] ?? 1) - 1
+            waiting[machine] = left > 0 ? left : nil
+        }
+        let use = use
+        let back = await Self.holds(within: budget) { if case .up = use(machine) { true } else { false } }
         return back && !Task.isCancelled
     }
 

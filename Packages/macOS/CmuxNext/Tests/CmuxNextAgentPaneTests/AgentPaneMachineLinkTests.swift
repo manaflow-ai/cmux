@@ -71,5 +71,13 @@ struct AgentPaneMachineLinkTests {
         link.budget = .milliseconds(20)
         #expect(await link.awaitLink("box") == false, "a link that never comes back fails as it did")
         #expect(ran == ["box"], "a machine on its way is not reconnected again")
+
+        // A send cancelled while it waits stops waiting at once, well inside the budget.
+        link.budget = .seconds(30)
+        let started = ContinuousClock.now
+        let send = Task { await link.awaitLink("box") }
+        send.cancel()
+        #expect(await send.value == false)
+        #expect(ContinuousClock.now - started < .seconds(5))
     }
 }
