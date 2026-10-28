@@ -63,6 +63,10 @@ if "--suite=newterm" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm"])
 # SCRATCH MEASUREMENT REF ONLY (cp/proof-ab-measure): `--suite=proof-ab`, one prove-or-remove switch A/B (on vs off of
 # the same switches on this app, interleaved runs), scripts/cmux-next/proof-ab.py.
+# SCRATCH MEASUREMENT REF ONLY: `--suite=launch-diag`, the seeding launch on fresh state with the socket read at 10-90 s.
+if "--suite=launch-diag" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "launch-diag.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=launch-diag"])
 if "--suite=proof-ab" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proof-ab.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=proof-ab"])
