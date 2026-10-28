@@ -332,10 +332,10 @@ impl KittyCommand {
             KittyApcIntroducer::Esc => &b"\x1b_G"[..],
             KittyApcIntroducer::C1 => &b"\x9fG"[..],
         };
-        let retained = introducer.len().min(max_bytes);
-        let mut bytes = Vec::with_capacity(retained);
-        bytes.extend_from_slice(&introducer[..retained]);
-        Self { bytes, saw_escape: false, overflowed: retained != introducer.len(), max_bytes }
+        let retained = introducer.iter().take(max_bytes);
+        let bytes: Vec<u8> = retained.copied().collect();
+        let overflowed = bytes.len() != introducer.len();
+        Self { bytes, saw_escape: false, overflowed, max_bytes }
     }
 
     fn push(&mut self, byte: u8) {
@@ -378,27 +378,24 @@ fn kitty_u32(value: &[u8]) -> Option<u32> {
 }
 
 fn kitty_transmission_state(command: &[u8]) -> KittyTransmissionState {
-    let header_start = if command.starts_with(b"\x1b_G") {
-        3
-    } else if command.starts_with(b"\x9fG") {
-        2
-    } else {
+    let Some(after_introducer) =
+        command.strip_prefix(b"\x1b_G").or_else(|| command.strip_prefix(b"\x9fG"))
+    else {
         return KittyTransmissionState::Unknown;
     };
-    let Some(header_end) =
-        command[header_start..].iter().position(|byte| *byte == b';').map(|end| end + header_start)
-    else {
+    // The control data runs to the first `;`; a command without one is unknown.
+    let mut sections = after_introducer.splitn(2, |byte| *byte == b';');
+    let (Some(header), Some(_payload)) = (sections.next(), sections.next()) else {
         return KittyTransmissionState::Unknown;
     };
     let mut action = b't';
     let mut direct = true;
     let mut more = false;
-    for parameter in command[header_start..header_end].split(|byte| *byte == b',') {
-        let Some(separator) = parameter.iter().position(|byte| *byte == b'=') else {
+    for parameter in header.split(|byte| *byte == b',') {
+        let mut pair = parameter.splitn(2, |byte| *byte == b'=');
+        let (Some(key), Some(value)) = (pair.next(), pair.next()) else {
             continue;
         };
-        let key = &parameter[..separator];
-        let value = &parameter[separator + 1..];
         match key {
             b"a" => {
                 let Some(value) = value.first() else {
@@ -1161,17 +1158,19 @@ unsafe extern "C" fn decode_png(
                 decoded
             }
             color_type => {
-                let source = &decoded[..source_len];
+                let Some(source) = decoded.get(..source_len) else {
+                    return false;
+                };
                 let mut rgba = Vec::with_capacity(rgba_len);
                 match color_type {
                     png::ColorType::Rgb => {
-                        for pixel in source.chunks_exact(3) {
-                            rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                        for [red, green, blue] in source.as_chunks::<3>().0 {
+                            rgba.extend_from_slice(&[*red, *green, *blue, 255]);
                         }
                     }
                     png::ColorType::GrayscaleAlpha => {
-                        for pixel in source.chunks_exact(2) {
-                            rgba.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
+                        for [gray, alpha] in source.as_chunks::<2>().0 {
+                            rgba.extend_from_slice(&[*gray, *gray, *gray, *alpha]);
                         }
                     }
                     png::ColorType::Grayscale => {

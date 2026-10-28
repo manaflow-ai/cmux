@@ -198,26 +198,26 @@ public final class ChromiumHostPageView: NSView {
 
     private var lastGeometry: ChromiumHostGeometry?
     /// What moves the page on screen without changing this view's frame: the
-    /// window's page update request (`BrowserPageUpdates`). The window's
-    /// layout owner (`WindowOverlayLayer`) sends it once per change after
+    /// window's page update request (``ChildPageGeometryRegistry``). The window's
+    /// layout owner (`WindowOverlayLayer`) makes it once per change after
     /// panes, dividers or the sidebar moved and after the window moved,
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
-    private var pageUpdates: MainActorObservation?
-    /// Where the window's page update requests and its screen notices arrive.
-    let pageUpdateCenter: NotificationCenter
+    private var pageUpdates: ChildPageGeometryRegistry.Registration?
+    /// Where the window's screen notices arrive (`observeScreen`).
+    let windowEventCenter: NotificationCenter
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
     ///   - makeLayerHost: the layer that shows a context id; a `CALayerHost` by
     ///     default (tests pass one that fails, or a plain layer).
-    ///   - pageUpdateCenter: where the window's page update requests arrive;
+    ///   - windowEventCenter: where the window's screen notices arrive;
     ///     `.default` in the app, a private center in tests.
     init(frame: NSRect, inputTarget: InputTarget,
          makeLayerHost: @escaping (UInt32) -> CALayer? = { ChromiumHostPageView.layerHost(contextID: $0) },
-         pageUpdateCenter: NotificationCenter = .default) {
+         windowEventCenter: NotificationCenter = .default) {
         self.inputTarget = inputTarget
-        self.pageUpdateCenter = pageUpdateCenter
+        self.windowEventCenter = windowEventCenter
         surface = Surface(frame: NSRect(origin: .zero, size: frame.size), makeLayerHost: makeLayerHost)
         let windowNode = VisibilityNode(root: "chromium-page.window", own: .hidden)
         self.windowNode = windowNode
@@ -377,13 +377,15 @@ public final class ChromiumHostPageView: NSView {
     }
 
     /// Reports the page's screen rect when it differs from the last one
-    /// reported; an unchanged rect costs one comparison.
-    private func presentedRectDidChange() {
-        guard let onGeometry, let window, let screen = presentedScreenRect else { return }
+    /// reported; an unchanged rect costs one comparison. Returns whether it reported.
+    @discardableResult
+    private func presentedRectDidChange() -> Bool {
+        guard let onGeometry, let window, let screen = presentedScreenRect else { return false }
         let geometry = ChromiumHostGeometry(screenRect: screen, scale: window.backingScaleFactor)
-        guard geometry != lastGeometry else { return }
+        guard geometry != lastGeometry else { return false }
         lastGeometry = geometry
         onGeometry(geometry)
+        return true
     }
 
     /// The view's rect in screen points; nil in no window or below 1 x 1 point.
@@ -398,8 +400,8 @@ public final class ChromiumHostPageView: NSView {
             pageUpdates = nil
             return
         }
-        pageUpdates = BrowserPageUpdates.observe(of: window, center: pageUpdateCenter) { [weak self] _ in
-            self?.presentedRectDidChange()
+        pageUpdates = ChildPageGeometryRegistry.of(window).register { [weak self] _ in
+            self?.presentedRectDidChange() ?? false
         }
     }
 }
