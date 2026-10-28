@@ -105,25 +105,27 @@ a fifth is printed with the lower value. Rows only go down: download a run's `ga
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
 raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
 
-## How geometry is measured
+## Geometry audit
 
-- Rules compare CSS px (native points), including tokens, tolerances and reported deltas.
-  Before evaluating any rule, screenshot-pixel measurements are divided by the artifact's
-  `deviceScaleFactor`; evidence already in `css-px` stays unchanged. Raw coordinates and
-  screenshot crops remain available as evidence.
-- “Highlight covers only its control” means four-edge containment, with tolerance `t`:
-  `highlight.minX >= control.minX - t`, `highlight.maxX <= control.maxX + t`, and the
-  same checks for Y. A smaller contained highlight is valid. Comparing x/y/width/height
-  components independently can miss overflowing edges.
-- Optional `control`, `secondary` and `menuOpen` flags must be real booleans when present.
-  Parsing rejects strings such as `"false"`, numbers, null and other non-boolean values.
-- Each of these rules has a regression in [geometry.test.ts](geometry.test.ts) that fails
-  with the old bug: boolean parsing, CSS/scaled-screenshot equivalence, and hover containment
-  (contained highlights, all four overflowing edges, and the tolerance boundary).
+`geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
+animations after play settles, and records DOM rectangles/computed styles next to each screenshot.
+`geometry-lint.ts` requires the screenshot hash, source-under-test SHA, dimensions/device scale,
+coordinate space, capture tuple and semantic groups. It compares only declared peers. Missing
+or unsupported evidence fails; it never treats a rectangle bottom as a text baseline or native
+view frames as accessibility frames.
 
-Run these regressions through the fleet from the repository root:
+The first measured baseline covers Session Info's top-block label column, in both appearances.
+Its existing 2px drift was observed at the baseline revision; the baseline records that debt with
+its reason and maximum. Other surfaces and true text-baseline/native AX checks are explicit
+coverage gaps, not passing checks. Add measured selectors/rules as each audit surface is captured.
+Baseline debt changes require review; lint never regenerates or raises it automatically.
+
+The `Gallery geometry lint` job in gallery health runs on relevant changes and on
+`workflow_dispatch` with the boolean `geometry-audit` input. It uploads `gallery-geometry`, including
+screenshots, `.geometry.json`, the selected cases and `geometry-report/geometry-report.json`.
+The same bounded command works on a fleet test worker after building the gallery:
 
 ```sh
-cmux-ci test --setup webviews --timeout 600 -- bash -c \
-  'cd scripts/gallery-matrix && bun install --frozen-lockfile && bun test geometry.test.ts'
+CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir /path/to/gallery \
+  --output-dir /path/to/evidence --expected-sha FULL_SOURCE_SHA
 ```
