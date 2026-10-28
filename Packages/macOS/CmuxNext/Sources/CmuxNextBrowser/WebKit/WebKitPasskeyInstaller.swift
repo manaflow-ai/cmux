@@ -18,8 +18,8 @@ enum WebKitPasskeyInstaller {
     }
 
     static func answer(_ tab: WebKitTab, frameOrigin: WKSecurityOrigin, isMainFrame: Bool) async -> String {
-        let mainOrigin = tab.webView.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-        let sameOrigin = isMainFrame || (mainOrigin?.host == frameOrigin.host && mainOrigin?.scheme == frameOrigin.protocol)
+        let sameOrigin = isMainFrame || WebKitPasskeyIntent.isSameOrigin(
+            mainURL: tab.webView.url, frameScheme: frameOrigin.protocol, frameHost: frameOrigin.host, framePort: frameOrigin.port)
         let recentInput = (tab.webView as? WebKitWebView)?.hadRecentUserInput() ?? false
         guard WebKitPasskeyIntent.mayAsk(sameOriginAsMainFrame: sameOrigin, recentUserInput: recentInput, agentDriven: tab.isAgentDriven) else {
             return authorization(for: tab).state.rawValue
@@ -30,6 +30,18 @@ enum WebKitPasskeyInstaller {
 
 /// When a page's WebAuthn call may raise the authorization prompt.
 nonisolated enum WebKitPasskeyIntent {
+    /// Whether a frame (`WKSecurityOrigin`'s protocol, host and port; port 0
+    /// for the scheme's default) has the origin of `mainURL`: scheme, host
+    /// and port, with the default port filled in for both.
+    static func isSameOrigin(mainURL: URL?, frameScheme: String, frameHost: String, framePort: Int) -> Bool {
+        guard let mainURL, let scheme = mainURL.scheme?.lowercased(), let host = mainURL.host?.lowercased() else { return false }
+        let defaults = ["http": 80, "https": 443]
+        let mainPort = mainURL.port ?? defaults[scheme] ?? 0
+        let frameScheme = frameScheme.lowercased()
+        let frameEffectivePort = framePort == 0 ? (defaults[frameScheme] ?? 0) : framePort
+        return scheme == frameScheme && host == frameHost.lowercased() && mainPort == frameEffectivePort
+    }
+
     static func mayAsk(sameOriginAsMainFrame: Bool, recentUserInput: Bool, agentDriven: Bool) -> Bool {
         sameOriginAsMainFrame && recentUserInput && !agentDriven
     }
