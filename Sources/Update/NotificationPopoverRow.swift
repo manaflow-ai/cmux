@@ -29,17 +29,22 @@ struct NotificationPopoverRow: View, Equatable {
             .map(Color.init(nsColor:))
     }
 
-    private func edgeBar(_ mark: NotificationRowEdgeMarks.Mark) -> some View {
-        let fill: Color
-        switch mark {
-        case .none: fill = .clear
-        case .workspaceColor: fill = workspaceColor ?? .clear
-        case .unread: fill = cmuxAccent.color
-        }
-        return Rectangle()
-            .fill(fill)
+    private func rail(_ rail: NotificationRowMarks.Rail) -> some View {
+        Rectangle()
+            .fill(rail == .workspaceColor ? workspaceColor ?? .clear : .clear)
             .frame(width: 2.5)
             .padding(.vertical, 6)
+    }
+
+    /// The unread dot, centered on the headline's capitals. Read rows keep the space so every
+    /// row's text starts at the same x.
+    private func unreadDot(_ shows: Bool) -> some View {
+        Circle()
+            .fill(shows ? cmuxAccent.color : Color.clear)
+            .frame(width: 6, height: 6)
+            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 4.5 }
+            .padding(.horizontal, 5)
+            .accessibilityHidden(true)
     }
 
     var body: some View {
@@ -119,56 +124,57 @@ struct NotificationPopoverRow: View, Equatable {
     }
 
     private var rowContent: some View {
-        let marks = NotificationRowEdgeMarks(hasWorkspaceColor: workspaceColor != nil, isRead: notification.isRead)
+        let marks = NotificationRowMarks(hasWorkspaceColor: workspaceColor != nil, isRead: notification.isRead)
         return HStack(spacing: 0) {
-            edgeBar(marks.leading)
+            rail(marks.rail)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                unreadDot(marks.showsUnreadDot)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let workspaceTitle, !workspaceTitle.isEmpty {
+                            Text(workspaceTitle)
+                                .cmuxFont(size: 12.5, weight: .semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                                .accessibilityIdentifier(
+                                    "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
+                                )
+                        } else {
+                            Text(notification.title)
+                                .cmuxFont(size: 12.5, weight: .semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                            .cmuxFont(size: 10.5)
+                            .foregroundColor(.secondary)
+                            .padding(.trailing, 34)
+                            .layoutPriority(2)
+                    }
+
                     if let workspaceTitle, !workspaceTitle.isEmpty {
-                        Text(workspaceTitle)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                            .accessibilityIdentifier(
-                                "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
-                            )
-                    } else {
                         Text(notification.title)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
+                            .cmuxFont(size: 10.5, weight: .medium)
+                            .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
-                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary)
-                        .padding(.trailing, 34)
-                        .layoutPriority(2)
-                }
 
-                if let workspaceTitle, !workspaceTitle.isEmpty {
-                    Text(notification.title)
-                        .cmuxFont(size: 10.5, weight: .medium)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .cmuxFont(size: 11.5)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if !notification.body.isEmpty {
+                        Text(notification.body)
+                            .cmuxFont(size: 11.5)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
-            .padding(.leading, 10)
             .padding(.vertical, 8)
 
             Spacer(minLength: 0)
-
-            edgeBar(marks.trailing)
         }
         .frame(minHeight: Self.rowHeight)
         .padding(.leading, 4)

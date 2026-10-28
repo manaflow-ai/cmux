@@ -45,7 +45,7 @@ struct NotificationPopoverWorkspaceColorTests {
         let workspace = manager.addWorkspace(title: "Colored", autoWelcomeIfNeeded: false)
         let announced = AnnouncedWorkspaceIds()
         let token = NotificationCenter.default.addObserver(
-            forName: Notification.Name("cmux.workspaceColorDidChange"), object: nil, queue: nil
+            forName: .workspaceColorDidChange, object: nil, queue: nil
         ) { notification in
             if let id = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID { announced.ids.append(id) }
         }

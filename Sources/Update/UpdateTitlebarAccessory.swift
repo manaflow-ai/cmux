@@ -2609,48 +2609,49 @@ private struct NotificationsPopoverView: View {
             // read the ObservableObject below the list boundary (#2586).
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
-            // One tabId -> title (and color) index per render, not an O(tabs) scan per row (#5794).
+            // One tabId -> title (and color) index, not an O(tabs) scan per row (#5794).
             let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
-            let colorSnapshot = AppDelegate.shared?.workspaceColorHexByTabId(for: Set(snapshot.map(\.tabId))) ?? [:]
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
-                        NotificationPopoverRow(
-                            notification: notification,
-                            workspaceTitle: titleSnapshot[notification.tabId],
-                            workspaceColorHex: colorSnapshot[notification.tabId],
-                            onOpen: { open(notification) },
-                            onClear: {
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    notificationStore.remove(id: notification.id)
-                                }
-                            },
-                            onToggleRead: {
-                                if notification.isRead {
-                                    notificationStore.markUnread(id: notification.id)
-                                } else {
-                                    notificationStore.markRead(id: notification.id)
-                                    // A user-initiated "Mark as Read" on a pane-scoped
-                                    // notification should also clear the pane's focused-read
-                                    // indicator so the pane badge disappears. For
-                                    // workspace-level notifications (surfaceId == nil), do not
-                                    // call clearFocusedReadIndicator — it treats nil as
-                                    // "clear any pane indicator on this tab" and would wipe
-                                    // an unrelated pane badge.
-                                    if let surfaceId = notification.surfaceId {
-                                        notificationStore.clearFocusedReadIndicator(
-                                            forTabId: notification.tabId,
-                                            surfaceId: surfaceId
-                                        )
+            WorkspaceColorIndexReader(tabIds: Set(snapshot.map(\.tabId))) { colorSnapshot in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
+                            NotificationPopoverRow(
+                                notification: notification,
+                                workspaceTitle: titleSnapshot[notification.tabId],
+                                workspaceColorHex: colorSnapshot[notification.tabId],
+                                onOpen: { open(notification) },
+                                onClear: {
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        notificationStore.remove(id: notification.id)
+                                    }
+                                },
+                                onToggleRead: {
+                                    if notification.isRead {
+                                        notificationStore.markUnread(id: notification.id)
+                                    } else {
+                                        notificationStore.markRead(id: notification.id)
+                                        // A user-initiated "Mark as Read" on a pane-scoped
+                                        // notification should also clear the pane's focused-read
+                                        // indicator so the pane badge disappears. For
+                                        // workspace-level notifications (surfaceId == nil), do not
+                                        // call clearFocusedReadIndicator — it treats nil as
+                                        // "clear any pane indicator on this tab" and would wipe
+                                        // an unrelated pane badge.
+                                        if let surfaceId = notification.surfaceId {
+                                            notificationStore.clearFocusedReadIndicator(
+                                                forTabId: notification.tabId,
+                                                surfaceId: surfaceId
+                                            )
+                                        }
                                     }
                                 }
+                            )
+                            .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
+                            if index < lastIndex {
+                                Divider()
+                                    .opacity(0.4)
+                                    .padding(.leading, 18)
                             }
-                        )
-                        .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
-                        if index < lastIndex {
-                            Divider()
-                                .opacity(0.4)
-                                .padding(.leading, 18)
                         }
                     }
                 }
