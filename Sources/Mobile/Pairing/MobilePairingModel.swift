@@ -269,7 +269,7 @@ final class MobilePairingModel {
             return
         }
         guard generation == refreshGeneration, !Task.isCancelled else { return }
-        receiveHostStatus(status, baselineConnectionCount: status.activeConnectionCount)
+        receiveHostStatus(status, baselineConnectionCount: status.usableConnectionCount)
         observeHostStatus()
     }
 
@@ -346,9 +346,9 @@ final class MobilePairingModel {
     private func observeHostStatus() {
         connectionObservationTask?.cancel()
         let generation = refreshGeneration
-        // Connections already present when this code is displayed establish the
+        // Usable sessions already present when this code is displayed establish the
         // baseline. Only a new connection above it changes the waiting state.
-        let baseline = host.statusSnapshot().activeConnectionCount
+        let baseline = host.statusSnapshot().usableConnectionCount
         connectionObservationTask = Task { [weak self] in
             guard let self else { return }
             for await status in self.host.statusUpdates() {
@@ -390,7 +390,7 @@ final class MobilePairingModel {
                 manualEntry: CmxManualPairingEntry.best(in: routes),
                 reachableViaIroh: status.isPairingReady
             ))
-            return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
+            return status.usableConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
         }
         guard status.isRunning else {
             return .failed(preparationFailureMessage(detail: status.lastErrorDescription))
@@ -404,7 +404,7 @@ final class MobilePairingModel {
             attachURL: "", tailscaleLines: [], manualEntry: nil,
             reachableViaIroh: true, v2Only: true
         ))
-        return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
+        return status.usableConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
     }
 
     /// A retry starts in `refresh`; repeated pending status cannot hide an error.

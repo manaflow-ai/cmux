@@ -245,6 +245,8 @@ struct MobileHostServiceStatus {
     var tailscalePort: Int?
     var tailscaleFailureDescription: String?
     var tailscaleRoutes: [CmxAttachRoute] = []
+    /// Sessions that authenticated and completed workspace/event readiness.
+    var usableConnectionCount = 0
 
     var payload: [String: Any] {
         let now = Date()
@@ -1013,7 +1015,8 @@ final class MobileHostService {
             tailscaleIsRunning: tcpRunning,
             tailscalePort: tcpPort,
             tailscaleFailureDescription: tailscaleAllowed ? tailscaleFailureDescription : nil,
-            tailscaleRoutes: tcpRoutes
+            tailscaleRoutes: tcpRoutes,
+            usableConnectionCount: MobileHostConnectionRegistry.shared.usableConnectionCount
         )
     }
 
@@ -1156,6 +1159,7 @@ final class MobileHostService {
         guard generation == tailscaleListenerGeneration,
               tailscaleIsRunning,
               let admissionGeneration = tailscaleAdmissionGeneration,
+              tailscaleAdmissionTasks.count < Self.maximumActiveConnectionCount * 2,
               !isSigningOut,
               Self.isListeningEnabled(defaults: defaults) else {
             connection.cancel()
@@ -1239,15 +1243,21 @@ final class MobileHostService {
             transport: transport,
             firstFrameTimeoutNanoseconds: firstFrameTimeoutNanoseconds
                 ?? defaultFirstFrameTimeout,
+            requiresAuthenticatedRequest: authorization == .stackBearer,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
-                await Self.connectionAuthorizationError(
+                if let error = await Self.connectionAuthorizationError(
                     for: request,
                     authorization: authorization,
                     stackAuthorization: { request in
                         await MobileHostService.shared.authorizationError(for: request)
                     }
-                )
+                ) { return error }
+                if authorization == .stackBearer, Self.requiresAuthorization(method: request.method),
+                   !registry.promoteStackBearerConnection(id: id, limit: Self.maximumActiveConnectionCount) {
+                    return .failure(MobileHostRPCError(code: "server_busy", message: "Too many connections are active"))
+                }
+                return nil
             },
             onAuthorizedRequest: { request in
                 guard let clientID = Self.clientID(from: request.params) else {
@@ -1260,7 +1270,7 @@ final class MobileHostService {
                 await Self.retireSupersededIrohConnections(
                     newestConnectionID: id, registry: registry
                 )
-                return true
+                return registry.markUsable(id: id)
             },
             isSessionCurrent: isSessionCurrent,
             isAuthorizationCurrent: {
@@ -1324,7 +1334,8 @@ final class MobileHostService {
             id: id,
             authorization: authorization,
             limit: Self.maximumActiveConnectionCount,
-            stackBearerGeneration: stackBearerGeneration
+            stackBearerGeneration: stackBearerGeneration,
+            pendingAuthentication: authorization == .stackBearer
         ) else {
             mobileHostLog.error(
                 "mobile host rejected connection because an active connection quota was reached"
@@ -1668,7 +1679,7 @@ final class MobileHostService {
         }
     }
 
-    nonisolated private static func requiresAuthorization(method: String) -> Bool {
+    nonisolated fileprivate static func requiresAuthorization(method: String) -> Bool {
         switch method {
         // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
         // mints a bearer credential, so it MUST be authorized: a network caller has no
@@ -1804,6 +1815,8 @@ actor MobileHostConnection {
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
+    private let firstFrameClock: any Clock<Duration>
+    private let requiresAuthenticatedRequest: Bool
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     /// Per-request authorization for transports whose admission lease can
     /// expire while the connection remains open (Iroh).
@@ -1847,6 +1860,7 @@ actor MobileHostConnection {
     /// is scheduled first so keystroke echo never waits behind other surfaces.
     private var lastInteractiveSurfaceKey: String?
     private var didDecodeFirstFrame = false
+    private var didAuthenticateRequest = false
     private var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
         lifecycle: .explicitlyInvalidated,
@@ -1864,6 +1878,8 @@ actor MobileHostConnection {
         connection: NWConnection,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        firstFrameClock: any Clock<Duration> = ContinuousClock(),
+        requiresAuthenticatedRequest: Bool = false,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
@@ -1880,6 +1896,8 @@ actor MobileHostConnection {
         self.writer = MobileHostSerializedTransportWriter(transport: transport, isSessionCurrent: isSessionCurrent)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.firstFrameClock = firstFrameClock
+        self.requiresAuthenticatedRequest = requiresAuthenticatedRequest
         self.authorizeRequest = authorizeRequest
         self.isAuthorizationCurrent = isAuthorizationCurrent
         self.isSessionCurrent = isSessionCurrent
@@ -1896,6 +1914,8 @@ actor MobileHostConnection {
         transport: any CmxByteTransport,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        firstFrameClock: any Clock<Duration> = ContinuousClock(),
+        requiresAuthenticatedRequest: Bool = false,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
@@ -1911,6 +1931,8 @@ actor MobileHostConnection {
         self.writer = MobileHostSerializedTransportWriter(transport: transport, isSessionCurrent: isSessionCurrent)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.firstFrameClock = firstFrameClock
+        self.requiresAuthenticatedRequest = requiresAuthenticatedRequest
         self.authorizeRequest = authorizeRequest
         self.isAuthorizationCurrent = isAuthorizationCurrent
         self.isSessionCurrent = isSessionCurrent
@@ -2040,8 +2062,10 @@ actor MobileHostConnection {
                     )
                     if !frames.isEmpty {
                         didDecodeFirstFrame = true
-                        firstFrameTimeoutTask?.cancel()
-                        firstFrameTimeoutTask = nil
+                        if !requiresAuthenticatedRequest {
+                            firstFrameTimeoutTask?.cancel()
+                            firstFrameTimeoutTask = nil
+                        }
                     }
                     for frame in frames {
                         guard !isClosed else { return }
@@ -2189,20 +2213,21 @@ actor MobileHostConnection {
         }
         firstFrameTimeoutTask?.cancel()
         let timeoutNanoseconds = firstFrameTimeoutNanoseconds
+        let clock = firstFrameClock
         firstFrameTimeoutTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                try await clock.sleep(for: .nanoseconds(timeoutNanoseconds))
                 await self?.closeIfWaitingForFirstFrame()
             } catch {}
         }
     }
 
     private func closeIfWaitingForFirstFrame() async {
-        guard !didDecodeFirstFrame else {
+        guard requiresAuthenticatedRequest ? !didAuthenticateRequest : !didDecodeFirstFrame else {
             return
         }
         await close(
-            reason: "first frame timed out",
+            reason: requiresAuthenticatedRequest ? "authentication timed out" : "first frame timed out",
             exit: CmxIrohAdmittedConnectionExit(
                 lifecycle: .controlReadFailed,
                 failure: .timedOut
@@ -2283,6 +2308,11 @@ actor MobileHostConnection {
         }
         guard !isClosed, !Task.isCancelled, isSessionCurrent() else {
             return nil
+        }
+        if requiresAuthenticatedRequest, MobileHostService.requiresAuthorization(method: request.method) {
+            didAuthenticateRequest = true
+            firstFrameTimeoutTask?.cancel()
+            firstFrameTimeoutTask = nil
         }
         await onAuthorizedRequest(request)
         guard !isClosed, !Task.isCancelled, isSessionCurrent() else {

@@ -92,6 +92,34 @@ struct MobilePairingConnectionTransitionTests {
         }
     }
 
+    @Test func tcpProbesDoNotHideThePairingCodeBeforeUsableSessionReadiness() throws {
+        let route = try tailscaleRoute()
+        var status = MobileHostServiceStatus(
+            isRunning: true, port: 7777, configuredPort: 7777,
+            usesEphemeralFallback: false, routes: [route], activeConnectionCount: 2,
+            lastErrorDescription: nil, tailscaleIsRunning: true, tailscalePort: 7777,
+            tailscaleRoutes: [route]
+        )
+        let model = MobilePairingModel()
+        defer { model.stopObserving() }
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        guard case let .ready(ready) = model.state else {
+            Issue.record("Accepted TCP probes must leave the QR available")
+            return
+        }
+        #expect(!ready.attachURL.isEmpty)
+        status.usableConnectionCount = 1
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        #expect(model.state == .connected(from: .ready(ready)))
+        // Pairing another phone starts from the established usable-session count,
+        // even if other unauthenticated sockets are still connected.
+        model.receiveHostStatus(status, baselineConnectionCount: 1)
+        #expect(model.state == .ready(ready))
+        status.usableConnectionCount = 0
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        #expect(model.state == .ready(ready))
+    }
+
     @Test func v2FailurePreservesTransportDiagnosis() throws {
         let status = MobileHostServiceStatus(
             isRunning: false, port: nil, configuredPort: 58465,

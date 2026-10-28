@@ -89,6 +89,8 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         let connection: MobileHostConnection
         let authorization: MobileHostConnectionAuthorizationContext
         let insertionSequence: UInt64
+        var pendingAuthentication: Bool
+        var isUsable = false
     }
 
     static let shared = MobileHostConnectionRegistry()
@@ -117,19 +119,57 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.count
     }
 
+    var usableConnectionCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections.values.filter(\.isUsable).count
+    }
+
+    /// Moves a credential-checked TCP session into the admitted pool without
+    /// letting anonymous status probes consume authenticated session capacity.
+    func promoteStackBearerConnection(id: UUID, limit: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var entry = connections[id], entry.authorization == .stackBearer else { return false }
+        guard entry.pendingAuthentication else { return true }
+        guard connections.values.filter({ !$0.pendingAuthentication }).count < limit else { return false }
+        entry.pendingAuthentication = false
+        connections[id] = entry
+        return true
+    }
+
+    /// Publishes pairing success only after workspace and event readiness.
+    func markUsable(id: UUID) -> Bool {
+        lock.lock()
+        guard var entry = connections[id], !entry.pendingAuthentication else {
+            lock.unlock()
+            return false
+        }
+        let changed = !entry.isUsable
+        entry.isUsable = true
+        connections[id] = entry
+        lock.unlock()
+        if changed { NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil) }
+        return true
+    }
+
     func insert(
         _ connection: MobileHostConnection,
         id: UUID,
         authorization: MobileHostConnectionAuthorizationContext,
         limit: Int,
-        stackBearerGeneration: UUID? = nil
+        stackBearerGeneration: UUID? = nil,
+        pendingAuthentication: Bool = false
     ) -> Bool {
         lock.lock()
         if let stackBearerGeneration, stackBearerGeneration != self.stackBearerGeneration {
             lock.unlock()
             return false
         }
-        guard connections.count < limit else {
+        // Each pool is independently bounded. Public TCP status probes cannot
+        // occupy the capacity reserved for credential-checked TCP/Iroh sessions.
+        guard (!pendingAuthentication || authorization == .stackBearer),
+              connections.values.filter({ $0.pendingAuthentication == pendingAuthentication }).count < limit else {
             lock.unlock()
             return false
         }
@@ -152,7 +192,8 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         connections[id] = Entry(
             connection: connection,
             authorization: authorization,
-            insertionSequence: nextInsertionSequence
+            insertionSequence: nextInsertionSequence,
+            pendingAuthentication: pendingAuthentication
         )
         lock.unlock()
         // Notify after the authoritative count actually changes (this registry
