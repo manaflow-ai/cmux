@@ -387,6 +387,26 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.posts, [rerun_path(2)])
         self.assertIn("reject left alone::run 3", out)
 
+    def test_only_a_guard_reject_inside_the_app_hour_is_evidence(self):
+        # A guard run that failed for another reason (runner, checkout) in that hour is not re-run.
+        reset = NOW + dt.timedelta(minutes=6)
+        fake = FakeGitHub([], [run(2, "b" * 40, number=2, name=GUARD)], {2: "##[error]The runner has lost communication\n"},
+                          finished={2: "2026-10-26T04:25:00Z"})
+        fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 403,
+                  X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
+    def test_a_refusal_without_a_reset_opens_no_app_hour(self):
+        # Retry-After or the 60 s fallback says nothing about when the App hour began.
+        fake = FakeGitHub([], [run(2, "b" * 40, number=2, name=GUARD)], {2: GUARD_LOG},
+                          finished={2: "2026-10-26T04:29:30Z"})
+        fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 429,
+                  Retry_After="30")
+        out = self.sweep(fake)
+        self.assertIn("glaeda-route App budget spent", out)
+        self.assertEqual(fake.posts, [])
+
     def test_a_spent_workflow_token_budget_is_not_called_the_apps(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=50))
         out = self.sweep(fake, code=1)

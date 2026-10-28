@@ -37,8 +37,9 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
 5. On main the guard reads on the glaeda-route App's token, the one this janitor reads and
    re-runs with (GH_TOKEN). When a call on it is refused for a spent budget, the pass says
    so ("the glaeda-route App budget is spent"), waits for that budget's reset like any spent
-   budget, and counts a guard reject that finished in that App hour as evidence: the guard
-   could not read, whatever the pull request changes. (On 2026-10-28 from 06:44Z that budget
+   budget, and, when the refusal named its reset, counts a guard reject ("rejected the
+   proposed policy") that finished in the hour ending at that reset as evidence: the guard
+   could not read, whatever the pull request changes. Other guard failures in that hour are not. (On 2026-10-28 from 06:44Z that budget
    ran out and the guard rejected every pull request into main until the reset.)
 
 A re-run changes no policy: the same trusted workflow runs again on the same head. Reads and re-runs use
@@ -386,8 +387,8 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
         text, finished = failed_job(gh, run)
         near = lambda stamp: finished is not None and abs(stamp - finished) <= GUARD_WINDOW  # noqa: E731
         evidence = (guard_api_failure(text) or any(near(stamp) for stamp in limited_at)
-                    or (finished is not None and any(reset - APP_HOUR < finished <= reset
-                                                     for reset in app_spent or ())))
+                    or (GUARD_REJECT in text and finished is not None
+                        and any(reset - APP_HOUR < finished <= reset for reset in app_spent or ())))
         if not evidence and int(run.get("run_attempt") or 1) < NO_POLICY_MAX_ATTEMPT and reads < MAX_GUARD_READS:
             reads += 1
             evidence = proposes_no_policy(gh, run["number"])
@@ -487,7 +488,10 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
                 print(f"::warning title=glaeda-route App budget spent::{APP_BUDGET} is spent until "
                       f"{resume:%H:%M:%SZ} ({spent}); CLA policy guard reads on it, so its rejects in "
                       "this hour are the spent budget, not a policy. They are re-run after the reset.")
-                app_spent.append(spent.reset or resume)
+                # Only a known X-RateLimit-Reset bounds the App hour; Retry-After or the fallback
+                # wait (a secondary limit, or no header) says nothing about when that hour began.
+                if spent.reset is not None:
+                    app_spent.append(spent.reset)
             late = resume > deadline - PASS_TIME
             if late or attempt == SPENT_RETRIES:
                 why = "past this pass's deadline" if late else f"after {SPENT_RETRIES} retries"
