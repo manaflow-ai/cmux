@@ -211,6 +211,17 @@ describe("retired identities", () => {
       expect(store.get(machine, "user_a")).toBeNull()
       expect(dropped).toEqual(["fsid-new"])
       expect(store.retired(10)).toEqual([])
+      // Behind a full queue of older retired identities, a departed member's identities still go now.
+      for (let i = 0; i < 12; i++) store.retire(`fsid-queued-${i}`, i, null)
+      dropped.length = 0
+      members = [true, false]
+      mint = async () => ({ grant: { identity: "fsid-new2", token: "tok-secret2", expiresAt: 601_000, vmId: "fsvm-1", linuxUser: "cmux", apiBaseUrl: "https://freestyle.test", ssh: null }, stale: null })
+      expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "forbidden" })
+      expect(dropped).toContain("fsid-new2")
+      expect(store.retired(20)).not.toContain("fsid-new2")
+      for (let i = 0; i < 12; i++) store.dropped(`fsid-queued-${i}`)
+      dropped.length = 0
+
       // Both checks ask about departures since the same instant, taken before the provider call.
       expect(sinces.slice(-2)).toEqual([sinces.at(-2), sinces.at(-2)])
 

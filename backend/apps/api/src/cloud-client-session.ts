@@ -240,9 +240,10 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     // The membership check is the last wait before the answer: a member who left while the provider
     // calls or the sweep ran gets nothing, and the new identity is retired and deleted.
     if (!(await host.member(user, since).catch(() => false))) {
-      host.identities.forget(machine, user, host.now())
+      // Every identity of theirs goes now, ahead of the queue and outside its limit (as on a team-left notice).
+      const theirs = host.identities.forgetUser(user, host.now())
       host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, outcome: "auth.forbidden", at: host.now() })
-      if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
+      if (await sweepClientIdentities(host.identities, host.machine, driver, host.now(), 10, theirs).catch(() => true)) host.retryLater()
       return refuse("forbidden")
     }
     // A token that would expire within seconds of the answer is no session.
