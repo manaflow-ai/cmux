@@ -540,8 +540,7 @@ impl Controller {
 
     pub(crate) fn listener_is_current(&self, node: &Arc<Node>) -> bool {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        !inner.closing
-            && inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node))
+        !inner.closing && inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node))
     }
 
     pub(super) fn retirement_pending(&self) -> bool {
