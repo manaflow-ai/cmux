@@ -377,7 +377,7 @@ free, or when its free space cannot be read as a plain count (unreadable or
 malformed `df` output), because there is then no proof of working room. A
 deferred daemon leaves the machine unreachable ("connection refused"), so the
 supervisor retries `ensure` on every tick and starts the daemon as soon as
-either condition clears. The
+the free space reads as a plain count of at least 16 MiB. The
 Cloud sidebar warns on a machine whose root disk is nearly full.
 The image consumes space from the existing root disk; it does not change the
 Freestyle VM size or the image ladder. The bake writes a reservation marker
