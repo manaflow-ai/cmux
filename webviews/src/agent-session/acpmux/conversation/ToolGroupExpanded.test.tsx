@@ -9,6 +9,7 @@ import { SubagentFold } from "../subagents/subagentFold";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
+import * as thoughts from "./thoughts";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 
 let dom: JSDOM | undefined;
@@ -180,6 +181,7 @@ for (const [kind, toolKind] of [
 ] as const)
   test(`a nested subagent's ${kind} stream keeps its completed item snapshots and skips their renders`, async () => {
     const fold = new SubagentFold();
+    const nestedId = `nested-${kind}`;
     let seq = 0;
     const feed = (update: Record<string, unknown>, acpmux: Record<string, unknown>) => {
       seq += 1;
@@ -188,10 +190,18 @@ for (const [kind, toolKind] of [
     feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "parent", parent: null, name: "Sample parent" }] });
     feed(
       { sessionUpdate: "subagent_spawned" },
-      { subagents: [{ id: "nested", parent: "parent", name: "Sample child" }] },
+      { subagents: [{ id: nestedId, parent: "parent", name: "Sample child" }] },
     );
     const completed = calls(toolKind);
-    for (const item of completed)
+    for (const [at, item] of completed.entries()) {
+      if (at === 1)
+        feed(
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "Inspect every sample before choosing the next check." },
+          },
+          { subagent: nestedId },
+        );
       feed(
         {
           sessionUpdate: "tool_call",
@@ -201,8 +211,9 @@ for (const [kind, toolKind] of [
           status: "completed",
           rawInput: { command: item.tool!.command },
         },
-        { subagent: "nested" },
+        { subagent: nestedId },
       );
+    }
     feed(
       {
         sessionUpdate: "tool_call",
@@ -213,11 +224,17 @@ for (const [kind, toolKind] of [
         rawInput: { command: toolKind === "execute" ? "echo nested" : undefined },
         content: { type: "text", text: "nested-0" },
       },
-      { subagent: "nested" },
+      { subagent: nestedId },
     );
-    const shown = () => fold.views().nested!.find((row) => row.kind === "activity")!;
+    const shown = () => fold.views()[nestedId]!.find((row) => row.kind === "activity")!;
     const initial = shown();
-    const stable = initial.items!.slice(0, completed.length);
+    const stable = initial.items!.filter((item) => item.tool?.id !== "nested-stream");
+    const parsed: string[] = [];
+    const thoughtParts = thoughts.thoughtParts;
+    const thoughtProbe = spyOn(thoughts, "thoughtParts").mockImplementation((text) => {
+      parsed.push(text);
+      return thoughtParts(text);
+    });
     const rendered: string[] = [];
     const rowFailed = toolFailure.rowFailed;
     const probe = spyOn(toolFailure, "rowFailed").mockImplementation((tool) => {
@@ -231,6 +248,7 @@ for (const [kind, toolKind] of [
       const expected = [...completed.map((item) => item.tool!.id), "nested-stream"];
       expect(ids()).toEqual(expected);
       await act(async () => container.querySelector<HTMLButtonElement>('[data-tool-id="nested-stream"]')!.click());
+      await act(async () => container.querySelector<HTMLButtonElement>(".cv-thought")!.click());
       for (let chunk = 1; chunk <= 5; chunk += 1) {
         feed(
           {
@@ -238,24 +256,29 @@ for (const [kind, toolKind] of [
             toolCallId: "nested-stream",
             content: { type: "text", text: `nested-${chunk}` },
           },
-          { subagent: "nested" },
+          { subagent: nestedId },
         );
         const next = shown();
         rendered.length = 0;
+        parsed.length = 0;
         await act(async () => root!.render(<ToolRows row={next} sessionId={`nested-${kind}`} />));
         expect(rendered).toEqual(["nested-stream"]);
-        expect(next.items!.slice(0, completed.length).every((item, at) => item === stable[at])).toBe(true);
+        expect(parsed).toEqual([]);
+        expect(
+          next.items!.filter((item) => item.tool?.id !== "nested-stream").every((item, at) => item === stable[at]),
+        ).toBe(true);
         expect(ids()).toEqual(expected);
         expect(container.textContent).toContain(`nested-${chunk}`);
       }
       // Updating a different nested child's status invalidates the parent's view too.
       const before = fold.views().parent!.find((row) => row.kind === "subagents")!;
-      feed({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "nested", state: "completed" }] });
+      feed({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id: nestedId, state: "completed" }] });
       const after = fold.views().parent!.find((row) => row.kind === "subagents")!;
       expect(after).not.toBe(before);
       expect(after.subagents![0]!.state).toBe("completed");
       expect(before.subagents![0]!.state).toBe("running");
     } finally {
       probe.mockRestore();
+      thoughtProbe.mockRestore();
     }
   });
