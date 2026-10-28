@@ -46,7 +46,10 @@ struct AcpmuxLaunchSharedDaemonTests {
             try await tabs.warm(sessionIds: [mineID])
             let restored = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(5)).value
             let restoredRows = try #require(restored["sessions"] as? [[String: Any]])
-            #expect(restoredRows.first { $0["sessionId"] as? String == mineID }?["status"] as? String == "ready")
+            // A live agent with no turn is legitimately reported as Idle; liveAgents is the
+            // daemon's authoritative proof that rewarm started it again.
+            #expect(restored["liveAgents"] as? Int == 2)
+            #expect(restoredRows.first { $0["sessionId"] as? String == mineID }?["status"] as? String != "closed")
             #expect(restoredRows.first { $0["sessionId"] as? String == otherID }?["status"] as? String == "ready")
             #expect(try await AcpmuxStatusClient.status(socketPath: socket).pid == before.pid)
             // A tab can reference a session already deleted by its daemon. Ending it is idempotent.
