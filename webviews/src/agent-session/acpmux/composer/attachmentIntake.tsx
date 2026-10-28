@@ -22,7 +22,7 @@ import { Close, FileDoc, ImageIcon, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
-import { keptThumb } from "./imagePool";
+import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
@@ -250,6 +250,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const ready = (index: number, attachment: ComposerAttachment) => {
       if (!settle(index)) return;
+      const thumb = keptThumb(attachment.id);
+      if (thumb) keepThumb(shown[index]!.id, thumb);
       attachment = { ...attachment, id: shown[index]!.id };
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
