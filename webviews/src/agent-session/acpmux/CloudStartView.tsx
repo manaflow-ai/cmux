@@ -19,8 +19,13 @@ function facts(start: CloudStartProgress, t: Translate): Fact[] {
   const list: Fact[] = [];
   if (start.folder) list.push({ id: "folder", label: t("composer.folder"), value: start.folder });
   if (start.machine)
-    list.push({ id: "machine", label: t("sandbox.vm"), value: start.size ? `${start.machine} · ${start.size}` : start.machine });
-  if (start.secrets !== undefined) list.push({ id: "secrets", label: t("cloudStart.secrets"), value: String(start.secrets) });
+    list.push({
+      id: "machine",
+      label: t("sandbox.vm"),
+      value: start.size ? `${start.machine} · ${start.size}` : start.machine,
+    });
+  if (start.secrets !== undefined)
+    list.push({ id: "secrets", label: t("cloudStart.secrets"), value: String(start.secrets) });
   if (start.network)
     list.push({
       id: "network",
@@ -70,7 +75,11 @@ export function CloudStartView({ start, bubble = true }: { start: CloudStartProg
           <ul className="acpmux-cloud-start__chips" data-look={arm}>
             {known.map((fact) => (
               <li key={fact.id} data-fact={fact.id}>
-                {fact.id === "folder" ? <Folder size={12} /> : <span className="acpmux-cloud-start__label">{fact.label}</span>}
+                {fact.id === "folder" ? (
+                  <Folder size={12} />
+                ) : (
+                  <span className="acpmux-cloud-start__label">{fact.label}</span>
+                )}
                 <span>{fact.value}</span>
               </li>
             ))}

@@ -19,7 +19,8 @@ export const cloudStartLook = defineExperiment({
     },
     steps: {
       label: "Step list",
-      description: "The three steps as a checklist (done, current with a spinner, next), the facts on one line under it.",
+      description:
+        "The three steps as a checklist (done, current with a spinner, next), the facts on one line under it.",
     },
   },
   defaultArm: "chips",

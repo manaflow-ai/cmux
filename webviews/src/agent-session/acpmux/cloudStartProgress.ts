@@ -52,7 +52,10 @@ function line(value: unknown, max: number): string | undefined {
 
 /// `current` with the host's push `push` taken in: only for the same start while it runs, field by
 /// field, each checked (anything else in it is ignored). A step never goes back.
-export function cloudStartPushed(current: CloudStartProgress | undefined, push: unknown): CloudStartProgress | undefined {
+export function cloudStartPushed(
+  current: CloudStartProgress | undefined,
+  push: unknown,
+): CloudStartProgress | undefined {
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
