@@ -1,9 +1,9 @@
 {
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
-  "method_version": 6,
-  "measured_sha": "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4",
-  "measured_date": "2026-10-24",
+  "method_version": 7,
+  "measured_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936",
+  "measured_date": "2026-10-28",
   "rows": {
     "layer_hard": {
       "title": "hard layer edges (core/service/domain -> ui/app)",
@@ -58,22 +58,22 @@
     "layer_hard": 33,
     "layer_soft": 12,
     "layer_upward": 3,
-    "layer_unplaced": 0,
-    "stateful_singletons": 199,
-    "global_mutable_statics": 476,
-    "assume_isolated_outside_adapters": 151,
-    "assume_isolated_total": 203,
-    "app_broadcast_names": 13,
-    "observer_sites": 340,
-    "blocking_allow_escapes": 0,
-    "app_lines": 143610
+    "layer_unplaced": 2,
+    "stateful_singletons": 188,
+    "global_mutable_statics": 376,
+    "assume_isolated_outside_adapters": 70,
+    "assume_isolated_total": 179,
+    "app_broadcast_names": 2,
+    "observer_sites": 199,
+    "blocking_allow_escapes": 12,
+    "app_lines": 163783
   },
   "packages": {
     "CmuxAuthRuntime": {
       "stateful_singletons": 1
     },
     "CmuxHomeRender": {
-      "global_mutable_statics": 2,
+      "global_mutable_statics": 1,
       "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 3,
       "observer_sites": 2
@@ -82,13 +82,12 @@
       "layer_hard": 1
     },
     "CmuxMobileSupport": {
-      "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 3,
       "observer_sites": 4
     },
     "CmuxNextActions": {
       "global_mutable_statics": 2,
-      "assume_isolated_total": 1,
+      "assume_isolated_total": 2,
       "observer_sites": 1
     },
     "CmuxNextAgentActivity": {
@@ -107,33 +106,41 @@
       "layer_soft": 1
     },
     "CmuxNextAgentLanes": {
-      "stateful_singletons": 5,
+      "stateful_singletons": 6,
       "global_mutable_statics": 3,
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
     },
     "CmuxNextAgentPane": {
-      "stateful_singletons": 22,
-      "global_mutable_statics": 26,
-      "assume_isolated_outside_adapters": 3,
-      "assume_isolated_total": 4,
+      "stateful_singletons": 14,
+      "global_mutable_statics": 23,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
       "app_broadcast_names": 1,
-      "observer_sites": 7
+      "observer_sites": 2
     },
     "CmuxNextAgentUpdates": {
       "layer_hard": 1,
       "layer_soft": 1
     },
     "CmuxNextApp": {
-      "stateful_singletons": 33,
-      "global_mutable_statics": 72,
-      "assume_isolated_outside_adapters": 21,
-      "assume_isolated_total": 32,
-      "observer_sites": 104,
-      "app_lines": 143610
+      "stateful_singletons": 29,
+      "global_mutable_statics": 64,
+      "assume_isolated_outside_adapters": 6,
+      "assume_isolated_total": 14,
+      "observer_sites": 50,
+      "blocking_allow_escapes": 1,
+      "app_lines": 163783
+    },
+    "CmuxNextAppCore": {
+      "layer_unplaced": 1,
+      "global_mutable_statics": 1
+    },
+    "CmuxNextAppearance": {
+      "stateful_singletons": 1,
+      "observer_sites": 1
     },
     "CmuxNextApps": {
-      "stateful_singletons": 1,
       "global_mutable_statics": 1
     },
     "CmuxNextBookmarks": {
@@ -141,27 +148,25 @@
     },
     "CmuxNextBridge": {
       "layer_hard": 5,
-      "stateful_singletons": 5,
+      "stateful_singletons": 4,
       "global_mutable_statics": 1
     },
     "CmuxNextBrowser": {
       "stateful_singletons": 13,
-      "global_mutable_statics": 21,
-      "assume_isolated_outside_adapters": 19,
-      "assume_isolated_total": 22,
+      "global_mutable_statics": 20,
+      "assume_isolated_outside_adapters": 11,
+      "assume_isolated_total": 28,
       "app_broadcast_names": 1,
-      "observer_sites": 15
+      "observer_sites": 10
     },
     "CmuxNextBrowserAutomation": {
       "layer_hard": 1,
       "global_mutable_statics": 1,
       "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1,
-      "observer_sites": 2
+      "assume_isolated_total": 1
     },
     "CmuxNextBrowserCore": {
-      "stateful_singletons": 2,
-      "app_broadcast_names": 1
+      "stateful_singletons": 2
     },
     "CmuxNextBrowserHistory": {
       "layer_hard": 1,
@@ -170,15 +175,11 @@
     "CmuxNextBrowserHost": {
       "layer_hard": 1
     },
-    "CmuxNextChiefPetWiring": {
-      "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1
+    "CmuxNextBrowserImport": {
+      "stateful_singletons": 1
     },
     "CmuxNextChromiumWarmup": {
-      "layer_hard": 1,
-      "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1,
-      "observer_sites": 1
+      "layer_hard": 1
     },
     "CmuxNextCloud": {
       "stateful_singletons": 2
@@ -187,10 +188,15 @@
       "global_mutable_statics": 1
     },
     "CmuxNextCompat": {
-      "stateful_singletons": 1,
-      "global_mutable_statics": 3,
+      "stateful_singletons": 6,
+      "global_mutable_statics": 4,
       "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 6
+      "assume_isolated_total": 7,
+      "observer_sites": 2,
+      "blocking_allow_escapes": 1
+    },
+    "CmuxNextCompatCore": {
+      "blocking_allow_escapes": 4
     },
     "CmuxNextComputerUse": {
       "layer_hard": 1,
@@ -200,13 +206,11 @@
     "CmuxNextControl": {
       "layer_soft": 1,
       "stateful_singletons": 1,
-      "assume_isolated_total": 1
-    },
-    "CmuxNextCookieImport": {
-      "observer_sites": 3
+      "blocking_allow_escapes": 1
     },
     "CmuxNextCrashReporting": {
-      "global_mutable_statics": 11
+      "global_mutable_statics": 5,
+      "blocking_allow_escapes": 1
     },
     "CmuxNextDaemon": {
       "stateful_singletons": 3,
@@ -220,16 +224,14 @@
       "observer_sites": 1
     },
     "CmuxNextDesign": {
-      "stateful_singletons": 26,
+      "stateful_singletons": 25,
       "global_mutable_statics": 66,
-      "assume_isolated_outside_adapters": 26,
-      "assume_isolated_total": 33,
-      "app_broadcast_names": 4,
-      "observer_sites": 82
+      "assume_isolated_outside_adapters": 14,
+      "assume_isolated_total": 30,
+      "observer_sites": 54
     },
     "CmuxNextDesignTokens": {
-      "stateful_singletons": 2,
-      "observer_sites": 1
+      "stateful_singletons": 1
     },
     "CmuxNextDevices": {
       "stateful_singletons": 1
@@ -243,6 +245,9 @@
       "layer_soft": 1,
       "global_mutable_statics": 2
     },
+    "CmuxNextEnergy": {
+      "observer_sites": 6
+    },
     "CmuxNextFileGrid": {
       "assume_isolated_total": 2
     },
@@ -255,15 +260,17 @@
     },
     "CmuxNextFocusUI": {
       "stateful_singletons": 2,
-      "assume_isolated_total": 1
+      "assume_isolated_total": 2
+    },
+    "CmuxNextHangReports": {
+      "observer_sites": 2
     },
     "CmuxNextHome": {
       "stateful_singletons": 1,
-      "global_mutable_statics": 2,
-      "observer_sites": 4
+      "global_mutable_statics": 1
     },
     "CmuxNextHomeEngine": {
-      "global_mutable_statics": 1
+      "assume_isolated_total": 1
     },
     "CmuxNextHostedChief": {
       "layer_hard": 1
@@ -272,57 +279,56 @@
       "global_mutable_statics": 2
     },
     "CmuxNextImportCards": {
-      "stateful_singletons": 1,
-      "observer_sites": 1
+      "stateful_singletons": 1
+    },
+    "CmuxNextInput": {
+      "assume_isolated_total": 1
+    },
+    "CmuxNextInputDiagnostics": {
+      "assume_isolated_total": 5
     },
     "CmuxNextKeepAwake": {
       "layer_soft": 2,
       "stateful_singletons": 1
     },
+    "CmuxNextLaunch": {
+      "global_mutable_statics": 1
+    },
     "CmuxNextLayout": {
       "global_mutable_statics": 3,
-      "assume_isolated_outside_adapters": 5,
-      "assume_isolated_total": 5,
-      "observer_sites": 2
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3
     },
     "CmuxNextMacScreen": {
-      "assume_isolated_outside_adapters": 4,
-      "assume_isolated_total": 4,
       "observer_sites": 6
     },
     "CmuxNextMobileHost": {
       "layer_hard": 4,
-      "layer_soft": 1,
-      "observer_sites": 2
+      "layer_soft": 1
     },
     "CmuxNextNowPlaying": {
       "layer_hard": 3,
-      "global_mutable_statics": 3,
+      "global_mutable_statics": 2,
       "observer_sites": 4
     },
     "CmuxNextPages": {
-      "stateful_singletons": 7,
-      "global_mutable_statics": 7,
-      "assume_isolated_outside_adapters": 3,
-      "assume_isolated_total": 3,
-      "observer_sites": 6
+      "stateful_singletons": 4,
+      "global_mutable_statics": 6,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "observer_sites": 1
     },
     "CmuxNextPalette": {
       "stateful_singletons": 1,
       "global_mutable_statics": 2,
       "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 2,
-      "observer_sites": 1
+      "assume_isolated_total": 2
     },
     "CmuxNextPhone": {
-      "assume_isolated_total": 3,
-      "observer_sites": 1
+      "assume_isolated_total": 8
     },
     "CmuxNextPhoneAccess": {
       "layer_soft": 1
-    },
-    "CmuxNextPopups": {
-      "observer_sites": 2
     },
     "CmuxNextProcessEnvironment": {
       "stateful_singletons": 1
@@ -330,16 +336,12 @@
     "CmuxNextRemote": {
       "stateful_singletons": 1
     },
-    "CmuxNextRemoteBrowser": {
-      "observer_sites": 8
-    },
     "CmuxNextRemoteLocalhostService": {
       "layer_hard": 1,
       "layer_soft": 1
     },
     "CmuxNextRemoteView": {
-      "assume_isolated_total": 1,
-      "observer_sites": 2
+      "assume_isolated_total": 1
     },
     "CmuxNextRemoteViewSessions": {
       "global_mutable_statics": 1,
@@ -353,24 +355,21 @@
       "stateful_singletons": 2
     },
     "CmuxNextSettings": {
-      "layer_hard": 1,
-      "global_mutable_statics": 1,
-      "observer_sites": 1
+      "global_mutable_statics": 1
     },
     "CmuxNextSettingsWindow": {
-      "stateful_singletons": 1
+      "stateful_singletons": 1,
+      "observer_sites": 1
     },
     "CmuxNextSidebar": {
-      "stateful_singletons": 9,
+      "stateful_singletons": 8,
       "global_mutable_statics": 10,
-      "assume_isolated_outside_adapters": 20,
-      "assume_isolated_total": 24,
-      "app_broadcast_names": 3,
-      "observer_sites": 15
+      "assume_isolated_outside_adapters": 8,
+      "assume_isolated_total": 13
     },
     "CmuxNextSignposts": {
       "stateful_singletons": 9,
-      "assume_isolated_total": 1
+      "assume_isolated_total": 3
     },
     "CmuxNextStash": {
       "layer_hard": 1
@@ -378,36 +377,41 @@
     "CmuxNextTabs": {
       "stateful_singletons": 4,
       "global_mutable_statics": 2,
-      "assume_isolated_outside_adapters": 4,
-      "assume_isolated_total": 10,
-      "observer_sites": 4
-    },
-    "CmuxNextTasks": {
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2
-    },
-    "CmuxNextTerminal": {
-      "stateful_singletons": 1,
-      "global_mutable_statics": 23,
-      "assume_isolated_outside_adapters": 20,
-      "assume_isolated_total": 20,
-      "app_broadcast_names": 1,
-      "observer_sites": 11
-    },
-    "CmuxNextUpdater": {
-      "observer_sites": 2
-    },
-    "CmuxNextWakeups": {
-      "stateful_singletons": 6,
-      "global_mutable_statics": 1,
       "assume_isolated_total": 5,
       "observer_sites": 1
     },
+    "CmuxNextTerminal": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 21,
+      "assume_isolated_outside_adapters": 9,
+      "assume_isolated_total": 11,
+      "observer_sites": 8,
+      "blocking_allow_escapes": 1
+    },
+    "CmuxNextTrace": {
+      "stateful_singletons": 1,
+      "blocking_allow_escapes": 1
+    },
+    "CmuxNextUiLayerPreview": {
+      "layer_unplaced": 1
+    },
+    "CmuxNextUpdater": {
+      "observer_sites": 1
+    },
+    "CmuxNextWakeups": {
+      "stateful_singletons": 7,
+      "global_mutable_statics": 1,
+      "assume_isolated_total": 9,
+      "observer_sites": 3
+    },
     "CmuxNextWebUpdates": {
-      "layer_hard": 3,
+      "layer_hard": 4,
       "layer_soft": 1,
       "stateful_singletons": 1,
       "observer_sites": 2
+    },
+    "CmuxNextWireGen": {
+      "blocking_allow_escapes": 2
     },
     "CmuxNextWorkspaceNaming": {
       "layer_upward": 2
@@ -428,25 +432,18 @@
     },
     "MessagesLabHome": {
       "stateful_singletons": 21,
-      "global_mutable_statics": 180,
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2,
-      "app_broadcast_names": 1,
-      "observer_sites": 29
+      "global_mutable_statics": 109,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 11,
+      "observer_sites": 26
     },
     "MessagesLabSidebar": {
-      "global_mutable_statics": 13,
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2,
-      "app_broadcast_names": 1,
-      "observer_sites": 6
+      "global_mutable_statics": 8,
+      "assume_isolated_total": 3,
+      "observer_sites": 4
     },
     "StackAuth": {
       "stateful_singletons": 2,
-      "global_mutable_statics": 2
-    },
-    "cmux-vnc-host": {
-      "stateful_singletons": 1,
       "global_mutable_statics": 2
     }
   },
@@ -480,9 +477,9 @@
       "CmuxNextNowPlaying (domain) -> CmuxNextBrowser (ui)",
       "CmuxNextNowPlaying (domain) -> CmuxNextSidebar (ui)",
       "CmuxNextRemoteLocalhostService (service) -> CmuxNextBrowser (ui)",
-      "CmuxNextSettings (domain) -> CmuxNextDesign (ui)",
       "CmuxNextStash (service) -> CmuxNextHistory (ui)",
       "CmuxNextWebUpdates (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextDesign (ui)",
       "CmuxNextWebUpdates (service) -> CmuxNextPages (ui)",
       "CmuxNextWebUpdates (service) -> CmuxNextUpdater (ui)"
     ],
@@ -505,20 +502,25 @@
       "CmuxNextWorkspaceNaming (core) -> CmuxNextBridge (domain)",
       "CmuxNextWorkspaceNaming (core) -> CmuxNextDaemon (service)"
     ],
-    "unplaced": []
+    "unplaced": [
+      "CmuxNextAppCore",
+      "CmuxNextUiLayerPreview"
+    ]
   },
   "exceptions": [
     {
       "date": "2026-10-26",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "Not a new static: cp/p08-startup-007's fixer gives DebugTimings.launchMarks back the base's own declaration (origin/feat-cmux-next's Mutex<[(name: String, ms: Double)]> line, then p08-startup-004's Mutex<LaunchMarks> from origin/perf/chrome-parity). The task's first head 11288c7c9ac had re-declared it over five lines, which the counter did not read as a static, so the push range over that head reads the restored line as +1; over origin/feat-cmux-next and over origin/perf/chrome-parity the row does not rise (prepush-gate.py --base origin/perf/chrome-parity: no new violations)."
+      "why": "Not a new static: cp/p08-startup-007's fixer gives DebugTimings.launchMarks back the base's own declaration (origin/feat-cmux-next's Mutex<[(name: String, ms: Double)]> line, then p08-startup-004's Mutex<LaunchMarks> from origin/perf/chrome-parity). The task's first head 11288c7c9ac had re-declared it over five lines, which the counter did not read as a static, so the push range over that head reads the restored line as +1; over origin/feat-cmux-next and over origin/perf/chrome-parity the row does not rise (prepush-gate.py --base origin/perf/chrome-parity: no new violations).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "CmuxNextApp DebugTimings.launchCounters (p08-startup-007): the launch counter record (page-ins and main CPU at the first frame; the temperature stays LaunchSlices' in launchMarks) beside the process-wide launch mark record DebugTimings.launchMarks already is. Marks arrive from main() before AppDelegate or AppServices exist and from the daemon's threads, so no composition root can inject it; Chrome keeps the same one process-wide recorder (components/startup_metric_utils/browser/startup_metric_utils.cc, GetBrowser()). The log itself is injected (LaunchCounterLog(reader:sink:); tests pass fixed counters). It folds into the LaunchMarks record behind launchMarks (p08-startup-004; 002 rebuilds its marks on it) once 002 lands, which takes this +1 back."
+      "why": "CmuxNextApp DebugTimings.launchCounters (p08-startup-007): the launch counter record (page-ins and main CPU at the first frame; the temperature stays LaunchSlices' in launchMarks) beside the process-wide launch mark record DebugTimings.launchMarks already is. Marks arrive from main() before AppDelegate or AppServices exist and from the daemon's threads, so no composition root can inject it; Chrome keeps the same one process-wide recorder (components/startup_metric_utils/browser/startup_metric_utils.cc, GetBrowser()). The log itself is injected (LaunchCounterLog(reader:sink:); tests pass fixed counters). It folds into the LaunchMarks record behind launchMarks (p08-startup-004; 002 rebuilds its marks on it) once 002 lands, which takes this +1 back.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-23",
@@ -578,230 +580,268 @@
       "date": "2026-10-24",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)"
+      "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "p10-stability-207 CrashKeys.swift crashKeysRecordBlock: the address of the crash-key record block (the injected CrashKeySlots' address, this run's run.crashkeys descriptor, the line buffer), read by the async-signal-safe crash path (CrashReporter.recordCrashKeys from fatal-signal and uncaught-exception handlers, after their own record), which has no instance to reach, as CrashDeadline's semaphore and CrashWatcher's pipe. Written once at launch on main before the handlers are installed, then only read; the keys themselves live in the composition root's CrashKeySlots instance. Chrome: crash keys in static storage (components/crash/core/common/crash_key.h)."
+      "why": "p10-stability-207 CrashKeys.swift crashKeysRecordBlock: the address of the crash-key record block (the injected CrashKeySlots' address, this run's run.crashkeys descriptor, the line buffer), read by the async-signal-safe crash path (CrashReporter.recordCrashKeys from fatal-signal and uncaught-exception handlers, after their own record), which has no instance to reach, as CrashDeadline's semaphore and CrashWatcher's pipe. Written once at launch on main before the handlers are installed, then only read; the keys themselves live in the composition root's CrashKeySlots instance. Chrome: crash keys in static storage (components/crash/core/common/crash_key.h).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 3,
-      "why": "p10-stability-207 crash keys. CrashKeys.swift recordCrashKeys: the one write(2) of the record runs in a fatal-signal handler, which can call no seam (blockingCall records and may allocate). AppRunMarker.swift: the rename of the previous run.crashkeys and the open of this run's file beside run.signal's open, once at launch on main before the fatal-signal handlers are installed, so a crash at launch still records its keys; a rename and an empty file in the app's own folder, no fsync."
+      "why": "p10-stability-207 crash keys. CrashKeys.swift recordCrashKeys: the one write(2) of the record runs in a fatal-signal handler, which can call no seam (blockingCall records and may allocate). AppRunMarker.swift: the rename of the previous run.crashkeys and the open of this run's file beside run.signal's open, once at launch on main before the fatal-signal handlers are installed, so a crash at launch still records its keys; a rename and an empty file in the app's own folder, no fsync.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-24",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "CmuxNextCompat BlockingViolationTable.shared: one process-wide table of main-thread blocking call sites; the main thread writes a fixed call-site index (128 sites) and a lock-free single-producer ring (64), and a utility drain queue resolves frames and calls the installed sink; touched only on the violation path; blocking calls happen in any module with no injection point; other modules hold a BlockingDetector handle that only the composition root makes (BlockingDetector.forProcess()), tests bind their own table through a task-local. Approved by the Performance Lead with PL-arch, 2026-10-24."
+      "why": "CmuxNextCompat BlockingViolationTable.shared: one process-wide table of main-thread blocking call sites; the main thread writes a fixed call-site index (128 sites) and a lock-free single-producer ring (64), and a utility drain queue resolves frames and calls the installed sink; touched only on the violation path; blocking calls happen in any module with no injection point; other modules hold a BlockingDetector handle that only the composition root makes (BlockingDetector.forProcess()), tests bind their own table through a task-local. Approved by the Performance Lead with PL-arch, 2026-10-24.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-25",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "CmuxNextTrace TraceRuntime.shared: the one process-wide trace runtime (category flags, Release trace rings, name and thread tables, crash-key page, HangWatch slots, metrics store), Chrome's TraceLog / GlobalHistogramAllocator / HangWatcher model (base/trace_event/trace_log.h). Trace points, hang-watch scopes and histogram records run in every module and on every thread, including C hooks, renderer callbacks and deinits with no injection path; code that can inject takes a TraceRuntime(role:) instance (Metrics(runtime:), tests). The single reviewed exception of the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md section 3A, task 000); no other p09 task may add a global."
+      "why": "CmuxNextTrace TraceRuntime.shared: the one process-wide trace runtime (category flags, Release trace rings, name and thread tables, crash-key page, HangWatch slots, metrics store), Chrome's TraceLog / GlobalHistogramAllocator / HangWatcher model (base/trace_event/trace_log.h). Trace points, hang-watch scopes and histogram records run in every module and on every thread, including C hooks, renderer callbacks and deinits with no injection path; code that can inject takes a TraceRuntime(role:) instance (Metrics(runtime:), tests). The single reviewed exception of the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md section 3A, task 000); no other p09 task may add a global.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-24",
       "row": "observer_sites",
       "allow": 2,
-      "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helper) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
+      "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helper) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 1,
-      "why": "p03-rendering-011: CmuxNextWakeups WindowScreenFamily is the per-window adapter the rule asks for: one NSWindow.didChangeScreenNotification observation per window, scoped to object: window, made once by FrameScheduler.forWindow and released with the window's scheduler, and it calls only that window's scheduler (screenDidChange, which moves it to the new display's link on the DisplayClock). It is the only didChangeScreen observer in CmuxNextWakeups; before it nothing moved a dragged window's frame clock until the old display's stall deadline. Chrome: ViewsNSWindowDelegate windowDidChangeScreen (components/remote_cocoa/app_shim/views_nswindow_delegate.mm)."
+      "why": "p03-rendering-011: CmuxNextWakeups WindowScreenFamily is the per-window adapter the rule asks for: one NSWindow.didChangeScreenNotification observation per window, scoped to object: window, made once by FrameScheduler.forWindow and released with the window's scheduler, and it calls only that window's scheduler (screenDidChange, which moves it to the new display's link on the DisplayClock). It is the only didChangeScreen observer in CmuxNextWakeups; before it nothing moved a dragged window's frame clock until the old display's stall deadline. Chrome: ViewsNSWindowDelegate windowDidChangeScreen (components/remote_cocoa/app_shim/views_nswindow_delegate.mm).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 1,
-      "why": "p15-oracle-041: the oracle's windows facet (DEV and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS) subscribes through the app's AppEvents fan-out, the adapter the rule asks for, to WindowEvents.stateChanges (frame, full screen, miniaturize, key and main, screen, occlusion, display parameters), one site, made on the facet's first read and kept for the facet list's life. Each post only adds one to an observable count the facet's read touches, so a debug.oracle.wait_for on a frame or on full screen wakes: AppKit makes none of these values observable and the control snapshot does not publish on them. No WindowController delegate hook covers them all (no resize, miniaturize, main or display-parameter hook; a child page window's key change reaches no controller). Chrome's window waiters observe the widget the same way (views::test::WidgetBoundsChangeWaiter, ui/views/test/widget_test.h)."
+      "why": "p15-oracle-041: the oracle's windows facet (DEV and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS) subscribes through the app's AppEvents fan-out, the adapter the rule asks for, to WindowEvents.stateChanges (frame, full screen, miniaturize, key and main, screen, occlusion, display parameters), one site, made on the facet's first read and kept for the facet list's life. Each post only adds one to an observable count the facet's read touches, so a debug.oracle.wait_for on a frame or on full screen wakes: AppKit makes none of these values observable and the control snapshot does not publish on them. No WindowController delegate hook covers them all (no resize, miniaturize, main or display-parameter hook; a child page window's key change reaches no controller). Chrome's window waiters observe the widget the same way (views::test::WidgetBoundsChangeWaiter, ui/views/test/widget_test.h).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 2,
-      "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
+      "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 17,
-      "why": "p07-memory-021: CmuxNextDesign WindowOcclusionChecker is the one app-wide adapter the rule asks for, a copy of Chrome's WebContentsOcclusionCheckerMac (content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm), which observes the same names once per process: willMove, didMove, willStartLiveResize, didEndLiveResize, willClose, didChangeOcclusionState, didBecomeMain, didResignMain, the four fullscreen transitions, and NSWorkspace screensDidSleep/screensDidWake; plus didResize (a programmatic or tiling resize) and NSApplication didHide/didUnhide (Cmd-H orders every window out with no occlusion change of its own) (17 names, counted once each). One checker per app, made by AppServices.startHibernation only with the default-off occludedWindowDiscard feature; events from any window start a pass (an untracked window can cover a tracked one), it coalesces every event into one pass on a later main turn, and tells only the content cache which window went off screen or came back. It replaces polling occlusionState: AppKit does not report a window covered by another window of the same app."
+      "why": "p07-memory-021: CmuxNextDesign WindowOcclusionChecker is the one app-wide adapter the rule asks for, a copy of Chrome's WebContentsOcclusionCheckerMac (content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm), which observes the same names once per process: willMove, didMove, willStartLiveResize, didEndLiveResize, willClose, didChangeOcclusionState, didBecomeMain, didResignMain, the four fullscreen transitions, and NSWorkspace screensDidSleep/screensDidWake; plus didResize (a programmatic or tiling resize) and NSApplication didHide/didUnhide (Cmd-H orders every window out with no occlusion change of its own) (17 names, counted once each). One checker per app, made by AppServices.startHibernation only with the default-off occludedWindowDiscard feature; events from any window start a pass (an untracked window can cover a tracked one), it coalesces every event into one pass on a later main turn, and tells only the content cache which window went off screen or came back. It replaces polling occlusionState: AppKit does not report a window covered by another window of the same app.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p04-input-013: WindowOverlayHost.appInputTap, the app's one InputEventTap for the design kit's overlay owners, set once in CmuxNextApp.main right after the tap is made (before the delegate and services exist) and never changed. The per-window overlay hosts come from the existing static registry WindowOverlayHost.host(for:) at about a dozen sites in nine packages, and NativePopupHost is made by seven owners in five packages, none of which holds the tap; each reads it once when made (NativePopupHost also takes one by init, and an owner with no tap logs a fault). It replaces the NSApp lookup (InputEventTap.application) that review refused. HoverCardCoordinator takes the tap by init from AppServices, and TooltipPresenter.shared gets it as an instance property. Chrome keeps one process-wide source of platform events that UI owners add observers to: ui::PlatformEventSource::GetInstance() (ui/events/platform/platform_event_source.h). It goes when host(for:) becomes an instance registry the composition root passes."
+      "why": "p04-input-013: WindowOverlayHost.appInputTap, the app's one InputEventTap for the design kit's overlay owners, set once in CmuxNextApp.main right after the tap is made (before the delegate and services exist) and never changed. The per-window overlay hosts come from the existing static registry WindowOverlayHost.host(for:) at about a dozen sites in nine packages, and NativePopupHost is made by seven owners in five packages, none of which holds the tap; each reads it once when made (NativePopupHost also takes one by init, and an owner with no tap logs a fault). It replaces the NSApp lookup (InputEventTap.application) that review refused. HoverCardCoordinator takes the tap by init from AppServices, and TooltipPresenter.shared gets it as an instance property. Chrome keeps one process-wide source of platform events that UI owners add observers to: ui::PlatformEventSource::GetInstance() (ui/events/platform/platform_event_source.h). It goes when host(for:) becomes an instance registry the composition root passes.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 2,
-      "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm)."
+      "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 2,
-      "why": "p02-threads-035: two waits that were raw (a queue.sync and a DispatchSemaphore.wait with // concurrency-allow:) now go through the checked seams under the reviewed BlockingAllowance.terminate, so the detector sees them and MQ-8 counts no raw wait. RunMarkerFile.close runs in applicationWillTerminate: it waits for at most one in-flight write of about 100 bytes (no fsync) so its unlink of run.json is the last word; an async unlink would not run before the process exits, and the next launch would show the restart notice after a clean quit. QuitDeadline.wedgeMainThread (DEBUG and bench builds only, debug.quit {wedge_engine_stop: true}) blocks the main thread on purpose after the quit is decided, as the wedged CefShutdown did, so a journey proves the deadline thread still ends the process. Chrome allows blocking during browser shutdown the same way (ScopedAllowBlocking in the shutdown path, base/threading/thread_restrictions.h)."
+      "why": "p02-threads-035: two waits that were raw (a queue.sync and a DispatchSemaphore.wait with // concurrency-allow:) now go through the checked seams under the reviewed BlockingAllowance.terminate, so the detector sees them and MQ-8 counts no raw wait. RunMarkerFile.close runs in applicationWillTerminate: it waits for at most one in-flight write of about 100 bytes (no fsync) so its unlink of run.json is the last word; an async unlink would not run before the process exits, and the next launch would show the restart notice after a clean quit. QuitDeadline.wedgeMainThread (DEBUG and bench builds only, debug.quit {wedge_engine_stop: true}) blocks the main thread on purpose after the quit is decided, as the wedged CefShutdown did, so a journey proves the deadline thread still ends the process. Chrome allows blocking during browser shutdown the same way (ScopedAllowBlocking in the shutdown path, base/threading/thread_restrictions.h).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 1,
-      "why": "p02-threads-035 (fixer): TerminalOutputLane.close, the fence before ghostty_surface_free that the terminal view's deinit runs on the main thread, was a raw queue.sync with // concurrency-allow:; as blockingSync it is now seen by the detector, under the new reviewed BlockingAllowance.surfaceTeardown (threading-model.md row). The free stays on the main thread because the surface points at the view being deallocated; queued work is skipped once the lane is closing, so the wait is at most the one chunk being parsed, on a user-interactive lane (the main thread's own QoS). Chrome allows bounded teardown waits the same way (ScopedAllowBaseSyncPrimitivesOutsideBlockingScope, base/threading/thread_restrictions.h)."
+      "why": "p02-threads-035 (fixer): TerminalOutputLane.close, the fence before ghostty_surface_free that the terminal view's deinit runs on the main thread, was a raw queue.sync with // concurrency-allow:; as blockingSync it is now seen by the detector, under the new reviewed BlockingAllowance.surfaceTeardown (threading-model.md row). The free stays on the main thread because the surface points at the view being deallocated; queued work is skipped once the lane is closing, so the wait is at most the one chunk being parsed, on a user-interactive lane (the main thread's own QoS). Chrome allows bounded teardown waits the same way (ScopedAllowBaseSyncPrimitivesOutsideBlockingScope, base/threading/thread_restrictions.h).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 1,
-      "why": "p09-observability-034 LaunchClock.swift: one proc_pidinfo(getpid(), PROC_PIDTBSDINFO) per process, on main at main_start, for the kernel's process start that every launch.* slice and launch mark is measured from (the task's spec; Chrome reads the same start, base::Process::CreationTime). It copies this process's in-memory proc fields: no disk, lock or process wait. It replaces DebugTimings' kinfo_proc sysctl read of the same field at the same moment, so the main thread does no new kernel call. blockingCall would record a false main-thread violation at every Debug launch."
+      "why": "p09-observability-034 LaunchClock.swift: one proc_pidinfo(getpid(), PROC_PIDTBSDINFO) per process, on main at main_start, for the kernel's process start that every launch.* slice and launch mark is measured from (the task's spec; Chrome reads the same start, base::Process::CreationTime). It copies this process's in-memory proc fields: no disk, lock or process wait. It replaces DebugTimings' kinfo_proc sysctl read of the same field at the same moment, so the main thread does no new kernel call. blockingCall would record a false main-thread violation at every Debug launch.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "p10-stability-040: Fixture.state, one lock for the vendored MessagesLab palette snapshot and render fallbacks. It replaces five unsynchronized Fixture static vars (theme, lightAppearance, paletteGeneration, elevated, fallbackRenderScale) and Metrics.current; MessagesLabHome global_mutable_statics -29 net. It goes when MessagesWindowView owns its palette and passes it to the renderers."
+      "why": "p10-stability-040: Fixture.state, one lock for the vendored MessagesLab palette snapshot and render fallbacks. It replaces five unsynchronized Fixture static vars (theme, lightAppearance, paletteGeneration, elevated, fallbackRenderScale) and Metrics.current; MessagesLabHome global_mutable_statics -29 net. It goes when MessagesWindowView owns its palette and passes it to the renderers.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
-      "why": "p10-stability-042: MessagesLabHome's MainQueueObservation is CmuxNextCompat.MainActorObservation's seam (the same queue .main observer with its one main-proof, removed when released), which a Shared package cannot import. It replaces the hand-written block observers of the vendored MessagesLab views (FieldTextView's key and text-storage observers, ComposeTextView's bounds observer, FieldChrome's key-fix observers, TranscriptScrollView's three, SequenceScroller's style observer: eleven registrations) whose handlers called main-actor view methods from a nonisolated Sendable block. Inline delivery is kept: the transcript's clip-to-model sync must run in the poster's turn, which the async notification sequence would not. It goes when CmuxMessagesLab can import the CmuxSafeConcurrency seams (p10-stability-172). The pane's three window observers (screen change, the parity key state, the window update; p10-stability-044) use the same adapter, so it stays one site."
+      "why": "p10-stability-042: MessagesLabHome's MainQueueObservation is CmuxNextCompat.MainActorObservation's seam (the same queue .main observer with its one main-proof, removed when released), which a Shared package cannot import. It replaces the hand-written block observers of the vendored MessagesLab views (FieldTextView's key and text-storage observers, ComposeTextView's bounds observer, FieldChrome's key-fix observers, TranscriptScrollView's three, SequenceScroller's style observer: eleven registrations) whose handlers called main-actor view methods from a nonisolated Sendable block. Inline delivery is kept: the transcript's clip-to-model sync must run in the poster's turn, which the async notification sequence would not. It goes when CmuxMessagesLab can import the CmuxSafeConcurrency seams (p10-stability-172). The pane's three window observers (screen change, the parity key state, the window update; p10-stability-044) use the same adapter, so it stays one site.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "p10-stability-055: HomeFlightRecorder.policy, one lock for the flight recorder policy the app sets once at launch (CmuxNextHome HomeFlightRecording.install) and the vendored FlightRecorder reads statically after a send and on its dump queue. It replaces three nonisolated(unsafe) static vars (isEnabled, capturesWindow, logFolder), now computed accessors over it; MessagesLabHome global_mutable_statics -2 net. It goes when FlightRecorder takes its policy from the pane that owns it (an injected value) instead of a static."
+      "why": "p10-stability-055: HomeFlightRecorder.policy, one lock for the flight recorder policy the app sets once at launch (CmuxNextHome HomeFlightRecording.install) and the vendored FlightRecorder reads statically after a send and on its dump queue. It replaces three nonisolated(unsafe) static vars (isEnabled, capturesWindow, logFolder), now computed accessors over it; MessagesLabHome global_mutable_statics -2 net. It goes when FlightRecorder takes its policy from the pane that owns it (an injected value) instead of a static.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double."
+      "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); every shim over the cache holds it, the static holds it weakly, and CEFMirrorCache.shim(helloNow:) refuses a second cache while it lives (that runtime faults and reads live), so one runtime's reads and frees never reach another's cache or source. The env run of the suites is swift test --no-parallel. Main-thread only (an off-main read gets the C zero value and a fault)."
+      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); every shim over the cache holds it, the static holds it weakly, and CEFMirrorCache.shim(helloNow:) refuses a second cache while it lives (that runtime faults and reads live), so one runtime's reads and frees never reach another's cache or source. The env run of the suites is swift test --no-parallel. Main-thread only (an off-main read gets the C zero value and a fault).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 1,
-      "why": "p04-input-015: ScreenDragSession ends a screen drag when the app goes inactive (the mouse-up then goes to another app, so the drag's tap intercept never hears it). It subscribes through the app's one AppEvents fan-out (AppServices.appEvents: one NotificationCenter observer for didResignActive for the whole app), only for the drag's life; the subscription is released when the drag ends. TabDragSession and LinkDragSession also end on resign. The fan-out registers no second NotificationCenter observer."
-    },
-    {
-      "date": "2026-10-26",
-      "row": "observer_sites",
-      "allow": 2,
-      "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller."
-    },
-    {
-      "date": "2026-10-26",
-      "row": "stateful_singletons",
-      "allow": 1,
-      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
-    },
-    {
-      "date": "2026-10-26",
-      "row": "stateful_singletons",
-      "allow": 1,
-      "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds."
+      "why": "p04-input-015: ScreenDragSession ends a screen drag when the app goes inactive (the mouse-up then goes to another app, so the drag's tap intercept never hears it). It subscribes through the app's one AppEvents fan-out (AppServices.appEvents: one NotificationCenter observer for didResignActive for the whole app), only for the drag's life; the subscription is released when the drag ends. TabDragSession and LinkDragSession also end on resign. The fan-out registers no second NotificationCenter observer.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 2,
-      "why": "p09-observability-059 (fixer): IdleWakeupSampler opens and closes its idle periods at NSApplication didResignActive and didBecomeActive, subscribed once per app through the app's one AppEvents fan-out (AppServices.startIdleWakeups), the two sites counted. They replace the two NSApplicationDelegate methods (applicationDidResignActive, applicationDidBecomeActive), each of which AppKit registers as its own NotificationCenter observer; the fan-out already observes both names for FocusEffectApplier, KeyRouter and the others, so the app gains no NotificationCenter observer and loses two. Chrome's AppController observes the NSApp notices once and fans out (chrome/browser/app_controller_mac.mm). Made once after startup, held for the app's life."
+      "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p02-threads-130: CmuxThreading BlockingCallHookSlot.process, the one slot holding the hook that checks the linked Shared/iOS packages' blockingCall and times their Mutex waits (empty, so a call is its body, until the app installs its detector, and always on iOS). CmuxThreading's blockingCall is a free function those packages call on any thread, inside locks and before any composition root exists, so it has no instance to take the hook through; the slot takes one install (BlockingDetector.forProcess(), in the composition root) and refuses a second. Chrome: ScopedBlockingCall reaches the process's blocking observer from every component (base/threading/scoped_blocking_call_internal.cc)."
+      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p09-observability-059 (fixer): IdleWakeupSampler opens and closes its idle periods at NSApplication didResignActive and didBecomeActive, subscribed once per app through the app's one AppEvents fan-out (AppServices.startIdleWakeups), the two sites counted. They replace the two NSApplicationDelegate methods (applicationDidResignActive, applicationDidBecomeActive), each of which AppKit registers as its own NotificationCenter observer; the fan-out already observes both names for FocusEffectApplier, KeyRouter and the others, so the app gains no NotificationCenter observer and loses two. Chrome's AppController observes the NSApp notices once and fans out (chrome/browser/app_controller_mac.mm). Made once after startup, held for the app's life.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-130: CmuxThreading BlockingCallHookSlot.process, the one slot holding the hook that checks the linked Shared/iOS packages' blockingCall and times their Mutex waits (empty, so a call is its body, until the app installs its detector, and always on iOS). CmuxThreading's blockingCall is a free function those packages call on any thread, inside locks and before any composition root exists, so it has no instance to take the hook through; the slot takes one install (BlockingDetector.forProcess(), in the composition root) and refuses a second. Chrome: ScopedBlockingCall reaches the process's blocking observer from every component (base/threading/scoped_blocking_call_internal.cc).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 4,
-      "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
+      "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p04-input-076: CmuxNextWakeups MainJobGateRoute.installed, the address of the one installed MainJobGate. The Swift runtime's swift_task_enqueueMainExecutor_hook is itself one process-wide variable holding a thin function with no context argument, so the hook reaches its gate only through a process-wide word; the gate is made in the composition root (CmuxNextApp.main, MainJobGateSwitch) and injected into MainJobGateHook.install, which claims the word once and refuses a second gate. Like p02-threads-130's BlockingCallHookSlot.process for the same reason (a context-free entry point), and Chrome's base::TaskAnnotator observer hook (base/task/common/task_annotator.cc)."
+      "why": "p04-input-076: CmuxNextWakeups MainJobGateRoute.installed, the address of the one installed MainJobGate. The Swift runtime's swift_task_enqueueMainExecutor_hook is itself one process-wide variable holding a thin function with no context argument, so the hook reaches its gate only through a process-wide word; the gate is made in the composition root (CmuxNextApp.main, MainJobGateSwitch) and injected into MainJobGateHook.install, which claims the word once and refuses a second gate. Like p02-threads-130's BlockingCallHookSlot.process for the same reason (a context-free entry point), and Chrome's base::TaskAnnotator observer hook (base/task/common/task_annotator.cc).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-27",
       "row": "observer_sites",
       "allow": 1,
-      "why": "p04-input-080: MainNotificationObserver (CmuxNextWakeups) is the classed notification wrapper the task asks for: one MainActorObservation registration whose handler runs in a declared MainWorkClass through MainWorkScheduler.callbackClass. It has no caller yet, so its body counts once; batches p04-input-081 and 082 move existing MainActorObservation sites onto it, each a swap of one registration for one, and the count then drops by this one."
+      "why": "p04-input-080: MainNotificationObserver (CmuxNextWakeups) is the classed notification wrapper the task asks for: one MainActorObservation registration whose handler runs in a declared MainWorkClass through MainWorkScheduler.callbackClass. It has no caller yet, so its body counts once; batches p04-input-081 and 082 move existing MainActorObservation sites onto it, each a swap of one registration for one, and the count then drops by this one.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-27",
       "row": "observer_sites",
       "allow": 3,
-      "why": "p01-process-229 (fixer): ChromiumHostExclusiveAccess.follow ends a hosted page's pointer lock when its window resigns key or the app resigns active, and its HTML fullscreen when the window leaves macOS fullscreen, as Chrome's RenderWidgetHostViewMac::SetActive(false) unlocks the pointer and FullscreenController follows its window's fullscreen. The three sites subscribe through the window's shared WindowEvents fan-out (the one the page view's visibility already uses) and the app's injected AppEvents, so they add no NotificationCenter observer: AppKit's resign-key and fullscreen notices are already observed once per window and didResignActive once per app (KeyRouter, FocusEffectApplier). Only page views that CEFHostLocks serves (feature chromiumHostLocks, default off) subscribe, and the tokens go when the view leaves its window. Without them a lock outlives a Cmd-Tab and the cursor stays hidden and stuck in another app."
+      "why": "p01-process-229 (fixer): ChromiumHostExclusiveAccess.follow ends a hosted page's pointer lock when its window resigns key or the app resigns active, and its HTML fullscreen when the window leaves macOS fullscreen, as Chrome's RenderWidgetHostViewMac::SetActive(false) unlocks the pointer and FullscreenController follows its window's fullscreen. The three sites subscribe through the window's shared WindowEvents fan-out (the one the page view's visibility already uses) and the app's injected AppEvents, so they add no NotificationCenter observer: AppKit's resign-key and fullscreen notices are already observed once per window and didResignActive once per app (KeyRouter, FocusEffectApplier). Only page views that CEFHostLocks serves (feature chromiumHostLocks, default off) subscribe, and the tokens go when the view leaves its window. Without them a lock outlives a Cmd-Tab and the cursor stays hidden and stuck in another app.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-27",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+      "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-27",
       "row": "observer_sites",
       "allow": 2,
-      "why": "p14-energy-055b (fixer): chrome hover tracking areas now hear the pointer only in the active app (.activeInActiveApp), so no exit arrives once cmux resigns active and a lit hover (a toast's hold, a tab or reveal) stayed. PointerHover's KeyWindowObserver, the one app-wide hover adapter that already took the key notices, subscribes once per app to NSApplication didResignActive and didBecomeActive through AppEvents (recipe R-notif), the two sites counted. It refreshes only the windows with a hovering target and calls only the hover owners that hold a deactivation watch while their hover shows (ChromeHover, HoverReveal, the tab strip, the saved groups bar), instead of each owner observing the notice. The fan-out already observes both names for TooltipPresenter, HoverCardCoordinator and the others, so the app gains no NotificationCenter observer."
+      "why": "p14-energy-055b (fixer): chrome hover tracking areas now hear the pointer only in the active app (.activeInActiveApp), so no exit arrives once cmux resigns active and a lit hover (a toast's hold, a tab or reveal) stayed. PointerHover's KeyWindowObserver, the one app-wide hover adapter that already took the key notices, subscribes once per app to NSApplication didResignActive and didBecomeActive through AppEvents (recipe R-notif), the two sites counted. It refreshes only the windows with a hovering target and calls only the hover owners that hold a deactivation watch while their hover shows (ChromeHover, HoverReveal, the tab strip, the saved groups bar), instead of each owner observing the notice. The fan-out already observes both names for TooltipPresenter, HoverCardCoordinator and the others, so the app gains no NotificationCenter observer.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-27",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextCompat), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and the app's posting seams (MainDelivery(), MainRunLoopBlock, a DemandTimer fire) have no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+      "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextCompat), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and the app's posting seams (MainDelivery(), MainRunLoopBlock, a DemandTimer fire) have no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, mode, size, mtime, ctime of the item and of every entry of a bundle, which kSecCSCheckNestedCode validates). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach, the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app resolves its acpmux once on its system lane from main (AppEnvironment.appAcpmux) and its main-thread users take that answer. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
+      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, mode, size, mtime, ctime of the item and of every entry of a bundle, which kSecCSCheckNestedCode validates). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach, the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app resolves its acpmux once on its system lane from main (AppEnvironment.appAcpmux) and its main-thread users take that answer. It goes when AcpmuxEnvironment.resolve takes the check from the composition root.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-27",
       "row": "blocking_allow_escapes",
       "allow": 1,
-      "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger."
+      "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger.",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     },
     {
       "date": "2026-10-28",
       "row": "blocking_allow_escapes",
       "allow": 4,
-      "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
+      "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h).",
+      "applied_sha": "557d9fbc1734c3ea6fdaa5dc696cefe15638b936"
     }
   ],
   "observer_wrappers": [
-    "AgentSubagentPanes",
+    "AppEvents",
     "HomeProjection",
     "HomeVideo",
-    "LowPowerMode",
     "MainActorObservation",
-    "PageHostPool",
+    "MainNotificationObserver",
+    "MainQueueObservation",
+    "NotificationFanOut",
+    "SidebarObservation",
     "VideoPlayback",
-    "start",
+    "WindowEvents",
+    "subscribe",
     "toggle",
-    "toggleVideo",
-    "watchUser"
+    "toggleVideo"
   ]
 }
