@@ -373,6 +373,13 @@ export class SubagentFold {
     if (record.event === "started") return this.startChild(record, child);
     const agent = record.event === "turn_ended" ? this.agents.get(this.children.get(child) ?? "") : undefined;
     if (!agent) return undefined;
+    // Each turn repeats the child's current model and effort. Keep the previous value when the
+    // producer omits a field, but honor an explicit null as acpmux's deletion signal.
+    for (const key of ["model", "effort"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      if (record[key] === null) delete agent[key];
+      else if (typeof record[key] === "string") agent[key] = record[key];
+    }
     // Each turn's end says the whole of it: a turn that said nothing has no reply, not the last one's.
     const said = text(record.result?.reply) ?? text(record.result?.error);
     if (said) {

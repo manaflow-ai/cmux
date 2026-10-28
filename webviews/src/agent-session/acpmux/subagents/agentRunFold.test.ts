@@ -205,6 +205,32 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   expect(fold.all()[0]!.result).toBeUndefined();
 });
 
+test("a child turn end refreshes its model and effort", () => {
+  const { fold, send } = folder();
+  expect(send(call("c1", PARENT_RUN))).toBe(false);
+  expect(
+    child(fold, 2, {
+      event: "started",
+      shortName: "fix",
+      startedBy: "chat-1",
+      harness: "codex",
+      model: "model-a",
+      prompt: "Fix the flaky test",
+      state: "running",
+    }),
+  ).toBe("c1");
+  expect(fold.all()[0]!.model).toBe("model-a");
+  expect(fold.all()[0]!.effort).toBeUndefined();
+  child(fold, 3, {
+    event: "turn_ended",
+    state: "done",
+    model: "model-b",
+    effort: "high",
+    result: { state: "done", reply: "Updated." },
+  });
+  expect(fold.all()[0]).toMatchObject({ model: "model-b", effort: "high" });
+});
+
 test("a child of the chat's own family, or one no call of the chat started, is not a run", () => {
   const { fold, send } = folder();
   expect(send(call("c1", PARENT_RUN))).toBe(false);
