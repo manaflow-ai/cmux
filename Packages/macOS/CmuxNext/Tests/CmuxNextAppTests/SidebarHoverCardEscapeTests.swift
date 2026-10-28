@@ -103,10 +103,14 @@ import CmuxNextWakeupsTestSupport
     @Test func movingDownPastTheRowsRightEndDismissesTheCard() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        let (row, _) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         coordinator.pointerMoved(to: CGPoint(x: row.maxX - 2, y: row.minY + 3))
         let shown = try #require(coordinator.machine.shownTarget, "the card went on the row itself")
-        coordinator.pointerMoved(to: CGPoint(x: row.maxX + 3, y: row.minY - 14))
+        // Stay on the list side of the row's edge: with a flush preview, a point to its right
+        // is on the preview itself and correctly keeps it open.
+        let below = CGPoint(x: row.maxX - 2, y: row.minY - 14)
+        try #require(!card.contains(below), "the dismissal path must not enter the preview")
+        coordinator.pointerMoved(to: below)
         // Gone, or handed to the row below (the sidebar's margin can still hit-test as that row).
         #expect(coordinator.machine.shownTarget?.id != shown.id,
                 "the card stayed (\(coordinator.machine.phase)) with the pointer below its row")

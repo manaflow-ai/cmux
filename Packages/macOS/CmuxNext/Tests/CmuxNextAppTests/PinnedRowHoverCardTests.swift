@@ -125,6 +125,9 @@ import Testing
         #expect(abs(band.maxY - onScreen.maxY) < 0.5)
         let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
         #expect(band == pill, "a pinned preview must touch its fill rather than its layout cell")
+        let target = WorkspaceHoverCardController.targetID(Self.pinnedID)
+        #expect(harness.list.hoverCard.hoverCardTargetFrame(for: target) == band,
+                "placement and pointer escape must use the same pinned fill")
     }
 
     /// The list row of the other workspace still opens its own card (the pinned lookup takes nothing from it).

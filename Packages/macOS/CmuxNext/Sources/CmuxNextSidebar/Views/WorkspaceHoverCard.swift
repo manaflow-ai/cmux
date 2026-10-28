@@ -115,14 +115,14 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
-        // The row's band across the sidebar: the card's top on the row's, touching the edge.
+        // Workspace fill or group band: the card touches its anchor, its top on the row's top.
         if let group = groupID(id) { return list?.hoverCardBand(forGroup: group) }
         return workspaceID(id).flatMap { list?.hoverCardBand(for: $0) }
     }
 
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? {
         if let group = groupID(id) { return list?.hoverCardAnchor(forGroup: group) }
-        return workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
+        return workspaceID(id).flatMap { list?.hoverCardBand(for: $0) }
     }
 
     /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
