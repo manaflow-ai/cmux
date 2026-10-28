@@ -14,6 +14,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
@@ -66,6 +67,7 @@ final class AppServices {
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
+    let personalPlacements = PersonalPlacementQueue()
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
