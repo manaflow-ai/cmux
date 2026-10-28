@@ -339,6 +339,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.showMenuBarIcon" : {
+      "default" : true,
+      "description" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.",
+      "title" : "Show Menu Bar Icon",
+      "type" : "boolean"
+    },
     "app.startAgentGlobalHotKey" : {
       "default" : false,
       "description" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
@@ -1570,6 +1576,12 @@
       "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.openSignInPagesInCmux" : {
+      "default" : true,
+      "description" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
+      "title" : "Open Sign-In Pages in cmux Browser",
+      "type" : "boolean"
+    },
     "browser.openTerminalLinksInCmuxBrowser" : {
       "default" : true,
       "description" : "When off, links clicked in terminal output open in your default browser.",
@@ -2444,6 +2456,18 @@
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
       "title" : "Show Preview Features",
       "type" : "boolean"
+    },
+    "labs.voiceRoom" : {
+      "default" : false,
+      "description" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.",
+      "title" : "Voice Room",
+      "type" : "boolean"
+    },
+    "labs.voiceRoomURL" : {
+      "default" : "",
+      "description" : "The room's web address. Empty uses the room server on this Mac.",
+      "title" : "Voice Room Address",
+      "type" : "string"
     },
     "layout.centerFocusedColumn" : {
       "default" : "never",
@@ -3472,6 +3496,12 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.controlsOnHover" : {
+      "default" : false,
+      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+      "title" : "Show Sidebar Controls Only on Hover",
+      "type" : "boolean"
+    },
     "sidebar.density" : {
       "default" : "compact",
       "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
@@ -3810,7 +3840,7 @@
     },
     "sidebar.spacesVisibility" : {
       "default" : "hover",
-      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "description" : "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then.",
       "enum" : [
         "hover",
         "always"
@@ -4788,7 +4818,7 @@
       "type" : "string"
     },
     "updates.showWhatsNew" : {
-      "default" : false,
+      "default" : true,
       "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
       "title" : "Show What's New After Updates",
       "type" : "boolean"
@@ -4850,6 +4880,20 @@
       "description" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
       "title" : "Name Workspaces from Tabs",
       "type" : "boolean"
+    },
+    "workspaces.hibernation.enabled" : {
+      "default" : true,
+      "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
+      "title" : "Hibernate Idle Workspaces",
+      "type" : "boolean"
+    },
+    "workspaces.hibernation.idleMinutes" : {
+      "default" : 60,
+      "description" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 10080,
+      "minimum" : 5,
+      "title" : "Hibernate After",
+      "type" : "number"
     },
     "workspaces.newPlacement" : {
       "default" : "top",

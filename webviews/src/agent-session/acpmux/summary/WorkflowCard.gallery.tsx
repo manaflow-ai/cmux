@@ -4,20 +4,26 @@
 // N agents · time" and a dot per agent, live while it runs. A click opens Session Info's
 // Background tasks (inspector/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
 import { componentEntry } from "../../../gallery/format";
-import { configureWorkflowCardOpen, WorkflowCard } from "./WorkflowCard";
+import { GALLERY_NOW } from "../../../gallery/clock";
+import { configureWorkflowCardOpen, WorkflowCard, type WorkflowCardPresentation } from "./WorkflowCard";
+import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
-type Props = { stage: WorkflowFixtureStage };
+type Props = {
+  stage: WorkflowFixtureStage;
+  presentation: WorkflowCardPresentation;
+  replay?: ReturnType<typeof realWorkflowFixture>;
+};
 
 /// The gallery's cards open nothing, but draw as the chat's do: a button.
 configureWorkflowCardOpen(() => undefined);
 
-function GalleryWorkflowCard({ stage }: Props) {
-  const nodes = workflowFixture(stage).filter((node) => node.kind === "workflow");
+function GalleryWorkflowCard({ stage, presentation, replay }: Props) {
+  const nodes = (replay ?? workflowFixture(stage)).filter((node) => node.kind === "workflow");
   return (
     <div className="acpmux-shell" style={{ padding: "16px 20px" }}>
       {nodes.map((node) => (
-        <WorkflowCard key={node.id} node={node} />
+        <WorkflowCard key={node.id} node={node} presentation={presentation} />
       ))}
     </div>
   );
@@ -28,7 +34,7 @@ export default componentEntry<Props>({
   title: "Workflow card",
   area: "Agent pane",
   pane: true,
-  height: 160,
+  height: 180,
   widths: { narrow: 420, normal: 760 },
   covers: [
     "agent-session/acpmux/summary/WorkflowCard.tsx",
@@ -37,13 +43,29 @@ export default componentEntry<Props>({
   ],
   load: async () => GalleryWorkflowCard,
   variants: {
-    running: {
-      note: "Labs: a workflow running where it started in the transcript. demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent: three done (filled), one running (the accent), two queued (outlines). Opens Session Info's Background tasks.",
-      props: { stage: "running" },
+    "selected-running": {
+      note: "Selected treatment: title and state, N/M progress, current phase with model and elapsed time, latest agent line, and known tokens. Before: dots only. After: the card explains what the workflow is doing without opening Session Info.",
+      props: { stage: "running", presentation: "selected" },
     },
-    finished: {
-      note: "Labs: the same workflow finished. Workflow · 7 agents · 1m 20s, every dot filled; the card stays where it started and no done line repeats it.",
-      props: { stage: "finished" },
+    "compact-running": {
+      note: "Gallery alternative A: a single metadata line with a thin N/M progress bar. It keeps the card shortest while the selected treatment remains the shipped design.",
+      props: { stage: "running", presentation: "compact" },
+    },
+    "phases-running": {
+      note: "Gallery alternative B: the current phase remains in metadata and each phase gets a status strip. It makes the workflow topology visible at a glance; the selected treatment remains the shipped design.",
+      props: { stage: "running", presentation: "phases" },
+    },
+    "selected-finished": {
+      note: "Selected treatment after completion: 7/7, completed state, final elapsed time and total tokens remain visible; the progress bar is full and no done line repeats the card.",
+      props: { stage: "finished", presentation: "selected" },
+    },
+    "real-run": {
+      note: "Labs: a scrubbed card replayed from a real Claude Workflow stream. Completed, Report, 3/3 and 10s, with the recorded tokens and model.",
+      props: { stage: "finished", presentation: "selected", replay: realWorkflowFixture(GALLERY_NOW) },
+    },
+    "real-running": {
+      note: "Labs: the real Claude Workflow replay while it runs. Report is running at 8s with 2/3 agents complete.",
+      props: { stage: "running", presentation: "selected", replay: realWorkflowFixture(GALLERY_NOW, 8_760) },
     },
   },
 });

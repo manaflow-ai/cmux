@@ -55,8 +55,10 @@ impl Hub {
             && let Err(why) = crate::peer::ssh_target(url)
         {
             tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
-            if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
+            let old = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+            if let Some(old) = old {
                 old.stop();
+                self.note_peer_removed(&old);
             }
             return tokio::sync::watch::channel(1).1;
         }
@@ -96,6 +98,8 @@ impl Hub {
         if cached {
             self.load_peer_cache(&peer);
         }
+        // Its first state now, and each change after it (`_acpmux/peer_state_changed`).
+        peer.report_states(self.peer_states().clone());
         let generation = peer.generation;
         tokio::spawn(peer.run());
         (generation, settled)
@@ -194,10 +198,38 @@ impl Hub {
     /// waiting out the reconnect backoff; with `wait`, answer once the
     /// attempt settled.
     pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<(), RpcError> {
+        self.reconnect_peer_with(name, wait, true).await
+    }
+
+    /// ``reconnect_peer``; without `force`, a peer whose link is ready (connected, or `degraded`
+    /// because a ping went unanswered) or still in a handshake younger than the handshake deadline
+    /// is left alone, so a client that only saw it down, or a send to a slow machine, never cuts
+    /// a working link and the requests on it (`peer_disconnected`). A link past that deadline is
+    /// replaced (its own deadline drops it then too). The app's picks and sends ask this way; `host reconnect` forces.
+    pub async fn reconnect_peer_with(
+        &self,
+        name: &str,
+        wait: bool,
+        force: bool,
+    ) -> Result<(), RpcError> {
         let peer = self.config.read().await.peers.get(name).cloned();
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
+        // A ready link, or a handshake younger than the handshake deadline, is left to finish; with
+        // `wait`, an unfinished handshake is waited for as a new attempt would be. Subscribed before
+        // the link is read, so a handshake that settles in between is still heard.
+        if !force && let Some(running) = self.peer(name) {
+            let mut settled = running.settled();
+            let link = running.link();
+            let young = crate::peer_link::LinkTimings::from_env().handshake;
+            if link.keeps_on_reconnect(crate::store::now_ms(), young) {
+                if wait && !link.is_ready() {
+                    let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+                }
+                return Ok(());
+            }
+        }
         let mut settled = self.start_peer(name, &peer);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
@@ -227,6 +259,7 @@ impl Hub {
                 return Err(RpcError::not_found(format!("no peer {name:?}")));
             };
             peer.stop();
+            self.note_peer_removed(&peer);
             self.forget_peer_files(name);
             take_peer_rows(&mut rows, name)
         };
@@ -240,6 +273,12 @@ impl Hub {
             tracing::warn!("save config failed: {e}");
         }
         Ok(())
+    }
+
+    /// A peer left for good: watchers hear its last state, `offline` with error `removed`,
+    /// unless another instance took its name meanwhile (`peer_states.rs`).
+    pub(super) fn note_peer_removed(&self, peer: &crate::peer::Peer) {
+        self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
     }
 
     /// Drop every row of peer `name` and tell watching clients they left.

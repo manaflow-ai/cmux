@@ -75,7 +75,7 @@ mod terminal_links;
 #[cfg(unix)]
 mod terminal_ops;
 #[cfg(unix)]
-mod timer;
+pub(crate) mod timer;
 #[cfg(unix)]
 mod web_calls;
 

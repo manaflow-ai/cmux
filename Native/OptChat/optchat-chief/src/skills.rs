@@ -29,6 +29,10 @@ pub const BUILTIN: [(&str, &str); 5] = [
         include_str!("../skills/chief-auth-escalation/SKILL.md"),
     ),
     (
+        "chief-cloud-machines",
+        include_str!("../skills/chief-cloud-machines/SKILL.md"),
+    ),
+    (
         "cmux-adoption",
         include_str!("../skills/cmux-adoption/SKILL.md"),
     ),

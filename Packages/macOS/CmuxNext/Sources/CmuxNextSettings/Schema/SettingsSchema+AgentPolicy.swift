@@ -55,6 +55,7 @@ extension SettingsSchema {
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine",
+        "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
@@ -65,6 +66,7 @@ extension SettingsSchema {
         "tabs.cmdWClosesPinnedTabs",
         "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
+        "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
@@ -253,6 +255,7 @@ extension SettingsSchema {
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
+        "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
@@ -283,6 +286,8 @@ extension SettingsSchema {
         "browser.agentMouse.maxMoveMs": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
+        // Whether sign-in pages open in a browser agents can drive is the person's call alone.
+        "browser.openSignInPagesInCmux": .userOnly,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
@@ -310,6 +315,10 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
+        // Voice Room records mic and screen text and posts it to the configured room.
+        "labs.voiceRoom": .privacy,
+        // The room address chooses the network endpoint that receives that capture.
+        "labs.voiceRoomURL": .network,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,
