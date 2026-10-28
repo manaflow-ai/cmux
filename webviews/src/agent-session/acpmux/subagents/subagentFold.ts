@@ -89,6 +89,9 @@ export type Subagent = {
   /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
   /// records (``reduceChild``) say its state and reply.
   child?: string;
+  /// The acpmux session that started this sub-session. This is session lineage, not pane nesting;
+  /// direct children keep `parent: null` so retry and automatic pane opening still apply.
+  startedBySession?: string;
   /// acpmux's retry while one waits, whether acpmux can retry it, and the retry it gave up on
   /// (retryState.ts).
   retry?: RetryState;
@@ -420,8 +423,8 @@ export class SubagentFold {
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
-    const parent = text(record.startedBy);
-    if (parent && !this.isChat(parent)) agent.parent = parent;
+    const startedBy = text(record.startedBy);
+    if (startedBy) agent.startedBySession = startedBy;
     if (!promptTitle(prompt)) agent.name = text(record.title) ?? agent.name;
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);

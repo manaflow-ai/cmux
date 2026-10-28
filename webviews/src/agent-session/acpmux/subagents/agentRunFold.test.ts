@@ -5,6 +5,7 @@
 // of a background run's output file.
 import { expect, test } from "bun:test";
 import { SubagentFold } from "./subagentFold";
+import { subagentRetry } from "./retryState";
 
 const REVIEW = `codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=xhigh "Re-review hq#4038"`;
 const text = (said: string) => [{ type: "content", content: { type: "text", text: said } }];
@@ -174,11 +175,18 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
     kind: "Codex · gpt-6-astra xhigh",
     harness: "codex",
     child: "child-1",
-    parent: "chat-1",
+    parent: null,
+    startedBySession: "chat-1",
     session: "fix",
     state: "running",
     startedAt: 1000,
   });
+  // A direct --parent child remains a top-level run: it can retry, and its running row is eligible
+  // for the pane's automatic-open rule (`parent === null && state === "running"`).
+  expect(subagentRetry(fold.all()[0]!)).toEqual({ kind: "none" });
+  expect(fold.all()[0]!.parent).toBeNull();
+  expect(fold.all()[0]!.state).toBe("running");
+  expect(fold.all()[0]!.parent === null && fold.all()[0]!.state === "running").toBe(true);
   const reply = "Fixed: the test waits for the socket.";
   expect(child(fold, 3, { event: "turn_ended", state: "done", result: { state: "done", reply } })).toBeUndefined();
   expect(fold.all()[0]).toMatchObject({ state: "completed", result: reply, endedAt: 3000 });
@@ -190,6 +198,7 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   // A later turn that failed says so.
   child(fold, 5, { event: "turn_ended", state: "failed", result: { state: "failed", error: "model at capacity" } });
   expect(fold.all()[0]).toMatchObject({ state: "failed", result: "model at capacity" });
+  expect(subagentRetry({ ...fold.all()[0]!, retryable: true })).toEqual({ kind: "failed", action: "daemon" });
   // A turn that said nothing has no reply.
   child(fold, 6, { event: "turn_ended", state: "cancelled", result: { state: "cancelled" } });
   expect(fold.all()[0]!.state).toBe("cancelled");
