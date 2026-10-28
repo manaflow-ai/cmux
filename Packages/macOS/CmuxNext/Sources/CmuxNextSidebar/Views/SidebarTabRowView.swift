@@ -30,6 +30,9 @@ final class SidebarTabRowView: SidebarRowView {
     private(set) var isFocusedTab = false
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
+    /// The hover ✕ (`SidebarRowCloseButton`, the workspace row's): closes this tab. Nil: no ✕.
+    var onClose: (() -> Void)?
+    let closeButton = SidebarIconButton.rowClose(label: Strings.closeTab)
 
     private struct Content: Hashable {
         var tab: SidebarTab
@@ -41,8 +44,18 @@ final class SidebarTabRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        [icon, title, detail, activity, unreadDot].forEach(addSubview)
+        [icon, title, detail, activity, unreadDot, closeButton].forEach(addSubview)
         unreadDot.fixedLook = .quiet
+        closeButton.isHidden = true
+        closeButton.onPress = { [weak self] in self?.onClose?() }
+    }
+
+    override var interactiveSubviews: [NSView] { [closeButton] }
+
+    /// The ✕ shows or hides in `layout()`, as a workspace row's does.
+    override func hoverChanged() {
+        super.hoverChanged()
+        needsLayout = true
     }
 
     override var debugIcon: String? { icon.isHidden ? nil : (iconIsMark ? "agentMark" : "favicon") }
@@ -50,6 +63,7 @@ final class SidebarTabRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         onSelect = nil
+        onClose = nil
         lastConfiguration = nil
     }
 
@@ -131,14 +145,22 @@ final class SidebarTabRowView: SidebarRowView {
         var trailing = b.width - SidebarStyle.horizontalInset
         // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
         // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot
-        // beside a status goes left of the column.
+        // beside a status goes left of the column. On hover the ✕ takes the column (`SidebarRowCloseButton`, the
+        // workspace row's) and the mark there gives way at once, never both; leaving hides the ✕ before it returns.
         let cy = b.height / 2
+        let showClose = isHovered && onClose != nil
+        setHoverShown(closeButton, showClose, fades: false)
+        if showClose { closeButton.frame = SidebarStyle.rowCloseFrame(rowWidth: b.width, centerY: cy) }
+        activity.alphaValue = showClose ? 0 : 1 // its own isHidden says whether it has a glyph
         if activity.showsGlyph {
             activity.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: SidebarStyle.indicatorSize)
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width))
         } else {
             activity.frame = .zero
         }
+        if showClose { trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width)) }
+        // A dot on the column gives way to the ✕; one left of a status stays.
+        unreadDot.alphaValue = showClose && !activity.showsGlyph ? 0 : 1
         if unreadDot.state.isUnread {
             let side = SidebarStyle.dotSize
             unreadDot.frame = activity.showsGlyph

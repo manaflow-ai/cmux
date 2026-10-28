@@ -788,7 +788,13 @@ run_suite() {
         result="no result (no cmux-tui)"
       else
         result="no result (0 ran)"
-        [ "$display_skips" -eq 0 ] || hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        # cmux-ci sends a step naming a listed display suite (scripts/ci/display-suites.txt) to a display
+        # worker and marks it CMUX_CI_DISPLAY_ROUTED=1; the lane's hint is for a step routing did not reach.
+        if [ "$display_skips" -gt 0 ] && [ "${CMUX_CI_DISPLAY_ROUTED:-}" = 1 ]; then
+          hint="; this suite needs a display and was sent to a display worker, whose console session was lost (locked or logged out)"
+        elif [ "$display_skips" -gt 0 ]; then
+          hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        fi
         echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped)$hint; no result, never a pass or a base red"
       fi
     elif [ "$status" -eq 0 ] && [ "$skipped" -gt 0 ]; then
