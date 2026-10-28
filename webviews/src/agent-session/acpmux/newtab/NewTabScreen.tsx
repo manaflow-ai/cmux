@@ -422,17 +422,21 @@ export function NewTabScreen(props: Props) {
     text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
   );
   // The draft as it is now, for `onLeaveDraft` when the page goes.
-  const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
+  const leaving = useRef({ text, attachments, location: location ?? "", onLeaveDraft: props.onLeaveDraft });
   const flushed = useRef<string>();
-  leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
+  leaving.current = { text, attachments, location: location ?? "", onLeaveDraft: props.onLeaveDraft };
   const flushDraft = useCallback((leavingPage: boolean) => {
     const draft = leaving.current;
-    if (!((draft.typed && draft.text.trim()) || draft.attachments.length)) return;
-    const key = JSON.stringify([draft.text, draft.attachments.map((attachment) => attachment.id)]);
+    // The DOM can contain a final keystroke before React commits its state on quit.
+    const liveText = field.current?.value ?? draft.text;
+    const typed = liveText !== draft.location;
+    if (!draftDirty.current && !typed && !draft.attachments.length) return;
+    const key = JSON.stringify([liveText, draft.attachments.map((attachment) => attachment.id)]);
     if (flushed.current === key) return;
     flushed.current = key;
-    if (leavingPage) draft.onLeaveDraft?.(draft.text, draft.attachments);
-    else draftChanged.current?.(draft.text, draft.attachments);
+    if (leavingPage && (liveText.trim() || draft.attachments.length))
+      draft.onLeaveDraft?.(liveText, draft.attachments);
+    else draftChanged.current?.(liveText, draft.attachments);
   }, []);
   // A normal app quit/update can pagehide without unmounting React. Persist before native closes.
   useEffect(() => {
