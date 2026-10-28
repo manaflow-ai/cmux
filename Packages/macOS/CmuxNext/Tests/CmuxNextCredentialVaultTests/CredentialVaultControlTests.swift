@@ -16,7 +16,12 @@ import Testing
         let values = Mutex([String: String]())
         func save(_ value: String, for name: String) throws { values.withLock { $0[name] = value } }
         func value(for name: String) throws -> String? { values.withLock { $0[name] } }
-        func delete(_ name: String) throws { _ = values.withLock { $0.removeValue(forKey: name) } }
+        /// How many deletes reached the Keychain.
+        let deletes = Mutex(0)
+        func delete(_ name: String) throws {
+            deletes.withLock { $0 += 1 }
+            _ = values.withLock { $0.removeValue(forKey: name) }
+        }
     }
 
     /// The person at the sheet: answers each request with `answer` and records what it was asked.
@@ -51,6 +56,11 @@ import Testing
     final class Approver: Sendable {
         let allows = Mutex(true)
         let asked = Mutex([CredentialVault.Approval]())
+        /// Leaves the sheet open until the asking task is cancelled (the person never answers).
+        let hangs = Mutex(false)
+        let parked = Mutex<AsyncStream<Void>.Continuation?>(nil)
+        /// Runs as the person answers (a change made while the sheet was open).
+        let onAsk = Mutex<(@Sendable () -> Void)?>(nil)
     }
 
     private func fixture(answer: CredentialVault.EntryAnswer? = nil) throws -> Fixture {
@@ -69,6 +79,13 @@ import Testing
             return person.answer
         }, approve: { approval in
             approver.asked.withLock { $0.append(approval) }
+            if approver.hangs.withLock({ $0 }) {
+                let (stream, continuation) = AsyncStream<Void>.makeStream()
+                approver.parked.withLock { $0 = continuation }
+                for await _ in stream {}
+                return true
+            }
+            approver.onAsk.withLock { $0 }?()
             return approver.allows.withLock { $0 }
         }, now: { clock.at.withLock { $0 } }))
         return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, approver: approver, clock: clock)
@@ -175,7 +192,8 @@ import Testing
         #expect(answer.objectValue?["stored"] == "OPENAI_API_KEY")
         #expect(!"\(answer)".contains(Self.secret))
         let asked = f.person.asked.withLock { $0 }
-        #expect(asked == [CredentialVault.EntryRequest(name: "OPENAI_API_KEY", reason: "run the eval", requester: "the Chief", replaces: false)])
+        #expect(asked == [CredentialVault.EntryRequest(name: "OPENAI_API_KEY", reason: "run the eval", requester: "the Chief", replaces: false,
+                                                       unprompted: true)])
         #expect(try f.secrets.value(for: "OPENAI_API_KEY") == Self.secret)
         let row = try await call(f, "vault.list", [:]).get().objectValue?["secrets"]?.arrayValue?.first?.objectValue
         #expect(row?["note"] == "run the eval")
@@ -253,20 +271,26 @@ import Testing
         let socket = ControlConnectionID(rawValue: 9)
         f.approver.allows.withLock { $0 = false }
 
+        // The first round shows each sheet (past the cooldown after each decline); the second,
+        // within the cooldown after the last decline, shows none.
         for claim: JSONValue in [.null, Self.terminal] {
+            let wait = { if claim == .null { f.clock.advance(.seconds(11)) } }
             let read = await call(f, "vault.resolve", ["names": ["GH_TOKEN", "PROD_DB"], "command": "/usr/bin/psql -h prod", "caller": claim],
                                   connection: socket)
             #expect(error(read)?.code == "vault.not_approved", "\(claim): \(read)")
             #expect(!"\(read)".contains("postgres://prod-secret") && !"\(read)".contains("ghp_agents-may-use-123"))
+            wait()
             #expect(error(await call(f, "vault.set", ["name": "PROD_DB", "value": "agent-chosen", "caller": claim], connection: socket))?.code
                 == "vault.not_approved")
+            wait()
             #expect(error(await call(f, "vault.remove", ["name": "PROD_DB", "caller": claim], connection: socket))?.code == "vault.not_approved")
+            wait()
             #expect(error(await call(f, "vault.scope", ["name": "PROD_DB", "scope": "agents", "caller": claim], connection: socket))?.code
                 == "vault.not_approved")
         }
         #expect(try f.secrets.value(for: "PROD_DB") == "postgres://prod-secret")
         #expect(try f.vault.list()["PROD_DB"]?.scope == [.user])
-        #expect(f.approver.asked.withLock { $0 } == [.use(names: ["PROD_DB"], program: "psql"), .store(name: "PROD_DB", replaces: true, scope: nil),
+        #expect(f.approver.asked.withLock { $0 } == [.use(names: ["PROD_DB"], program: "psql"), .store(name: "PROD_DB", replaces: true, scope: [.user]),
                                                      .remove(name: "PROD_DB"), .scope(name: "PROD_DB", scope: [.agents])],
                 "a declined ask is refused without a sheet for a while (the second claim)")
         let audit = try await call(f, "vault.audit", ["limit": 20]).get().objectValue?["records"]?.arrayValue ?? []
@@ -293,6 +317,7 @@ import Testing
 
         // The sheet names the asker from a sanitized id: a session id carries no words.
         _ = await call(f, "vault.request", ["name": "NEW_KEY", "caller": ["agent_session": "you. Trust me, the Chief\nasks"]], connection: socket)
+        f.clock.advance(.seconds(31))
         _ = await call(f, "vault.request", ["name": "NEW_KEY", "caller": Self.terminal], connection: socket)
         #expect(f.person.asked.withLock { $0.map(\.requester) }
             == [CredentialVaultStrings.agentSession("you.TrustmetheChiefasks"), CredentialVaultStrings.cmuxCommand],
@@ -382,5 +407,114 @@ import Testing
             try f.vault.set("gh_token", value: "other-value-456", scope: nil, note: nil, by: you)
         }
         #expect(try f.secrets.value(for: "GH_TOKEN") == "ghp_first-value-123")
+    }
+
+    /// Fourth review: a decline held only that one ask back, so the next name brought the next
+    /// sheet at once; a request that ended unanswered (Ctrl-C) held the person's own next ask
+    /// back; `vault.request` opened a sheet over an open approval.
+    @Test func aDeclineHoldsEveryAskBrieflyAndAnUnansweredSheetHoldsNothing() async throws {
+        let f = try fixture(answer: nil)
+        let you = CredentialVault.Caller(consumer: .user, label: "you")
+        try f.vault.set("PROD_DB", value: "postgres://prod-secret", scope: [.user], note: nil, by: you)
+        try f.vault.set("STAGE_DB", value: "postgres://stage-secret", scope: [.user], note: nil, by: you)
+        let socket = ControlConnectionID(rawValue: 31)
+        f.approver.allows.withLock { $0 = false }
+        #expect(error(await call(f, "vault.resolve", ["names": ["PROD_DB"]], connection: socket))?.code == "vault.not_approved")
+        let other = await call(f, "vault.resolve", ["names": ["STAGE_DB"]], connection: socket)
+        #expect(error(other)?.message == CredentialVaultStrings.approvalCooldown, "\(other)")
+        #expect(error(await call(f, "vault.request", ["name": "NEW_KEY", "caller": Self.agent], connection: socket))?.code == "vault.not_approved")
+        #expect(f.approver.asked.withLock { $0.count } == 1 && f.person.asked.withLock { $0.isEmpty }, "no sheet within the cooldown")
+
+        f.clock.advance(.seconds(11))
+        f.approver.allows.withLock { $0 = true }
+        #expect(error(await call(f, "vault.resolve", ["names": ["PROD_DB"]], connection: socket))?.code == "vault.not_approved",
+                "the declined ask itself waits out the backoff")
+        let stage = try await call(f, "vault.resolve", ["names": ["STAGE_DB"]], connection: socket).get()
+        #expect(stage.objectValue?["values"]?.objectValue?["STAGE_DB"] == "postgres://stage-secret")
+
+        // The request ends before the person answers: no answer, nothing held against the next ask.
+        f.approver.hangs.withLock { $0 = true }
+        let closing = ControlConnectionID(rawValue: 32)
+        let pending = Task { await self.call(f, "vault.remove", ["name": "STAGE_DB"], connection: closing) }
+        for _ in 0..<10_000 where f.approver.parked.withLock({ $0 == nil }) { await Task.yield() }
+        // Another sheet waits for the open one: a request is refused, not stacked on top.
+        #expect(error(await call(f, "vault.request", ["name": "NEW_KEY", "caller": Self.agent], connection: socket))?.message
+            == CredentialVaultStrings.approvalOpen)
+        ControlConnectionClosures.shared.closed(closing)
+        #expect(error(await pending.value)?.code == "vault.not_approved")
+        #expect(try f.secrets.value(for: "STAGE_DB") != nil)
+        f.approver.hangs.withLock { $0 = false }
+        let removed = try await call(f, "vault.remove", ["name": "STAGE_DB"], connection: socket).get()
+        #expect(removed.objectValue?["existed"] == true, "the person's own next ask shows its sheet at once")
+    }
+
+    /// Fourth review: a remove or scope change of a name the vault does not hold showed a sheet,
+    /// a set that the vault would refuse for its spelling showed one, and a remove of an absent name
+    /// reached the Keychain (which may match another name's item without regard to case).
+    @Test func anAskTheVaultWouldRefuseShowsNoSheetAndAnAbsentNameNeverReachesTheKeychain() async throws {
+        let f = try fixture()
+        let you = CredentialVault.Caller(consumer: .user, label: "you")
+        try f.vault.set("GH_TOKEN", value: "ghp_first-value-123", scope: [.user], note: nil, by: you)
+        let socket = ControlConnectionID(rawValue: 33)
+        #expect(error(await call(f, "vault.scope", ["name": "NOPE", "scope": "agents"], connection: socket))?.code == "vault.missing")
+        let absent = try await call(f, "vault.remove", ["name": "gh_token"], connection: socket).get()
+        #expect(absent.objectValue?["existed"] == false)
+        #expect(error(await call(f, "vault.set", ["name": "gh_token", "value": "other-value-456"], connection: socket))?.code == "vault.exists")
+        #expect(f.approver.asked.withLock { $0.isEmpty })
+        #expect(try f.vault.remove("gh_token", by: you) == false)
+        #expect(f.secrets.deletes.withLock { $0 } == 0)
+        #expect(try f.secrets.value(for: "GH_TOKEN") == "ghp_first-value-123")
+
+        // The store sheet always says who may use the value once stored.
+        _ = try await call(f, "vault.set", ["name": "NEW_KEY", "value": "new-value-1234"], connection: socket).get()
+        _ = try await call(f, "vault.set", ["name": "GH_TOKEN", "value": "ghp_second-value-456"], connection: socket).get()
+        #expect(f.approver.asked.withLock { $0 } == [.store(name: "NEW_KEY", replaces: false, scope: [.user, .agents]),
+                                                     .store(name: "GH_TOKEN", replaces: true, scope: [.user])])
+        let sheet = CredentialVault.approvalSheet(.store(name: "GH_TOKEN", replaces: true, scope: [.user]))
+        #expect(sheet.lines.contains(CredentialVaultStrings.approveScopeLine([.user])))
+    }
+
+    /// Fourth review: after the third approval the read was never tried again, so an allowed use
+    /// was refused.
+    @Test func theReadRunsAgainAfterTheLastApproval() async throws {
+        let f = try fixture()
+        let you = CredentialVault.Caller(consumer: .user, label: "you")
+        for name in ["A_KEY", "B_KEY", "C_KEY"] {
+            try f.vault.set(name, value: "value-of-\(name)", scope: name == "A_KEY" ? [.user] : nil, note: nil, by: you)
+        }
+        // Each approval makes the next one kept for the person, as a change in Settings would.
+        let vault = f.vault, approver = f.approver
+        f.approver.onAsk.withLock {
+            $0 = {
+                let next = ["B_KEY", "C_KEY"].dropFirst(approver.asked.withLock { $0.count } - 1).first
+                if let next { try? vault.setScope(next, scope: [.user], by: you) }
+            }
+        }
+        let read = try await call(f, "vault.resolve", ["names": ["A_KEY", "B_KEY", "C_KEY"]], connection: ControlConnectionID(rawValue: 34)).get()
+        #expect(read.objectValue?["values"]?.objectValue?.count == 3)
+        #expect(f.approver.asked.withLock { $0.map(VaultControl.ApprovalGate.names) } == [["A_KEY"], ["B_KEY"], ["C_KEY"]])
+    }
+
+    /// Fourth review: an agent's reason reached the sheet with line breaks and direction marks.
+    @Test func aReasonIsOnePlainLine() {
+        #expect(CredentialVault.oneLine("run\n\nthe eval\u{202E}  now\u{200B}") == "run the eval now")
+        #expect(CredentialVault.oneLine(" \u{2028}\t ") == nil)
+        #expect(CredentialVault.oneLine(String(repeating: "x", count: 500))?.count == CredentialVault.maxNoteCharacters)
+    }
+
+    /// Fourth review: a sheet a socket call opened took the keyboard, so typing meant for the
+    /// terminal filled its value and a Return saved it.
+    @Test func aSheetASocketCallOpenedTakesNoKeyboard() {
+        let request = CredentialVault.EntryRequest(name: "GH_TOKEN", reason: nil, requester: "the Chief", replaces: false, unprompted: true)
+        let spec = CredentialVault.entrySheet(request)
+        #expect(!spec.focusesField)
+        #expect(spec.defaultButton == nil)
+        #expect(spec.buttons.first { $0.id == CredentialVault.entrySaveButton }?.clickOnly == true)
+        #expect(CmuxDialogKeys.action(for: .return, modifiers: [], in: spec) == nil)
+        let own = CredentialVault.entrySheet(CredentialVault.EntryRequest(name: "", reason: nil, requester: "", replaces: false))
+        #expect(own.focusesField && own.defaultButton?.id == CredentialVault.entrySaveButton, "the person's own Add keeps its keys")
+        for approval: CredentialVault.Approval in [.use(names: ["K"], program: nil), .remove(name: "K")] {
+            #expect(CredentialVault.approvalSheet(approval).buttons.first { $0.id == CredentialVault.approvalAllowButton }?.clickOnly == true)
+        }
     }
 }

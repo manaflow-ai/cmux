@@ -41,15 +41,19 @@ extension CredentialVault {
         fields += [.text(id: entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: request.typed.isEmpty ? request.pasted : request.typed,
                                      placeholder: nil, secure: true),
                    .check(id: entryAgentsField, title: CredentialVaultStrings.entryAgentsCheck, on: request.scope.contains(.agents))]
+        // A sheet a socket call opened takes the value only from the person's typing after their
+        // click: the field is not focused when it appears and Save takes no key.
+        let save = request.unprompted
+            ? CmuxDialogButton(id: entrySaveButton, title: CredentialVaultStrings.entrySave, clickOnly: true)
+            : CmuxDialogButton(id: entrySaveButton, title: CredentialVaultStrings.entrySave, role: .default)
         return CmuxDialogSpec(
             title: pasted ? CredentialVaultStrings.entryPasteTitle
                 : request.name.isEmpty || request.taken ? CredentialVaultStrings.entryAddTitle
                 : request.replaces ? CredentialVaultStrings.entryReplaceTitle(request.name) : CredentialVaultStrings.entryTitle(request.name),
             lines: lines,
             fields: fields,
-            buttons: [.cancel(CredentialVaultStrings.entryCancel),
-                      CmuxDialogButton(id: entrySaveButton, title: CredentialVaultStrings.entrySave, role: .default)],
-            identifier: entrySheetIdentifier)
+            buttons: [.cancel(CredentialVaultStrings.entryCancel), save],
+            identifier: entrySheetIdentifier, focusesField: !request.unprompted)
     }
 
     /// The person's name, value and scope; nil when they cancelled, closed it, left the value empty

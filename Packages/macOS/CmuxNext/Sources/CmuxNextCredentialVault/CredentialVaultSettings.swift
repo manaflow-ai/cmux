@@ -76,6 +76,8 @@ public final class CredentialVaultPageRoute: PageProvider {
 
     private let board: CredentialVaultBoard
     private let window: @MainActor () -> NSWindow?
+    /// The gesture the last call used (``PageCallContext/gestureEvent``).
+    private var spentGesture: TimeInterval?
 
     /// `window`: the window Settings shows in, for the sheets.
     public init(board: CredentialVaultBoard, window: @escaping @MainActor () -> NSWindow?) {
@@ -86,9 +88,12 @@ public final class CredentialVaultPageRoute: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let action = op.hasPrefix(Self.prefix) ? String(op.dropFirst(Self.prefix.count)) : ""
         guard ["add", "replace", "remove", "scope"].contains(action) else { throw PageError.unknownOp(op) }
-        guard context.page == PageDescriptor.settings.id, context.userGesture else {
+        // One call per real click or key in Settings: a scripted call riding the same event is refused.
+        guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+              event != spentGesture else {
             throw PageError(code: "vault.user_only", message: CredentialVaultStrings.agentsMayNotWrite)
         }
+        spentGesture = event
         let vault = board.vault
         let person = CredentialVault.Caller(consumer: .user, label: CredentialVaultStrings.settingsCaller)
         let done: Bool

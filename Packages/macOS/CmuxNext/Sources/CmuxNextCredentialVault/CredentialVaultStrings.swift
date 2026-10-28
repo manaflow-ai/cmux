@@ -75,6 +75,9 @@ nonisolated enum CredentialVaultStrings {
     static var approvalOpen: String {
         text("credentialVault.error.approvalOpen", "Another Credential Vault approval is open in cmux; answer it first")
     }
+    static var approvalCooldown: String {
+        text("credentialVault.error.cooldown", "You just declined a Credential Vault request in cmux; ask again in a few seconds")
+    }
     static var homeChat: String { text("credentialVault.caller.homeChat", "you, from a chat message") }
     static var entryValueLabel: String { text("credentialVault.entry.valueLabel", "Value") }
     static var entryAgentsCheck: String { text("credentialVault.entry.agentsCheck", "Agents may use it") }

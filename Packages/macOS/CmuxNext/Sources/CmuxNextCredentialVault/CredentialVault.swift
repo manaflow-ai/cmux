@@ -200,7 +200,7 @@ public nonisolated final class CredentialVault: Sendable {
     }
 
     /// Removes `name` from the index, then the Keychain (the index goes back when the Keychain
-    /// refuses, so a listed name always has its value); false when there was none.
+    /// refuses, so a listed name always has its value); false when there was none (nothing changes).
     @discardableResult
     func remove(_ name: String, by caller: Caller) throws -> Bool {
         guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
@@ -208,7 +208,13 @@ public nonisolated final class CredentialVault: Sendable {
         return try lock.withLock { _ in
             let before = try readIndex()
             var index = before
-            let existed = index.removeValue(forKey: name) != nil
+            // A name the index does not hold is never deleted from the Keychain: it may match
+            // another name's item there without regard to case.
+            guard index.removeValue(forKey: name) != nil else {
+                appendAudit(AuditRecord(atMs: millis(), event: "remove", names: [name], by: caller.label, consumer: caller.consumer,
+                                        command: nil, outcome: "absent"))
+                return false
+            }
             try writeIndex(index)
             do {
                 try secrets.delete(name)
@@ -217,8 +223,8 @@ public nonisolated final class CredentialVault: Sendable {
                 throw error
             }
             appendAudit(AuditRecord(atMs: millis(), event: "remove", names: [name], by: caller.label, consumer: caller.consumer,
-                                    command: nil, outcome: existed ? "removed" : "absent"))
-            return existed
+                                    command: nil, outcome: "removed"))
+            return true
         }
     }
 

@@ -9,8 +9,9 @@ import Foundation
 /// only they can press (the App's `debug.dialog` and `debug.key` may not answer it; release builds
 /// have neither), as `cmux settings set --confirm` does. Agent-scoped uses need no sheet.
 ///
-/// Allow is never the Return key's button and never has the keyboard first (Cancel does): a Return
-/// meant for a terminal or the composer, when the sheet appears, never approves. Every text on
+/// Allow takes only a pointer click, and none in its first half second on screen: no key presses
+/// it and it never has the keyboard (Cancel does), so typing meant for a terminal or the composer
+/// when the sheet appears, or a click aimed at what was there, never approves. Every text on
 /// it is the vault's own or a vault name; the program a caller names is reduced to a name.
 extension CredentialVault {
     public static let approvalSheetIdentifier = "cmux.dialog.credentialVault.approve"
@@ -21,8 +22,9 @@ extension CredentialVault {
         /// A command gets the values of `names`, some of them kept for the person.
         /// `program`: what the caller says it will run (``displayProgram(_:)``), not checked.
         case use(names: [String], program: String?)
-        /// A value the asking program supplies; `scope` nil keeps a replaced one's.
-        case store(name: String, replaces: Bool, scope: [Consumer]?)
+        /// A value the asking program supplies; `scope`: who may use it once stored (a replaced
+        /// one's when the call names none, every consumer for a new one), always shown.
+        case store(name: String, replaces: Bool, scope: [Consumer])
         case remove(name: String)
         case scope(name: String, scope: [Consumer])
     }
@@ -43,7 +45,7 @@ extension CredentialVault {
         case .store(let name, let replaces, let scope):
             title = replaces ? CredentialVaultStrings.approveReplaceTitle(name) : CredentialVaultStrings.approveStoreTitle(name)
             lines.append(CredentialVaultStrings.approveStoreLine)
-            if let scope { lines.append(CredentialVaultStrings.approveScopeLine(scope)) }
+            lines.append(CredentialVaultStrings.approveScopeLine(scope))
         case .remove(let name):
             title = CredentialVaultStrings.deleteTitle(name)
             lines.append(CredentialVaultStrings.deleteLine)
@@ -56,7 +58,7 @@ extension CredentialVault {
         lines.append(CredentialVaultStrings.approveOnlyYou)
         return CmuxDialogSpec(title: title, lines: lines,
                               buttons: [.cancel(CredentialVaultStrings.entryCancel),
-                                        CmuxDialogButton(id: approvalAllowButton, title: allow, role: role)],
+                                        CmuxDialogButton(id: approvalAllowButton, title: allow, role: role, clickOnly: true)],
                               identifier: approvalSheetIdentifier)
     }
 
@@ -68,6 +70,29 @@ extension CredentialVault {
         }
         let text = String(String.UnicodeScalarView(kept.prefix(40)))
         return text.isEmpty ? nil : text
+    }
+
+    /// A caller's reason as the entry sheet shows it (and the note keeps it): one line, no control,
+    /// format (direction marks, zero-width) or private-use characters, spaces collapsed, at most
+    /// ``maxNoteCharacters``; nil when nothing is left.
+    nonisolated static func oneLine(_ raw: String) -> String? {
+        var text = ""
+        var space = false
+        for scalar in raw.unicodeScalars {
+            if scalar.properties.isWhitespace {
+                space = !text.isEmpty
+                continue
+            }
+            switch scalar.properties.generalCategory {
+            case .control, .format, .privateUse, .surrogate, .unassigned, .lineSeparator, .paragraphSeparator: continue
+            default: break
+            }
+            if space { text.append(" ") }
+            space = false
+            text.unicodeScalars.append(scalar)
+        }
+        let line = String(text.prefix(maxNoteCharacters))
+        return line.isEmpty ? nil : line
     }
 
     /// Asks on `window`; false when the person cancelled or closed it, or the asking task was

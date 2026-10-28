@@ -12,7 +12,12 @@ import Testing
 @MainActor @Suite(.serialized) struct CredentialVaultSettingsTests {
     static let secret = "ghp_settingsCard0123456789abcdefABCDEF"
     static let person = CredentialVault.Caller(consumer: .user, label: "you")
-    static let settings = PageCallContext(page: PageDescriptor.settings.id, userGesture: true)
+    private static var gestures: TimeInterval = 0
+    /// A new click on Settings each time: the route spends each gesture once.
+    static var settings: PageCallContext {
+        gestures += 1
+        return PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: gestures)
+    }
 
     private func vault() -> CredentialVault {
         let folder = FileManager.default.temporaryDirectory.appending(path: "vault-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -52,12 +57,18 @@ import Testing
         let route = CredentialVaultPageRoute(board: board, window: { nil })
         let op = CredentialVaultPageRoute.prefix + "scope"
         let params: JSONValue = ["name": "GH_TOKEN", "scope": ["user"]]
-        for context in [PageCallContext(page: PageDescriptor.settings.id), PageCallContext(page: "cmux.history", userGesture: true)] {
+        for context in [PageCallContext(page: PageDescriptor.settings.id), PageCallContext(page: "cmux.history", userGesture: true, gestureEvent: 1),
+                        PageCallContext(page: PageDescriptor.settings.id, userGesture: true)] {
             await #expect(throws: PageError.self) { _ = try await route.call(op, params: params, context: context) }
         }
         #expect(try vault.list()["GH_TOKEN"]?.scope == [.user, .agents], "no gesture, no change")
 
-        #expect(try await route.call(op, params: params, context: Self.settings) == ["done": true])
+        let click = Self.settings
+        #expect(try await route.call(op, params: params, context: click) == ["done": true])
+        // A second call riding the same click (a script in the page, a debug probe) is refused.
+        await #expect(throws: PageError.self) {
+            _ = try await route.call(op, params: ["name": "GH_TOKEN", "scope": ["user", "agents"]], context: click)
+        }
         #expect(try vault.list()["GH_TOKEN"]?.scope == [.user])
         #expect(secrets(board).first?.objectValue?["scope"] == ["user"])
 

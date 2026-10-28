@@ -20,9 +20,13 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var icon: Data?
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
+    /// False keeps the keyboard out of the fields when the dialog appears
+    /// (it starts on Cancel): a dialog that opens on its own, not from the
+    /// person's action, must not catch typing meant for another view.
+    public var focusesField: Bool
 
     public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil) {
+                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, focusesField: Bool = true) {
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -30,6 +34,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.buttons = buttons
         self.icon = icon
         self.identifier = identifier
+        self.focusesField = focusesField
     }
 
     /// The button Return presses: the first `.default`, else none.
