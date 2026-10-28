@@ -5206,23 +5206,8 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             ensure_missing_pepper_can_migrate(&root, &path)?;
             let pepper = ResourceEffectPepper::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(pepper.0.as_ref())
+            write_identity_file(&root, &path, pepper.0.as_ref())
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
-            file.sync_all()
-                .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
         Err(error) => {
@@ -5287,23 +5272,8 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let id = MachinePublicId::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create machine identity {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(id.as_str().as_bytes())
-                .and_then(|()| file.write_all(b"\n"))
+            write_identity_file(&root, &path, format!("{}\n", id.as_str()).as_bytes())
                 .with_context(|| format!("write machine identity {}", path.display()))?;
-            file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }
         Err(error) => {
@@ -5312,6 +5282,48 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
     };
     let _ = FileExt::unlock(&lock);
     result
+}
+
+/// Writes a root identity file (`machine-id`, the receipt pepper) that does
+/// not exist yet, whole or not at all: the bytes go to `<name>.tmp` (owner
+/// only), are synced, and only then renamed to `path`, then the root is
+/// synced. A first open that dies or meets a full disk part way leaves at
+/// most the temp file, which the next open replaces, never a torn `path`
+/// that every later open refuses as corrupt. The caller holds the file's
+/// lock, so no other writer uses the temp name.
+fn write_identity_file(root: &Path, path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let name =
+        path.file_name().ok_or_else(|| anyhow::anyhow!("no file name: {}", path.display()))?;
+    let mut temp_name = name.to_os_string();
+    temp_name.push(".tmp");
+    let temp = platform::normalize_filesystem_path(root.join(temp_name));
+    let written = (|| -> anyhow::Result<()> {
+        // A temp file an earlier first open left goes first: create_new never
+        // follows or reuses what is at the name.
+        match fs::remove_file(&temp) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("remove {}", temp.display())),
+        }
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temp).with_context(|| format!("create {}", temp.display()))?;
+        platform::restrict_file(&temp)?;
+        file.write_all(bytes).with_context(|| format!("write {}", temp.display()))?;
+        file.sync_all().with_context(|| format!("sync {}", temp.display()))?;
+        fs::rename(&temp, path)
+            .with_context(|| format!("rename {} to {}", temp.display(), path.display()))
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    written?;
+    platform::sync_directory(root).with_context(|| format!("sync state root {}", root.display()))
 }
 
 fn parse_machine_id_file(path: &Path, bytes: &[u8]) -> anyhow::Result<MachinePublicId> {
