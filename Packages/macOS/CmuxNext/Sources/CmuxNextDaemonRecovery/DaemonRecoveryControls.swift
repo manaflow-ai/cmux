@@ -7,7 +7,7 @@ import CmuxNextWakeups
 /// Strings of the launch window's connecting and failure screen and the
 /// daemon recovery controls (Resources/Localizable.xcstrings).
 enum DaemonRecoveryStrings {
-    static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
+    static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux’s background service…", bundle: .module) }
     static var serviceUnavailable: String {
         String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)
     }
@@ -15,17 +15,17 @@ enum DaemonRecoveryStrings {
     static var copyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
     static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
     static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .module) }
-    static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart cmux-tui", bundle: .module) }
-    static var confirmTitle: String { String(localized: "daemon.recovery.confirmTitle", defaultValue: "Restart cmux-tui?", bundle: .module) }
+    static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart Background Service", bundle: .module) }
+    static var confirmTitle: String { String(localized: "daemon.recovery.confirmTitle", defaultValue: "Restart the background service?", bundle: .module) }
     static var confirmBody: String {
         String(localized: "daemon.recovery.confirmBody",
-               defaultValue: "cmux-tui is not responding. Restarting it stops the stuck process and starts a new one. Terminals running in it may be lost.",
+               defaultValue: "cmux’s background service, which runs your terminals, is not responding. Restarting it stops the stuck service and starts a new one. Terminals running in it may be lost.",
                bundle: .module)
     }
     static var confirmButton: String { String(localized: "daemon.recovery.confirmButton", defaultValue: "Restart", bundle: .module) }
-    static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting cmux-tui…", bundle: .module) }
+    static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting the background service…", bundle: .module) }
     static var failed: String {
-        String(localized: "daemon.recovery.failed", defaultValue: "cmux-tui could not be restarted. Try again in a moment.", bundle: .module)
+        String(localized: "daemon.recovery.failed", defaultValue: "The background service could not be restarted. Try again in a moment.", bundle: .module)
     }
 }
 

@@ -87766,127 +87766,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart cmux-tui…"
+            "value": "Restart Background Service…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة تشغيل cmux-tui…"
+            "value": "إعادة تشغيل خدمة الخلفية…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ponovo pokreni cmux-tui…"
+            "value": "Ponovo pokreni pozadinsku uslugu…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart cmux-tui…"
+            "value": "Genstart baggrundstjenesten …"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui neu starten …"
+            "value": "Hintergrunddienst neu starten …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar cmux-tui…"
+            "value": "Reiniciar servicio en segundo plano…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redémarrer cmux-tui…"
+            "value": "Redémarrer le service d’arrière-plan…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Riavvia cmux-tui…"
+            "value": "Riavvia servizio in background…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui を再起動…"
+            "value": "バックグラウンドサービスを再起動…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចាប់ផ្ដើម cmux-tui ឡើងវិញ…"
+            "value": "ចាប់ផ្ដើមសេវាផ្ទៃខាងក្រោយឡើងវិញ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 재시작…"
+            "value": "백그라운드 서비스 다시 시작…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start cmux-tui på nytt …"
+            "value": "Start bakgrunnstjenesten på nytt …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uruchom ponownie cmux-tui…"
+            "value": "Uruchom ponownie usługę w tle…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar cmux-tui…"
+            "value": "Reiniciar Serviço em Segundo Plano…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустить cmux-tui…"
+            "value": "Перезапустить фоновую службу…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่ม cmux-tui ใหม่…"
+            "value": "เริ่มบริการเบื้องหลังใหม่…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui yeniden başlat…"
+            "value": "Arka Plan Hizmetini Yeniden Başlat…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустити cmux-tui…"
+            "value": "Перезапустити фонову службу…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khởi động lại cmux-tui…"
+            "value": "Khởi động lại dịch vụ nền…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新启动 cmux-tui…"
+            "value": "重新启动后台服务…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新啟動 cmux-tui…"
+            "value": "重新啟動背景服務…"
           }
         }
       }

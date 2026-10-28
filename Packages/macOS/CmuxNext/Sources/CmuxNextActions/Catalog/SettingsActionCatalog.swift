@@ -112,7 +112,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.restartServer",
-                title: String(localized: "action.palette.restartServer", defaultValue: "Restart cmux-tui…", bundle: .module),
+                title: String(localized: "action.palette.restartServer", defaultValue: "Restart Background Service…", bundle: .module),
                 keywords: ["server", "daemon", "cmux-tui", "restart", "update", "new features", "protocol"],
                 category: .settings, symbol: "arrow.clockwise.circle",
                 surfaces: [.palette], cliName: "settings restart-server"

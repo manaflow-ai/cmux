@@ -7,127 +7,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting to cmux-tui…"
+            "value": "Connecting to cmux’s background service…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui に接続しています…"
+            "value": "cmux のバックグラウンドサービスに接続しています…"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "جارٍ الاتصال بـ cmux-tui…"
+            "state": "translated",
+            "value": "جارٍ الاتصال بخدمة الخلفية في cmux…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Povezivanje s cmux-tui…"
+            "state": "translated",
+            "value": "Povezivanje s pozadinskom uslugom cmuxa…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Opretter forbindelse til cmux-tui…"
+            "state": "translated",
+            "value": "Opretter forbindelse til cmux’ baggrundstjeneste …"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Verbindung zu cmux-tui wird hergestellt…"
+            "state": "translated",
+            "value": "Verbindung mit dem Hintergrunddienst von cmux …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Conectando con cmux-tui…"
+            "state": "translated",
+            "value": "Conectando con el servicio en segundo plano de cmux…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Connexion à cmux-tui…"
+            "state": "translated",
+            "value": "Connexion au service d’arrière-plan de cmux…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Connessione a cmux-tui…"
+            "state": "translated",
+            "value": "Connessione al servizio in background di cmux…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងភ្ជាប់ទៅ cmux-tui…"
+            "state": "translated",
+            "value": "កំពុងភ្ជាប់ទៅសេវាផ្ទៃខាងក្រោយរបស់ cmux…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui에 연결하는 중…"
+            "state": "translated",
+            "value": "cmux의 백그라운드 서비스에 연결하는 중…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kobler til cmux-tui…"
+            "state": "translated",
+            "value": "Kobler til bakgrunnstjenesten til cmux …"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Łączenie z cmux-tui…"
+            "state": "translated",
+            "value": "Łączenie z usługą w tle cmux…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Conectando ao cmux-tui…"
+            "state": "translated",
+            "value": "Conectando ao serviço em segundo plano do cmux…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Подключение к cmux-tui…"
+            "state": "translated",
+            "value": "Подключение к фоновой службе cmux…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "กำลังเชื่อมต่อกับ cmux-tui…"
+            "state": "translated",
+            "value": "กำลังเชื่อมต่อกับบริการเบื้องหลังของ cmux…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui'ye bağlanılıyor…"
+            "state": "translated",
+            "value": "cmux’un arka plan hizmetine bağlanılıyor…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Підключення до cmux-tui…"
+            "state": "translated",
+            "value": "Підключення до фонової служби cmux…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang kết nối với cmux-tui…"
+            "state": "translated",
+            "value": "Đang kết nối với dịch vụ nền của cmux…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "正在连接 cmux-tui…"
+            "state": "translated",
+            "value": "正在连接到 cmux 的后台服务…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "正在連線 cmux-tui…"
+            "state": "translated",
+            "value": "正在連線到 cmux 的背景服務…"
           }
         }
       }
@@ -795,127 +795,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart cmux-tui"
+            "value": "Restart Background Service"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui を再起動"
+            "value": "バックグラウンドサービスを再起動"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة تشغيل cmux-tui"
+            "value": "إعادة تشغيل خدمة الخلفية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ponovo pokreni cmux-tui"
+            "value": "Ponovo pokreni pozadinsku uslugu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart cmux-tui"
+            "value": "Genstart baggrundstjenesten"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui neu starten"
+            "value": "Hintergrunddienst neu starten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar cmux-tui"
+            "value": "Reiniciar servicio en segundo plano"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redémarrer cmux-tui"
+            "value": "Redémarrer le service d’arrière-plan"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Riavvia cmux-tui"
+            "value": "Riavvia servizio in background"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចាប់ផ្ដើម cmux-tui ឡើងវិញ"
+            "value": "ចាប់ផ្ដើមសេវាផ្ទៃខាងក្រោយឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 재시작"
+            "value": "백그라운드 서비스 다시 시작"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start cmux-tui på nytt"
+            "value": "Start bakgrunnstjenesten på nytt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uruchom ponownie cmux-tui"
+            "value": "Uruchom ponownie usługę w tle"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar o cmux-tui"
+            "value": "Reiniciar Serviço em Segundo Plano"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустить cmux-tui"
+            "value": "Перезапустить фоновую службу"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รีสตาร์ต cmux-tui"
+            "value": "เริ่มบริการเบื้องหลังใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui'yi Yeniden Başlat"
+            "value": "Arka Plan Hizmetini Yeniden Başlat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустити cmux-tui"
+            "value": "Перезапустити фонову службу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khởi động lại cmux-tui"
+            "value": "Khởi động lại dịch vụ nền"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重启 cmux-tui"
+            "value": "重新启动后台服务"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新啟動 cmux-tui"
+            "value": "重新啟動背景服務"
           }
         }
       }
@@ -927,127 +927,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart cmux-tui?"
+            "value": "Restart the background service?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui を再起動しますか？"
+            "value": "バックグラウンドサービスを再起動しますか？"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد إعادة تشغيل cmux-tui؟"
+            "value": "هل تريد إعادة تشغيل خدمة الخلفية؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ponovo pokrenuti cmux-tui?"
+            "value": "Ponovo pokrenuti pozadinsku uslugu?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart cmux-tui?"
+            "value": "Genstart baggrundstjenesten?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui neu starten?"
+            "value": "Hintergrunddienst neu starten?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Reiniciar cmux-tui?"
+            "value": "¿Reiniciar el servicio en segundo plano?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redémarrer cmux-tui ?"
+            "value": "Redémarrer le service d’arrière-plan ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Riavviare cmux-tui?"
+            "value": "Riavviare il servizio in background?"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចាប់ផ្ដើម cmux-tui ឡើងវិញ?"
+            "value": "ចាប់ផ្ដើមសេវាផ្ទៃខាងក្រោយឡើងវិញឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui를 재시작할까요?"
+            "value": "백그라운드 서비스를 다시 시작하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starte cmux-tui på nytt?"
+            "value": "Vil du starte bakgrunnstjenesten på nytt?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uruchomić ponownie cmux-tui?"
+            "value": "Uruchomić ponownie usługę w tle?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar o cmux-tui?"
+            "value": "Reiniciar o serviço em segundo plano?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустить cmux-tui?"
+            "value": "Перезапустить фоновую службу?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รีสตาร์ต cmux-tui ไหม"
+            "value": "เริ่มบริการเบื้องหลังใหม่หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui yeniden başlatılsın mı?"
+            "value": "Arka plan hizmeti yeniden başlatılsın mı?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустити cmux-tui?"
+            "value": "Перезапустити фонову службу?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khởi động lại cmux-tui?"
+            "value": "Khởi động lại dịch vụ nền?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要重启 cmux-tui 吗？"
+            "value": "要重新启动后台服务吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要重新啟動 cmux-tui 嗎？"
+            "value": "要重新啟動背景服務嗎？"
           }
         }
       }
@@ -1059,127 +1059,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui is not responding. Restarting it stops the stuck process and starts a new one. Terminals running in it may be lost."
+            "value": "cmux’s background service, which runs your terminals, is not responding. Restarting it stops the stuck service and starts a new one. Terminals running in it may be lost."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui が応答していません。再起動すると、停止したプロセスを終了して新しいプロセスを開始します。その中で実行中のターミナルが失われる可能性があります。"
+            "value": "ターミナルを実行している cmux のバックグラウンドサービスが応答していません。再起動すると、停止したサービスを終了して新しいサービスを開始します。その中で実行中のターミナルが失われる可能性があります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui لا يستجيب. تؤدي إعادة تشغيله إلى إيقاف العملية العالقة وبدء عملية جديدة. قد تُفقد الطرفيات التي تعمل فيه."
+            "value": "خدمة الخلفية في cmux، التي تشغّل الطرفيات، لا تستجيب. تؤدي إعادة تشغيلها إلى إيقاف الخدمة المتوقفة وبدء خدمة جديدة. قد تُفقد الطرفيات التي تعمل فيها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui ne odgovara. Ponovnim pokretanjem zaustavlja se zaglavljeni proces i pokreće novi. Terminali koji rade u njemu mogu biti izgubljeni."
+            "value": "Pozadinska usluga cmuxa, koja pokreće vaše terminale, ne odgovara. Ponovno pokretanje zaustavlja zaglavljenu uslugu i pokreće novu. Terminali koji rade u njoj mogu biti izgubljeni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui svarer ikke. En genstart stopper den fastlåste proces og starter en ny. Terminaler, der kører i den, kan gå tabt."
+            "value": "cmux’ baggrundstjeneste, som kører dine terminaler, svarer ikke. En genstart stopper den hængende tjeneste og starter en ny. Terminaler, der kører i den, kan gå tabt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui reagiert nicht. Ein Neustart beendet den hängenden Prozess und startet einen neuen. Darin laufende Terminals können verloren gehen."
+            "value": "Der Hintergrunddienst von cmux, der deine Terminals ausführt, reagiert nicht. Ein Neustart beendet den hängenden Dienst und startet einen neuen. Darin laufende Terminals können verloren gehen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui no responde. Al reiniciarlo se detiene el proceso bloqueado y se inicia uno nuevo. Los terminales que se ejecutan en él podrían perderse."
+            "value": "El servicio en segundo plano de cmux, que ejecuta tus terminales, no responde. Al reiniciarlo se detiene el servicio bloqueado y se inicia uno nuevo. Los terminales que se ejecutan en él pueden perderse."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui ne répond pas. Le redémarrer arrête le processus bloqué et en lance un nouveau. Les terminaux qui y sont ouverts pourraient être perdus."
+            "value": "Le service d’arrière-plan de cmux, qui exécute vos terminaux, ne répond pas. Le redémarrer arrête le service bloqué et en lance un nouveau. Les terminaux qui s’y exécutent peuvent être perdus."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui non risponde. Il riavvio arresta il processo bloccato e ne avvia uno nuovo. I terminali in esecuzione al suo interno potrebbero andare persi."
+            "value": "Il servizio in background di cmux, che esegue i tuoi terminali, non risponde. Il riavvio arresta il servizio bloccato e ne avvia uno nuovo. I terminali in esecuzione al suo interno potrebbero andare persi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui មិនឆ្លើយតបទេ។ ការចាប់ផ្ដើមវាឡើងវិញនឹងបញ្ឈប់ដំណើរការដែលជាប់គាំង ហើយចាប់ផ្ដើមដំណើរការថ្មីមួយ។ ទែមីណាល់ដែលកំពុងដំណើរការនៅក្នុងវាអាចបាត់បង់។"
+            "value": "សេវាផ្ទៃខាងក្រោយរបស់ cmux ដែលដំណើរការស្ថានីយរបស់អ្នក មិនឆ្លើយតបទេ។ ការចាប់ផ្ដើមឡើងវិញនឹងបញ្ឈប់សេវាដែលជាប់គាំង ហើយចាប់ផ្ដើមសេវាថ្មី។ ស្ថានីយដែលកំពុងដំណើរការនៅក្នុងវាអាចបាត់បង់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui가 응답하지 않습니다. 재시작하면 멈춘 프로세스를 중지하고 새 프로세스를 시작합니다. 그 안에서 실행 중인 터미널이 사라질 수 있습니다."
+            "value": "터미널을 실행하는 cmux의 백그라운드 서비스가 응답하지 않습니다. 다시 시작하면 멈춘 서비스를 종료하고 새 서비스를 시작합니다. 그 안에서 실행 중인 터미널이 사라질 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui svarer ikke. En omstart stopper den fastlåste prosessen og starter en ny. Terminaler som kjører i den, kan gå tapt."
+            "value": "Bakgrunnstjenesten til cmux, som kjører terminalene dine, svarer ikke. En omstart stopper tjenesten som har hengt seg opp, og starter en ny. Terminaler som kjører i den, kan gå tapt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui nie odpowiada. Ponowne uruchomienie zatrzyma zawieszony proces i uruchomi nowy. Terminale działające w nim mogą zostać utracone."
+            "value": "Usługa w tle cmux, która uruchamia Twoje terminale, nie odpowiada. Ponowne uruchomienie zatrzyma zawieszoną usługę i uruchomi nową. Terminale działające w niej mogą zostać utracone."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux-tui não está respondendo. Reiniciá-lo encerra o processo travado e inicia um novo. Os terminais em execução nele podem ser perdidos."
+            "value": "O serviço em segundo plano do cmux, que executa seus terminais, não está respondendo. Reiniciá-lo encerra o serviço travado e inicia um novo. Terminais em execução nele podem ser perdidos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui не отвечает. Перезапуск остановит зависший процесс и запустит новый. Терминалы, работающие в нём, могут быть потеряны."
+            "value": "Фоновая служба cmux, в которой работают ваши терминалы, не отвечает. Перезапуск остановит зависшую службу и запустит новую. Терминалы, работающие в ней, могут быть потеряны."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui ไม่ตอบสนอง การรีสตาร์ตจะหยุดโปรเซสที่ค้างและเริ่มโปรเซสใหม่ เทอร์มินัลที่ทำงานอยู่ในนั้นอาจสูญหาย"
+            "value": "บริการเบื้องหลังของ cmux ซึ่งเรียกใช้เทอร์มินัลของคุณไม่ตอบสนอง การเริ่มใหม่จะหยุดบริการที่ค้างและเริ่มบริการใหม่ เทอร์มินัลที่ทำงานอยู่ในบริการนั้นอาจสูญหาย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui yanıt vermiyor. Yeniden başlatmak takılan süreci durdurur ve yenisini başlatır. İçinde çalışan terminaller kaybolabilir."
+            "value": "Terminallerinizi çalıştıran cmux arka plan hizmeti yanıt vermiyor. Yeniden başlatmak takılan hizmeti durdurur ve yenisini başlatır. İçinde çalışan terminaller kaybolabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui не відповідає. Перезапуск зупинить завислий процес і запустить новий. Термінали, що працюють у ньому, можуть бути втрачені."
+            "value": "Фонова служба cmux, у якій працюють ваші термінали, не відповідає. Перезапуск зупинить завислу службу й запустить нову. Термінали, що працюють у ній, можуть бути втрачені."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui không phản hồi. Khởi động lại sẽ dừng tiến trình bị treo và chạy một tiến trình mới. Các terminal đang chạy trong đó có thể bị mất."
+            "value": "Dịch vụ nền của cmux, nơi chạy các terminal của bạn, không phản hồi. Khởi động lại sẽ dừng dịch vụ bị treo và chạy một dịch vụ mới. Các terminal đang chạy trong đó có thể bị mất."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 没有响应。重启会停止卡住的进程并启动一个新进程。其中运行的终端可能会丢失。"
+            "value": "运行你的终端的 cmux 后台服务没有响应。重新启动会停止卡住的服务并启动新的服务。其中正在运行的终端可能会丢失。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 沒有回應。重新啟動會停止卡住的程序並啟動新的程序。其中執行中的終端機可能會遺失。"
+            "value": "執行你的終端機的 cmux 背景服務沒有回應。重新啟動會停止卡住的服務並啟動新的服務。其中執行中的終端機可能會遺失。"
           }
         }
       }
@@ -1323,127 +1323,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restarting cmux-tui…"
+            "value": "Restarting the background service…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui を再起動しています…"
+            "value": "バックグラウンドサービスを再起動しています…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جارٍ إعادة تشغيل cmux-tui…"
+            "value": "جارٍ إعادة تشغيل خدمة الخلفية…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ponovno pokretanje cmux-tui…"
+            "value": "Ponovno pokretanje pozadinske usluge…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstarter cmux-tui…"
+            "value": "Genstarter baggrundstjenesten …"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui wird neu gestartet…"
+            "value": "Hintergrunddienst wird neu gestartet …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciando cmux-tui…"
+            "value": "Reiniciando el servicio en segundo plano…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redémarrage de cmux-tui…"
+            "value": "Redémarrage du service d’arrière-plan…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Riavvio di cmux-tui…"
+            "value": "Riavvio del servizio in background…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំពុងចាប់ផ្ដើម cmux-tui ឡើងវិញ…"
+            "value": "កំពុងចាប់ផ្ដើមសេវាផ្ទៃខាងក្រោយឡើងវិញ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 재시작 중…"
+            "value": "백그라운드 서비스를 다시 시작하는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starter cmux-tui på nytt…"
+            "value": "Starter bakgrunnstjenesten på nytt …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ponowne uruchamianie cmux-tui…"
+            "value": "Ponowne uruchamianie usługi w tle…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciando o cmux-tui…"
+            "value": "Reiniciando o serviço em segundo plano…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапуск cmux-tui…"
+            "value": "Перезапуск фоновой службы…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กำลังรีสตาร์ต cmux-tui…"
+            "value": "กำลังเริ่มบริการเบื้องหลังใหม่…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui yeniden başlatılıyor…"
+            "value": "Arka plan hizmeti yeniden başlatılıyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапуск cmux-tui…"
+            "value": "Перезапуск фонової служби…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đang khởi động lại cmux-tui…"
+            "value": "Đang khởi động lại dịch vụ nền…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在重启 cmux-tui…"
+            "value": "正在重新启动后台服务…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在重新啟動 cmux-tui…"
+            "value": "正在重新啟動背景服務…"
           }
         }
       }
@@ -1455,127 +1455,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui could not be restarted. Try again in a moment."
+            "value": "The background service could not be restarted. Try again in a moment."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui を再起動できませんでした。しばらくしてからもう一度お試しください。"
+            "value": "バックグラウンドサービスを再起動できませんでした。しばらくしてからもう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت إعادة تشغيل cmux-tui. حاول مرة أخرى بعد قليل."
+            "value": "تعذّرت إعادة تشغيل خدمة الخلفية. حاول مرة أخرى بعد قليل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui nije moguće ponovo pokrenuti. Pokušajte ponovo za trenutak."
+            "value": "Pozadinsku uslugu nije moguće ponovo pokrenuti. Pokušajte ponovo za trenutak."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui kunne ikke genstartes. Prøv igen om lidt."
+            "value": "Baggrundstjenesten kunne ikke genstartes. Prøv igen om et øjeblik."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui konnte nicht neu gestartet werden. Versuche es gleich noch einmal."
+            "value": "Der Hintergrunddienst konnte nicht neu gestartet werden. Versuche es gleich noch einmal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo reiniciar cmux-tui. Inténtalo de nuevo en un momento."
+            "value": "No se pudo reiniciar el servicio en segundo plano. Vuelve a intentarlo en un momento."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de redémarrer cmux-tui. Réessayez dans un instant."
+            "value": "Impossible de redémarrer le service d’arrière-plan. Réessayez dans un instant."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile riavviare cmux-tui. Riprova tra un momento."
+            "value": "Impossibile riavviare il servizio in background. Riprova tra un momento."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចចាប់ផ្ដើម cmux-tui ឡើងវិញបានទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+            "value": "មិនអាចចាប់ផ្ដើមសេវាផ្ទៃខាងក្រោយឡើងវិញបានទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui를 재시작할 수 없습니다. 잠시 후 다시 시도하세요."
+            "value": "백그라운드 서비스를 다시 시작할 수 없습니다. 잠시 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke starte cmux-tui på nytt. Prøv igjen om litt."
+            "value": "Kunne ikke starte bakgrunnstjenesten på nytt. Prøv igjen om et øyeblikk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się ponownie uruchomić cmux-tui. Spróbuj ponownie za chwilę."
+            "value": "Nie udało się ponownie uruchomić usługi w tle. Spróbuj ponownie za chwilę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível reiniciar o cmux-tui. Tente novamente em instantes."
+            "value": "Não foi possível reiniciar o serviço em segundo plano. Tente novamente em instantes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось перезапустить cmux-tui. Повторите попытку чуть позже."
+            "value": "Не удалось перезапустить фоновую службу. Повторите попытку через минуту."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถรีสตาร์ต cmux-tui ได้ โปรดลองอีกครั้งในอีกสักครู่"
+            "value": "ไม่สามารถเริ่มบริการเบื้องหลังใหม่ได้ โปรดลองอีกครั้งในอีกสักครู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui yeniden başlatılamadı. Birazdan tekrar deneyin."
+            "value": "Arka plan hizmeti yeniden başlatılamadı. Birazdan tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося перезапустити cmux-tui. Спробуйте ще раз за мить."
+            "value": "Не вдалося перезапустити фонову службу. Спробуйте ще раз за хвилину."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể khởi động lại cmux-tui. Hãy thử lại sau giây lát."
+            "value": "Không thể khởi động lại dịch vụ nền. Hãy thử lại sau giây lát."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法重启 cmux-tui。请稍后再试。"
+            "value": "无法重新启动后台服务。请稍后再试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法重新啟動 cmux-tui。請稍後再試。"
+            "value": "無法重新啟動背景服務。請稍後再試一次。"
           }
         }
       }

@@ -181,8 +181,12 @@ final class TerminalStatusBanner: NSView {
             let reason = strings.text("terminal.link.stall.linkLost", defaultValue: "Terminal stopped: cmux lost its link to the shell")
             return "\(reason) · \(close)"
         case .otherBuild:
-            let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: another cmux build owns its shell")
-            return "\(reason) · \(close)"
+            // This version cannot take over a shell host of another record format: what helps is the
+            // version that runs it, or closing the tab.
+            let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: a different version of cmux runs this shell")
+            let hint = strings.text("terminal.link.stall.otherBuildHint",
+                                    defaultValue: "Open it in that version of cmux, or close the tab to end it")
+            return "\(reason) · \(hint)"
         }
     }
 

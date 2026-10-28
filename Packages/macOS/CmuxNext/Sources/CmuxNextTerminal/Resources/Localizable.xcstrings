@@ -5247,127 +5247,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal stopped: another cmux build owns its shell"
+            "value": "Terminal stopped: a different version of cmux runs this shell"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルが停止しました: 別の cmux ビルドがこのシェルを所有しています"
+            "value": "ターミナルが停止しました: 別のバージョンの cmux がこのシェルを実行しています"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توقفت الطرفية: إصدار آخر من cmux يملك صدفتها"
+            "value": "توقفت الطرفية: إصدار آخر من cmux يشغّل هذه الصدفة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal zaustavljen: drugi cmux build posjeduje njegovu ljusku"
+            "value": "Terminal zaustavljen: druga verzija cmuxa pokreće ovaj shell"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal stoppet: et andet cmux-build ejer dens shell"
+            "value": "Terminal stoppet: en anden version af cmux kører denne shell"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal gestoppt: Ein anderer cmux-Build besitzt die Shell"
+            "value": "Terminal gestoppt: Eine andere Version von cmux führt diese Shell aus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal detenida: otra compilación de cmux es dueña de su shell"
+            "value": "Terminal detenido: otra versión de cmux ejecuta este shell"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal arrêté : une autre version de cmux possède son shell"
+            "value": "Terminal arrêté : une autre version de cmux exécute ce shell"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminale fermato: un’altra build di cmux possiede la sua shell"
+            "value": "Terminale arrestato: un’altra versione di cmux esegue questa shell"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទែមីណល់បានឈប់៖ កំណែ cmux ផ្សេងទៀតជាម្ចាស់សែលរបស់វា"
+            "value": "ស្ថានីយបានឈប់៖ កំណែផ្សេងទៀតរបស់ cmux កំពុងដំណើរការ shell នេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 중지됨: 다른 cmux 빌드가 이 셸을 소유하고 있습니다"
+            "value": "터미널 중지됨: 다른 버전의 cmux가 이 셸을 실행하고 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal stoppet: en annen cmux-versjon eier skallet"
+            "value": "Terminalen stoppet: en annen versjon av cmux kjører dette skallet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal zatrzymany: inna kompilacja cmux jest właścicielem jego powłoki"
+            "value": "Terminal zatrzymany: tę powłokę uruchamia inna wersja cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal parado: outra versão do cmux é dona do shell"
+            "value": "Terminal interrompido: outra versão do cmux executa este shell"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Терминал остановлен: его оболочкой владеет другая сборка cmux"
+            "value": "Терминал остановлен: эту оболочку запускает другая версия cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลหยุดทำงาน: cmux บิลด์อื่นเป็นเจ้าของเชลล์นี้"
+            "value": "เทอร์มินัลหยุดทำงาน: cmux เวอร์ชันอื่นกำลังเรียกใช้เชลล์นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal durdu: kabuğu başka bir cmux sürümüne ait"
+            "value": "Terminal durdu: bu kabuğu cmux’un başka bir sürümü çalıştırıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Термінал зупинено: його оболонкою володіє інша збірка cmux"
+            "value": "Термінал зупинено: цю оболонку запускає інша версія cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal đã dừng: một bản dựng cmux khác sở hữu shell của nó"
+            "value": "Terminal đã dừng: một phiên bản cmux khác đang chạy shell này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端已停止：另一个 cmux 版本拥有它的 shell"
+            "value": "终端已停止：另一个版本的 cmux 正在运行此 Shell"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機已停止：另一個 cmux 版本擁有它的 shell"
+            "value": "終端機已停止：另一個版本的 cmux 正在執行此 Shell"
+          }
+        }
+      }
+    },
+    "terminal.link.stall.otherBuildHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open it in that version of cmux, or close the tab to end it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのバージョンの cmux で開くか、タブを閉じて終了してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتحها في ذلك الإصدار من cmux، أو أغلق علامة التبويب لإنهائها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvorite ga u toj verziji cmuxa ili zatvorite karticu da ga završite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn den i den version af cmux, eller luk fanen for at afslutte den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne sie in dieser Version von cmux oder schließe den Tab, um sie zu beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ábrelo en esa versión de cmux o cierra la pestaña para terminarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez-le dans cette version de cmux, ou fermez l’onglet pour l’arrêter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprila in quella versione di cmux oppure chiudi il pannello per terminarla"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកវានៅក្នុងកំណែ cmux នោះ ឬបិទផ្ទាំងដើម្បីបញ្ចប់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 버전의 cmux에서 열거나 탭을 닫아 종료하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne det i den versjonen av cmux, eller lukk fanen for å avslutte det"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz ją w tamtej wersji cmux albo zamknij kartę, aby ją zakończyć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abra-o nessa versão do cmux ou feche a aba para encerrá-lo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Откройте её в той версии cmux или закройте вкладку, чтобы завершить её"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในเวอร์ชันนั้นของ cmux หรือปิดแท็บเพื่อสิ้นสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onu cmux’un o sürümünde açın veya sonlandırmak için sekmeyi kapatın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрийте її в тій версії cmux або закрийте вкладку, щоб завершити її"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy mở nó trong phiên bản cmux đó, hoặc đóng tab để kết thúc nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在该版本的 cmux 中打开，或关闭标签页以结束它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在該版本的 cmux 中開啟，或關閉標籤頁以結束它"
           }
         }
       }
