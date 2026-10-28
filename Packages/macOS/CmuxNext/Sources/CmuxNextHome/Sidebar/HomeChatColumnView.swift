@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The Home split's chat column: the page's chat (`content`, filling the column) with the chat's
 /// compose button over its top-left at every list width, as in Messages (hidden only while the
@@ -36,9 +37,17 @@ final class HomeChatColumnView: NSView {
         }
     }
 
+    /// Under the traffic lights (a folded list, or the chat at the window's left edge with the
+    /// window's sidebar closed) the button starts after them on their line, as Messages' compose
+    /// beside its lights; elsewhere it keeps its inset on the list header's row.
     override func layout() {
         super.layout()
         let side = HomeChatComposeButton.side
-        compose.frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
+        var frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
+        if let lights = homeWindowControls(band: HomeSidebarHeaderLayout.band), lights.minX < frame.maxX + Metrics.space3 {
+            frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
+            frame.origin.y = (lights.midY - side / 2).rounded()
+        }
+        compose.frame = frame
     }
 }

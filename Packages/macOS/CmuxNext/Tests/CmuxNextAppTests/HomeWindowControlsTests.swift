@@ -124,4 +124,40 @@ struct HomeWindowControlsTests {
         column.layoutSubtreeIfNeeded()
         #expect(compose.frame.minX == HomeChatColumnView.composeInset)
     }
+
+    // MARK: The layout alone
+
+    /// Lights as a window draws them (x 7 to 59, centred 14 pt from the top), in header points.
+    nonisolated static let lightsFrame = CGRect(x: 7, y: 7, width: 52, height: 14)
+
+    /// Every list width with names: nothing overlaps the lights, the row order is Messages'.
+    @Test(arguments: [180, 200, 260, 320, 480] as [CGFloat])
+    func theLayoutUnderTheLights(_ width: CGFloat) {
+        let h = HomeSidebarHeaderLayout(width: width, searchOpen: false, windowControls: Self.lightsFrame)
+        #expect(!h.search.intersects(Self.lightsFrame) && !h.filter.intersects(Self.lightsFrame))
+        #expect(h.filter.midY == Self.lightsFrame.midY)
+        #expect(h.search.minY == Self.lightsFrame.maxY + HomeSidebarHeaderLayout.rowGap)
+        #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset)
+        #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.rowGap)
+        #expect(!h.filter.intersects(h.search))
+    }
+
+    /// Lights with a wide accessory after them (the incognito badge) leave no room for the toggle
+    /// on their row: it stays beside the search field, under them.
+    @Test func aWideAccessoryKeepsTheToggleOnTheSearchRow() {
+        let controls = CGRect(x: 7, y: 7, width: 170, height: 14)
+        let h = HomeSidebarHeaderLayout(width: 200, searchOpen: false, windowControls: controls)
+        #expect(!h.filter.intersects(controls) && !h.search.intersects(controls))
+        #expect(h.filter.midY == h.search.midY)
+        #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
+    }
+
+    /// The avatar-only list keeps its band under the lights; an open search sits under them.
+    @Test func theAvatarListUnderTheLights() {
+        let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
+        #expect(closed.listTop == HomeSidebarHeaderLayout.band)
+        let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
+        #expect(!open.search.intersects(Self.lightsFrame))
+        #expect(open.listTop >= open.search.maxY)
+    }
 }

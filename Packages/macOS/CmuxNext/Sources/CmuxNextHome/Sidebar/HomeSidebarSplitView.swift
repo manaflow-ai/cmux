@@ -88,6 +88,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     override public func layout() {
         super.layout()
         guard bounds.width > 0 else { return }
+        // The page may have moved under or out from under the traffic lights (the window's sidebar).
+        list.updateWindowControlsAvoidance()
         if foldLoneConversation() { return }
         // One rule on every size change (live resize, split drag, fullscreen, a dock that
         // shrank): the list shows the saved width as far as this width allows, so it shrinks to

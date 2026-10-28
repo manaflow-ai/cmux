@@ -310,8 +310,22 @@ public final class HomeSidebarView: NSView {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
+    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
+    private var windowControls: CGRect?
+
+    /// Re-reads the traffic lights after the list moved in its window without a resize of its
+    /// header (the window's sidebar opened or closed beside the Home page); relays out the header
+    /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
+    func updateWindowControlsAvoidance() {
+        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        // The header's layout also places the list under it (its height may change).
+        list.headerView.needsLayout = true
+    }
+
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen)
+        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
+        windowControls = controls
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls)
         header = h
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
         let compactClosed = h.compact && !h.buttonsCovered
@@ -445,6 +459,8 @@ public final class HomeSidebarView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
+        // A new window has its own traffic lights (or none, in full screen).
+        updateWindowControlsAvoidance()
     }
 
     public override func layout() {
