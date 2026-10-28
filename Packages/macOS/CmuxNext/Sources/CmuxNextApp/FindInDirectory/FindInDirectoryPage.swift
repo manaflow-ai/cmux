@@ -52,7 +52,7 @@ enum FindInDirectoryPage {
             PaletteCommand(id: "copyRelativePath", title: FindInDirectoryStrings.copyRelativePath, symbol: "doc.on.doc",
                            effect: .perform { copy(match.relativePath) }),
             PaletteCommand(id: "insertPath", title: FindInDirectoryStrings.insertPath, symbol: "text.insert",
-                           effect: .perform { insert(TerminalHandlers.shellQuoted(match.path)) }),
+                           effect: .perform { if !match.path.containsTerminalControlCharacter { insert(TerminalHandlers.shellQuoted(match.path)) } }),
         ]
         return PaletteItem(
             id: "\(match.path):\(match.line):\(match.column)", title: match.preview, subtitle: location,
