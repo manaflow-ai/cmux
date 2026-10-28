@@ -10,7 +10,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Output, Stdio};
 use std::time::{Duration, Instant};
 
 fn scratch() -> PathBuf {
@@ -31,7 +31,8 @@ fn write_sessions(home: &Path, count: usize) {
             "schema": "acpmux.session.v1", "id": id, "name": format!("lane-{i}"),
             "harness": "claude", "model": "sonnet", "cwd": "/tmp", "status": "idle",
             "createdAt": at, "updatedAt": at, "turnCount": 1, "lastSeq": 0,
-            "eventCount": 0, "tags": {"area": "cli"}
+            "eventCount": 0, "tags": {"area": {"value": "cli"}},
+            "lastPrompt": "x".repeat(3650)
         });
         fs::write(dir.join("session.json"), row.to_string()).unwrap();
         fs::set_permissions(dir.join("session.json"), fs::Permissions::from_mode(0o600)).unwrap();
@@ -93,6 +94,8 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
 
     let (full, full_elapsed) = run(&root, &["--json", "ls"]);
     assert!(full.status.success(), "full listing failed: {full:?}");
+    let full_value: Value = serde_json::from_slice(&full.stdout).unwrap();
+    assert_eq!(full_value["sessions"].as_array().map(Vec::len), Some(3_000));
     let (selected, selected_elapsed) =
         run(&root, &["--json", "ls", "--limit", "20", "--fields", "name,harness,model,status,cwd"]);
     assert!(selected.status.success(), "selected listing failed: {selected:?}");
@@ -110,6 +113,11 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
         selected_elapsed <= full_elapsed,
         "selection slower than full listing: {selected_elapsed:?} > {full_elapsed:?}"
     );
+    eprintln!(
+        "ls benchmark: full={} bytes/{full_elapsed:?}; selected={} bytes/{selected_elapsed:?}",
+        full.stdout.len(),
+        selected.stdout.len()
+    );
 
     let value: Value = serde_json::from_slice(&selected.stdout).unwrap();
     let rows = value["sessions"].as_array().unwrap();
@@ -120,4 +128,21 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     );
     assert_eq!(rows[0]["name"], "lane-2999");
     assert_eq!(rows[19]["name"], "lane-2980");
+
+    let (text, _) = run(&root, &["ls", "--limit", "2", "--fields", "name,status"]);
+    assert!(text.status.success(), "text selection failed: {text:?}");
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert_eq!(text.lines().next(), Some("name\tstatus"), "{text}");
+    assert_eq!(text.lines().count(), 3, "{text}");
+
+    let (filtered, _) = run(
+        &root,
+        &[
+            "--json", "ls", "--status", "idle", "--tag", "area=cli", "--since", "100000d",
+            "--limit", "3",
+        ],
+    );
+    assert!(filtered.status.success(), "combined filters failed: {filtered:?}");
+    let filtered: Value = serde_json::from_slice(&filtered.stdout).unwrap();
+    assert_eq!(filtered["sessions"].as_array().map(Vec::len), Some(3));
 }

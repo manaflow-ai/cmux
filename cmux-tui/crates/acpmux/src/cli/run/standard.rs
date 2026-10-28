@@ -279,7 +279,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                                 t.split_once('=').map(|(k, v)| (k, Some(v))).unwrap_or((t, None));
                             s.get("tags")
                                 .and_then(|m| m.get(k))
-                                .map(|v| want.map(|w| v.as_str() == Some(w)).unwrap_or(true))
+                                .map(|v| {
+                                    want.map(|w| {
+                                        v.as_str() == Some(w)
+                                            || v.get("value").and_then(Value::as_str) == Some(w)
+                                    })
+                                    .unwrap_or(true)
+                                })
                                 .unwrap_or(false)
                         }
                     };
