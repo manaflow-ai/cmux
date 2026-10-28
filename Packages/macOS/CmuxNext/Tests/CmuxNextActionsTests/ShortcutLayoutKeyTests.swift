@@ -15,7 +15,7 @@ import Testing
         let event = try Self.event(keyCode: 30, character: "=")
         let shortcut = Shortcut("=", modifiers: [.command])
 
-        #expect(ActionRegistry.shortcuts(for: event).first == shortcut)
+        #expect(ActionRegistry.standard().shortcuts(for: event).first == shortcut)
         #expect(shortcut.matches(event))
     }
 
@@ -23,7 +23,7 @@ import Testing
         let event = try Self.event(keyCode: 33, character: "/")
         let shortcut = Shortcut("/", modifiers: [.command])
 
-        #expect(ActionRegistry.shortcuts(for: event).first == shortcut)
+        #expect(ActionRegistry.standard().shortcuts(for: event).first == shortcut)
         #expect(shortcut.matches(event))
     }
 }

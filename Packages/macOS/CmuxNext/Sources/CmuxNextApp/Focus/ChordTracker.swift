@@ -59,7 +59,7 @@ struct ChordTracker {
                        focus: FocusState.Resolved? = nil, canArm: () -> Bool) -> Step {
         let bindings = RegistryKeyBindings(registry)
         let context = KeyContext(bits: registry.context)
-        return step(event, window: window, focus: focus, table: bindings.table, context: context,
+        return step(event, readings: registry.shortcuts(for: event), window: window, focus: focus, table: bindings.table, context: context,
                     isRunnable: { bindings.canPerform($0, in: context.bits) }, canArm: canArm)
     }
 
@@ -68,13 +68,14 @@ struct ChordTracker {
     /// shared sequence rules). `canArm` says whether the focus lets a chord
     /// start (not a text input, not browser focus mode, no marked text;
     /// `ChordTracker.canArm`); asked only for a first key. `focus` is the
-    /// window's focus, kept with an armed chord for ``focusDidChange(to:in:)``.
-    mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,
-                       context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
+    /// window's focus, kept with an armed chord for ``focusDidChange(to:in:)``. `readings` is the
+    /// key's ``ActionRegistry/shortcuts(for:)-(NSEvent)``, read once by the caller.
+    mutating func step(_ event: NSEvent, readings: ShortcutReadings, window: ObjectIdentifier, focus: FocusState.Resolved? = nil,
+                       table: KeyBindingTable, context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
         func tableStep(_ keys: [Shortcut], _ event: NSEvent) -> KeyBindingTable.SequenceStep {
-            table.step(after: keys, readings: ActionRegistry.shortcuts(for: event), in: context, isRunnable: isRunnable)
+            table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable)
         }
-        return step(event, window: window, focus: focus, first: { event in
+        return step(event, readings: readings, window: window, focus: focus, first: { event in
             // A first key only arms here; a single key runs through the dispatcher's tier check.
             if case .extend(let key) = tableStep([], event) { return key }
             return nil
@@ -89,12 +90,13 @@ struct ChordTracker {
 
     /// `first` gives the first key of a chord a key-down arms (or nil);
     /// `next` says what a key-down does after the armed keys.
-    mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, // perf-hot: 0.5ms key-dispatch (every chord key-down)
-                       first: (NSEvent) -> Shortcut?, next: ([Shortcut], NSEvent) -> Next, canArm: () -> Bool) -> Step {
+    mutating func step(_ event: NSEvent, readings: ShortcutReadings, window: ObjectIdentifier, // perf-hot: 0.5ms key-dispatch (every chord key-down)
+                       focus: FocusState.Resolved? = nil, first: (NSEvent) -> Shortcut?, next: ([Shortcut], NSEvent) -> Next,
+                       canArm: () -> Bool) -> Step {
         if event.isARepeat {
             // A held key repeats: the chord it armed stays armed, and a repeat never arms one.
             guard let pending else { return .pass }
-            if pending.window == window, let last = pending.keys.last, ActionRegistry.shortcuts(for: event).contains(last) { return .armed }
+            if pending.window == window, let last = pending.keys.last, readings.contains(last) { return .armed }
         }
         if let pending {
             self.pending = nil
@@ -149,8 +151,9 @@ extension ChordTracker {
     /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
     /// `routeChord`): a Command or Control chord bound to a system or navigation action, other than the leader
     /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
-    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
+    static func decidesAfterChord(_ event: NSEvent, readings: ShortcutReadings,
+                                  resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
         guard KeyRouter.isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
+        return !readings.contains(LeaderLayer.prefix)
     }
 }

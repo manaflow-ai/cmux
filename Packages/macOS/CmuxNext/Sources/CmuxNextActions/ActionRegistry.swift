@@ -90,6 +90,9 @@ public final class ActionRegistry {
     /// Hears the end of every outermost perform turn (``ActionRunObserver``): the oracle recorder in
     /// the App's DEV and bench builds, nil in Release and in tests that pass none. Set once, at init.
     public let turnObserver: (any ActionRunObserver)?
+    /// What the ASCII-capable keyboard layout types on each key: a key-down's last reading
+    /// (``shortcuts(for:)-(NSEvent)``) for a chord on a layout that types no ASCII there.
+    public let keyboardLayout = KeyboardLayoutKeys()
     /// How deep the perform turns heard by ``turnObserver`` nest now; only the outermost is reported.
     @ObservationIgnored var observedPerformDepth = 0
     /// The end of the gate interval open now (`ActionRegistry+Signposts`), ended before anything

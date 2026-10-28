@@ -28,7 +28,7 @@ struct TerminalHooks {
         // A key the dispatcher delivered for the user's own Ghostty keybind.
         TerminalKeyEquivalent.userKeybindOwns = { [weak services] event in
             guard let services, services.keyRouter.decided.contains(event) else { return false }
-            return GhosttyKeyBindingLayer.isUsersKeybind(event, layers: services.registry.keyBindingLayers)
+            return GhosttyKeyBindingLayer.isUsersKeybind(event, registry: services.registry)
         }
     }
 }

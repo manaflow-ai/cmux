@@ -63,13 +63,22 @@ extension ActionRegistry {
 
     /// The first key of a chord a key-down starts, or nil.
     public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        Self.shortcuts(for: event).first(where: startsChord)
+        shortcuts(for: event).first(where: startsChord)
     }
 
     /// The action a key-down completes after `prefix`, with its tier.
     public func resolveChord(after prefix: Shortcut, event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
         guard event.type == .keyDown else { return nil }
-        for shortcut in Self.shortcuts(for: event) {
+        return resolveChord(after: prefix, readings: shortcuts(for: event))
+    }
+
+    /// ``resolveChord(after:event:)`` for a key as ``KeyInput`` reads it (any layout).
+    public func resolveChord(after prefix: Shortcut, key: KeyInput) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
+        resolveChord(after: prefix, readings: Self.shortcuts(for: key))
+    }
+
+    private func resolveChord(after prefix: Shortcut, readings: ShortcutReadings) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
+        for shortcut in readings {
             if let resolved = resolveChord(after: prefix, shortcut) {
                 return (resolved.id, resolved.argument, keyTier(for: resolved.id))
             }
@@ -77,17 +86,19 @@ extension ActionRegistry {
         return nil
     }
 
-    /// The shortcuts a key-down may mean: its characters, then the unshifted
-    /// key ("}" or "]" for Shift-]), with its modifiers.
-    public static func shortcuts(for event: NSEvent) -> ShortcutReadings {
+    /// The shortcuts a key-down may mean (``shortcuts(for:)-(KeyInput)``), with this registry's
+    /// keyboard layout reader for the ASCII fallback.
+    public func shortcuts(for event: NSEvent) -> ShortcutReadings {
         guard event.type == .keyDown else { return ShortcutReadings() }
-        let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
-        let key = event.charactersIgnoringModifiers.map { Shortcut($0, modifiers: flags) }
-        let base = event.characters(byApplyingModifiers: []).map { Shortcut($0, modifiers: flags) }
-        switch (key, base) {
-        case (let key?, let base?): return ShortcutReadings(key, base)
-        case (let only?, nil), (nil, let only?): return ShortcutReadings(only)
-        case (nil, nil): return ShortcutReadings()
-        }
+        return Self.shortcuts(for: KeyInput(event, layout: keyboardLayout))
     }
-}
+
+    /// The shortcuts a key may mean: its characters, then the unshifted
+    /// key ("}" or "]" for Shift-]), with its modifiers (today's readings; the fix
+    /// commit reads them in Ghostty's order).
+    public static func shortcuts(for input: KeyInput) -> ShortcutReadings {
+        var readings = ShortcutReadings()
+        if let key = input.ignoringModifiers { readings.append(Shortcut(key, modifiers: input.modifiers)) }
+        if let base = input.unshifted { readings.append(Shortcut(base, modifiers: input.modifiers)) }
+        return readings
+    }

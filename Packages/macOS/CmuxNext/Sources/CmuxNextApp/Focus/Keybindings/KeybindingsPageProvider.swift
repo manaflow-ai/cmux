@@ -143,8 +143,8 @@ final class KeybindingsPageProvider: PageProvider {
     }
 
     private func record(_ event: NSEvent) {
-        guard var recorder,
-              let recorded = recorder.record(KeyRecorder.stroke(for: event), isEscape: KeyRecorder.isEscape(event),
+        guard var recorder, let registry = services?.registry,
+              let recorded = recorder.record(KeyRecorder.stroke(for: event, registry: registry), isEscape: KeyRecorder.isEscape(event),
                                              isReturn: KeyRecorder.isReturn(event)) else { return }
         self.recorder = recorder
         if recorded.done || recorded.cancelled { stopRecording() }

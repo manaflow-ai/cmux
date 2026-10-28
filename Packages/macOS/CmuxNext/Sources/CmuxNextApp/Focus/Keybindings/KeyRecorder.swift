@@ -37,8 +37,8 @@ struct KeyRecorder: Equatable {
 
     /// The stroke a key-down records: its first reading (as the dispatcher
     /// matches it), or nil for a bare modifier.
-    static func stroke(for event: NSEvent) -> Shortcut? {
-        ActionRegistry.shortcuts(for: event).first { !$0.key.isEmpty }
+    static func stroke(for event: NSEvent, registry: ActionRegistry) -> Shortcut? {
+        registry.shortcuts(for: event).first { !$0.key.isEmpty }
     }
 
     static func isEscape(_ event: NSEvent) -> Bool {

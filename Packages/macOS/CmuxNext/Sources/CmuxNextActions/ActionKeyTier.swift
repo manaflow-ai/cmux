@@ -87,10 +87,19 @@ extension ActionRegistry {
     /// more specific entry wins (Cmd-R in a page is reload, not rename);
     /// the router then decides by tier whether it may run now.
     public func resolveShortcut(for event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
+        resolveShortcut(readings: shortcuts(for: event))
+    }
+
+    /// ``resolveShortcut(for:)-(NSEvent)`` for a key as ``KeyInput`` reads it (any layout).
+    public func resolveShortcut(for key: KeyInput) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
+        resolveShortcut(readings: Self.shortcuts(for: key))
+    }
+
+    private func resolveShortcut(readings: ShortcutReadings) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
         let bindings = RegistryKeyBindings(self)
         let table = bindings.table, bits = context
         let input = CompiledWhen.Input(KeyContext(bits: bits))
-        for shortcut in Self.shortcuts(for: event) {
+        for shortcut in readings {
             if let winner = table.resolveWinner(CollectionOfOne(shortcut), in: input, isRunnable: { bindings.canPerform($0, in: bits) }) {
                 return (winner.command, winner.argument, keyTier(for: winner.command))
             }

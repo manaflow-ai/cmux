@@ -75,9 +75,9 @@ struct GhosttyKeyBindingLayer {
     /// config claims from a cmux default (`ghosttyClaims`) or a `.ghostty`
     /// entry, never a `.ghosttyFallback` default. One set lookup per key the
     /// event may mean (`KeyBindingLayers.usersGhosttyKeys`, built at load).
-    static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers) -> Bool {
-        let keys = layers.usersGhosttyKeys
-        return ActionRegistry.shortcuts(for: event).contains { keys.contains($0) }
+    static func isUsersKeybind(_ event: NSEvent, registry: ActionRegistry) -> Bool {
+        let keys = registry.keyBindingLayers.usersGhosttyKeys
+        return registry.shortcuts(for: event).contains { keys.contains($0) }
     }
 
     /// The table key of a trigger: its codepoint, or the physical key's name.

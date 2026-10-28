@@ -33,7 +33,7 @@ public struct LeaderLayer {
     /// cannot run in this focus, so the overlay says what Cmd-J offers.
     /// Reads the event's keys once.
     public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        let shortcuts = ActionRegistry.shortcuts(for: event)
+        let shortcuts = registry.shortcuts(for: event)
         if let first = shortcuts.first(where: registry.startsChord) { return first }
         return shortcuts.contains(Self.prefix) && hasChords(after: Self.prefix) ? Self.prefix : nil
     }

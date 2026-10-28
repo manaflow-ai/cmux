@@ -452,8 +452,9 @@ final class KeyRouter: BrowserKeyRouting {
         let runnable: (ActionID) -> Bool = { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }
         // Keyed by the shell window, as focus settles report it: a Chromium
         // page window is a child of the shell.
-        let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, table: table,
-                               context: context, isRunnable: runnable,
+        let readings = registry.shortcuts(for: event)
+        let step = chords.step(event, readings: readings, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved,
+                               table: table, context: context, isRunnable: runnable,
                                canArm: { !facts.pageLocksKeys && ChordTracker.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
         if let keys = chords.armedKeys, let shell = controller.window {
             let rows = WhichKeyListing.rows(after: keys, table: table, context: context, isRunnable: runnable, registry: registry)
@@ -469,7 +470,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return ChordTracker.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return ChordTracker.decidesAfterChord(event, readings: readings, resolved: registry.resolveShortcut(for: event)) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -478,7 +479,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if ChordTracker.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if ChordTracker.decidesAfterChord(event, readings: readings, resolved: registry.resolveShortcut(for: event)) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
