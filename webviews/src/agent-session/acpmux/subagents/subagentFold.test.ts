@@ -83,7 +83,9 @@ test("live child replies stay unsettled and keep the producer revision stable", 
 test("the first nonempty child thought settles reply Sources without rescanning later chunks", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
-  feed(fold, say("See https://example.com/guide and acme/app#7"), { subagent: "a" });
+  feed(fold, say("See https://example.com/guide, acme/app#7, and https://github.com/acme/app/issues/7#issuecomment-123"), {
+    subagent: "a",
+  });
   const live = sessionSummary(fold.views().a!, "acme/app");
   expect(live.sources).toEqual([]);
   const think = (text: string) =>
@@ -100,6 +102,30 @@ test("the first nonempty child thought settles reply Sources without rescanning 
     think(" more");
     expect(sessionSummary(fold.views().a!, "acme/app")).toBe(settled);
   }
+});
+
+test("hidden ToolSearch does not settle a child reply before a rendered thought", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, say("See https://example.com/guide"), { subagent: "a" });
+  const live = sessionSummary(fold.views().a!, "acme/app");
+  expect(live.sources).toEqual([]);
+  feed(
+    fold,
+    {
+      sessionUpdate: "tool_call",
+      toolCallId: "search",
+      title: "ToolSearch",
+      status: "completed",
+      _meta: { claude: { tool: "ToolSearch" } },
+    },
+    { subagent: "a" },
+  );
+  feed(fold, { sessionUpdate: "tool_call_update", toolCallId: "search", status: "completed" }, { subagent: "a" });
+  feed(fold, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Checking" } }, { subagent: "a" });
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toEqual([
+    "https://example.com/guide",
+  ]);
 });
 
 test("the first child tool after a reply settles its Sources", () => {

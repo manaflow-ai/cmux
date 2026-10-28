@@ -161,7 +161,7 @@ function sources(
         if (known?.changed || known?.opened) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add({
-          url: pr ? (known?.url ?? canonical) : url,
+          url: pr ? (known?.url ?? canonical) : canonical,
           label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
           kind: pr ? "pullRequest" : "issue",
         });

@@ -578,9 +578,16 @@ export class SubagentFold {
       if (update?.sessionUpdate === "agent_thought_chunk" && this.pendingReplySummaries.delete(id)) streaming = false;
     }
     if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
-      replySettled = this.pendingReplySummaries.delete(id);
-      const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       const call = String(update.toolCallId ?? `tool-${entry.event.seq}`);
+      // ToolSearch is hidden from the child view, so it cannot settle the visible reply. Keep
+      // the marker until a rendered tool or thought actually follows it.
+      const hidden = hiddenCall(this.hiddenCalls, `${id}\u0000${call}`, update);
+      replySettled = !hidden && this.pendingReplySummaries.delete(id);
+      if (hidden) {
+        this.bump(id);
+        return;
+      }
+      const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       const settled =
         update.status === undefined ? tools.get(call) : update.status === "completed" || update.status === "failed";
       // New tools and every update of a settled tool change the summary, even without a status.
