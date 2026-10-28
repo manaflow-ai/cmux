@@ -78,7 +78,7 @@ import Testing
         ThemeScope.app.adopt(window)
         window.contentView = surface
         surface.paintWindowSurface(of: window)
-        return Harness(settings: settings, terminal: terminal, page: SettingsPageProvider(settings: settings),
+        return Harness(settings: settings, terminal: terminal, page: SettingsPageProvider(settings: settings, on: linklessMainWork()),
                        window: window, surface: surface, url: url, original: original)
     }
 

@@ -201,12 +201,13 @@ fn section_eq(a: &SectionId, b: &SectionId) -> bool {
     a == b
 }
 
-fn locate_group<'a>(id: &str, sections: &'a [Section]) -> Option<(usize, &'a Node)> {
-    sections.iter().enumerate().find_map(|(index, section)| {
-        section.nodes.iter().find_map(|node| match node {
-            Node::Group { id: group_id, .. } if group_id == id => Some((index, node)),
-            _ => None,
-        })
+/// The section that holds group `id`.
+fn group_section<'a>(id: &str, sections: &'a [Section]) -> Option<&'a Section> {
+    sections.iter().find(|section| {
+        section
+            .nodes
+            .iter()
+            .any(|node| matches!(node, Node::Group { id: group_id, .. } if group_id == id))
     })
 }
 
@@ -229,8 +230,9 @@ fn hit(y: f64, rows: &[Row]) -> Option<(&Row, f64)> {
 /// (Swift `previousExpandedSection`).
 fn previous_expanded_section<'a>(row: &Row, rows: &'a [Row]) -> Option<&'a Row> {
     let index = rows.iter().position(|candidate| candidate == row)?;
-    let previous = rows[..index]
+    let previous = rows
         .iter()
+        .take(index)
         .rev()
         .find(|candidate| matches!(candidate.key, RowKey::Section { .. }))?;
     (!previous.is_collapsed).then_some(previous)
@@ -340,8 +342,7 @@ fn group_target(
     sections: &[Section],
     section_top_fraction: f64,
 ) -> Option<Target> {
-    let (section_index, _) = locate_group(group, sections)?;
-    let home = sections[section_index].id.clone();
+    let home = group_section(group, sections)?.id.clone();
     let index = match &row.key {
         RowKey::Workspace { .. } if row.group.is_some() => {
             let block_group = row.group.as_ref()?;
@@ -460,8 +461,8 @@ fn is_valid(target: &Target, ids: &[String], sections: &[Section]) -> bool {
             section
         }
         Target::IntoGroup { group } => {
-            let Some((section_index, _)) = locate_group(group, sections) else { return false };
-            &sections[section_index]
+            let Some(section) = group_section(group, sections) else { return false };
+            section
         }
         Target::OntoWorkspace { workspace: target } => {
             // A loose workspace of a machine section, not one of the dragged.
@@ -620,8 +621,7 @@ pub fn resolve_tab_drop(request: &TabRequest) -> Option<TabDrop> {
             })
         }
         Target::IntoGroup { group } => {
-            let (section_index, _) = locate_group(&group, &request.sections)?;
-            let machine = request.sections[section_index].machine.as_deref();
+            let machine = group_section(&group, &request.sections)?.machine.as_deref();
             machine_ok(machine).then_some(TabDrop::IntoGroup { group })
         }
         _ => None,

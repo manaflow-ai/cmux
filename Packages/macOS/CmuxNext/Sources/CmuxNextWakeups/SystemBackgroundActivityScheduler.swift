@@ -10,6 +10,7 @@ public struct SystemBackgroundActivityScheduler: BackgroundActivityScheduling {
         self.ledger = ledger
     }
 
+    /// Schedules `body` on an `NSBackgroundActivityScheduler` with `activity`'s identifier, interval and tolerance.
     public func schedule(_ activity: BackgroundActivity, body: @escaping @Sendable () async -> Void) -> any BackgroundActivityRun {
         let scheduler = NSBackgroundActivityScheduler(identifier: activity.identifier)
         scheduler.interval = activity.interval.inSeconds
