@@ -23,6 +23,7 @@
 //!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use serde_json::{Value, json};
@@ -225,13 +226,11 @@ const LINK_PROBE: std::time::Duration = std::time::Duration::from_millis(500);
 fn hub_socket() -> Option<Option<std::path::PathBuf>> {
     let Some(dir) = crate::platform::workspace_state_dir() else { return Some(None) };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new()
-        .name("cmux-apps-link-probe".into())
-        .spawn(move || {
-            let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
-            let _ = sender.send(live);
-        })
-        .ok()?;
+    supervised::spawn("cmux-apps-link-probe", Fatal, ShutdownBehavior::Continue, move || {
+        let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
+        let _ = sender.send(live);
+    })
+    .ok()?;
     waits::recv_timeout(&receiver, LINK_PROBE).ok()
 }
 

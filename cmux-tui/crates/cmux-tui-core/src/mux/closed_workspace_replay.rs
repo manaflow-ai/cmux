@@ -3,6 +3,7 @@
 //! workspace (LAST-TAB-CLOSES-WORKSPACE) replays from its receipt.
 
 use super::*;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -24,8 +25,8 @@ impl Mux {
         mutation: &WorkspaceMutation,
         env: Vec<(String, String)>,
     ) -> anyhow::Result<TerminalPlacementResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_execution = self.resource_creation_execution.lock().recover_poison();
         let Some(workspace) = workspace else {
             let fingerprint = terminal_create_fingerprint(
                 workspace_key,
@@ -41,7 +42,7 @@ impl Mux {
             drop(registry);
             let terminal_id = replay
                 .as_ref()
-                .and_then(|replay| replay.result["terminal_id"].as_str())
+                .and_then(|replay| replay.result.field("terminal_id").as_str())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace key {workspace_key}"))?;
             return self.replayed_terminal_placement(terminal_id);
         };

@@ -10,10 +10,9 @@ import IOSurface
 ///
 /// Whether it hosts (``hosting(override:fork:widget:)``): the default-off
 /// feature `cefLayerHosting`, which reaches each page window as its fork's
-/// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a
-/// pane's page only where the app makes every one of them (``TrackA``);
-/// DevTools and popup windows keep drawing in their own window (``Widget``)
-/// until task p03-rendering-056 hosts them. The Debug tunable
+/// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a page
+/// window of a kind the fork hosts (``Widget``, ``Fork/hostedWidgets``) only
+/// where the app makes every one of them (``TrackA``). The Debug tunable
 /// `browserResize.layerHosting` is only that feature's local override,
 /// resolved at launch, never read here. The benches' arm, feature
 /// `cefLayerHostingEveryPage` (DEBUG and bench builds, ``Fork/hostsEveryPage``),
@@ -39,8 +38,17 @@ import IOSurface
 /// under the same cap. A change (a tunable edit, a display added or changed)
 /// reaches the fork at the next show or display change, only when the deadline
 /// changed, and counts as applied only when the fork took it. From fork API 32
-/// a page window never holds the commit and no deadline is sent (the resize
-/// fence, task p03-rendering-043, replaces it).
+/// a page window never holds the commit and no deadline is sent.
+///
+/// From fork API 32 (``resizeFenceForkAPI``), with the default-off feature
+/// `cefResizeFence` (``CEFRuntime/resizeFences``) and in process, each resize of
+/// the shown view (``viewDidResize()``: a divider drag, a step of the window's
+/// live resize, a spring start) puts a hosted page's next frame at the new size
+/// into the transaction's one fence (``CEFResizeFences``, deadline 2 frames), so
+/// the page and the pane show the new size together; during the window's live
+/// resize a page in its own window joins too. The render server waits, the main
+/// thread never does, and no deadline reaches the fork. The fence is the Track A
+/// call ``TrackA/resizeFence``.
 ///
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
@@ -106,6 +114,9 @@ final class CEFLayerHosting {
     var drawsWithViews: Bool { page != nil || attachedPages.shownView != nil }
     /// What the view shows; its owner sets it before the first page window.
     var widget = Widget.page
+    /// Whether the content lifecycle shows the page over the view (`CEFTab.isContentHidden` of the
+    /// shown tab, set by the view's owner); a hidden page never joins a resize fence.
+    var isPageVisible: () -> Bool = { true }
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: ChromiumHostPageView?
@@ -183,7 +194,11 @@ final class CEFLayerHosting {
         // The window may be in a live resize already.
         syncDeadline()
         guard let fork else { return }
-        if Self.attaches(fork: fork, widget: widget) { return scheduleAttach(browser) }
+        if Self.attaches(fork: fork, widget: widget) {
+            // No present shows a DevTools or popup window's one browser: its view shows once attached.
+            if widget.showsOneBrowser { attachedPages.show(browser) }
+            return scheduleAttach(browser)
+        }
         let hosting = decide(fork)
         CEFHostView.trackerStats.count(hosting)
         guard hosting == .hosted else { return }
@@ -272,6 +287,18 @@ final class CEFLayerHosting {
         guard active != inLiveResize else { return }
         inLiveResize = active
         syncDeadline()
+    }
+
+    /// The view's size changed (`CEFHostView.setFrameSize`: a divider drag, a step of the window's
+    /// live resize, a spring start). With the fork's resize fence the page window's next frame at
+    /// the new size joins this transaction's fence: a hosted page on every resize, a page in its
+    /// own window during the window's live resize only (the API 27 deadlines' rule). A page its
+    /// content lifecycle hid (``isPageVisible``: a hidden tab, a parked pane, a hidden DevTools)
+    /// draws no frame to wait for, and a view out of every window has no context to hold.
+    func viewDidResize() { // perf-hot: 0.05ms cef-geometry (each resize of a page's host view)
+        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize,
+              isPageVisible() else { return }
+        resizeFence.fences.join(view, browser: browser, setFence: resizeFence.set)
     }
 
     /// The fork's tracker read the host view's clip (`ChildWindowPageFallback`): it is attached
@@ -390,6 +417,7 @@ final class CEFLayerHosting {
 
     private func addPage(to view: NSView) -> ChromiumHostPageView {
         let page = makePage(view.bounds)
+        page.hostedWidget = widget.name
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
         self.page = page

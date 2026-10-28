@@ -50,6 +50,11 @@ Chromium Host killed during launch. Each case runs on a fresh state of the tag a
 its first frame's still; DIR/launch-matrix.json keeps every row. Exit 1 on any FAIL.
 
   scripts/cmux-next/relaunch-e2e.py --tag <tag> --matrix [all|CASE,CASE] [--picture off] [--f2] --out DIR
+
+Before each quit (the quit mode and the final stop), `leaks` on the app
+(scripts/fuzz/macos-matrix/leakcheck.py) records the leaked blocks, bytes and
+top types in the scratch leaks.json, with each run's output beside it.
+Report only: a leak is never a failed check. --no-leaks skips it.
 """
 import argparse, glob, json, os, random, re, signal, socket, subprocess, sys, tempfile, time
 
@@ -58,6 +63,9 @@ import launch_journey_report as journey  # noqa: E402
 from bench_launch import BenchApp, tag_of  # noqa: E402
 from bench_story import story_problem  # noqa: E402
 import launch_matrix  # noqa: E402
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fuzz", "macos-matrix"))
+import leakcheck  # noqa: E402
 
 
 def parse_args(argv=None):
@@ -80,6 +88,7 @@ def parse_args(argv=None):
     parser.add_argument("--picture", choices=["on", "off"], default="on",
                         help=f"--matrix: the {launch_matrix.PICTURE_FEATURE} feature (on: the saved picture is the first frame)")
     parser.add_argument("--f2", action="store_true", help="--matrix: run cef-host-kill with the Chromium Host app on")
+    parser.add_argument("--no-leaks", action="store_true", help="skip the leaks report before each quit")
     args = parser.parse_args(argv)
     if args.matrix:
         if args.story or args.long_top:
@@ -107,6 +116,7 @@ TOKENS = random.SystemRandom()
 failures = []
 slow = []
 relaunches = []  # (end mode, ms from the relaunch's spawn to its first answered system.ping)
+leak_rows = []  # leakcheck rows, one per quit, each with its label
 
 
 def configure(args, bench_app=BenchApp):
@@ -217,6 +227,18 @@ def stop(sig):
             app.wait()
 
 
+def check_leaks(label):
+    """Report only: `leaks` on the running app into the scratch leaks.json."""
+    app = bench.process if bench else None
+    if opts.no_leaks or not app or app.poll() is not None:
+        return
+    row = {"label": label, **leakcheck.run_local(app.pid, os.path.join(SCRATCH, f"leaks-{len(leak_rows) + 1}.txt"))}
+    leak_rows.append(row)
+    with open(os.path.join(SCRATCH, "leaks.json"), "w") as out:
+        json.dump(leak_rows, out, indent=1)
+    print(f"  {label} {leakcheck.summary_line(row)}")
+
+
 def end(mode):
     """End the app the way the mode says; the daemon keeps running."""
     app = bench.process
@@ -229,6 +251,7 @@ def end(mode):
         except subprocess.TimeoutExpired:
             stop(signal.SIGKILL)
     else:
+        check_leaks(f"before quit {launches}")
         rpc("action.run", {"id": "quit"})
         try:
             app.wait(20)
@@ -588,6 +611,7 @@ def run():
     launch()
     if opts.long_top:
         long_top(opts.long_top)
+        check_leaks("before the final quit")
         return True
     setup()
     check_all("before")
@@ -611,6 +635,7 @@ def run():
             check_all(f"round {round_index + 1} after {mode}")
             if opts.disconnect:
                 check_disconnect(f"round {round_index + 1} after {mode}")
+    check_leaks("before the final quit")
     return True
 
 
@@ -626,6 +651,8 @@ def main(argv=None, bench_app=BenchApp):
         bench.stop()  # quits the app, then the tag teardown ends every launch's daemon and terminals
     for note in slow:
         print(f"  slow: {note}")
+    for row in leak_rows:
+        print(f"  {row['label']} {leakcheck.summary_line(row)}")
     code = 1 if failures else 0
     if opts.story:
         results = record(opts.story, finished)

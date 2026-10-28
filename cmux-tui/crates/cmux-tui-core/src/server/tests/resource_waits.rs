@@ -698,6 +698,8 @@ fn connection_wait_exit_resolves_durable_detached_terminal_after_restart() {
     assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
     assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
     assert!(disconnect_client(&first, client, false));
+    // The connection ends its control sequence as its reader does.
+    scheduler.finish_and_wait();
     drop(scheduler);
     drop(writer);
     first.shutdown();

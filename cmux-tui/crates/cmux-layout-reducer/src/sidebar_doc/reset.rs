@@ -105,31 +105,35 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
         }
     }
     // Order keys per region, in this order.
-    let mut by_region: Vec<(Region, Vec<usize>)> = Vec::new();
-    for (index, (section, _)) in layout.iter().enumerate() {
-        match by_region.iter_mut().find(|(region, _)| *region == section.region) {
-            Some((_, indexes)) => indexes.push(index),
-            None => by_region.push((section.region.clone(), vec![index])),
+    let mut regions: Vec<Region> = Vec::new();
+    for (section, _) in &layout {
+        if !regions.contains(&section.region) {
+            regions.push(section.region.clone());
         }
     }
-    for (region, indexes) in &by_region {
+    for region in &regions {
         // Keep the current keys when the sections already stand in this
         // order (a reset of a default document changes nothing).
-        let current: Option<Vec<String>> = indexes
+        let current: Option<Vec<String>> = layout
             .iter()
-            .map(|&index| {
+            .filter(|(section, _)| section.region == *region)
+            .map(|(section, _)| {
                 tx.doc
-                    .section(&layout[index].0.id)
+                    .section(&section.id)
                     .filter(|existing| existing.region == *region)
                     .map(|existing| existing.order.clone())
             })
             .collect();
+        let count = layout.iter().filter(|(section, _)| section.region == *region).count();
         let keys = match current {
-            Some(keys) if keys.windows(2).all(|pair| pair[0] < pair[1]) => keys,
-            _ => order_key::spread(indexes.len()),
+            Some(keys) if keys.iter().zip(keys.iter().skip(1)).all(|(low, high)| low < high) => {
+                keys
+            }
+            _ => order_key::spread(count),
         };
-        for (&index, key) in indexes.iter().zip(keys) {
-            layout[index].0.order = key;
+        let in_region = layout.iter_mut().filter(|(section, _)| section.region == *region);
+        for ((section, _), key) in in_region.zip(keys) {
+            section.order = key;
         }
     }
     let kept: HashSet<SectionId> = layout.iter().map(|(section, _)| section.id.clone()).collect();

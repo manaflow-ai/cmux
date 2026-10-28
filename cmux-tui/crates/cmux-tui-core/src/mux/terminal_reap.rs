@@ -15,10 +15,10 @@
 //! never make it early.
 
 use std::sync::mpsc::RecvTimeoutError;
-use std::thread::JoinHandle;
 
 use super::*;
 use crate::state::kept_tab_store::{KeptTab, kept_title};
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -427,10 +427,19 @@ impl Mux {
         // record-cleanup retry thread, which dies when this daemon exits
         // after the handoff, so the host would outlive the call. Before
         // reporting success, prove every host of this session ended.
+        // The root is read in its own statement: an `if let` scrutinee's
+        // guard lives through the block (edition 2024), and host_panic_log
+        // locks surface_options again.
         #[cfg(any(unix, windows))]
-        if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
-            let survivors =
-                end_surviving_terminal_hosts(&root, Instant::now() + END_TERMINALS_SURVIVOR_WAIT);
+        let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+        #[cfg(any(unix, windows))]
+        if let Some(root) = host_root {
+            let panic_log = self.host_panic_log();
+            let survivors = end_surviving_terminal_hosts(
+                &root,
+                panic_log.as_ref(),
+                Instant::now() + END_TERMINALS_SURVIVOR_WAIT,
+            );
             anyhow::ensure!(
                 survivors.is_empty(),
                 "terminal host(s) still running after end_terminals: {}",
@@ -647,7 +656,11 @@ const END_TERMINALS_SURVIVOR_WAIT: Duration = Duration::from_secs(5);
 /// signaled, so a reused PID is never killed. Records are reloaded on every
 /// pass, so a host that appeared during the shutdown is ended too.
 #[cfg(any(unix, windows))]
-fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
+fn end_surviving_terminal_hosts(
+    root: &Path,
+    panic_log: Option<&crate::terminal_host_runtime::HostPanicLog>,
+    deadline: Instant,
+) -> Vec<String> {
     use crate::terminal_host_runtime::{TerminalHostLiveness, terminal_host_record_liveness};
     let mut signaled = HashSet::new();
     loop {
@@ -658,7 +671,7 @@ fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
         for (path, record) in records {
             match terminal_host_record_liveness(&path, &record) {
                 Ok(TerminalHostLiveness::Dead) => {
-                    let _ = cleanup_terminal_host_record(&record, &path);
+                    let _ = cleanup_terminal_host_record(&record, &path, panic_log);
                 }
                 Ok(TerminalHostLiveness::Live) => {
                     if let Ok(pid) = i32::try_from(record.host_pid)
@@ -705,14 +718,14 @@ pub struct TerminalReaper {
     /// The receiver the thread currently waits on; it changes when an
     /// overflowed subscription is replaced.
     events: Arc<Mutex<MuxEventReceiver>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<SupervisedThread<()>>,
 }
 
 impl TerminalReaper {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = cmux_threads::checked::sync::join(thread);
+            let _ = thread.join();
         }
     }
 
@@ -738,42 +751,48 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let thread_stop = stop.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().unwrap().clone();
-    let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
-        let mut schedule = ReapSchedule::default();
-        loop {
-            if thread_stop.load(Ordering::Acquire) {
-                break;
-            }
-            let Some(mux) = weak.upgrade() else { break };
-            mux.reap_unplaced_terminals(&mut schedule, Instant::now());
-            // Never hold the mux across the wait: the thread must not keep
-            // the mux alive after its other owners are gone.
-            drop(mux);
-            let wait =
-                schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
-            match thread_events.wait_event(wait) {
-                Ok(_) | Err(RecvTimeoutError::Timeout) => {
-                    // Coalesce a burst of topology events into one scan. A
-                    // disconnect surfaces at the next wait.
-                    while thread_events.try_recv().is_ok() {}
+    let thread = supervised::spawn_raisable(
+        "mux-terminal-reap",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let mut schedule = ReapSchedule::default();
+            loop {
+                if thread_stop.load(Ordering::Acquire) {
+                    break;
                 }
-                Err(RecvTimeoutError::Disconnected) => {
-                    if thread_stop.load(Ordering::Acquire) {
-                        break;
+                let Some(mux) = weak.upgrade() else { break };
+                mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+                // Never hold the mux across the wait: the thread must not keep
+                // the mux alive after its other owners are gone.
+                drop(mux);
+                let wait =
+                    schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
+                match thread_events.wait_event(wait) {
+                    Ok(_) | Err(RecvTimeoutError::Timeout) => {
+                        // Coalesce a burst of topology events into one scan. A
+                        // disconnect surfaces at the next wait.
+                        while thread_events.try_recv().is_ok() {}
                     }
-                    // The mailbox overflowed: resubscribe, then rescan. The
-                    // loop checks `stop` again before it next waits.
-                    let Some(mux) = weak.upgrade() else { break };
-                    thread_events = mux.subscribe_terminal_reaper();
-                    *shared_events.lock().unwrap() = thread_events.clone();
+                    Err(RecvTimeoutError::Disconnected) => {
+                        if thread_stop.load(Ordering::Acquire) {
+                            break;
+                        }
+                        // The mailbox overflowed: resubscribe, then rescan. The
+                        // loop checks `stop` again before it next waits.
+                        let Some(mux) = weak.upgrade() else { break };
+                        thread_events = mux.subscribe_terminal_reaper();
+                        *shared_events.lock().unwrap() = thread_events.clone();
+                    }
                 }
             }
-        }
-        // Stopped: `identify` no longer advertises a running reaper.
-        if let Some(mux) = weak.upgrade() {
-            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
-        }
-    });
+            // Stopped: `identify` no longer advertises a running reaper.
+            if let Some(mux) = weak.upgrade() {
+                mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+            }
+        },
+    );
     let thread = match thread {
         Ok(thread) => thread,
         Err(error) => {

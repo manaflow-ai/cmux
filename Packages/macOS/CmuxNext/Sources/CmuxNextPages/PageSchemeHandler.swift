@@ -16,7 +16,10 @@ import WebKit
 ///
 /// `cmux-page://cmux.shared/` is answered for every page from ``sharedRoot`` (or the overlay, Debug
 /// override or web update that also serves pages) by ``PageSharedChunks``' rules: its `.js` and
-/// `.css` files only, only to a first-party page origin, never to a navigation.
+/// `.css` files only, only to a first-party page origin, never to a navigation. While the bundle is
+/// served, a chunk in the in-memory table (``sharedChunks``) is answered inside ``webView(_:start:)``
+/// itself, with no task hop and no disk read; an overlay, a Debug override, a web update or a file the
+/// table lacks takes the async path.
 ///
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
@@ -53,8 +56,22 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The shared chunks in memory (``WebBundleOverlay/bundledShared``; tests replace it), asked per
+    /// request: the launch read may end after the view is made, and a web update turns it off.
+    var sharedChunks: @Sendable () -> PageSharedChunkCache? = { WebBundleOverlay.shared.bundledShared }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
+    /// The active web update (``WebBundleOverlay/shared``; tests pass their own).
+    var bundleOverlay: WebBundleOverlay = .shared
+    /// The web update folder each served document loaded from, by its web view: every later
+    /// request of that document comes from the same folder, so a document kept across a swap
+    /// (hidden, frozen) loads its lazy chunks from its own build (``WebBundleOverlay/Pin``).
+    private var documentPins: [ObjectIdentifier: DocumentPin] = [:]
+
+    private struct DocumentPin {
+        weak var view: WKWebView?
+        let pin: WebBundleOverlay.Pin
+    }
     /// Where the `webui.scheme` slices go (``PageTraceSink``).
     private let trace: any PageTraceSink
 
@@ -106,8 +123,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let page = PageWebView.traceID(showing: webView)
         trace.begin(.webuiScheme, arg0: TracePart.start.rawValue, arg1: page)
         var failed: UInt64 = 0
-        defer { trace.end(.webuiScheme, arg0: failed, arg1: 0) }
-        WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
+        var answered: UInt64 = 0
+        defer { trace.end(.webuiScheme, arg0: failed, arg1: answered) }
         let request = task.request
         let origin = request.value(forHTTPHeaderField: "Origin")
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
@@ -117,18 +134,28 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
+        let mainDocument = request.mainDocumentURL
+        if let reply = sharedReplyInTurn(to: url, origin: origin, mainDocument: mainDocument,
+                                         pin: keptPin(of: webView)) {
+            task.didReceive(reply.response)
+            if !reply.body.isEmpty { task.didReceive(reply.body) }
+            task.didFinish()
+            answered = UInt64(reply.body.count)
+            return
+        }
         let id = ObjectIdentifier(task)
         active.insert(id)
-        WebBundleServedViews.shared.add(webView)
         let range = request.value(forHTTPHeaderField: "Range")
-        let mainDocument = request.mainDocumentURL
+        let loadsDocument = Self.isMainDocument(url, mainDocument: mainDocument)
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
-        Task { @MainActor [weak self] in
+        // main-hop-allow: reply and sharedReply are this handler's main-actor async reads (the file reads run off main, a dynamic lookup is the provider's main-actor call); the task only answers WebKit's scheme task, a main-thread-only object
+        Task { @MainActor [weak self, weak webView] in
             guard let self else { return }
+            let pin = await self.documentPin(of: webView, loadsDocument: loadsDocument)
             let reply: Reply? = if PageSharedChunks.isShared(url) {
-                await self.sharedReply(to: url, origin: origin, mainDocument: mainDocument, page: page)
+                await self.sharedReply(to: url, origin: origin, mainDocument: mainDocument, page: page, pin: pin)
             } else {
-                await self.reply(to: url, range: range, page: page)
+                await self.reply(to: url, range: range, page: page, pin: pin)
             }
             guard self.active.remove(id) != nil else { return }
             self.trace.begin(.webuiScheme, arg0: TracePart.answer.rawValue, arg1: page)
@@ -144,6 +171,36 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
+    /// Whether `url` is the main frame's document (its request names itself as the main document):
+    /// the load that pins the web update folder the document's later requests come from.
+    nonisolated static func isMainDocument(_ url: URL, mainDocument: URL?) -> Bool {
+        guard let mainDocument else { return false }
+        func stripped(_ url: URL) -> String? {
+            guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+            parts.fragment = nil
+            return parts.string
+        }
+        return stripped(url) == stripped(mainDocument)
+    }
+
+    /// The pin of the document `webView` shows: a new one, of the folder served now, when the request
+    /// loads the document itself; else the one its document load took (nil: the folder served now).
+    private func documentPin(of webView: WKWebView?, loadsDocument: Bool) async -> WebBundleOverlay.Pin? {
+        guard let webView else { return nil }
+        let id = ObjectIdentifier(webView)
+        guard loadsDocument else { return keptPin(of: webView) }
+        let pin = await bundleOverlay.pin()
+        documentPins = documentPins.filter { $0.value.view != nil }
+        documentPins[id] = DocumentPin(view: webView, pin: pin)
+        return pin
+    }
+
+    /// The pin the document `webView` shows took at its load (``documentPin(of:loadsDocument:)``); nil
+    /// before its document load pinned one.
+    private func keptPin(of webView: WKWebView) -> WebBundleOverlay.Pin? {
+        documentPins[ObjectIdentifier(webView)].flatMap { $0.view === webView ? $0.pin : nil }
+    }
+
     /// Whether the start callback takes a request for `url`: a shared chunk that ``sharedRoot`` may
     /// answer for `origin` (``PageSharedChunks/allowedOrigin(for:origin:mainDocument:)``), or a route of
     /// a served page.
@@ -155,13 +212,30 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         return Self.route(for: url, page: served.page, root: served.root) != nil
     }
 
+    /// The reply for a GET of the shared chunk `url` from the bundled table (``sharedChunks``), in the
+    /// caller's turn, with the headers and origin rules of ``sharedReply(to:origin:mainDocument:page:)``.
+    /// Nil, so the request takes that async path, for another origin, a refused origin or navigation, no
+    /// table or a table of another folder than ``sharedRoot``, a Debug override (``debugSharedRoot``), a
+    /// live overlay, a file the table lacks, or a document pinned to a web update folder (`pin`, ``WebBundleOverlay/Pin``):
+    /// a document kept across a swap back to the bundle loads its chunks from its own build.
+    func sharedReplyInTurn(to url: URL, origin: String?, mainDocument: URL?, pin: WebBundleOverlay.Pin? = nil) -> Reply? {
+        guard PageSharedChunks.isShared(url), pin?.tree == nil, debugSharedRoot == nil, let root = sharedRoot,
+              let allowed = PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument),
+              let table = sharedChunks(), table.serves(root), let chunk = table.chunk(for: url),
+              liveOverride().overlay == nil
+        else { return nil }
+        return PageSharedChunks.reply(url: url, allowedOrigin: allowed, body: chunk.body, file: chunk.file)
+    }
+
     /// The reply for a GET of the shared chunk `url` with the `Origin` header `origin` and the top
     /// document `mainDocument`: the `.js` or `.css` file of the first folder that holds it, among the
-    /// live override's overlay, ``debugSharedRoot``, the active web update's copy of ``sharedRoot`` and
-    /// ``sharedRoot`` (``PageSharedChunks/roots(overlay:debug:update:bundled:)``), the same roots a page's
+    /// live override's overlay, ``debugSharedRoot``, the web update's copy of ``sharedRoot`` (in
+    /// `pin`'s folder, the asking document's, else the active one) and ``sharedRoot``
+    /// (``PageSharedChunks/roots(overlay:debug:update:bundled:)``), the same roots a page's
     /// own files come from; readable by that origin only; nil, so the task fails, for a navigation, an
     /// origin that may not read it, or any other file (``PageSharedChunks``). No ``devServer`` serves it.
-    func sharedReply(to url: URL, origin: String?, mainDocument: URL? = nil, page: UInt64 = 0) async -> Reply? {
+    func sharedReply(to url: URL, origin: String?, mainDocument: URL? = nil, page: UInt64 = 0,
+                     pin: WebBundleOverlay.Pin? = nil) async -> Reply? {
         let start = step(page) { () -> (allowed: String, root: URL, overlay: URL?)? in
             guard let root = self.sharedRoot,
                   let allowed = PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument)
@@ -169,7 +243,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             return (allowed, root, self.liveOverride().overlay)
         }
         guard let start else { return nil }
-        let update = await WebBundleOverlay.shared.root(for: start.root)
+        let update = await bundleOverlay.root(for: start.root, pin: pin)
         let roots = step(page) {
             PageSharedChunks.roots(overlay: start.overlay, debug: self.debugSharedRoot, update: update, bundled: start.root)
         }
@@ -193,7 +267,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// handler's main-thread time (a dynamic source's own work is the source's).
     ///
     /// `range` is the request's `Range` header, which a dynamic source answers in byte ranges (media).
-    func reply(to url: URL, range: String? = nil, page: UInt64 = 0) async -> Reply? {
+    /// `pin` is the asking document's web update folder (``WebBundleOverlay/Pin``); nil: the active one.
+    func reply(to url: URL, range: String? = nil, page: UInt64 = 0, pin: WebBundleOverlay.Pin? = nil) async -> Reply? {
         let start = step(page) { () -> (served: Served, live: WebDevOverride, server: PageDevServer?, remote: URL?)? in
             guard let found = self.served(url) else { return nil }
             let live = self.liveOverride()
@@ -216,7 +291,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             // The launch variable's server (Debug) fails the request, as before.
             if self.devServer != nil { return nil }
         }
-        let update = await WebBundleOverlay.shared.root(for: served.root)
+        let update = await bundleOverlay.root(for: served.root, pin: pin)
         let destination = step(page) {
             Self.route(for: url, page: served.page,
                        root: start.live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update)

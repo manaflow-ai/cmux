@@ -111,8 +111,7 @@ pub(crate) fn job_is_non_interactive(
     }
     let Some(args) = harness_args(harness, argv, env) else { return false };
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index).map(String::as_str) {
         index += 1;
         if argument == "--" {
             return false; // Everything after `--` is a prompt.
@@ -161,7 +160,7 @@ fn harness_args(harness: &str, argv: &[String], env: &[(String, String)]) -> Opt
         .iter()
         .find(|(name, _)| name == SHIM_ARGS_ENV)
         .and_then(|(_, json)| serde_json::from_str::<Vec<String>>(json).ok());
-    Some(given.unwrap_or_else(|| argv[at + 1..].to_vec()))
+    Some(given.unwrap_or_else(|| argv.iter().skip(at + 1).cloned().collect()))
 }
 
 /// The arguments of a stored launch as read back: filtered again as on write.
@@ -174,7 +173,7 @@ pub(crate) fn kept_agent_args(harness: &str, args: &[String]) -> Vec<String> {
 fn stored_args(harness: &str, args: Vec<String>) -> Vec<String> {
     let mut line = vec![harness.to_string()];
     line.extend(args);
-    stored_argv(&line).map(|line| line[1..].to_vec()).unwrap_or_default()
+    stored_argv(&line).map(|line| line.into_iter().skip(1).collect()).unwrap_or_default()
 }
 
 /// Whether `argument` names the harness's program: `claude`, `codex`, or the
@@ -326,8 +325,7 @@ fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
     let mut kept = Vec::with_capacity(args.len());
     let mut index = 0;
     let mut first_word = true;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index).map(String::as_str) {
         index += 1;
         if argument == "--" {
             break; // Everything after `--` is a prompt.

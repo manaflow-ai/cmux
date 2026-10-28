@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The one web theme (plans/cmux-next/windows.md, "One background token"):
 /// the CSS custom properties every cmux web page reads, from the same
@@ -65,7 +66,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             type = tokens.isDark ? "dark" : "light"
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
-            palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
+            palette = Dictionary(tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) }, uniquingKeysWith: { first, _ in first })
             self.fontFamily = fontFamily
         }
 

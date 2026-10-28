@@ -4,8 +4,10 @@ import AppKit
 /// the page inside the pane, resizable, or in its own window. The docked
 /// DevTools is a Chromium child window over `views.host`, a subview of the
 /// tab's content view, so it follows the pane's layout, clipping and moves
-/// like the page. In host mode it is a hosted context shown in a page view
-/// inside `views.host` instead (`CEFDevToolsController+Hosted.swift`).
+/// like the page. Where the fork hosts or attaches DevTools (p03-rendering-056)
+/// its pixels show in `views.host`'s layers, or its Chromium view is a subview of it,
+/// as a pane's page. In host mode it is a hosted context shown in
+/// a page view inside `views.host` instead (`CEFDevToolsController+Hosted.swift`).
 /// DevTools browsers have their own shim client: they never
 /// become tabs and never change the tab's URL or title.
 ///
@@ -118,7 +120,6 @@ final class CEFDevToolsController {
             // Between dock sides: the same DevTools window, a new frame.
             tab.devTools.dock = dock
             views?.divider.needsDisplay = true
-            if let divider = views?.divider { divider.window?.invalidateCursorRects(for: divider) }
             tab.container.layoutContent()
             return
         }
@@ -158,7 +159,8 @@ final class CEFDevToolsController {
     }
 
     private func makeWindow(for tab: CEFTab) -> CEFDevToolsWindow {
-        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: tab.container.window), owner: tab.container.window)
+        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: tab.container.window), owner: tab.container.window,
+                                       pageSurface: tab.pageSurface)
         window.title = Strings.devToolsWindowTitle(tab.state.title)
         window.onClose = { [weak self] in self?.perform(.close) }
         self.window = window
@@ -230,10 +232,12 @@ final class CEFDevToolsController {
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
-        // A docked DevTools is its own page window on its own host view: the feature `cefLayerHosting`
-        // keeps it in its own window (`CEFLayerHosting.Widget`) until p03-rendering-056 hosts it; only the
-        // benches' arm `cefLayerHostingEveryPage` hosts it now.
-        // In host mode it shows in the hosted page view, from the context the host gives.
+        // An embedded DevTools is its own page window on its own host view, docked in the pane or in cmux's
+        // DevTools window: attached or hosted there as a pane's page is where the fork does it for DevTools
+        // (`CEFLayerHosting.Widget.devTools`, ``CEFLayerHosting/Fork/hostedWidgets``; the benches' arm
+        // `cefLayerHostingEveryPage` hosts it on any fork), from this open on. Its view keeps the attached view
+        // or hosted context across dock moves. In host mode it shows in the hosted page view, from the context
+        // the host gives.
         if docked, tab.host.isHostMode {
             showHostedContext(of: browser)
         } else if docked {
@@ -343,8 +347,11 @@ final class CEFDevToolsController {
 
     func makeViews(in tab: CEFTab) -> (host: CEFHostView, divider: CEFDevToolsDivider) {
         let host = CEFHostView()
-        // DevTools keeps its own window until its hosting is verified (p03-rendering-056).
         host.layerHosting.widget = .devTools
+        // Docked DevTools shows with its page's tab (`CEFTab.setContentVisible`); hidden, it joins no resize fence.
+        host.layerHosting.isPageVisible = { [weak tab] in tab.map { !$0.isContentHidden } ?? false }
+        // A hidden DevTools keeps its last frame in the app-wide list, as a hidden tab's page does.
+        host.layerHosting.switchCommit.hiddenFrames = tab.runtime.hiddenFrames
         if tab.host.isHostMode { installHostedPage(for: tab, in: host) }
         let divider = CEFDevToolsDivider()
         divider.devTools = self

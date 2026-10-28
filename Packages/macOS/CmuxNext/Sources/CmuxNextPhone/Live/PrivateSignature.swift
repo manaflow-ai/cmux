@@ -29,68 +29,65 @@ struct PrivateSignature: Equatable {
     private static let qualifiers: Set<Character> = ["r", "n", "N", "o", "O", "R", "V", "A"]
 
     /// Parses a method type encoding such as `@24@0:8@16`; nil when it is
-    /// not one (no `self` and `_cmd`, or a type that does not end).
+    /// not one (no `self` and `_cmd`, or a type that does not end). The
+    /// encoding comes from a framework's runtime metadata, so it is read from
+    /// the front of what is left, never by a computed position.
     init?(encoding: String) {
-        let codes = Array(encoding)
+        var rest = Substring(encoding)
         var types: [String] = []
-        var index = 0
-        while index < codes.count {
-            var start = index
-            while start < codes.count, Self.qualifiers.contains(codes[start]) { start += 1 }
-            guard let end = Self.typeEnd(codes, from: start) else { return nil }
-            types.append(String(codes[start..<end]))
-            index = end
+        while !rest.isEmpty {
+            rest = rest.drop { Self.qualifiers.contains($0) }
+            guard let end = Self.typeEnd(rest) else { return nil }
+            types.append(String(rest.prefix(upTo: end)))
+            rest = rest.suffix(from: end)
             // The frame size after the return type, the offset after each argument.
-            if index < codes.count, codes[index] == "-" { index += 1 }
-            while index < codes.count, codes[index].isASCII, codes[index].isNumber { index += 1 }
+            if rest.first == "-" { rest = rest.dropFirst() }
+            rest = rest.drop { $0.isASCII && $0.isNumber }
         }
-        guard types.count >= 3, Self.kind(of: types[1]) == .object, types[2] == ":" else { return nil }
-        returns = types[0]
-        arguments = Array(types[3...])
+        let fixed = types.prefix(3)
+        guard fixed.count == 3, let returnCode = fixed.first, fixed.dropFirst().first.map(Self.kind(of:)) == .object,
+              fixed.last == ":" else { return nil }
+        returns = returnCode
+        arguments = Array(types.dropFirst(3))
     }
 
-    /// The index after the one type that starts at `start`.
-    private static func typeEnd(_ codes: [Character], from start: Int) -> Int? {
-        guard start < codes.count else { return nil }
-        switch codes[start] {
+    /// The end of the one type that starts `codes`; nil when it does not end.
+    private static func typeEnd(_ codes: Substring) -> Substring.Index? {
+        guard let first = codes.first else { return nil }
+        let next = codes.dropFirst()
+        switch first {
         case "^":
-            var pointee = start + 1
-            while pointee < codes.count, qualifiers.contains(codes[pointee]) { pointee += 1 }
-            return typeEnd(codes, from: pointee)
+            return typeEnd(next.drop { qualifiers.contains($0) })
         case "@":
-            var end = start + 1
-            if end < codes.count, codes[end] == "?" {
-                end += 1
+            if next.first == "?" {
+                let block = next.dropFirst()
                 // An extended block signature: @?<v@?@>.
-                if end < codes.count, codes[end] == "<" { return closing(codes, from: end, open: "<", close: ">") }
-                return end
+                return block.first == "<" ? closing(block, open: "<", close: ">") : block.startIndex
             }
             // An extended object type: @"NSString".
-            if end < codes.count, codes[end] == "\"" {
-                guard let quote = codes[(end + 1)...].firstIndex(of: "\"") else { return nil }
-                end = quote + 1
+            if next.first == "\"" {
+                guard let quote = next.dropFirst().firstIndex(of: "\"") else { return nil }
+                return next.suffix(from: quote).dropFirst().startIndex
             }
-            return end
-        case "{": return closing(codes, from: start, open: "{", close: "}")
-        case "(": return closing(codes, from: start, open: "(", close: ")")
-        case "[": return closing(codes, from: start, open: "[", close: "]")
+            return next.startIndex
+        case "{": return closing(codes, open: "{", close: "}")
+        case "(": return closing(codes, open: "(", close: ")")
+        case "[": return closing(codes, open: "[", close: "]")
         case "b":
-            var end = start + 1
-            while end < codes.count, codes[end].isASCII, codes[end].isNumber { end += 1 }
-            return end
+            return next.drop { $0.isASCII && $0.isNumber }.startIndex
         default:
-            return start + 1
+            return next.startIndex
         }
     }
 
-    /// The index after the `close` that matches the `open` at `start`.
-    private static func closing(_ codes: [Character], from start: Int, open: Character, close: Character) -> Int? {
+    /// The end of the `close` that matches the `open` starting `codes`.
+    private static func closing(_ codes: Substring, open: Character, close: Character) -> Substring.Index? {
         var depth = 0
-        for index in start..<codes.count {
-            if codes[index] == open { depth += 1 }
-            if codes[index] == close {
+        for (index, code) in zip(codes.indices, codes) {
+            if code == open { depth += 1 }
+            if code == close {
                 depth -= 1
-                if depth == 0 { return index + 1 }
+                if depth == 0 { return codes.index(after: index) }
             }
         }
         return nil

@@ -1,11 +1,17 @@
+import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
+import CmuxNextWebUpdates
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -29,6 +35,14 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// The launch caches' crash-streak decision (p08-startup-089), made on the files lane by the first launch cache
+    /// read or the run marker's launch read (`AppRunMarker.launchSafeMode`); nil reads every cache (tests).
+    var launchCaches: LaunchSafeMode.Gate?
+    /// Reads a launch cache's files on its lane; reads none in a crash streak's safe launch (``launchCaches``).
+    var launchCacheReader: LaunchFileReader {
+        guard let gate = launchCaches else { return LaunchFileReader() }
+        return LaunchFileReader().gated { gate.safeMode.readsLaunchCaches }
+    }
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),
@@ -53,6 +67,12 @@ struct AppEnvironment: Sendable {
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
+    /// That file's launch read, started in `main` before the settings read in one sequence, so it has ended when
+    /// `AppServices` is made; nil makes `AppServices` start its own.
+    var sidebarSnapshot: LaunchRead<SidebarSnapshotDocument>?
+    /// The run marker's launch read (`AppRunMarker.startLaunchRead`), started in `main` with ``marksRun``, before the
+    /// settings read in one sequence; nil leaves no marker (tests that build `AppServices`).
+    var runMarker: LaunchRead<AppRunMarker.Launch>?
     /// The incognito workspaces the last run left (`IncognitoWorkspaceLedger`), read on a launch lane from
     /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
     /// starts it; without it the ledger starts its own as `AppServices` is built (tests that build `AppServices`).
@@ -63,7 +83,13 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    /// The kept web update (`WebUpdates`, NIGHTLY): its state and verified tree, read on a launch lane from `main`.
+    /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
+    var webUpdates: LaunchRead<WebUpdates.Launch?>?
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, p08-startup-080): `debug.startup.main_jobs` reads it.
+    /// Only the real app process arms it.
+    var mainJobCensus: MainJobCensus?
     /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
     /// reads it. Only the real app process arms it.
     var globalJobCensus: GlobalJobCensus?
@@ -72,6 +98,9 @@ struct AppEnvironment: Sendable {
     /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
     /// Release and in tests that build `AppServices`.
     var featureLocalOverridesFile: URL?
+    /// The launch's daemon features for every hello to the local daemon and their last answer (`features.list`),
+    /// made in `main` once the features resolve (p12-perf-process-150). Nil in tests that build `AppServices`.
+    var daemonFeatureHello: DaemonFeatureHello?
     var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
     /// The Debug tunables features replace (``Feature/replaces``), as the build's debug-tunables.json holds them,
     /// read on a launch lane from `main` beside ``featureLocalOverrides``: their features' local overrides
@@ -81,15 +110,30 @@ struct AppEnvironment: Sendable {
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
+    /// The acpmux this app starts (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``),
+    /// resolved once on the system lane from `main`: its trust check reads this app's signature and hashes the
+    /// binary, so the main thread never makes it. The value is nil while it runs (``QuitAgents/environment(_:)``).
+    /// Only the real app process starts it; tests that build `AppServices` have none (no acpmux).
+    var appAcpmux: LaunchRead<AcpmuxEnvironment?>?
     /// The folder of the Home caches (drafts, scroll anchors, sends, attachment blobs, the Home
     /// list's launch state): only the real app process sets it (the user's Caches folder); without
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
+    /// The Home list's caches (its conversations and its last list) of this build's Chief owner, read on a launch
+    /// lane from `main` (p08-startup-076): the Home list's first frame never reads them on the main thread. Only the
+    /// real app process starts it; without it `HomeService` starts its own as it is made (tests that build `AppServices`).
+    var homeListRead: HomeListLaunchRead?
+    /// This Mac's install id, read on a launch lane from `main` before the settings read (p08-startup-076). Only the
+    /// real app process starts it; without it `CloudService` reads the id at its first use (tests that build `AppServices`).
+    var cloudDeviceID: CloudDeviceIDSource?
     /// `CMUX_NEXT_ORACLE_ROOT` and `HOME` of the launch: the oracle case root (its aliases separated by `:`) and the
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?
     var launchHome: String?
+    /// The action catalog's launch build, which the registry takes: the real app process passes the one
+    /// its launch warm-up thread builds (`LaunchWarmup`); tests that build `AppServices` build it on main.
+    var actionCatalog = ActionCatalogLaunch()
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).
