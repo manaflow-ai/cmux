@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
+import strings from "../src/agent-session/acpmux/generated/strings.json";
+import type { PlayContext } from "../src/gallery/play";
 import fixture from "../src/agent-session/acpmux/AuthHealth.gallery";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -104,6 +106,40 @@ test("unknown target stays unknown, then a new socket without override restores 
     expect(await reset.harnessHealthRows()).toContainEqual({ id: "claude", auth: "signedIn" });
   } finally {
     reset.close();
+  }
+});
+
+test("signed-out gallery play reaches the translated Log In row in Japanese", async () => {
+  const oldStrings = scope.__cmuxPaneStrings;
+  const oldLog = (dom.window as unknown as { cmuxGalleryLog?: unknown }).cmuxGalleryLog;
+  scope.__cmuxPaneStrings = strings;
+  const { setPaneLanguage, translate } = await import("../src/agent-session/acpmux/i18n");
+  setPaneLanguage("ja");
+  (dom.window as unknown as { cmuxGalleryLog?: unknown }).cmuxGalleryLog = [{ method: "acpmux health resolved" }];
+  const japaneseLogin = translate("harness.logIn");
+  expect(japaneseLogin).not.toBe("Log In");
+  dom.window.document.body.innerHTML = `<div class="nt-screen"><span class="acpmux-model"><button class="acpmux-picker-button"></button></span></div>
+     <div class="acpmux-quick-menu"><button class="acpmux-quick-item">${japaneseLogin}</button></div>`;
+  let clicked = false;
+  const ctx = {
+    document: dom.window.document,
+    click: async () => {
+      clicked = true;
+    },
+    waitFor: async (condition: () => boolean | Element | null | undefined) => {
+      expect(condition()).toBeTruthy();
+    },
+  } as unknown as PlayContext;
+  try {
+    await fixture.variants["signed-out"]!.play!(ctx);
+    expect(clicked).toBe(true);
+  } finally {
+    setPaneLanguage("en");
+    dom.window.document.body.innerHTML = "";
+    if (oldStrings === undefined) delete scope.__cmuxPaneStrings;
+    else scope.__cmuxPaneStrings = oldStrings;
+    if (oldLog === undefined) delete (dom.window as unknown as { cmuxGalleryLog?: unknown }).cmuxGalleryLog;
+    else (dom.window as unknown as { cmuxGalleryLog?: unknown }).cmuxGalleryLog = oldLog;
   }
 });
 

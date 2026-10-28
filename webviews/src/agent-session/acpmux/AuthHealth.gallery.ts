@@ -2,6 +2,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
+import { translate } from "./i18n";
 
 const EVIDENCE_AT = 1_793_184_000_000; // Fixed, plausible epoch-ms gallery evidence.
 
@@ -21,8 +22,8 @@ const waitForPicker: Play = async (ctx) => {
 const waitForSignOut: Play = async (ctx) => {
   await waitForPicker(ctx);
   await ctx.waitFor(() =>
-    [...ctx.document.querySelectorAll(".acpmux-quick-menu .acpmux-quick-item")].some((item) =>
-      item.textContent?.includes("Log In"),
+    [...ctx.document.querySelectorAll(".acpmux-quick-menu .acpmux-quick-item")].some(
+      (item) => item.textContent?.trim() === translate("harness.logIn"),
     ),
   );
 };
