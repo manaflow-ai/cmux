@@ -352,10 +352,11 @@ export class CloudDO extends CloudIdle {
   private readonly platformOperations = new PlatformOperations(this.sqlStore)
   private platformHost(entity: string): PlatformHost {
     const rows = () => (this.isBound(entity) ? this.bind(entity).rows : undefined)
+    const now = () => Date.now() + this.skewMs
     return {
       team: entity,
       operations: this.platformOperations,
-      now: Date.now() + this.skewMs,
+      get now() { return now() },
       providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: (this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test") && this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
       arm: async (at) => {
         this.bind(entity)
@@ -386,6 +387,11 @@ export class CloudDO extends CloudIdle {
     }
   }
 
+  protected override platformStartsAllowed(): boolean {
+    const entity = this.boundEntity()
+    return entity !== null && this.platformHost(entity).providerInfo().available
+  }
+
   protected override nextWakeAt(state: CloudState, now: number): number | null {
     const core = super.nextWakeAt(state, now)
     const due = this.platformOperations.dueAt()
@@ -398,7 +404,7 @@ export class CloudDO extends CloudIdle {
     const entity = this.boundEntity()
     if (entity) {
       const host = this.platformHost(entity)
-      if (!host.providerInfo().available) await this.platformOperations.stopAllocations(host, now + this.skewMs)
+      await this.platformOperations.stopAllocations(host, now + this.skewMs)
     }
     await super.onWake(now)
     if (entity) await this.platformOperations.wake(this.platformHost(entity), now + this.skewMs)
