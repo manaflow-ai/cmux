@@ -75,6 +75,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var sheetClosing = 0
     /// The next rebuild of the open thread view redraws even when its rows did not change.
     private var threadForceRebuild = false
+    /// cmux: how far an open thread view taller than its space is scrolled back from its newest row (0: that
+    /// row ends above the field), and the most it can be (0: the view fits and stays centered).
+    private(set) var threadScrollBack: CGFloat = 0
+    private(set) var threadScrollRange: CGFloat = 0
     /// The breadcrumb's names as drawn (hit testing reads these, not the drawn string).
     private var threadCrumbNames: [String] = []
     private(set) var sheetFrame: CGRect?
@@ -2251,6 +2255,18 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let headerHeight = header == nil ? 0 : ThreadHeaderDraw.height
         let total = rows.reduce(0) { $0 + $1.total } + headerHeight
         var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
+        // cmux: a thread taller than the space between the header and the field ends above the field and
+        // scrolls (scrollThread); it opens, and a drill shows its branch, at the newest row.
+        let area = threadArea
+        if total > area.height {
+            if !wasOpen || drilled { threadScrollBack = 0 }
+            threadScrollRange = total - area.height
+            threadScrollBack = min(max(0, threadScrollBack), threadScrollRange)
+            y = area.maxY - total + threadScrollBack
+        } else {
+            threadScrollBack = 0
+            threadScrollRange = 0
+        }
         placeThreadHeader(header, top: y, fade: (!wasOpen || drilled) && !still)
         y += headerHeight
         threadViews = rows.map { spec in
@@ -2334,6 +2350,33 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     var threadOpen: Bool { store.state.ui.openThread != nil }
+
+    /// cmux: the space an open thread view's rows may take, between the header and the field (as a sheet's).
+    var threadArea: CGRect {
+        let top = Fixture.headerHeight + 12, bottom = max(top + 40, fieldTop - 12)
+        return CGRect(x: 0, y: top, width: bounds.width, height: bottom - top)
+    }
+
+    /// cmux: moves an open thread view taller than ``threadArea`` by `dy` points (positive: the rows move
+    /// down, toward the root), clamped to its ends (Lawrence 2026-10-28: "i cant scroll up/down after clicking
+    /// into like the thread ui"). True when the view is open and taller than its space (the wheel is the
+    /// thread's then, even at an end); false otherwise.
+    @discardableResult
+    func scrollThread(by dy: CGFloat) -> Bool {
+        guard threadOpen, threadClosing == 0, !threadViews.isEmpty, threadScrollRange > 0 else { return false }
+        let back = min(max(0, threadScrollBack + dy), threadScrollRange)
+        let d = back - threadScrollBack
+        guard abs(d) > 0.001 else { return true }
+        threadScrollBack = back
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        // A scroll ends the open's flight: the rows are where the scroll puts them.
+        for v in threadViews { v.layer.removeAnimation(forKey: "thread.fly"); v.frame.origin.y += d }
+        if let hv = threadHeaderView { hv.frame.origin.y += d }
+        threadHeaderHits = threadHeaderHits.map { ($0.0.offsetBy(dx: 0, dy: d), $0.1) }
+        CATransaction.commit()
+        return true
+    }
+
     /// cmux: Reduce Motion (the host's pin or the system setting): the thread view and a reply sent in it change at once.
     private var reducesMotion: Bool { MessagesLabHomeView.reducesMotion }
 

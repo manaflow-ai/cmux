@@ -1,5 +1,4 @@
-import { DriverError } from "../../team-vm-driver.ts"
-import type { GuestExecResult } from "../contract.ts"
+import { DriverError, type GuestExecResult } from "../contract.ts"
 
 /**
  * Freestyle `exec-await` as root with stdin (cx-kvmz; the web twin is freestyle.ts execWithStdin

@@ -9,6 +9,7 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
+pub mod auth;
 pub mod events;
 pub mod inventory;
 pub mod mailbox;
@@ -149,6 +150,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        // Embedded tailnet controls (also report not_built in unsupported builds).
+        untyped(method::MUX_TAILNET_LOGIN, Request),
+        untyped(method::MUX_TAILNET_LOGOUT, Request),
+        untyped(method::MUX_TAILNET_START, Request),
+        untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
@@ -191,6 +197,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_STEER_WITHDRAW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
+        request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),

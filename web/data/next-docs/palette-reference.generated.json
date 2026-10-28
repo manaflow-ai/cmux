@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1197,
+    "entries": 1199,
     "shortcuts": 189
   },
   "sections": [
@@ -4750,6 +4750,12 @@
           "command": "cmux sidebar add-item"
         },
         {
+          "id": "sidebar.controlsOnHover.off",
+          "title": "Always Show Sidebar Controls",
+          "shortcut": null,
+          "command": "cmux sidebar show-controls-always"
+        },
+        {
           "id": "sidebar.item.toggleArchive",
           "title": "Archive/Unarchive Item",
           "shortcut": null,
@@ -5180,6 +5186,12 @@
           "title": "Show Profile Menu",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "sidebar.controlsOnHover.on",
+          "title": "Show Sidebar Controls Only on Hover",
+          "shortcut": null,
+          "command": "cmux sidebar hide-controls-until-hover"
         },
         {
           "id": "sidebar.spaces.show",
