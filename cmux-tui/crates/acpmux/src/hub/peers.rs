@@ -202,10 +202,10 @@ impl Hub {
     }
 
     /// ``reconnect_peer``; without `force`, a peer whose link is ready (connected, or `degraded`
-    /// because a ping went unanswered) or still in a handshake younger than the connect deadline
+    /// because a ping went unanswered) or still in a handshake younger than the handshake deadline
     /// is left alone, so a client that only saw it down, or a send to a slow machine, never cuts
-    /// a working link and the requests on it (`peer_disconnected`). An older handshake is
-    /// replaced. The app's picks and sends ask this way; `host reconnect` forces.
+    /// a working link and the requests on it (`peer_disconnected`). A link past that deadline is
+    /// replaced (its own deadline drops it then too). The app's picks and sends ask this way; `host reconnect` forces.
     pub async fn reconnect_peer_with(
         &self,
         name: &str,
@@ -216,13 +216,13 @@ impl Hub {
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
-        // A ready link, or a handshake younger than the connect deadline, is left to finish; with
+        // A ready link, or a handshake younger than the handshake deadline, is left to finish; with
         // `wait`, an unfinished handshake is waited for as a new attempt would be. Subscribed before
         // the link is read, so a handshake that settles in between is still heard.
         if !force && let Some(running) = self.peer(name) {
             let mut settled = running.settled();
             let link = running.link();
-            let young = crate::peer_link::LinkTimings::from_env().connect;
+            let young = crate::peer_link::LinkTimings::from_env().handshake;
             if link.keeps_on_reconnect(crate::store::now_ms(), young) {
                 if wait && !link.is_ready() {
                     let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;

@@ -1002,24 +1002,30 @@ impl Peer {
         );
         wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut wake_probe: Option<tokio::time::Instant> = None;
+        // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
+        // the regular ping's tick may be served first, and its write must be held to the probe's
+        // deadline, never the whole send budget.
+        macro_rules! check_wake {
+            () => {
+                if let Some(slept) = wake_watch.check() {
+                    tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
+                    // One deadline for the ping to go out and its answer to come back.
+                    let deadline = tokio::time::Instant::now() + WAKE_PROBE;
+                    match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                    }
+                }
+            };
+        }
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(());
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
-                _ = wake_check.tick() => {
-                    if let Some(slept) = wake_watch.check() {
-                        tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
-                        // One deadline for the ping to go out and its answer to come back.
-                        let deadline = tokio::time::Instant::now() + WAKE_PROBE;
-                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
-                            Ok(Ok(())) => wake_probe = Some(deadline),
-                            Ok(Err(e)) => break Err(e.to_string()),
-                            Err(_) => break Err(stopped_reading(WAKE_PROBE)),
-                        }
-                    }
-                }
+                _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
                     break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
                 }
@@ -1041,6 +1047,7 @@ impl Peer {
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
+                    check_wake!();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     match tokio::time::timeout_at(until, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => {}
@@ -1120,6 +1127,8 @@ impl Peer {
                     if epoch != self.link_epoch() {
                         continue;
                     }
+                    // Before the frame is marked: a link a wake check drops never had it.
+                    check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
                     if let Some(key) = key {
                         self.on_wire.lock_or_recover().insert(key);
