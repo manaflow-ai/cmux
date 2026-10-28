@@ -1441,6 +1441,10 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_test_reds.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
@@ -1579,6 +1583,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_election_budget.py"
+lane = "manual"
+reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. The repo adds no new CI tests (CLAUDE.md, 2026-10-23), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
 
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
@@ -1926,6 +1935,10 @@ path = "tests/test_pr_capture_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_perf_section_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
@@ -2140,4 +2153,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fresh_home_launch_smoke.py"
 lane = "linux-guard"

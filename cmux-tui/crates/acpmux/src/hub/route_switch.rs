@@ -67,18 +67,15 @@ impl Hub {
             bindings.chats.clear();
         }
         // A profile's own route (the `cmux` harness) replaces a family or
-        // global binding; a chat or workspace binding still wins.
-        let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
-        let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
-        // Your own endpoint (byo_endpoint.rs) names its provider itself: a
-        // family or global binding never rewrites it.
-        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
-        let Some((id, scope)) = (match (bound, profile_route) {
-            (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
-            (_, Some(id)) => Some((id, "profile")),
-            (_, None) if own_endpoint => None,
-            (bound, None) => bound,
-        }) else {
+        // global binding; a chat or workspace binding still wins; your own
+        // endpoint is never rewritten by a family or global one.
+        let Some((id, scope)) = routes::spawn_route(
+            &bindings,
+            session.unwrap_or_default(),
+            workspace,
+            &family,
+            &profile.env,
+        ) else {
             return Ok(None);
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
