@@ -119,7 +119,8 @@ impl Hub {
     }
 
     /// `add_peer`, saying whether this Mac lends the peer its GitHub login (`github_broker.rs`);
-    /// None keeps what a re-add of the same machine had.
+    /// None keeps what a re-add of the same machine had. A re-add of the same machine that says
+    /// it (Add Machine on a peer added before) keeps the saved tokens it does not name.
     pub async fn add_peer_lending(
         &self,
         name: &str,
@@ -146,9 +147,16 @@ impl Hub {
             // (`vm_boundary.rs`); `peer_add` itself never turns it on.
             let vm_boundary =
                 cfg.peers.get(name).is_some_and(|old| old.url == url && old.vm_boundary);
-            let github_broker = github_broker.unwrap_or_else(|| {
-                cfg.peers.get(name).is_some_and(|old| old.url == url && old.github_broker)
-            });
+            let same = cfg.peers.get(name).filter(|old| old.url == url);
+            let (token, peer_token) = match same {
+                Some(old) if github_broker.is_some() => (
+                    token.or_else(|| old.token.clone()),
+                    peer_token.or_else(|| old.peer_token.clone()),
+                ),
+                _ => (token, peer_token),
+            };
+            let github_broker =
+                github_broker.unwrap_or_else(|| same.is_some_and(|old| old.github_broker));
             let pc = crate::config::PeerConfig {
                 url: url.to_owned(),
                 token,

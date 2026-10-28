@@ -83,9 +83,14 @@ impl C {
     }
 }
 
-/// A stand-in for the added machine's daemon: it answers the Mac's handshake, then asks it for
-/// `action` once and hands back the Mac's whole answer.
-async fn lane_asking(action: Value) -> (u16, oneshot::Receiver<Value>) {
+/// A stand-in for the added machine's daemon: it answers the Mac's handshake saying it serves
+/// the Mac as `origin`, then asks it for `action` once (with `early`, before it answers the
+/// Mac's `initialize`) and hands back the Mac's whole answer.
+async fn lane_asking(
+    action: Value,
+    origin: &'static str,
+    early: bool,
+) -> (u16, oneshot::Receiver<Value>) {
     use tokio_tungstenite::tungstenite::Message as Ws;
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
@@ -105,14 +110,19 @@ async fn lane_asking(action: Value) -> (u16, oneshot::Receiver<Value>) {
             };
             let result = match m.as_str() {
                 method::INITIALIZE => json!({"protocolVersion": 1,
-                    "_meta": {"acpmux": {"version": "0", "build": "t", "origin": "peer"}}}),
+                    "_meta": {"acpmux": {"version": "0", "build": "t", "origin": origin}}}),
                 method::MUX_WATCH => json!({"sessions": []}),
                 _ => json!({}),
             };
             let mut lines = vec![Message::ok(id, result).to_line()];
-            if m == method::MUX_WATCH {
+            let ask_now = if early { m == method::INITIALIZE } else { m == method::MUX_WATCH };
+            if ask_now {
                 let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action.clone());
-                lines.push(ask.to_line());
+                if early {
+                    lines.insert(0, ask.to_line());
+                } else {
+                    lines.push(ask.to_line());
+                }
             }
             for line in lines {
                 ws.send(Ws::Text(line.trim_end().to_owned().into())).await.unwrap();
@@ -124,7 +134,18 @@ async fn lane_asking(action: Value) -> (u16, oneshot::Receiver<Value>) {
 
 /// What the Mac answers a lane it added with `githubBroker` as given.
 async fn mac_answers(app: &mut C, name: &str, github_broker: Option<bool>, action: Value) -> Value {
-    let (port, answer) = lane_asking(action).await;
+    mac_answers_link(app, name, github_broker, action, "peer", false).await
+}
+
+async fn mac_answers_link(
+    app: &mut C,
+    name: &str,
+    github_broker: Option<bool>,
+    action: Value,
+    origin: &'static str,
+    early: bool,
+) -> Value {
+    let (port, answer) = lane_asking(action, origin, early).await;
     let mut add = json!({"name": name, "url": format!("ws://127.0.0.1:{port}"), "token": "tok",
         "wait": true});
     if let Some(on) = github_broker {
@@ -155,6 +176,38 @@ async fn the_mac_runs_an_added_machines_action_with_its_own_gh_and_no_other_peer
     assert_eq!(v["error"]["code"], -32602, "{v}");
 
     // A peer added any other way is lent nothing.
-    let v = mac_answers(&mut app, "plain", None, read).await;
+    let v = mac_answers(&mut app, "plain", None, read.clone()).await;
     assert_eq!(v["error"]["data"]["reason"], "github.denied", "{v}");
+}
+
+/// The review of #24797 at 758863e: a lent peer was served before its handshake finished, and
+/// on a link where it served the Mac as Web.
+#[tokio::test]
+async fn the_mac_lends_only_on_a_link_whose_handshake_made_it_a_peer() {
+    fake_gh();
+    let a = hub();
+    let mut app = C::new(&a, None).await;
+    let read = json!({"action": "read", "repo": "o/r"});
+    let v = mac_answers_link(&mut app, "early", Some(true), read.clone(), "peer", true).await;
+    assert_eq!(v["error"]["data"]["reason"], "github.denied", "asked before the handshake: {v}");
+    let v = mac_answers_link(&mut app, "as-web", Some(true), read.clone(), "remote", false).await;
+    assert_eq!(v["error"]["data"]["reason"], "github.denied", "served the Mac as Web: {v}");
+    let v = mac_answers_link(&mut app, "lent", Some(true), read, "peer", false).await;
+    assert!(v["result"]["output"].as_str().is_some_and(|o| o.starts_with("gh repo view")), "{v}");
+}
+
+/// The review of #24797's Add Machine part at 5e03d7f: lending to a peer added before replaced its
+/// saved tokens with none.
+#[tokio::test]
+async fn lending_to_a_peer_added_before_keeps_its_tokens() {
+    let a = hub();
+    let mut app = C::new(&a, None).await;
+    let url = "ws://127.0.0.1:9";
+    let add = json!({"name": "old", "url": url, "token": "tok", "peerToken": "pt"});
+    app.call("_acpmux/peer_add", add).await.unwrap();
+    let lend = json!({"name": "old", "url": url, "githubBroker": true});
+    app.call("_acpmux/peer_add", lend).await.unwrap();
+    let saved = a.config.read().await.peers.get("old").cloned().unwrap();
+    assert!(saved.github_broker);
+    assert_eq!((saved.token.as_deref(), saved.peer_token.as_deref()), (Some("tok"), Some("pt")));
 }

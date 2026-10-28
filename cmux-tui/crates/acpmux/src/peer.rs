@@ -113,6 +113,9 @@ pub struct Peer {
     /// `github_broker.rs`), and how many of its actions may run at once.
     github_broker: AtomicBool,
     github_slots: Arc<tokio::sync::Semaphore>,
+    /// The link (`link_epoch` + 1; 0 for none) whose handshake finished with the peer serving
+    /// this daemon as a peer: the only link a GitHub action is taken on.
+    github_link: AtomicU64,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -195,6 +198,7 @@ impl Peer {
             vm_boundary: AtomicBool::new(false),
             github_broker: AtomicBool::new(false),
             github_slots: Arc::new(tokio::sync::Semaphore::new(crate::github_broker::OWNER_SLOTS)),
+            github_link: AtomicU64::new(0),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -457,6 +461,12 @@ impl Peer {
 
     pub fn github_broker(&self) -> bool {
         self.github_broker.load(Ordering::SeqCst)
+    }
+
+    /// Whether this link takes a GitHub action now: lent, and its handshake finished with the
+    /// peer serving this daemon as a peer (not Web), so nothing sent before or around it is.
+    fn github_ready(&self) -> bool {
+        self.github_broker() && self.github_link.load(Ordering::SeqCst) == self.link_epoch() + 1
     }
 
     /// The peer's daemon asked for a GitHub action (`github_broker.rs`) and `admit_owner` let it
@@ -872,6 +882,10 @@ impl Peer {
                 return Ok(());
             }
             me.admitting.store(false, Ordering::SeqCst);
+            // This link's own epoch: if it dropped meanwhile, the next one is not ready.
+            if me.served_as().as_deref() == Some("peer") {
+                me.github_link.store(link + 1, Ordering::SeqCst);
+            }
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
@@ -1020,8 +1034,8 @@ impl Peer {
                         }
                         Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
                             // Refused here, before anything is spawned, unless this Mac lends the
-                            // peer GitHub and one of its slots is free.
-                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_broker(), &self.github_slots);
+                            // peer GitHub, the handshake on this link finished, and a slot is free.
+                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(), &self.github_slots);
                             match admitted {
                                 Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot),
                                 Err(e) => {
