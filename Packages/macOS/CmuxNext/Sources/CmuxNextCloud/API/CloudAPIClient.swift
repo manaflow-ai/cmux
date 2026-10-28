@@ -378,12 +378,10 @@ public struct CloudAPIClient: Sendable {
     /// sent once more under it, with the first's own credentials (the server scopes the key per
     /// account, so a switch of account between the two can't make a second Run; pin the team with
     /// ``pinningTeam(_:)``), which returns the same Run, never a second paid one. Answers the final
-    /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON. `follow` (the app's ``SandboxRunFollower``)
-    /// waits on the created Run in place of the poll here, so the wait outlives this call's deadline.
+    /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON. `follow` (``SandboxRunFollower``) waits in place of the poll here.
     public func runSandbox(task: String, agent: String? = nil, timeoutMs: Int = 600_000, idempotencyKey: String = UUID().uuidString,
                            teardown: Duration = .seconds(180), callsMargin: Duration = .seconds(60),
-                           now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
-                           follow: (@Sendable (_ id: String) async throws -> Data)? = nil) async throws -> [String: Any] {
+                           now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, follow: (@Sendable (_ id: String) async throws -> Data)? = nil) async throws -> [String: Any] {
         let bound = Duration.milliseconds(timeoutMs) + teardown + callsMargin
         let data = try await SandboxDeadline.race(bound) {
             try await self.sandboxSnapshot(task: task, agent: agent, timeoutMs: timeoutMs, key: idempotencyKey,
@@ -418,8 +416,7 @@ public struct CloudAPIClient: Sendable {
             let data: Data
             do {
                 data = try await waitRun(id, timeoutMs: 10_000)
-            } catch {
-                // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
+            } catch { // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
                 throw CloudAPIError.timedOut("/api/runs/\(id)")
             }
             // A 200 that is no Run snapshot (an array, an error body) won't turn into one: stop now.

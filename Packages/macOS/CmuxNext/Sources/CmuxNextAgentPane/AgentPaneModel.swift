@@ -226,13 +226,9 @@ public final class AgentPaneModel {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
         self.transport = transport
-        self.sessionId = sessionId
-        self.seed = seed
+        (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
-        if let result = seed?.sandboxResult {
-            let card = result.card.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
-            sandboxRuns.restore(task: result.task, key: result.key, snapshot: card)
-        }
+        sandboxRuns.restore(seed?.sandboxResult)
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }

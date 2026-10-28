@@ -36,9 +36,10 @@ public final class AgentPaneSandboxRuns {
 
     /// A send that ended elsewhere, shown by this new pane as its own (``AgentPaneSeedSource/sandboxResult``):
     /// the page reads it with `sandbox.state`, and the tab's one send is spent. A pane that holds a send keeps it.
-    func restore(task: String, key: String, snapshot: [String: Any]) {
-        guard running == nil, last == nil else { return }
-        last = (task, key, AgentPaneReply.sandbox(snapshot: snapshot))
+    func restore(_ result: AgentPaneSeed.SandboxResult?) {
+        guard let result, running == nil, last == nil else { return }
+        let card = result.card.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+        last = (result.task, result.key, AgentPaneReply.sandbox(snapshot: card))
     }
 
     /// A send's reply as its task's result: main-actor bound, so it may cross the task's end.
