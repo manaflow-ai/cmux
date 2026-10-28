@@ -1,0 +1,10 @@
+{"schema": "cmux-input-journal-v1", "source": "handwritten/attach-open-failed-two-terminals"}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "start", "phase": "attaching", "surface": "s3a"}}}, "seq": 1, "uptimeNanos": 1001000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "start", "phase": "attaching", "surface": "s3b"}}}, "seq": 2, "uptimeNanos": 1002000000}
+{"kind": {"attach": {"_0": {"attempt": 1, "bytes": 0, "droppedBytes": 0, "event": "openFailed", "phase": "reattaching", "surface": "s3a"}}}, "seq": 3, "uptimeNanos": 1003000000}
+{"kind": {"attach": {"_0": {"attempt": 1, "bytes": 0, "droppedBytes": 0, "event": "opened", "link": 31, "phase": "attaching:linked", "surface": "s3b"}}}, "seq": 4, "uptimeNanos": 1004000000}
+{"kind": {"attach": {"_0": {"attempt": 2, "bytes": 0, "droppedBytes": 0, "event": "opened", "link": 21, "phase": "reattaching:linked", "surface": "s3a"}}}, "seq": 5, "uptimeNanos": 1005000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "replay", "link": 31, "phase": "live", "surface": "s3b"}}}, "seq": 6, "uptimeNanos": 1006000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "replay", "link": 21, "phase": "live", "surface": "s3a"}}}, "seq": 7, "uptimeNanos": 1007000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "close", "phase": "closed", "surface": "s3b"}}}, "seq": 8, "uptimeNanos": 1008000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "close", "phase": "closed", "surface": "s3a"}}}, "seq": 9, "uptimeNanos": 1009000000}

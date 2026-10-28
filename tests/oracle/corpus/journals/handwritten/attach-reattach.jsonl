@@ -1,0 +1,15 @@
+{"schema": "cmux-input-journal-v1", "source": "handwritten/attach-reattach"}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "start", "phase": "attaching", "surface": "s1"}}}, "seq": 1, "uptimeNanos": 1001000000}
+{"kind": {"attach": {"_0": {"attempt": 1, "bytes": 0, "droppedBytes": 0, "event": "opened", "link": 7, "phase": "attaching:linked", "surface": "s1"}}}, "seq": 2, "uptimeNanos": 1002000000}
+{"kind": {"attach": {"_0": {"bytes": 5, "droppedBytes": 0, "event": "input", "phase": "attaching:linked", "surface": "s1"}}}, "seq": 3, "uptimeNanos": 1003000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "resize:100x30", "phase": "attaching:linked", "surface": "s1"}}}, "seq": 4, "uptimeNanos": 1004000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "replay", "link": 7, "phase": "live", "surface": "s1"}}}, "seq": 5, "uptimeNanos": 1005000000}
+{"kind": {"attach": {"_0": {"bytes": 3, "droppedBytes": 0, "event": "input", "phase": "live", "surface": "s1"}}}, "seq": 6, "uptimeNanos": 1006000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "grid:120x40", "link": 7, "phase": "live", "surface": "s1"}}}, "seq": 7, "uptimeNanos": 1007000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "focused", "phase": "live", "surface": "s1"}}}, "seq": 8, "uptimeNanos": 1008000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "hidden", "phase": "live", "surface": "s1"}}}, "seq": 9, "uptimeNanos": 1009000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "visible", "phase": "live", "surface": "s1"}}}, "seq": 10, "uptimeNanos": 1010000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "ended:other", "link": 7, "phase": "reattaching", "surface": "s1"}}}, "seq": 11, "uptimeNanos": 1011000000}
+{"kind": {"attach": {"_0": {"attempt": 2, "bytes": 0, "droppedBytes": 0, "event": "opened", "link": 8, "phase": "reattaching:linked", "surface": "s1"}}}, "seq": 12, "uptimeNanos": 1012000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "replay", "link": 8, "phase": "live", "surface": "s1"}}}, "seq": 13, "uptimeNanos": 1013000000}
+{"kind": {"attach": {"_0": {"bytes": 0, "droppedBytes": 0, "event": "close", "phase": "closed", "surface": "s1"}}}, "seq": 14, "uptimeNanos": 1014000000}
