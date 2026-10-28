@@ -199,16 +199,22 @@ function toolFindings(tool: Tool): Finding[] {
     .split("\n")
     .filter((part) => isPullRequestCommand(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part));
   const found: Finding[] = [];
-  if (CREATE.test(calls.join("\n"))) {
+  let createCount = calls.filter((call) => CREATE.test(call)).length;
+  if (createCount > 0) {
     const title = TITLE.exec(command);
     const text = title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined;
-    for (const match of (tool.output ?? "").matchAll(PR_URL))
+    // A shell can create a PR and then print another PR's URL (for example from
+    // `gh pr view --json url`). Only one URL per create call is opening evidence.
+    for (const match of (tool.output ?? "").matchAll(PR_URL)) {
+      if (createCount === 0) break;
       found.push({
         how: "opened",
         repo: match[1]!,
         number: Number(match[2]),
         ...(text ? { title: text } : {}),
       });
+      createCount--;
+    }
     // Continue scanning the same successful shell for later commands separated by &&/;.
   }
   // Preserve execution order across gh and broker lifecycle commands.

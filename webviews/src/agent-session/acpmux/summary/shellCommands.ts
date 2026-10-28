@@ -53,6 +53,7 @@ export function shellCommands(text: string): string[] {
       at++;
       let remaining = active;
       let uncertain = false;
+      let hasElse = false;
       // An if with no matching arm and no else succeeds.
       status = true;
       while (at < tokens.length) {
@@ -71,6 +72,7 @@ export function shellCommands(text: string): string[] {
           continue;
         }
         if (tokens[at] === "else") {
+          hasElse = true;
           at++;
           const other = list(remaining, ["fi"], depth);
           if (remaining) status = other;
@@ -78,7 +80,10 @@ export function shellCommands(text: string): string[] {
         if (tokens[at] === "fi") at++;
         break;
       }
-      if (uncertain) status = undefined;
+      // With no matching arm, a shell `if` exits successfully. An unknown guard
+      // remains definitely successful when every possible executed body succeeds;
+      // a possible failing body keeps the status uncertain.
+      if (uncertain) status = !hasElse && status === true ? true : undefined;
     } else if (tokens[at] === "(") {
       at++;
       status = list(active, [")"], depth);

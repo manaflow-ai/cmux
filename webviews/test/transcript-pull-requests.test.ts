@@ -525,6 +525,38 @@ test("short-circuit and negated shell forms reflect executed mutations", () => {
       "acme/app",
     ).sources,
   ).toEqual([{ url: "https://github.com/acme/app/pull/50", label: "acme/app #50", kind: "pullRequest" }]);
+  expect(
+    transcriptPullRequests(toolsRows(shell("if test -f missing; then true; fi || gh pr merge 51 -R acme/app --squash"))),
+  ).toEqual([]);
+});
+
+test("a create followed by a view only opens the created PR", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr create -R acme/app --title created && gh pr view 7 -R acme/app --json url --jq .url",
+      "https://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/7\n",
+    ),
+  );
+  expect(transcriptPullRequests(rows)).toMatchObject([
+    { repo: "acme/app", number: 8, opened: true },
+    { repo: "acme/app", number: 7, opened: false },
+  ]);
+});
+
+test("mutating MCP payloads are not Sources", () => {
+  const rows = [
+    activity(
+      [
+        tool("mcp__slack__send_message", "other", "completed", {
+          inputSummary: JSON.stringify({ message: "See https://example.com/payload" }),
+          output: "sent",
+          exitCode: 0,
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
 
 test("issue commands do not hide unrelated references on the same shell line", () => {

@@ -4,7 +4,7 @@
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
-import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
+import { mcpCall, mcpIsObservational, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
 import {
   pullRequestSourceCommand,
@@ -209,14 +209,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       const title = item.command || inputCommand ? command : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
-      const inputText = inputCommand ? "" : (item.inputSummary ?? "");
+      const call = mcpCall(item);
+      const inputText = inputCommand || (call && !mcpIsObservational(call)) ? "" : (item.inputSummary ?? "");
       const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
       const order = rowIndex + toolIndex / 1000;
       addUrls(text, order);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, order);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, order);
-      const call = mcpCall(item);
-      if (call) add({ label: mcpPlainName(call), kind: "mcp" }, order);
+      if (call && mcpIsObservational(call)) add({ label: mcpPlainName(call), kind: "mcp" }, order);
     }
   }
   // Add shorthand-only references after transcript URLs have been encountered, so a URL earlier
