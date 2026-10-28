@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import Foundation
 
 /// A file the phone already holds (a composer or message attachment), as a
@@ -44,8 +45,10 @@ public struct LocalFileArtifactSource: ArtifactSource {
     /// Reads the bytes of a file the phone names but does not hold (a recorded prompt's image).
     let fetch: (@Sendable (LocalFile) async -> Data?)?
 
+    /// `scope` is not used yet (stub).
     public init(files: [LocalFile], fallback: any ArtifactSource = UnavailableArtifactSource(),
-                fetch: (@Sendable (LocalFile) async -> Data?)? = nil) {
+                fetch: (@Sendable (LocalFile) async -> Data?)? = nil,
+                scope: any SecurityScope = SystemSecurityScope()) {
         var byReference: [String: LocalFile] = [:]
         for file in files { byReference[file.reference] = file }
         self.files = byReference
