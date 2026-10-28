@@ -40,10 +40,9 @@ pub(in crate::hub) fn approved_error() -> RpcError {
 const MAX_HELD_PER_AUTHOR: usize = 16;
 
 /// `queue.too_many_held` when the prompt's author already has [`MAX_HELD_PER_AUTHOR`] prompts
-/// waiting for the owner: it is refused before it is recorded, so it may be sent again later.
-pub(super) fn held_cap(session: &Session, provenance: Option<&Value>) -> Result<(), RpcError> {
+/// waiting for the owner. Called with the queue locked by the insertion, before recording it.
+pub(super) fn held_cap(queue: &[QueuedPrompt], provenance: Option<&Value>) -> Result<(), RpcError> {
     let author = crate::author::of_provenance(provenance);
-    let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let held = queue.iter().filter(|q| q.awaiting_owner && q.sender() == author).count();
     if held < MAX_HELD_PER_AUTHOR {
         return Ok(());

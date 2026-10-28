@@ -224,19 +224,18 @@ impl Hub {
                 if p.no_queue && waiting {
                     return Err(Err(super::auto_resume::retry_turn::busy()));
                 }
-                if awaiting_owner {
-                    queue_approve::held_cap(session, p.provenance).map_err(Answer::Err)?;
-                }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                let withdraw = waiting.then(|| {
-                    let waits = self.enqueue(session, &p, position, &turn_id);
+                let withdraw = if waiting {
+                    let waits = self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
                     let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position});
                     if awaiting_owner {
                         accepted["awaitingOwner"] = json!(true);
                     }
                     accept(accepted);
-                    waits
-                });
+                    Some(waits)
+                } else {
+                    None
+                };
                 (turn_id, withdraw)
             }
         };
@@ -292,7 +291,8 @@ impl Hub {
                         }
                         let mark = self.mark_waiting_for_slot(&parent, session);
                         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                        let waits = self.enqueue(session, &p, position, &turn_id);
+                        let waits =
+                            self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
                         accept(
                             json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
                         );
@@ -400,13 +400,28 @@ impl Hub {
 
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
-    /// agent message's turn (then `joined` is set, `digest.rs`).
-    fn enqueue(&self, session: &Arc<Session>, p: &Slot<'_>, position: u64, turn_id: &str) -> Waits {
+    /// agent message's turn (then `joined` is set, `digest.rs`). A refusal releases the caller's
+    /// `queued` reservation without inserting or recording the prompt.
+    fn enqueue(
+        &self,
+        session: &Arc<Session>,
+        p: &Slot<'_>,
+        position: u64,
+        turn_id: &str,
+    ) -> Result<Waits, RpcError> {
         let withdraw = Arc::new(Notify::new());
         let joined = Arc::new(StdMutex::new(None));
         let declined = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let awaiting_owner = crate::author::awaits_owner(p.provenance);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Check and insert under one lock: simultaneous prompts cannot all reserve the last
+        // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
+        if awaiting_owner
+            && let Err(error) = queue_approve::held_cap(&queue, p.provenance)
+        {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            return Err(error);
+        }
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
         let superseded = p.supersede.map(|key| {
@@ -506,7 +521,7 @@ impl Hub {
                 json!({"promptId": p.prompt_id, "order": order}),
             );
         }
-        (withdraw, joined, declined)
+        Ok((withdraw, joined, declined))
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn

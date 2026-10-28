@@ -44,7 +44,10 @@ async fn concurrent_enqueues_reserve_only_one_last_held_slot() {
     let (tx, rx) = mpsc::channel(8);
     let (out_tx, mut out) = mpsc::channel(4096);
     tokio::spawn(crate::server::serve_connection_with(
-        hub.clone(), rx, out_tx, crate::server::Origin::Local,
+        hub.clone(),
+        rx,
+        out_tx,
+        crate::server::Origin::Local,
     ));
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
     tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
