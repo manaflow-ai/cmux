@@ -308,6 +308,9 @@ export function ComposerContext({
     if (!readOnly && (id !== selectedComputer || auto?.selected)) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
+      // Under Auto a machine row is an explicit pick even when it lands on a folder: the caller hears
+      // the machine first (it ends Auto), then the folder.
+      if (folder && auto?.selected) onComputer?.(id);
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
       else onComputer?.(id);
     }

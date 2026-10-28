@@ -506,6 +506,7 @@ export function EnvironmentPicker({
           }
           data-section={section}
           data-first-section={first ? "" : undefined}
+          data-current={value === checkedRow ? "" : undefined}
         >
           {action.icon ?? (
             <EnvironmentIcon
@@ -523,6 +524,11 @@ export function EnvironmentPicker({
               </span>
             )}
           </span>
+          {action.kind === "auto" && (
+            <span className="acpmux-location-check" aria-hidden="true">
+              {value === checkedRow && <CheckIcon />}
+            </span>
+          )}
         </span>
       );
     }
