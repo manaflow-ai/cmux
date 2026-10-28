@@ -80,7 +80,7 @@ env:
 jobs:
   test:
     if: github.event.action != 'closed'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -450,10 +450,19 @@ jobs:
             git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
             BASE="$BEFORE"
           fi
-          git show "${BASE}:backend/apps/api/wrangler.jsonc" > "$RUNNER_TEMP/wrangler.base.jsonc"
-          echo "base config: wrangler.jsonc at ${BASE}"
+          # BEFORE's config, then its 99 first-parent ancestors': a cancelled or superseded deploy leaves
+          # an older commit's vars serving, which is not drift (a hand-set var matches none of them).
+          git fetch --quiet --no-tags --depth=100 origin "$BASE" 2>/dev/null || true
+          bases=()
+          i=0
+          for c in $(git rev-list --first-parent --max-count=100 "$BASE"); do
+            git show "${c}:backend/apps/api/wrangler.jsonc" > "$RUNNER_TEMP/wrangler.base.$i.jsonc" 2>/dev/null || break
+            bases+=(--base-config "$RUNNER_TEMP/wrangler.base.$i.jsonc")
+            i=$((i + 1))
+          done
+          echo "base configs: wrangler.jsonc at ${BASE} and its first-parent ancestors, $i in all"
           bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
-            --config wrangler.jsonc --base-config "$RUNNER_TEMP/wrangler.base.jsonc" --env development --wrangler ./node_modules/.bin/wrangler
+            --config wrangler.jsonc "${bases[@]}" --env development --wrangler ./node_modules/.bin/wrangler
       - name: Deploy API Worker (no secrets; records the rollback target)
         id: deploy-api
         env:
