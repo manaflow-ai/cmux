@@ -181,35 +181,17 @@ extension PaneController: LaunchWindowPane {
     private func fadeContentIn(_ content: TabContent, arrived: CFTimeInterval) {
         let left = Self.firstContentWait - (CACurrentMediaTime() - arrived)
         guard left > 0, let arrival = content.arrival else { return }
-        // The frame wait first: a report in this call means the content drew already, and nothing is held.
-        final class Drawn { var now = false; weak var wait: FadeInWait? }
-        let drawn = Drawn()
-        let cancelFrame = arrival.whenDrawn { [drawn] in
-            if let wait = drawn.wait { wait.contentDrawn() } else { drawn.now = true }
+        contentArrival = Motion.panes.fadeIn(.fadeIn, layers: [arrival.layer], in: arrival.view, waitingUpTo: left,
+                                             whenDrawn: arrival.whenDrawn) { [weak self] wait in
+            if self?.contentArrival === wait { self?.contentArrival = nil }
         }
-        guard !drawn.now, let wait = Motion.panes.fadeIn(.fadeIn, layers: [arrival.layer], in: arrival.view, waitingUpTo: left,
-                                                          ended: { [weak self] wait in self?.contentArrivalEnded(wait) }) else {
-            cancelFrame?()
-            return
-        }
-        drawn.wait = wait
-        contentArrival = (wait, cancelFrame)
-    }
-
-    /// The hold of `wait` is over: its frame wait stops.
-    private func contentArrivalEnded(_ wait: FadeInWait) {
-        guard let arrival = contentArrival, arrival.wait === wait else { return }
-        contentArrival = nil
-        arrival.cancelFrame?()
     }
 
     /// Shows the content at rest now and stops waiting (another tab shows, the pane goes away, a newer arrival).
     func cancelContentArrival() {
         contentShownWait = nil
-        guard let arrival = contentArrival else { return }
+        contentArrival?.cancel()
         contentArrival = nil
-        arrival.cancelFrame?()
-        arrival.wait.cancel()
     }
 
     /// A terminal's first frame after its first content is applied; a page's first contentful paint, an agent's or

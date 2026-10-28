@@ -86,6 +86,35 @@ import Testing
         }
     }
 
+    /// Content that drew already (its first-frame report comes in the call) is not held or faded, and its frame wait
+    /// stops; content still waiting is held and its later report starts the fade (review of abf9c90495d: a handoff's
+    /// docked chat faded again from 0).
+    @Test func contentThatDrewAlreadyIsNotHeld() throws {
+        try with {
+            let (view, _) = pane()
+            let layer = try #require(view.layer)
+            var stopped = 0
+            let none = Motion.panes.fadeIn(.fadeIn, layers: [layer], in: view, waitingUpTo: 1, whenDrawn: { drawn in
+                drawn()
+                return { stopped += 1 }
+            })
+            #expect(none == nil)
+            #expect((layer.animationKeys() ?? []).isEmpty, "content that drew is held: \(layer.animationKeys() ?? [])")
+            #expect(stopped == 1, "the frame wait did not stop")
+
+            var report: (@MainActor () -> Void)?
+            let wait = try #require(Motion.panes.fadeIn(.fadeIn, layers: [layer], in: view, waitingUpTo: 1, whenDrawn: { drawn in
+                report = drawn
+                return { stopped += 1 }
+            }))
+            #expect(layer.animation(forKey: FadeInWait.holdKey) != nil, "content still waiting is not held")
+            report?()
+            #expect(wait.isSettled && layer.animation(forKey: FadeInWait.holdKey) == nil, "the report did not start the fade")
+            wait.cancel()
+            #expect(stopped == 2, "cancel did not stop the frame wait")
+        }
+    }
+
     /// No animation at all: the master switch off, the panes category off, or speed off. The pane shows in this frame.
     @Test func aStillGateFadesNothing() throws {
         let cases: [(Bool, Set<MotionCategory>)] = [(false, []), (true, [.panes])]

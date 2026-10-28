@@ -59,8 +59,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var launchReleased = false
     /// A split's new pane waits for its first content to show (`contentArrives`): it fades that content in.
     var contentShownWait: (@MainActor (TabContent) -> Void)?
-    /// The content of a split's new pane held at opacity 0 until it first draws, and what cancels its frame wait.
-    var contentArrival: (wait: FadeInWait, cancelFrame: (@MainActor () -> Void)?)?
+    /// The content of a split's new pane held at opacity 0 until it first draws.
+    var contentArrival: FadeInWait?
     var waitsForLaunchEnd = false // the launch held its content; its afterStartup post is on order (PaneSelectionPresenter)
     /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
     /// suspended. Not ``isVisible``, which is the layout's viewport presence.

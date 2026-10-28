@@ -25,6 +25,35 @@ extension MotionGate {
         pending.hold(fadeSeconds: seconds)
         return pending
     }
+
+    /// ``fadeIn(_:layers:in:waitingUpTo:ended:)`` for content that reports its first frame through `whenDrawn` (which
+    /// runs its callback once, at once when the content drew already, and returns what cancels the wait). The wait
+    /// starts first: content that drew already is not held or faded, and nil comes back. Otherwise the layers are held
+    /// until the report and the frame wait stops when the hold ends; ``FadeInWait/cancel()`` stops it too.
+    public func fadeIn(_ token: MotionFade, layers: [CALayer], in view: NSView, waitingUpTo wait: TimeInterval,
+                       whenDrawn: (@escaping @MainActor () -> Void) -> (@MainActor () -> Void)?,
+                       ended: @escaping @MainActor (FadeInWait) -> Void = { _ in }) -> FadeInWait? {
+        final class Report {
+            var drawn = false
+            weak var wait: FadeInWait?
+        }
+        let report = Report()
+        let cancelFrame = whenDrawn { [report] in
+            if let wait = report.wait { wait.contentDrawn() } else { report.drawn = true }
+        }
+        guard !report.drawn, let pending = fadeIn(token, layers: layers, in: view, waitingUpTo: wait, ended: { pending in
+            let stop = pending.stopWaiting
+            pending.stopWaiting = {}
+            stop()
+            ended(pending)
+        }) else {
+            cancelFrame?()
+            return nil
+        }
+        report.wait = pending
+        pending.stopWaiting = cancelFrame ?? {}
+        return pending
+    }
 }
 
 /// A fade-in held until its content drew (``MotionGate/fadeIn(_:layers:in:waitingUpTo:ended:)``).
@@ -43,6 +72,9 @@ public final class FadeInWait {
     private var holdEnds: CFTimeInterval = 0
     /// The fade started (by the content or by the hold's ceiling), or the wait was cancelled.
     public private(set) var isSettled = false
+    /// Stops the content's first-frame wait (``MotionGate/fadeIn(_:layers:in:waitingUpTo:whenDrawn:ended:)``): run once,
+    /// when the hold ends or is cancelled.
+    var stopWaiting: @MainActor () -> Void = {}
 
     init(gate: MotionGate, token: MotionFade, layers: [CALayer], view: NSView, holdSeconds: TimeInterval,
          ended: @escaping @MainActor (FadeInWait) -> Void) {
@@ -97,6 +129,9 @@ public final class FadeInWait {
     public func cancel() {
         isSettled = true
         ended = nil
+        let stop = stopWaiting
+        stopWaiting = {}
+        stop()
         for layer in layers { layer.removeAnimation(forKey: Self.holdKey) }
     }
 
