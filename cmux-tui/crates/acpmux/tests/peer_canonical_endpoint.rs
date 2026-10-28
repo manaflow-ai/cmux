@@ -97,7 +97,7 @@ fn host_add_with_no_url_adds_the_canonical_endpoint() {
     let d = start("add");
     let out = cli(&d, &["host", "add", "box.invalid"]);
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("was saved and will keep reconnecting"),
+        String::from_utf8_lossy(&out.stderr).contains("was saved and is probing in the background"),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
@@ -113,7 +113,7 @@ fn offline_host_add_exits_zero_with_a_warning() {
     assert!(out.stderr.is_empty(), "{}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(value["warning"]["reason"], "peer_unreachable");
     assert_eq!(value["warning"]["try"], "ssh -o BatchMode=yes box.invalid true");
-    assert_eq!(value["warning"]["detail"], "the peer was saved and will keep reconnecting");
+    assert_eq!(value["warning"]["detail"], "the peer was saved and is probing in the background");
     assert_eq!(saved_url(&d, "box.invalid").as_deref(), Some("ssh://box.invalid"));
 }
 

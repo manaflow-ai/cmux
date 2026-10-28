@@ -527,7 +527,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         retries: args.retries,
                         steer: false,
                     };
-                    show()?;
+                    // Opening the app is best effort for prompt delivery: the
+                    // session must still receive its first prompt when the
+                    // local app is unavailable. Report the open failure after
+                    // the turn so the session can be opened by retrying the
+                    // exact command in the error.
+                    let show_error = show().err();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
                     if ephemeral {
                         let _ = client
@@ -535,6 +540,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             .await;
                     }
                     let r = outcome?;
+                    if let Some(error) = show_error {
+                        return Err(error);
+                    }
                     if json_out {
                         let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
                         if let Some(a) = v.pointer("/_meta/acpmux/admission") {
@@ -563,8 +571,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     retries: args.retries,
                     steer: false,
                 };
-                show()?;
-                return stream_prompt(
+                let show_error = show().err();
+                let streamed = stream_prompt(
                     client,
                     &id,
                     &text,
@@ -576,6 +584,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     &prompt,
                 )
                 .await;
+                if let Err(error) = streamed {
+                    return Err(error);
+                }
+                if let Some(error) = show_error {
+                    return Err(error);
+                }
+                return Ok(());
             }
             show()?;
             if args.detach || json_out {
