@@ -1058,6 +1058,11 @@ fn logout_and_close(
     logged_out.and(closed)
 }
 
+fn late_logout_error() -> String {
+    "Remote logout did not complete before the node closed; sign out from the admin console."
+        .to_owned()
+}
+
 /// libtailscale owns a background runtime. Never let its final `Arc<Node>`
 /// drop on a Tokio worker or request task.
 fn release_on_background<T: Send + 'static>(value: T) {
