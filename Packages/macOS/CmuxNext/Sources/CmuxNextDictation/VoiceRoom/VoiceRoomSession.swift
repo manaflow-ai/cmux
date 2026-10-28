@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 public import Observation
 
