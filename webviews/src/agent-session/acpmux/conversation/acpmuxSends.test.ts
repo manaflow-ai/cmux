@@ -390,6 +390,26 @@ describe("whose exit status the call reports", () => {
 });
 
 describe("shellCommands", () => {
+  test("only executable grouping is syntax; quoted words and heredoc bodies are content", () => {
+    for (const command of [
+      `acpmux send lane '[review](https://example.com) {pass}'`,
+      `acpmux send lane "[review](https://example.com) {pass}"`,
+      `acpmux send lane \\(review\\) \\{pass\\}`,
+      `cat > /tmp/message <<'EOF'\n[review](https://example.com)\n{pass}\nEOF`,
+      "acpmux send lane ready # (comment) {comment}",
+    ])
+      expect(shellCommands(command).every((part) => !part.grouped)).toBe(true);
+    for (const command of [
+      "(acpmux send lane - < /tmp/message)",
+      "{ acpmux send lane - < /tmp/message; }",
+      "(cat > /tmp/message <<'EOF'\ngrouped\nEOF\n)",
+      "{ cat > /tmp/message <<'EOF'\ngrouped\nEOF\n}",
+    ]) {
+      expect(shellCommands(command).every((part) => part.grouped)).toBe(true);
+      expect(recordedMessageBodyChanges(command)).toEqual([{ reset: true }]);
+    }
+  });
+
   test("operators split commands; redirects and here-documents are not words", () => {
     const commands = shellCommands("a 1 2>&1 | b && c || d; e & f\ng <<X\nbody\nX\nh");
     expect(commands.map((command) => [command.words.map((word) => word.text).join(" "), command.op])).toEqual([

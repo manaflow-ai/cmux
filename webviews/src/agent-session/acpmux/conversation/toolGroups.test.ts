@@ -149,6 +149,33 @@ test("wrapped sends retain a prior same-turn recorded message body", () => {
   }
 });
 
+test("quoted Markdown links and braces remain recorded message content", () => {
+  const body = '[review](https://example.com)\n{"result":"pass"}\n';
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: `cat > /tmp/markdown.md <<'EOF'\n${body}EOF`,
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const direct = item({
+    title: "Bash",
+    kind: "execute",
+    command: `acpmux send direct '[review](https://example.com) {pass}'`,
+    startedAt: 3,
+    endedAt: 4,
+  });
+  const file = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send file - < /tmp/markdown.md",
+    startedAt: 5,
+    endedAt: 6,
+  });
+  const sends = toolGroups([writer, direct, file]).filter((entry) => entry.type === "send");
+  expect(sends.map((group) => group.send.text)).toEqual(["[review](https://example.com) {pass}", body]);
+});
+
 test("successive sends retain a recorded body until a later uncertain mutation", () => {
   const writer = item({
     title: "Bash",
