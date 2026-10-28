@@ -413,3 +413,59 @@ fn concurrent_creates_and_revokes_keep_the_timer_on_the_next_expiry() {
     assert!(next.is_some());
     assert_eq!(shares.armed.lock().unwrap().as_ref().map(|(_, at)| *at), next);
 }
+
+/// A revoke that runs between a guest bind's check and its registration (its sweep finds no bound
+/// connection yet) still leaves the connection unbound: the bind answers `share_ended`.
+#[test]
+fn a_share_that_ends_while_a_guest_binds_never_leaves_it_bound() {
+    let fake = FakeAcpmux::start("share-bind-race");
+    let mux = mux_with(&fake, "share-bind-race");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-bind-race-owner");
+    let share = create(&mut owner, surface, json!({}));
+    let guest = redeem(&mut owner, &share, "Ann", "a1");
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let (revoker, share_id) = (mux.clone(), share["share_id"].as_str().unwrap().to_owned());
+    *shares.bind_hook.lock().unwrap() = Some(Box::new(move || {
+        let shares = &revoker.control_clients.agent_sessions.link_shares;
+        let directory = revoker.session_state_directory();
+        shares.end(directory.as_deref(), &Named { share_id, guest_id: None }).unwrap();
+        shares.settle(&revoker);
+    }));
+    let (_client, reply) = bind(&mux, &share, &guest, "share-bind-race-guest");
+    assert_code(&reply, "agent_session.share_ended");
+    assert!(shares.bind_hook.lock().unwrap().is_none(), "the revoke ran inside the bind");
+    assert_eq!(mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().len(), 0);
+}
+
+/// After a restart renumbers the surfaces, a guest's attach resolves to the surface that shows
+/// the chat now, and its detach ends that attachment, not a lookup of the stored surface.
+#[test]
+fn a_guest_detach_ends_its_attachment_on_a_renumbered_surface() {
+    let fake = FakeAcpmux::start("share-detach");
+    let mux = mux_with(&fake, "share-detach");
+    let stored = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-detach-owner");
+    let share = create(&mut owner, stored, json!({}));
+    let guest = redeem(&mut owner, &share, "Ann", "a1");
+    // As after a restart: the stored surface shows another chat, a new one shows the shared chat.
+    crate::server::agent_session_attach_tests::run(
+        &mux,
+        json!({"cmd":"bind-conversation-tab-session","surface":stored,
+            "session":"acp_session_2","expected_session":SESSION}),
+    );
+    let shown = agent_tab(&mux, Some(SESSION));
+    assert_ne!(shown, stored);
+    let (mut client, _) = bind(&mux, &share, &guest, "share-detach-guest");
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":stored}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    let sessions = &mux.control_clients.agent_sessions;
+    let deadline = std::time::Instant::now() + WAIT;
+    while sessions.attachment_count() != 1 {
+        assert!(std::time::Instant::now() < deadline, "the attachment is registered");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let detach = client.request(json!({"cmd":"agent-session-detach", "surface":stored}));
+    assert_eq!(detach["ok"], true, "{detach}");
+    assert_eq!(sessions.attachment_count(), 0, "the detach ended the attachment it named");
+}

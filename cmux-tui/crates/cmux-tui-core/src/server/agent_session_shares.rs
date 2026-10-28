@@ -138,6 +138,9 @@ pub(in crate::server) struct LinkShares {
     mux: Mutex<Weak<Mux>>,
     /// Added to the wall clock (tests move time with it).
     skew_ms: AtomicU64,
+    /// Runs once between a guest bind's check and its registration (tests).
+    #[cfg(test)]
+    pub(super) bind_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Drop for LinkShares {
@@ -652,6 +655,10 @@ pub(super) fn guest_author(mux: &Arc<Mux>, link: Value) -> Result<Value, Refusal
     shares.serve(mux);
     let found = shares.guest(directory.as_deref(), &link.share_id, &link.guest_id);
     shares.settle(mux);
+    #[cfg(test)]
+    if let Some(hook) = shares.bind_hook.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        hook();
+    }
     found.map(|(_, _, author)| author).map_err(|_| Refusal::ShareEnded)
 }
 
@@ -661,6 +668,7 @@ pub(super) fn guest_author(mux: &Arc<Mux>, link: Value) -> Result<Value, Refusal
 /// `client_id`, so acpmux's prompt ledger runs a retried prompt once.
 pub(super) fn check_guest(
     mux: &Mux,
+    client: u64,
     bound: Value,
     supplied: Option<Value>,
     pinned: Option<Value>,
@@ -692,7 +700,17 @@ pub(super) fn check_guest(
         object.insert("prompt_id".into(), json!(format!("g-{}", &prompt_id[..22])));
     }
     if cmd == "agent-session-detach" {
-        object.insert("surface".into(), json!(surface));
+        // This connection's attachment to the shared chat, on whatever surface it resolved to
+        // (after a restart that is not the share's stored one).
+        let attached = mux
+            .control_clients
+            .agent_sessions
+            .lock()
+            .attachments
+            .iter()
+            .find(|((c, _), a)| *c == client && a.record_session == session)
+            .map(|((_, s), _)| *s);
+        object.insert("surface".into(), json!(attached.unwrap_or(surface)));
         return Ok(Teammate { author, pinned: None });
     }
     // The share's surface, or (after a restart renumbered the surfaces) the one showing its chat.

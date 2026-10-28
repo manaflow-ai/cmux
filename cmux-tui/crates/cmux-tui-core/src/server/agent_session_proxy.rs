@@ -122,7 +122,19 @@ pub(super) fn bind(
     {
         return refuse(writer, id, Refusal::NotTrusted);
     }
-    authors.insert(client, author);
+    authors.insert(client, author.clone());
+    drop(authors);
+    // A share or guest that ended while this bind ran: its sweep may have missed this connection,
+    // which was not bound yet. Checked after the insert, so any end later sees it bound.
+    if is_guest(&author) && !mux.control_clients.agent_sessions.link_shares().guest_live(&author) {
+        mux.control_clients
+            .agent_sessions
+            .proxy_authors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&client);
+        return refuse(writer, id, Refusal::ShareEnded);
+    }
     // No host paths, session inventory or machine metadata in the handshake.
     ok(
         writer,
@@ -165,7 +177,7 @@ pub(super) fn check(
         };
     };
     if is_guest(&bound) {
-        return shares::check_guest(mux, bound, supplied, pinned, object).map(Some);
+        return shares::check_guest(mux, client, bound, supplied, pinned, object).map(Some);
     }
     if supplied.as_ref() != Some(&bound) {
         return Err(Refusal::NotTrusted);
