@@ -21,6 +21,9 @@ export async function audit(args = process.argv.slice(2)): Promise<number> {
   await writeFile(selectors, JSON.stringify(config.selectors));
   process.env.CMUX_GEOMETRY_SELECTORS = selectors;
   await runLocal({ manifest, galleryDir: values["gallery-dir"], outputDir: output, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 });
-  return lint(["--artifact-dir", output, "--config", values.config!, "--report-dir", join(output, "geometry-report"), "--expected-sha", values["expected-sha"]]);
+  const captureExitCode = Number(process.exitCode ?? 0);
+  const lintExitCode = await lint(["--artifact-dir", output, "--config", values.config!, "--report-dir", join(output, "geometry-report"), "--expected-sha", values["expected-sha"]]);
+  // Keep diagnostic geometry even after a failed play, without turning that capture green.
+  return captureExitCode || lintExitCode;
 }
 if (import.meta.main) process.exitCode = await audit();
