@@ -120,25 +120,57 @@ fn build(source: &Path, out: &Path) -> PathBuf {
         .env("CGO_ENABLED", "1")
         .args(["build", "-trimpath", "-buildmode=c-archive", "-o"])
         .arg(&archive);
-    if let Some(goarch) = goarch() {
-        go.env("GOARCH", goarch);
-    }
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        let target = std::env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "14.0".into());
-        go.env("MACOSX_DEPLOYMENT_TARGET", &target)
-            .env("CGO_CFLAGS", format!("-mmacosx-version-min={target}"))
-            .env("CGO_LDFLAGS", format!("-mmacosx-version-min={target}"));
-    }
+    configure_target(&mut go);
     run(&mut go);
     archive
 }
 
-fn goarch() -> Option<&'static str> {
-    match std::env::var("CARGO_CFG_TARGET_ARCH").ok()?.as_str() {
-        "aarch64" => Some("arm64"),
-        "x86_64" => Some("amd64"),
-        _ => None,
+/// Cargo chooses the target; host Go defaults must never choose the archive ABI.
+fn configure_target(go: &mut Command) {
+    let target = std::env::var("TARGET").expect("Cargo target");
+    let host = std::env::var("HOST").expect("Cargo host");
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").expect("target architecture");
+    let os = std::env::var("CARGO_CFG_TARGET_OS").expect("target OS");
+    let goarch = match arch.as_str() {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        _ => panic!("unsupported libtailscale architecture: {arch}"),
+    };
+    let goos = match os.as_str() {
+        "macos" => "darwin",
+        "linux" => "linux",
+        _ => panic!("unsupported libtailscale OS: {os}"),
+    };
+    go.env("GOARCH", goarch).env("GOOS", goos);
+    let underscored = target.replace('-', "_");
+    let compiler =
+        [format!("CC_{target}"), format!("CC_{underscored}"), "TARGET_CC".into(), "CC".into()]
+            .into_iter()
+            .find_map(|key| tracked_env(&key));
+    if let Some(compiler) = compiler {
+        go.env("CC", compiler);
+    } else if os == "macos" && host.ends_with("-apple-darwin") {
+        go.env("CC", "clang");
+    } else if target != host {
+        panic!("cross-compiling libtailscale requires CC_{underscored} (a target C compiler)");
     }
+    for key in ["GO", "GOOS", "GOARCH", "SDKROOT", "CGO_ENABLED", "MACOSX_DEPLOYMENT_TARGET"] {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    if os == "macos" {
+        let minimum = tracked_env("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|| "14.0".into());
+        go.env("MACOSX_DEPLOYMENT_TARGET", &minimum);
+        let apple_arch = if arch == "aarch64" { "arm64" } else { "x86_64" };
+        for key in ["CGO_CFLAGS", "CGO_LDFLAGS"] {
+            let existing = tracked_env(key).unwrap_or_default();
+            go.env(key, format!("{existing} -arch {apple_arch} -mmacosx-version-min={minimum}"));
+        }
+    }
+}
+
+fn tracked_env(key: &str) -> Option<String> {
+    println!("cargo:rerun-if-env-changed={key}");
+    std::env::var(key).ok().filter(|value| !value.is_empty())
 }
 
 fn run(command: &mut Command) {

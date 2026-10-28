@@ -204,7 +204,8 @@ for arch in $archs; do
   fi
   echo "==> building acpmux ($source_mode $source_commit, $target)"
   (cd "$source_root/cmux-tui" && CARGO_TARGET_DIR="$target_dir" cargo build \
-    --locked --release --package acpmux --target "$target")
+    --locked --release --package acpmux --target "$target" \
+    $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$target"))
   slice="$target_dir/$target/release/acpmux"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   built_slices+=("$slice")
