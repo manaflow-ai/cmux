@@ -5,11 +5,16 @@
 // 2. attachments added while nothing is placed in the text (the strip view, shell mode) go into it
 //    when placing starts;
 // 3. a sent attachment is gone for good: an undo of the send's clear brings back no node of it.
+// 4. a PDF, a video and a file in the text are the strip's own chips (#26545's review at 2b4ccd42):
+//    the same open, play and remove controls, doing the same things;
+// 5. an image in the text that cannot be drawn says so, as the strip's does, with Retry and Remove.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
@@ -31,6 +36,8 @@ const keys = [
   "KeyboardEvent",
   "InputEvent",
   "FocusEvent",
+  "MouseEvent",
+  "Event",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -58,12 +65,15 @@ beforeAll(() => {
     KeyboardEvent: window.KeyboardEvent,
     InputEvent: window.InputEvent,
     FocusEvent: window.FocusEvent,
+    MouseEvent: window.MouseEvent,
+    Event: window.Event,
     ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
 
 afterEach(() => {
+  setChipHost(undefined);
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -92,6 +102,7 @@ const FILE: ComposerAttachment = {
 };
 
 type Controls = {
+  attachments(): ComposerAttachment[];
   setAttachments(next: ComposerAttachment[]): void;
   setPlacing(on: boolean): void;
   setText(next: string): void;
@@ -100,8 +111,15 @@ type Controls = {
 
 /// A field and the hook, as the New Tab page wires them: the consumer holds the value and the
 /// attachments, and draws the hook's chips.
-async function render(initial: { text: string; attachments?: ComposerAttachment[]; placing?: boolean }) {
+async function render(initial: {
+  text: string;
+  attachments?: ComposerAttachment[];
+  placing?: boolean;
+  /// The strip too, with the same attachments: what the chips in the text are held to.
+  strip?: boolean;
+}) {
   const { createRoot } = await import("react-dom/client");
+  const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
   const { useInlineAttachments } = await import("../src/agent-session/acpmux/composer/inlineAttachments");
   const field = createRef<MarkdownFieldHandle>();
@@ -125,6 +143,7 @@ async function render(initial: { text: string; attachments?: ComposerAttachment[
       placing: () => placing,
     });
     controls.current = {
+      attachments: () => attachmentsRef.current,
       setAttachments: (next) => setAttachmentsState(next),
       setPlacing,
       setText,
@@ -143,6 +162,7 @@ async function render(initial: { text: string; attachments?: ComposerAttachment[
           isInlineAttachment={inline.known}
         />
         {inline.chips}
+        {initial.strip && <AttachmentStrip attachments={attachments} onRemove={() => {}} />}
       </>
     );
   }
@@ -191,4 +211,147 @@ test("an undo of a send's clear brings back no node of what was sent", async () 
   await settle();
   expect(nodes()).toEqual([]);
   expect(text()).toContain("see");
+});
+
+const POSTER = "data:image/jpeg;base64,/9j/AA==";
+const PDF: ComposerAttachment = {
+  id: "inline-pdf",
+  kind: "document",
+  name: "brief.pdf",
+  mimeType: "application/pdf",
+  size: 4,
+  data: btoa("%PDF"),
+  pageCount: 3,
+};
+const VIDEO: ComposerAttachment = {
+  id: "inline-video",
+  kind: "link",
+  name: "demo.mov",
+  mimeType: "video/quicktime",
+  size: 48_000_000,
+  path: "/tmp/demo.mov",
+  video: { durationMs: 42_400, width: 1920, height: 1080, poster: POSTER, frames: [] },
+};
+const DOCUMENT: ComposerAttachment = {
+  id: "inline-doc",
+  kind: "link",
+  name: "report.docx",
+  mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  size: 12_345,
+  path: "/tmp/report.docx",
+};
+const IMAGE: ComposerAttachment = {
+  id: "inline-image",
+  kind: "image",
+  name: "shot.png",
+  mimeType: "image/png",
+  size: 4,
+  data: "AAAA",
+};
+
+const inlineChip = (id: string) => host.querySelector<HTMLElement>(`[data-inline-attachment="${id}"]`);
+const stripChip = () => host.querySelector<HTMLElement>(".acpmux-attachments .acpmux-attachment")!;
+/// A chip's controls as a person finds them: each button or link by its name.
+const controlsOf = (chip: HTMLElement) =>
+  [...chip.querySelectorAll<HTMLElement>("button, a[href]")].map(
+    (control) => control.getAttribute("aria-label") ?? control.textContent?.trim() ?? "",
+  );
+
+for (const [label, attachment] of [
+  ["a PDF", PDF],
+  ["a video", VIDEO],
+  ["a document", DOCUMENT],
+] as const)
+  test(`${label} in the text has its strip chip's preview, open, play and remove controls`, async () => {
+    await render({ text: `see ${inlineToken(attachment.id)} here`, attachments: [attachment], strip: true });
+    await until(() => !!inlineChip(attachment.id)?.querySelector("button"));
+    const strip = controlsOf(stripChip());
+    expect(strip.length).toBeGreaterThan(0);
+    expect(controlsOf(inlineChip(attachment.id)!)).toEqual(strip);
+    // What the strip chip shows of it (a PDF's sheet and pages, a video's poster and length, a file's
+    // name and size) shows in the text too.
+    const look = (chip: HTMLElement) =>
+      [
+        ...chip.querySelectorAll(
+          ".acpmux-pdf-sheet, .acpmux-attachment-document-pages, .acpmux-attachment-video-length, .acpmux-file-chip",
+        ),
+      ].map((node) => `${node.className}:${node.textContent}`);
+    expect(look(inlineChip(attachment.id)!)).toEqual(look(stripChip()));
+  });
+
+test("a PDF's open in the text opens the strip's PDF viewer", async () => {
+  await render({ text: `see ${inlineToken(PDF.id)}`, attachments: [PDF] });
+  await until(() => !!inlineChip(PDF.id)?.querySelector("button"));
+  const open = inlineChip(PDF.id)!.querySelector<HTMLButtonElement>(
+    `button[aria-label="${translate("composer.openAttachment", { name: PDF.name })}"]`,
+  );
+  expect(open).not.toBeNull();
+  await act(async () => open!.click());
+  await until(() => !!document.querySelector(".acpmux-pdf-viewer"));
+  expect(document.querySelector(".acpmux-pdf-viewer")?.textContent).toContain(PDF.name);
+});
+
+test("a video's play in the text plays it in Quick Look, as the strip's does", async () => {
+  const calls: [string, unknown][] = [];
+  setChipHost(async (method, params) => {
+    calls.push([method, params]);
+    return undefined;
+  });
+  await render({ text: `see ${inlineToken(VIDEO.id)}`, attachments: [VIDEO] });
+  await until(() => !!inlineChip(VIDEO.id)?.querySelector("button"));
+  const play = inlineChip(VIDEO.id)!.querySelector<HTMLButtonElement>(
+    `button[aria-label="${translate("composer.playVideo", { name: VIDEO.name, length: "0:42" })}"]`,
+  );
+  expect(play).not.toBeNull();
+  await act(async () => play!.click());
+  expect(calls.filter(([method]) => method === "video.quickLook")).toEqual([["video.quickLook", { src: VIDEO.path }]]);
+});
+
+for (const [label, attachment] of [
+  ["a PDF", PDF],
+  ["a video", VIDEO],
+  ["a document", DOCUMENT],
+] as const)
+  test(`${label}'s remove in the text takes it out of the prompt`, async () => {
+    const { controls } = await render({ text: `see ${inlineToken(attachment.id)} here`, attachments: [attachment] });
+    await until(() => !!inlineChip(attachment.id)?.querySelector("button"));
+    const remove = inlineChip(attachment.id)!.querySelector<HTMLButtonElement>(
+      `button[aria-label="${translate("composer.removeAttachment", { name: attachment.name })}"]`,
+    );
+    expect(remove).not.toBeNull();
+    await act(async () => remove!.click());
+    await until(() => nodes().length === 0);
+    expect(nodes()).toEqual([]);
+    expect(controls.attachments()).toEqual([]);
+  });
+
+test("an image in the text that cannot be drawn says so, with Retry and Remove that work", async () => {
+  const { controls } = await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
+  await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
+  const fail = () =>
+    act(async () => void inlineChip(IMAGE.id)!.querySelector("img")!.dispatchEvent(new Event("error")));
+  const fallback = () => inlineChip(IMAGE.id)?.querySelector<HTMLElement>(".acpmux-attachment-image-failed");
+  await fail();
+  await until(() => !!fallback());
+  expect(fallback()?.querySelector(".acpmux-attachment-failed-text")?.textContent).toBe(translate("image.failed"));
+  expect(inlineChip(IMAGE.id)!.querySelector("img")).toBeNull();
+  // Retry draws it again.
+  const retry = [...fallback()!.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === translate("composer.retryAttachment"),
+  );
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
+  await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
+  expect(fallback()).toBeFalsy();
+  // Remove takes it out of the prompt.
+  await fail();
+  await until(() => !!fallback());
+  const remove = fallback()!.querySelector<HTMLButtonElement>(
+    `button[aria-label="${translate("composer.removeAttachment", { name: "shot.png" })}"]`,
+  );
+  expect(remove).not.toBeNull();
+  await act(async () => remove!.click());
+  await until(() => nodes().length === 0);
+  expect(nodes()).toEqual([]);
+  expect(controls.attachments()).toEqual([]);
 });
