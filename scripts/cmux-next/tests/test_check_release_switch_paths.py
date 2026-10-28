@@ -199,6 +199,33 @@ class ReadSiteTests(unittest.TestCase):
         self.assertEqual(verdict.status, "offender")
         self.assertIn("no switch read", verdict.detail)
 
+    def test_a_use_the_walk_cannot_follow_is_not_judged_never_refused(self):
+        """Review of 488ebd9f349: shapes with a working Release use that the text walk does not model must not refuse a
+        push (no --no-verify way past it): a memberwise init read in another file, `.init(...)` shorthand, a `didSet`
+        that does the work."""
+        shapes = {
+            "memberwise": ("struct Config { let enabled: Bool }\nfunc f() {\n    let c = Config(enabled: features.isEnabled(.labsThing))\n    use(c)\n}\n",
+                           "func use(_ c: Config) {\n    if c.enabled { go() }\n}\n"),
+            "shorthand": ("func f() {\n    store.mode = .init(on: features.isEnabled(.labsThing))\n}\n", ""),
+            "didSet": ("final class Store {\n    var labsOn = false { didSet { apply() } }\n}\nfunc f() {\n    store.labsOn = features.isEnabled(.labsThing)\n}\n", ""),
+        }
+        for name, (app, other) in shapes.items():
+            with self.subTest(shape=name):
+                tree = self.tree(app)
+                if other:
+                    tree.swift("CmuxNextApp/Other.swift", other)
+                verdict = tree.verdicts()["labsThing"]
+                self.assertNotEqual(verdict.status, "offender", f"{name}: {verdict.detail}")
+                code, _ = tree.main()
+                self.assertEqual(code, 0, f"{name} refused a push")
+
+    def test_a_broken_feature_file_gives_no_verdict_not_a_refusal(self):
+        tree = self.tree("func f() {\n    if features.isEnabled(.labsThing) { go() }\n}\n")
+        tree.feature("broken", '{"name": 5, "kind": "labs", "process": "app", "defaults": {"release": true}}')
+        code, out = tree.main()
+        self.assertEqual(code, 2, out)
+        self.assertNotIn(check.HEADER, out)
+
     def test_a_local_is_followed_in_its_own_file_only(self):
         app = ("func f() {\n    let on = features.isEnabled(.labsThing) ? work : nil\n"
                "    #if DEBUG || CMUX_BENCH_HOOKS\n    if let on { on.go() }\n    #endif\n}\n")
