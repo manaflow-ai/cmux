@@ -247,7 +247,7 @@ jobs:
     environment: release-next
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     env:
       INTEL_APPCAST: appcast-x86_64.xml
