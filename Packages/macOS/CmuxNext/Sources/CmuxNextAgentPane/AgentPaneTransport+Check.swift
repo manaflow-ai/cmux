@@ -89,7 +89,8 @@ extension AgentPaneTransport {
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         let params = object["params"] as? [String: Any] ?? [:]
         let carried = (params["_meta"] as? [String: Any])?[AcpmuxPaneMethods.gestureTicketKey] as? String
-        if !snapshot.isFirst, let refusal = sessionRefusal(object, sessions: snapshot.sessions) {
+        if !snapshot.isFirst, let refusal = sessionRefusal(object, sessions: snapshot.sessions,
+                                                            peerHosts: snapshot.peerHosts) {
             return .refuse(refusal, spend: carried)
         }
         // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
@@ -201,13 +202,20 @@ extension AgentPaneTransport {
     }
 
     /// The refusal of a session-scoped frame for a session that is not this pane's.
-    nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
+    nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions,
+                                           peerHosts: Set<String> = []) -> AcpmuxPaneMethods.Decision? {
         guard let method = object["method"] as? String else { return nil }
         let params = object["params"] as? [String: Any]
-        // Target-form auth is read-only; session-form auth stays bound to this pane.
+        // Auth names only this pane's session, or a host in its native routing snapshot.
         if method == "_acpmux/session/auth" {
             if let session = params?["sessionId"] as? String, !sessions.contains(session) {
                 return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
+            }
+            if let target = params?["target"] as? [String: Any], let host = target["host"] as? String,
+               !peerHosts.contains(host) {
+                // Host names are authorized by the daemon's peer snapshot, never by page-supplied
+                // spelling. An unknown host must fail closed before the daemon sees the query.
+                return .refuse(.intentInvalid, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
             }
             return nil
         }

@@ -43,7 +43,10 @@ nonisolated enum AcpmuxPaneMethods {
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status", "_acpmux/draft_get", "_acpmux/session/auth",
+        "_acpmux/status", "_acpmux/draft_get",
+        // Read-only auth evidence: session/target scope is checked by the transport and the
+        // daemon's typed evidence reply is forwarded unchanged.
+        "_acpmux/session/auth",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts

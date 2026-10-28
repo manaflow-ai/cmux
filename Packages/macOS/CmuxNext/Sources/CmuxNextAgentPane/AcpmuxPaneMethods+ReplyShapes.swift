@@ -41,10 +41,10 @@ nonisolated extension AcpmuxPaneMethods {
         case .string:
             return value as? String
         case .bool:
-            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+            guard AcpmuxPaneMethods.isJSONBoolean(value), let number = value as? NSNumber else { return nil }
             return number.boolValue
         case .number:
-            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+            guard let number = value as? NSNumber, !AcpmuxPaneMethods.isJSONBoolean(value),
                   number.doubleValue.isFinite else { return nil }
             return number
         case .scheme:

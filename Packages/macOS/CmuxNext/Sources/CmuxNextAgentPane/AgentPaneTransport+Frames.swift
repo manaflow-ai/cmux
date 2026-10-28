@@ -14,6 +14,8 @@ extension AgentPaneTransport {
         var modeFields: Set<String>?
         var sessions: AcpmuxPaneSessions
         var options: AcpmuxPermissionOptions
+        /// Native peer snapshot for this connection; an absent name never authorizes a target.
+        var peerHosts: Set<String> = []
         /// The connection is a chat on another machine (``AgentPaneTransport/remoteWire``).
         var remoteWire = false
     }
@@ -177,7 +179,8 @@ extension AgentPaneTransport {
             let wasFirst = !sentFirst
             if wasFirst { texts = Array(texts.prefix(1)) }
             let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, modeFields: modeFields,
-                                    sessions: sessions, options: permissionOptions, remoteWire: remoteWire)
+                                    sessions: sessions, options: permissionOptions, peerHosts: peerHosts,
+                                    remoteWire: remoteWire)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
             if batch.firstSent {
                 sentFirst = true

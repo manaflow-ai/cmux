@@ -75,6 +75,9 @@ import CmuxNextCompat
     private(set) var remoteWire = false
     /// The current remote chat's host reader, installed from the same wire that carries its ACP.
     var remoteImageLoader: (@Sendable (String) async throws -> Data)?
+    /// Peer names from the local daemon's authoritative _acpmux/peers snapshot. Target-form
+    /// session/auth is refused for names outside this set; an unavailable snapshot stays empty.
+    private(set) var peerHosts: Set<String> = []
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
@@ -218,6 +221,7 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
+        peerHosts = connection.remote.map { Set([$0.machine]) } ?? []
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
@@ -265,6 +269,14 @@ import CmuxNextCompat
         } else {
             onOtherInstall?(false)
         }
+        // The daemon owns peer enrollment and routing. Take one snapshot before page frames can
+        // query a target; names are authority, while connected/offline state remains daemon-owned.
+        if connection.remote == nil, let path = connection.socketPath {
+            let peers = try? await AcpmuxPeerList(socketPath: path).peers()
+            guard self.socket === socket, id == current else { throw .staleConnection }
+            peerHosts = Set(peers?.map(\.name) ?? [])
+        }
+        guard self.socket === socket, id == current else { throw .staleConnection }
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)

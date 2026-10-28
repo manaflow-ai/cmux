@@ -9,7 +9,7 @@ import Testing
 @MainActor
 struct AgentPaneSessionAuthRelayTests {
     static func frame(id: Int = 1, params: String) -> String {
-        #"{"jsonrpc":"2.0","id":#(id),"method":"_acpmux/session/auth","params":#(params)}"#
+        #"{"jsonrpc":"2.0","id":\#(id),"method":"_acpmux/session/auth","params":\#(params)}"#
     }
 
     static func object(_ params: String) -> [String: Any]? {
@@ -29,18 +29,44 @@ struct AgentPaneSessionAuthRelayTests {
 
         let invalid = [
             #"{}"#,
+            #"null"#,
+            #"[]"#,
+            #"{"sessionId":null}"#,
+            #"{"target":null}"#,
             #"{"sessionId":"s","target":{"harness":"claude"}}"#,
             #"{"sessionId":""}"#,
             #"{"sessionId":"s","refresh":"true"}"#,
             #"{"target":{}}"#,
             #"{"target":{"harness":"claude","extra":"nope"}}"#,
             #"{"target":{"harness":"claude","host":""}}"#,
-            #"{"target":{"harness":"claude","host":"peer name"}}"#,
             #"{"target":{"harness":"claude","routeId":7}}"#,
             #"{"target":{"harness":"claude"},"refresh":1}"#,
+            #"{"target":{"harness":"claude","routeId":"Team-router"}}"#,
+            #"{"target":{"harness":"claude","routeId":"route/id"}}"#,
+            #"{"target":{"harness":"claude"},"host":"other"}"#,
+            #"{"target":{"harness":"claude","sessionId":"other"}}"#,
+            #"{"target":{"harness":"claude","host":null}}"#,
+            #"{"target":{"harness":"claude","routeId":null}}"#,
+            #"{"target":{"harness":"claude"},"refresh":null}"#,
         ]
         for params in invalid {
             #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), params)
+        }
+        #expect(AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/session/auth"], modeFields: []))
+    }
+
+    @Test func duplicateOrAliasedIdentityKeysAreRefusedBeforeDecoding() {
+        for params in [
+            #"{"target":{"harness":"claude","host":"known","host":"other"}}"#,
+            #"{"target":{"harness":"claude","host":"known","h\u006fst":"other"}}"#,
+            #"{"sessionId":"owned","sessionId":"other"}"#,
+        ] {
+            guard case .refuse(.duplicateKey, _, _) = AcpmuxPaneMethods.decide(
+                Self.frame(params: params), isFirst: false, localAppToken: nil
+            ) else {
+                Issue.record("duplicate identity was not refused: \(params)")
+                continue
+            }
         }
     }
 
@@ -52,6 +78,53 @@ struct AgentPaneSessionAuthRelayTests {
         }
         #expect(!AcpmuxPaneMethods.needsGesture(Self.frame(params: #"{"target":{"harness":"claude"}}"#),
                                                  options: AcpmuxPermissionOptions()))
+    }
+
+    @Test func targetHostMustBeInTheDaemonPeerSnapshot() throws {
+        let known = try #require(Self.object(#"{"target":{"harness":"claude","host":"gcp-agent-lane-1"}}"#))
+        let unknown = try #require(Self.object(#"{"target":{"harness":"claude","host":"not-a-peer"}}"#))
+        let sessions = AcpmuxPaneSessions()
+        #expect(AgentPaneTransport.sessionRefusal(known, sessions: sessions,
+                                                   peerHosts: ["gcp-agent-lane-1"]) == nil)
+        guard case .refuse(.intentInvalid, _, _) = AgentPaneTransport.sessionRefusal(unknown, sessions: sessions,
+                                                                                       peerHosts: ["gcp-agent-lane-1"]) else {
+            Issue.record("an unknown target host was not refused")
+            return
+        }
+        guard case .refuse(.intentInvalid, _, _) = AgentPaneTransport.sessionRefusal(known, sessions: sessions) else {
+            Issue.record("an unavailable peer snapshot did not fail closed")
+            return
+        }
+    }
+
+    @Test func authEvidenceAndInitializeFeaturesReachThePageUnchanged() throws {
+        let ids = AcpmuxRequestIds()
+        let authID = try #require(ids.begin(pageID: "7", method: "_acpmux/session/auth"))
+        let auth = #"{"state":"expired","source":"turn","evidenceAt":1761630000000,"detail":"OAuth token has expired","harness":"claude","host":null,"routeId":null,"fromSessionId":"owned","login":{"kind":"terminal","command":"claude /login","host":null}}"#
+        guard case .page(let text, _, let method) = ids.toPage(
+            #"{"jsonrpc":"2.0","id":\#(authID),"result":\#(auth)}"#
+        ) else {
+            Issue.record("auth reply did not reach the page")
+            return
+        }
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let expected = try #require(try JSONSerialization.jsonObject(with: Data(auth.utf8)) as? [String: Any])
+        #expect(method == "_acpmux/session/auth")
+        let received = try #require(object["result"] as? NSDictionary)
+        #expect(received == expected as NSDictionary)
+        #expect(object["id"] as? Int == 7)
+
+        let initializeID = try #require(ids.begin(pageID: "8", method: "initialize"))
+        guard case .page(_, let initialized, _) = ids.toPage(
+            #"{"jsonrpc":"2.0","id":\#(initializeID),"result":{"_meta":{"acpmux":{"features":["sessionAuth"]}}}}"#
+        ) else {
+            Issue.record("initialize reply did not reach the page")
+            return
+        }
+        let result = try #require(initialized["result"] as? [String: Any])
+        let meta = try #require(result["_meta"] as? [String: Any])
+        let acpmux = try #require(meta["acpmux"] as? [String: Any])
+        #expect(acpmux["features"] as? [String] == ["sessionAuth"])
     }
 
     @Test(.timeLimit(.minutes(1))) func aSessionQueryIsScopedToThePane() async throws {
@@ -74,4 +147,3 @@ struct AgentPaneSessionAuthRelayTests {
         #expect(server.peers.first?.frames.contains { $0.contains("_acpmux/session/auth") } == true)
     }
 }
-

@@ -123,7 +123,8 @@ nonisolated extension AcpmuxPaneMethods {
     /// A set_mode or set_config_option with `cmuxGesture` in `_meta` redeems a ticket: its `_meta`
     /// is the gesture rule's (R1 refuses any other key there and spends the ticket).
     static func breaksParamsRule(_ object: [String: Any]?, modeFields: Set<String>?) -> Bool {
-        guard let object, let method = object["method"] as? String, let rawParams = object["params"] else { return false }
+        guard let object, let method = object["method"] as? String else { return false }
+        guard let rawParams = object["params"] else { return method == "_acpmux/session/auth" }
         guard let params = rawParams as? [String: Any] else { return true }
         guard let known = knownParams[method] else { return !params.isEmpty }
         if params.keys.contains(where: { !known.params.contains($0) }) { return true }
@@ -148,7 +149,6 @@ nonisolated extension AcpmuxPaneMethods {
         return false
     }
 
-
     /// The page's session/auth query has exactly one identity form. Keep the target bounded to
     /// names the daemon can resolve; it never carries an endpoint, path, command or credentials.
     static func breaksSessionAuthParams(_ params: [String: Any]) -> Bool {
@@ -162,33 +162,36 @@ nonisolated extension AcpmuxPaneMethods {
             guard let target = target as? [String: Any],
                   Set(target.keys).isSubset(of: ["harness", "host", "routeId"]),
                   let harness = target["harness"] as? String,
-                  isSessionAuthText(harness, allowSlash: true) else { return true }
+                  !harness.isEmpty else { return true }
             if let host = target["host"] {
-                guard let host = host as? String, isSessionAuthText(host, allowSlash: false) else { return true }
+                guard let host = host as? String, !host.isEmpty else { return true }
             }
             if let route = target["routeId"] {
-                guard let route = route as? String, isSessionAuthText(route, allowSlash: false) else { return true }
+                guard let route = route as? String, isRouteID(route) else { return true }
             }
         }
         if let refresh = params["refresh"], !isJSONBoolean(refresh) { return true }
         return false
     }
 
-    /// A peer/route identifier is a name, not a URL or a shell fragment. Harness ids may contain
-    /// provider slashes, while hosts and routes may not.
-    private static func isSessionAuthText(_ value: String, allowSlash: Bool) -> Bool {
-        guard !value.isEmpty, value.utf8.count <= 256,
-              !value.utf8.contains(where: { $0 < 0x20 }),
-              !value.contains(where: { $0.isWhitespace }) else { return false }
-        return allowSlash || !value.contains("/")
-    }
-
-    private static func isJSONBoolean(_ value: Any) -> Bool {
+    /// JSONSerialization bridges a JSON boolean to NSNumber; reject numeric values that merely
+    /// happen to be 0 or 1. This shared check is used for raw JSON booleans.
+    static func isJSONBoolean(_ value: Any) -> Bool {
         guard let number = value as? NSNumber else { return false }
         return CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
-    /// The longest model id a start may carry, in bytes.
+    /// acpmux route ids (routes.rs is_route_id): lowercase ASCII names, at most 64 bytes.
+    private static func isRouteID(_ value: String) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 64, !value.hasPrefix("-") else { return false }
+        return value.utf8.allSatisfy {
+            ($0 >= UInt8(ascii: "a") && $0 <= UInt8(ascii: "z"))
+                || ($0 >= UInt8(ascii: "0") && $0 <= UInt8(ascii: "9"))
+                || $0 == UInt8(ascii: "-")
+        }
+    }
+
+    /// The longest `_meta.acpmux.model` a start may carry, in bytes.
     static let maximumModelIDBytes = 256
 
     /// One model id as harnesses name them (`claude-opus-5-5[1m]`, `provider/model:tag`,
