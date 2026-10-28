@@ -107,7 +107,12 @@ impl Mux {
                 (&mux.terminal_replays, Some(key)),
                 move |mux| {
                     end_hold_for_test();
-                    match mux.mark_terminal_ended(&end.terminal_id, OPERATION, REASON, &options) {
+                    // Outside the lane's limits, as the dead-host end
+                    // (terminal_adoption_retry.rs).
+                    let ended = cmux_threads::work::will_block(|| {
+                        mux.mark_terminal_ended(&end.terminal_id, OPERATION, REASON, &options)
+                    });
+                    match ended {
                         Ok(()) => Retry::Done,
                         Err(error) => {
                             eprintln!(
