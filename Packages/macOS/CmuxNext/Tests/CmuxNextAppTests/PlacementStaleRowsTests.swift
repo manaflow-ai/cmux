@@ -6,9 +6,9 @@ import CmuxNextSidebar
 import Foundation
 import Testing
 
-/// Reproduction (no fix): a run of creates at `.bottom(anchor: nil)` whose
+/// A run of creates at `.bottom(anchor: nil)` whose
 /// placement resolves before the sidebar's rows pass has caught up with the
-/// store. `WindowManager.applyPendingPlacements` resolves the slot against
+/// store. Previously `WindowManager.applyPendingPlacements` used
 /// `bridge.model.sections`, the rows the observation drew a hop ago; under
 /// load (ClassicUpgradeSimulationTests on #25895 and #25953) those rows can
 /// miss the workspaces made since, so `bottom` lands before rows the sidebar
@@ -16,8 +16,8 @@ import Testing
 ///
 /// Each case seeds the rendered rows, then applies a newer tree to the store
 /// in the same turn (no await: the rows observation's task cannot run), and
-/// places the new workspace as applyPendingPlacements does today (slot,
-/// position against the drawn rows, personal plan). The order the plan
+/// places the new workspace with applyPendingPlacements's current-sections
+/// path (slot, position, personal plan). The order the plan
 /// writes, applied as the daemon applies `set-personal-workspace`, must be
 /// creation order. No daemon, no window, no clock.
 @MainActor @Suite(.serialized)
@@ -67,11 +67,11 @@ struct PlacementStaleRowsTests {
         // The store moves on in this turn: the rows observation has not run.
         daemonStore.apply(snapshot: tree(store, personal: store))
         services.windows.registry.provisional[state.id] = store
-        // As WindowManager.applyPendingPlacements resolves it today.
+        // The production placement path refreshes the rows before resolving its slot.
         let machine = try #require(services.machines.daemon(forWorkspace: new)?.machineID)
         let section = CmuxNextSidebar.SectionID.machine(CmuxNextSidebar.MachineID(machine))
-        let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
-        let listed = sections.flatMap(\.workspaces).map(\.id.rawValue)
+        let listed = bridge.model.sections.flatMap(\.workspaces).map(\.id.rawValue)
+        let sections = bridge.sectionsForPlacement()
         let position = try #require(WorkspaceSlot.bottom(anchor: nil).position(moving: [new], section: section, in: sections))
         let plan = try #require(PersonalSidebarPlanner(machines: services.machines).dropPlan([SidebarWorkspaceID(new)], at: position, in: sections))
         return (applying(plan, to: store), listed)

@@ -30,7 +30,7 @@ extension WindowManager {
             pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
-            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            let sections = bridge.sectionsForPlacement()
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
@@ -51,5 +51,16 @@ extension WindowManager {
                then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) {
         NewWorkspacePlacements.expect(id, in: windowID, slot: slot, byDefault: slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: self) : nil,
                                       then: then, windows: self)
+    }
+}
+
+extension SidebarBridge {
+    /// A create can reach the store before the rows observation runs. Resolve
+    /// its slot from the current store, retaining the pending edits through
+    /// the same rows writer as a resync. Reading the last drawn rows can put
+    /// bottom before a workspace created earlier in the same burst.
+    func sectionsForPlacement() -> [SidebarRowSection] {
+        resync()
+        return SidebarRowSection.withoutPlaceholders(model.sections)
     }
 }
