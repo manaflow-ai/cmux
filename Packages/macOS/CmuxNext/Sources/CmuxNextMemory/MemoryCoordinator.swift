@@ -97,10 +97,12 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     public private(set) var limitLevel: MemoryPressureLevel
 
     /// A level that replaces the kernel's until it is set back to nil (`debug.hibernation.pressure`).
+    /// Each change reaches ``observePressureOverride(_:)``'s handlers after the level it makes.
     public var pressureOverride: MemoryPressureLevel? {
         didSet {
             guard pressureOverride != oldValue else { return }
             levelInputsDidChange()
+            overrideHandlers.call(pressureOverride)
         }
     }
 
@@ -181,7 +183,8 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     private var workingSetDue: Duration?
     /// The time since init on the coordinator's clock.
     private let elapsed: @Sendable () -> Duration
-    private let voteHandlers = MainActorHandlers<MemoryPressureLevel>()
+    let voteHandlers = MainActorHandlers<MemoryPressureLevel>()
+    let overrideHandlers = MainActorHandlers<MemoryPressureLevel?>()
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
     ///
@@ -294,11 +297,6 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
             windows: windows.observe { [weak self] anyShown in self?.isAppHidden = !anyShown },
             input: input.observe([.key, .flags, .button, .scroll, .gesture]) { [weak self] _ in self?.inputDidArrive() }
         )
-    }
-
-    public func observePressureVote(_ handler: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void)
-        -> MainActorHandlerRegistration<MemoryPressureLevel> {
-        voteHandlers.add(handler)
     }
 
     public func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
@@ -419,7 +417,8 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// One slice's release: the consumers over their limit, in order, until `duration` is spent.
     private func runSlice(for duration: Duration) {
         needsSlice = false
-        let isExpired = Self.deadline(on: clock, after: duration)
+        // `self.`: CmuxNextCompat re-exports the C library, whose `clock()` would otherwise be a candidate too.
+        let isExpired = Self.deadline(on: self.clock, after: duration)
         for record in consumers.liveRecords() where record.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()

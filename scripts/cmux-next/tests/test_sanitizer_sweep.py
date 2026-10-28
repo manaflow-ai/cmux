@@ -50,6 +50,11 @@ def lane_text(package: str, targets: dict[str, tuple[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def coop_strict_path(env) -> bool:
+    """The coop-strict pass: the sweep's swift shim is first on PATH."""
+    return Path(env.get("PATH", "").split(os.pathsep)[0]).name == ss.COOP_STRICT_BIN
+
+
 class FakeLane:
     """Scripted lane output per (mode, package): the mode is read from the environment, as the lane does."""
 
@@ -58,7 +63,7 @@ class FakeLane:
         self.calls: list[tuple[str, str, dict]] = []
 
     def __call__(self, package, env, log: Path):
-        mode = env.get("CMUX_SWIFT_SANITIZE") or ("coop-strict" if env.get("CMUX_SWIFT_TEST_COOP_STRICT") else "base")
+        mode = env.get("CMUX_SWIFT_SANITIZE") or ("coop-strict" if coop_strict_path(env) else "base")
         self.calls.append((mode, package.path, dict(env)))
         status, text = self.scripts.get((mode, package.path), (0, lane_text(package.path, {
             t: ("passed", "✔ Test passed.") for t in package.tests})))
@@ -289,11 +294,17 @@ class SweepTests(SweepCase):
         self.assertEqual(finding["frames"][0], "ThemeLoader.loadSync()")
         self.assertNotIn("dispatch_main", " ".join(finding["frames"]))
         self.assertEqual(finding["process"], "swiftpm-testing-helper")
-        # The lane gets the test-only knob; the build never sees the strict pool.
+        # The lane gets the sweep's swift shim first on PATH and no lane knob; the build never sees the
+        # strict pool (CoopStrictShimTests runs the shim).
         coop_env = next(env for mode, _, env in lane.calls if mode == "coop-strict")
-        self.assertEqual(coop_env["CMUX_SWIFT_TEST_COOP_STRICT"], "1")
+        shim_dir = Path(coop_env["PATH"].split(os.pathsep)[0])
+        self.assertEqual(shim_dir, (self.root / ".build/sanitizer-sweep" / ss.COOP_STRICT_BIN).resolve())
+        self.assertEqual(coop_env["PATH"].split(os.pathsep)[1:], FLEET["PATH"].split(os.pathsep))
+        self.assertTrue(os.access(shim_dir / "swift", os.X_OK))
         self.assertNotIn("LIBDISPATCH_COOPERATIVE_POOL_STRICT", coop_env)
         self.assertNotIn("CMUX_SWIFT_SANITIZE", coop_env)
+        base_env = next(env for mode, _, env in lane.calls if mode == "base")
+        self.assertEqual(base_env["PATH"], FLEET["PATH"])
 
     def test_two_different_pool_deadlocks_are_two_findings(self):
         other = POOL_STALL.replace("ThemeLoader.loadSync()", "PaletteCache.warm()")
@@ -414,6 +425,40 @@ class ToolchainTests(unittest.TestCase):
         with self.assertRaisesRegex(ss.SweepError, "no pinned Xcode"):
             ss.resolve_toolchain(self.root, {"PATH": self.path})
 
+
+
+class CoopStrictShimTests(unittest.TestCase):
+    """The coop-strict swift shim: package-test-lane.sh is the reviewed lane with no coop-strict knob, so the
+    sweep's own shim gives LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 to `swift test` and not to `swift build`."""
+
+    def test_only_swift_test_runs_on_the_strict_pool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            real = tmp / "real-bin"
+            real.mkdir()
+            fake = real / "swift"
+            fake.write_text('#!/bin/bash\necho "$1 strict=${LIBDISPATCH_COOPERATIVE_POOL_STRICT:-} path=$PATH"\n')
+            fake.chmod(0o755)
+            shim_dir = ss.write_coop_strict_shim(tmp / "out" / ss.COOP_STRICT_BIN)
+            env = ss.mode_environment({"PATH": f"{real}:/usr/bin:/bin", "LIBDISPATCH_COOPERATIVE_POOL_STRICT": "1"},
+                                      "coop-strict", shim_dir)
+            self.assertNotIn("LIBDISPATCH_COOPERATIVE_POOL_STRICT", env)
+            seen = []
+            for argv in (["build", "--build-tests"], ["test", "--skip-build"], ["package", "resolve"]):
+                done = subprocess.run(["bash", "-c", 'exec swift "$@"', "swift", *argv], env=env,
+                                      capture_output=True, text=True, check=True)
+                seen.append(done.stdout.strip())
+            # The shim dropped its own PATH entry, so the real swift ran (no loop) with the rest of PATH.
+            self.assertEqual(seen, [f"build strict= path={real}:/usr/bin:/bin",
+                                    f"test strict=1 path={real}:/usr/bin:/bin",
+                                    f"package strict= path={real}:/usr/bin:/bin"])
+
+    def test_the_base_and_sanitizer_passes_get_no_shim(self):
+        base = {"PATH": "/usr/bin:/bin"}
+        self.assertEqual(ss.mode_environment(base, None)["PATH"], "/usr/bin:/bin")
+        self.assertEqual(ss.mode_environment(base, "thread", Path("/x") / ss.COOP_STRICT_BIN)["PATH"], "/usr/bin:/bin")
+        with self.assertRaises(ss.SweepError):
+            ss.mode_environment(base, "coop-strict")
 
 if __name__ == "__main__":
     unittest.main()

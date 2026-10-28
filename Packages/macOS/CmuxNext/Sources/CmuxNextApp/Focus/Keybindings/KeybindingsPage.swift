@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextHibernation
@@ -23,15 +24,18 @@ extension InternalPageID {
 /// (`KeybindingsPageProvider`). One tab per window (`services.pages`).
 @MainActor
 final class KeybindingsPageService: InternalPageProvider {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     /// Opens the page in the active window; automation (`focus` false)
     /// opens it without moving focus.
     func open(focus: Bool) throws {
+        guard let services else { throw ActionFailure.appClosing }
         guard let window = services.windows.active, services.pages.show(.keybindings, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
@@ -43,6 +47,7 @@ final class KeybindingsPageService: InternalPageProvider {
     var icon: IconName? { .keyboard }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         let provider = KeybindingsPageProvider(services: services)
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes)) else { return NSView() }
@@ -56,7 +61,7 @@ final class KeybindingsPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
-        services.webUI.close(tab.page)
+        services?.webUI.close(tab.page)
     }
 
     // MARK: Discard (`memoryDiscardInternalPages`)
@@ -81,6 +86,6 @@ final class KeybindingsPageService: InternalPageProvider {
     /// The tab's page went (the tab store closed it); the next view makes its own.
     func viewDiscarded(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
-        services.webUI.close(tab.page)
+        services?.webUI.close(tab.page)
     }
 }

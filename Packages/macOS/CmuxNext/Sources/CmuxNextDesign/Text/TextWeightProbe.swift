@@ -141,11 +141,11 @@ public struct TextWeightProbe {
     private static func coverage(_ image: CGImage, cell: (row: Int, column: Int), width cellWidth: CGFloat, scale: CGFloat, ground: (Double, Double, Double),
                                  ink: (Double, Double, Double, Double)) -> Double {
         let width = image.width, height = image.height
-        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue), let data = ctx.data else { return 0 }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4,
+                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { ctx in
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }) else { return 0 }
         let background = luminance(ground.0, ground.1, ground.2) * 255
         let shown = luminance(ground.0 + (ink.0 - ground.0) * ink.3, ground.1 + (ink.1 - ground.1) * ink.3,
                               ground.2 + (ink.2 - ground.2) * ink.3) * 255
@@ -158,8 +158,8 @@ public struct TextWeightProbe {
         var sum = 0.0
         for y in top..<bottom {
             for x in left..<right {
-                let pixel = (y * width + x) * 4
-                sum += (luminance(Double(bytes[pixel]), Double(bytes[pixel + 1]), Double(bytes[pixel + 2])) - background) / (shown - background)
+                sum += (luminance(Double(pixels[x, y, 0]), Double(pixels[x, y, 1]), Double(pixels[x, y, 2])) - background)
+                    / (shown - background)
             }
         }
         return sum

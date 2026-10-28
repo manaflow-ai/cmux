@@ -16,7 +16,7 @@ import Testing
         TunableStore.shared.register(HomeTunables.all)
         let home = HomeStore(source: MockHomeSource(options: .immediate))
         return HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_settings"), me: ParticipantID("user_me"),
-                                        mainWork: work)
+                                        deadlines: MainDeadlineScheduler(work: work))
     }
 
     private func window(_ view: NSView) -> NSWindow {
