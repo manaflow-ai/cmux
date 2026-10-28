@@ -30,7 +30,7 @@
      "daemon_line": "capstorm-${nonce}-42"
     },
     {
-     "frame_text": "capstorm-${nonce}-42"
+     "app_text_line": "capstorm-${nonce}-42"
     }
    ]
   },
