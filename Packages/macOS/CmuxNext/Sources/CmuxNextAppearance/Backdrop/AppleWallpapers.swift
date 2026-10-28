@@ -3,7 +3,7 @@ public import Foundation
 
 /// The wallpapers macOS ships, read where macOS keeps them; cmux copies none.
 ///
-/// - Stills (``pictures(assets:fileManager:)``): every picture and `.madesktop` description in
+/// - Stills (`pictures(assets:fileManager:)`, CmuxNextDesign, which reads their frames): every picture and `.madesktop` description in
 ///   the Desktop Pictures folder, in the Wallpaper pane's order (``AppleWallpaper``), for the
 ///   picker's Apple Wallpapers group.
 /// - Moving wallpapers (cx-14vdf, ``videos(fileManager:)``):
@@ -37,40 +37,12 @@ public nonisolated struct AppleWallpapers: Sendable {
     /// The picker collection of every moving wallpaper.
     public static let videoCollection = "video"
 
-    public static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
+    /// The movie types the backdrop loops (``BackdropUserImages/videoExtensions``).
+    public static var videoExtensions: Set<String> { BackdropUserImages.videoExtensions }
 
     public init(desktopPictures: URL, aerials: URL = Self.systemAerials) {
         self.desktopPictures = desktopPictures
         self.aerials = aerials
-    }
-
-    /// Every still wallpaper in ``desktopPictures``.
-    ///
-    /// - Parameters:
-    ///   - assets: The downloaded full pictures.
-    ///   - fileManager: Lists the folder.
-    public func pictures(assets: AppleWallpaperAssets = AppleWallpaperAssets(), fileManager: FileManager = .default) -> [AppleWallpaper] {
-        func list(_ folder: URL) -> [URL] {
-            (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
-        }
-        func isFolder(_ url: URL) -> Bool { (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false }
-        let top = list(desktopPictures)
-        var files = top.filter { !isFolder($0) }
-        for folder in top where isFolder(folder) { files += list(folder).filter { !isFolder($0) } }
-        for folder in list(desktopPictures.appendingPathComponent(".wallpapers", isDirectory: true)) where isFolder(folder) {
-            // A moving wallpaper's folder also holds its movies and small thumbnails.
-            files += list(folder).filter { ["heic", "heif"].contains($0.pathExtension.lowercased()) }
-        }
-        let order = fileManager.contents(atPath: desktopPictures.appendingPathComponent(".orderedPictures.plist").path)
-            .flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String] } ?? []
-        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        return files.compactMap { AppleWallpaper(path: $0.path, assets: assets, fileManager: fileManager) }
-            .sorted { a, b in
-                let ra = rank[URL(fileURLWithPath: a.path).lastPathComponent] ?? Int.max
-                let rb = rank[URL(fileURLWithPath: b.path).lastPathComponent] ?? Int.max
-                if ra != rb { return ra < rb }
-                return a.title.localizedStandardCompare(b.title) == .orderedAscending
-            }
     }
 
     /// Every moving wallpaper on disk: one per shipped wallpaper (its light cut, or its only one),

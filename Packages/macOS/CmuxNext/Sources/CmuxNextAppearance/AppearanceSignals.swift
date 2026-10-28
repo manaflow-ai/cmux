@@ -1,7 +1,10 @@
-public import AppKit
-public import Observation
+#if canImport(AppKit)
+import AppKit
+#endif
+public import CmuxNextDesignTokens
 public import CmuxNextWakeups
-import CmuxNextDesignTokens
+import Foundation
+public import Observation
 
 /// The app-wide appearance inputs that used to be broadcast as notifications: Reduce Motion (the
 /// system's, the tests' pin and calm mode), the motion switches (`ui.animationSpeed`,
@@ -45,6 +48,11 @@ public final class AppearanceSignals {
         case inactiveDim
         /// One of the system's Accessibility > Display options (``DisplayOptions``).
         case displayOptions
+        /// A value every theme payload reads changed: calm mode (hover fills) or the terminal's
+        /// face (``DesignSettings/effectiveTerminalFontFamily``). The app's theme store repaints
+        /// every window and page (`ThemeStore.repaintAll`); raised after the signals of the same
+        /// change, so a repaint reads values their subscribers already updated.
+        case themeRepaint
     }
 
     /// The system's Accessibility > Display options.
@@ -62,13 +70,17 @@ public final class AppearanceSignals {
             self.differentiateWithoutColor = differentiateWithoutColor
         }
 
-        /// This Mac's options now.
+        /// This Mac's options now; the defaults where the system has none to read (Linux).
         @MainActor public static var system: DisplayOptions {
+            #if canImport(AppKit)
             let workspace = NSWorkspace.shared
             return DisplayOptions(reduceMotion: workspace.accessibilityDisplayShouldReduceMotion,
                                   reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency,
                                   increaseContrast: workspace.accessibilityDisplayShouldIncreaseContrast,
                                   differentiateWithoutColor: workspace.accessibilityDisplayShouldDifferentiateWithoutColor)
+            #else
+            return DisplayOptions()
+            #endif
         }
     }
 
@@ -178,12 +190,15 @@ public final class AppearanceSignals {
     /// Observes the system's display options through `events` (a fan-out on
     /// `NSWorkspace.shared.notificationCenter`, kept here): the app's one observer of
     /// `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`. A later call replaces it.
+    /// Where the system has no such options (Linux) it reads the defaults once.
     public func observeDisplayOptions(through events: AppEvents) {
         displayEvents = events
+        #if canImport(AppKit)
         displayWatch = events.subscribe(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
                                         owner: "AppearanceSignals") { [weak self] in
             self?.refreshDisplayOptions()
         }
+        #endif
         refreshDisplayOptions()
     }
 

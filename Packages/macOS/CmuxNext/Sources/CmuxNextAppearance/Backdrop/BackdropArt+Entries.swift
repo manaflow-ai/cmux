@@ -2,7 +2,7 @@
 
 nonisolated extension BackdropArt {
     /// The work's catalog record.
-    var entry: BackdropArtEntry {
+    package var entry: BackdropArtEntry {
         switch self {
         case .davidDeathOfMarat: BackdropArtEntry(artist: "Jacques-Louis David", year: "1793", museum: "Royal Museums of Fine Arts of Belgium, Brussels", collection: .darkArt, source: "https://commons.wikimedia.org/wiki/File:Jacques-Louis_David_-_Marat_assassinated_-_Google_Art_Project.jpg", license: "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-1923, PD-old-auto-expired, PD-old-text]", sha256: "3f61a65cc1da70c5768ee62444279a2dcc77f259459286bb8ef414fea1865802", bundled: false, focal: (0.757, 0.45), subject: (0.572, 0.04, 0.981, 0.7), tone: .dark, palette: [0x100E0A, 0x252019, 0x493D24], quietLeft: true, tint: 0.31, darkest: 0x030000, lightest: 0xAAA062)
         case .veldeSmallShipStorm: BackdropArtEntry(artist: "Willem van de Velde the Younger", year: "c. 1690s", museum: "National Maritime Museum, Greenwich", collection: .darkArt, source: "https://commons.wikimedia.org/wiki/File:A_small_Dutch_ship_riding_out_a_storm_RMG_BHC0898.tiff", license: "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]", sha256: "df2cf3bc30484b80f4796759be74f6b9402f90ac00bea582f7c399dda02b95fb", bundled: true, focal: (0.737, 0.45), subject: (0.537, 0.04, 0.979, 0.7), tone: .dark, palette: [0x100F09, 0x1E1C11, 0x494225], quietLeft: true, tint: 0.3, darkest: 0x010302, lightest: 0xFFFCCC)

@@ -1,7 +1,6 @@
-public import AppKit
 import CCmuxMotionFFI
 public import CmuxTheme
-public import CmuxNextDesignTokens
+public import Foundation
 
 /// How every theme and color change animates (`appearance.colorTransition.*`, cx-3rf4z; Lawrence
 /// 2026-10-15: "always smooth animation (that can be configured, fully ... or even just instant").
@@ -50,9 +49,7 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     public static let reducedMotionCap: TimeInterval = 0.1
     /// Keyframes of one layer color blend: enough that the straight segments between OKLab
     /// samples differ from the true path by less than one 8-bit step.
-    static let keyframes = 24
-    /// The layer animation key of a background color blend.
-    public static let layerKey = LayerColor.backgroundColor.animationKey
+    package static let keyframes = 24
 
     public init(enabled: Bool = true, duration: TimeInterval = MotionTunables.colorTransitionDefaultDuration, curve: Curve = .easeOut,
                 space: ThemeColorSpace = .oklab, reduceMotion: ReduceMotion = .crossfade) {
@@ -126,7 +123,7 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     public var mixesInSRGB: Bool { space == .srgb }
 
     /// `progress(at:)` at `count` evenly spaced time fractions, ending on exactly 1.
-    func progressSamples(count: Int) -> [Double] {
+    package func progressSamples(count: Int) -> [Double] {
         guard count > 1 else { return [1] }
         return (0..<count).map { $0 == count - 1 ? 1 : progress(at: Double($0) / Double(count - 1)) }
     }
@@ -149,40 +146,6 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         return ThemeRGB(red: out[0], green: out[1], blue: out[2], alpha: out[3])
     }
 
-    // MARK: Layers
-
-    /// Sets `layer`'s background color to `color`, blending from the color on screen (the
-    /// presentation value, so a blend in flight continues from where it is) in ``space`` with
-    /// ``curve``. Instant: the model value only, and any blend in flight stops.
-    @MainActor
-    public func animate(_ layer: CALayer, to color: CGColor?) {
-        let shown = LayerColor.backgroundColor.shown(in: layer)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.backgroundColor = color
-        CATransaction.commit()
-        blend(layer, .backgroundColor, from: shown, to: color)
-    }
-
-    /// Blends `property` of `layer`, whose model value is already `color`, from `shown` (what the
-    /// screen showed before the change) on the render server: keyframes at even times, each the
-    /// color at the curve's progress there (cmux-motion), so the render server only steps
-    /// linearly between them. Instant, a change to or from no color, or no change: any blend of
-    /// `property` in flight stops and the model value shows.
-    @MainActor
-    func blend(_ layer: CALayer, _ property: LayerColor, from shown: CGColor?, to color: CGColor?) {
-        let key = property.animationKey
-        guard !isInstant, let from = Self.rgb(shown), let to = Self.rgb(color), from != to else {
-            layer.removeAnimation(forKey: key)
-            return
-        }
-        let count = Self.keyframes
-        var values: [CGColor] = progressSamples(count: count).map { Self.cgColor(mix(from, to, fraction: $0)) }
-        // The exact colors at both ends, so removing the animation changes nothing on screen.
-        if let shown, let color { values[0] = shown; values[count - 1] = color }
-        layer.add(Motion.sampledKeyframes(property.rawValue, values: values, duration: seconds), forKey: key)
-    }
-
     // MARK: Web pages
 
     /// The CSS `transition-duration` value (`0ms` when instant).
@@ -202,34 +165,16 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         }
     }
 
-    // MARK: Colors
-
-    static func rgb(_ color: CGColor?) -> ThemeRGB? {
-        guard let color, let srgb = CGColorSpace(name: CGColorSpace.sRGB),
-              let converted = color.converted(to: srgb, intent: .defaultIntent, options: nil),
-              let c = converted.components, c.count >= 4 else { return nil }
-        return ThemeRGB(red: Double(c[0]), green: Double(c[1]), blue: Double(c[2]), alpha: Double(c[3]))
-    }
-
-    static func cgColor(_ color: ThemeRGB) -> CGColor {
-        CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
-    }
-
     private static func css(_ value: Double) -> String {
         let rounded = (value * 1000).rounded() / 1000
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(rounded)
     }
 }
 
-extension ColorTransition {
-    /// The transition in effect now: `appearance.colorTransition.*` under the `feedback` motion
-    /// category (`ui.animations.feedback`, the master switch, `ui.animationSpeed`) and Reduce Motion.
-    /// Instant until the Ghostty config first reached the windows, so a launch shows its first
-    /// colors at once. `ui.animationSpeed: normal` does not lengthen it: the duration is the
-    /// user's own number.
-    @MainActor
-    public static var current: ColorTransition {
-        guard ThemeScope.app.store.hasAppliedConfig else { return ColorTransition(enabled: false) }
-        return DesignSettings.shared.colorTransition.resolved(speedOff: !Motion.feedback.isEnabled, systemReduceMotion: Motion.reduceMotion)
-    }
+extension MotionTunables {
+    /// Default length of a color change before cmux.json applies (`appearance.colorTransition.duration`,
+    /// whose own default is the same 200 ms; schemas/settings/source/color-transition.json). The
+    /// user's setting replaces it; nothing retunes it at run time. A user setting, so it stays off
+    /// the motion scale until the setting's default moves with it.
+    public nonisolated static let colorTransitionDefaultDuration: TimeInterval = 0.2
 }

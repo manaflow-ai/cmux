@@ -2,7 +2,6 @@ import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
-public import CmuxNextWakeups
 
 /// One read of what the last quit saved for this launch, started at once on a `BackgroundWork` lane, whose result
 /// the main thread can look at without waiting.
