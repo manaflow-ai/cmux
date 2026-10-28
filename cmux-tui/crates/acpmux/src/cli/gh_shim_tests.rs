@@ -60,6 +60,7 @@ fn github_remote_urls_name_their_repository() {
     assert_eq!(github_repo("ssh://git@github.com/o/r.git").as_deref(), Some("o/r"));
     assert_eq!(github_repo("https://gitlab.com/o/r"), None);
     assert_eq!(github_repo("https://github.com/o"), None);
+    assert_eq!(github_repo("https://github.com/o/r.git.git").as_deref(), Some("o/r.git"));
 }
 
 /// The review of the Add Machine part at 8ca6cd7: `--body-file /dev/zero` was read whole.

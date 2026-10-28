@@ -160,7 +160,9 @@ fn github_repo(url: &str) -> Option<String> {
         .strip_prefix("git@github.com:")
         .or_else(|| url.strip_prefix("ssh://git@github.com/"))
         .or_else(|| url.strip_prefix("https://github.com/"))?;
-    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    // One `.git` only: `o/r.git.git` is the repository `o/r.git`, not `o/r`.
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
     (path.split('/').count() == 2).then(|| path.to_owned())
 }
 
