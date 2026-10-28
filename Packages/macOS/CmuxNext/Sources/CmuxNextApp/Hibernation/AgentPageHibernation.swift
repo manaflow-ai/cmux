@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -28,6 +29,14 @@ import os
 /// least ``minimumHidden`` even under critical pressure, so the composer's last keystrokes reach
 /// acpmux. Events only, no polling: a page hides or shows (`TabContentCache`'s presentation
 /// changes), the setting or the pressure changes, and one deadline for the next page to come due.
+///
+/// Long before that, a hidden chat's Chromium page freezes after `browser.freezeHiddenTabs` seconds
+/// (30 by default), as a hidden browser tab does: its renderer runs no script, timers or frames, and
+/// it keeps everything it holds. Without it a hidden chat's page kept rendering every event of every
+/// session until its workspace hibernated (2026-10-28 self-audit: a renderer of chat pages at 23-50 %
+/// CPU and 647 MB while the person was away). It thaws when it shows, when its turn starts or waits
+/// on the person, and before it is released. A pinned tab (unless the setting includes pinned tabs),
+/// a New Tab page, a Chief chat and a crashed page stay awake.
 @MainActor
 final class AgentPageHibernation {
     static let minimumHidden: Double = 10
@@ -63,6 +72,21 @@ final class AgentPageHibernation {
     private(set) var releasedCount = 0
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
+    /// Hidden pages frozen now (`browser.freezeHiddenTabs`).
+    private(set) var frozen: Set<String> = []
+    /// When the engine last refused to freeze a page (it still counted it visible): asked again
+    /// `freezeSeconds` later, as for a browser tab.
+    private var freezeRefusedAt: [String: ContinuousClock.Instant] = [:]
+    /// The one deadline for the next page to freeze; cancelled when no hidden page is due.
+    private let freezeDeadline = DemandTimer(owner: "AgentPageFreeze")
+    /// A page is due to freeze later and the timer for it runs (tests).
+    var hasFreezeDeadline: Bool { freezeDeadline.isScheduled }
+    /// The page's freeze control: its Chromium tab, nil for a WebKit page (a seam for tests).
+    var freezer: @MainActor (AgentPaneView) -> (any BrowserFreezing)? = { ($0.chromiumPage as? CEFPageChromiumPage)?.tab }
+    /// Whether tab `key` draws now (`TabContentCache.isRendering`); injected by the App. A page built
+    /// while its tab does not draw (restored or opened in the background) starts its hidden clock at
+    /// the next plan, as an adopted browser tab does.
+    var isRendering: (String) -> Bool = { _ in true }
     private var turnObservation: Task<Void, Never>?
 
     init(tabs: @escaping () -> AgentTabStore?) {
@@ -84,6 +108,7 @@ final class AgentPageHibernation {
         turnsWatched = { AgentTurnStateFeed.shared == nil || AgentTurnStateStore.shared.watching }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
+        isRendering = { [weak cache] key in cache?.isRendering(key) ?? true }
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
             self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
@@ -125,6 +150,7 @@ final class AgentPageHibernation {
     func pageVisibility(_ key: String, visible: Bool) {
         guard let tabs = store() else { return }
         if visible {
+            thaw(key)
             shown.insert(key)
             hiddenAt[key] = nil
             workspaceDue.remove(key)
@@ -137,6 +163,8 @@ final class AgentPageHibernation {
     }
 
     func forget(_ key: String) {
+        frozen.remove(key)
+        freezeRefusedAt[key] = nil
         shown.remove(key)
         workspaceDue.remove(key)
         hiddenAt[key] = nil
@@ -148,6 +176,10 @@ final class AgentPageHibernation {
         guard let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
+        frozen = frozen.filter { tabs.existingView($0) != nil }
+        freezeRefusedAt = freezeRefusedAt.filter { tabs.existingView($0.key) != nil }
+        startUnseenClocks(tabs)
+        replanFreeze()
         guard setting.discardsAutomatically,
               let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
             deadline.cancel()
@@ -213,6 +245,8 @@ final class AgentPageHibernation {
     /// is still the same hidden page.
     private func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
+        // The page answers what it holds and draws its frame first: a frozen page runs no script.
+        thaw(key)
         let readWake = wakeState
         let hiddenFor = hiddenAt[key].map { Int((now() - $0).seconds) } ?? 0
         let cause = workspaceDue.contains(key) ? "workspace-idle hidden=\(hiddenFor)s" : pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
@@ -261,6 +295,90 @@ final class AgentPageHibernation {
         if let kept = keepsPage(key) { return kept }
         release(key)
         return nil
+    }
+
+    // MARK: Freeze
+
+    /// Pages built while their tab does not draw, and never seen to hide, start their hidden clock now.
+    private func startUnseenClocks(_ tabs: AgentTabStore) {
+        let current = now()
+        for key in tabs.views.keys where hiddenAt[key] == nil && !shown.contains(key) && !releasing.contains(key) && !isRendering(key) {
+            hiddenAt[key] = current
+        }
+    }
+
+    /// Thaws every frozen page something now keeps awake (its turn started), freezes every hidden
+    /// page past `freezeSeconds`, and arms one deadline for the next.
+    private func replanFreeze() {
+        for key in frozen where keepsAwake(key, onScreen: false) != nil { thaw(key) }
+        guard setting.isEnabled, let threshold = setting.freezeSeconds else {
+            freezeDeadline.cancel()
+            return
+        }
+        let current = now()
+        var next: Double?
+        for (key, at) in hiddenAt where !frozen.contains(key) && !releasing.contains(key) && keepsAwake(key, onScreen: false) == nil {
+            var remaining = threshold - (current - at).seconds
+            if let refused = freezeRefusedAt[key] { remaining = max(remaining, threshold - (current - refused).seconds) }
+            if remaining > 0 {
+                next = min(next ?? remaining, remaining)
+            } else if keepsAwake(key) != nil {
+                // Still in its window (the hide comes before the pane swaps its content): look again.
+                let again = max(Self.onScreenRecheck, -remaining)
+                next = min(next ?? again, again)
+            } else if !freeze(key) {
+                next = min(next ?? threshold, threshold)
+            }
+        }
+        if let next {
+            freezeDeadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+        } else {
+            freezeDeadline.cancel()
+        }
+    }
+
+    /// Why tab `key`'s hidden page stays awake, or nil when it may freeze. Its own rules, not the
+    /// release's: a page freezes whatever the hibernation mode and keeps all it holds, so a shell
+    /// command run in it or another machine's chat does not keep it awake. `onScreen: false` leaves
+    /// out whether its view is still in a window (planning: the pane takes it out after the hide).
+    func keepsAwake(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
+        guard setting.isEnabled, setting.freezeSeconds != nil else { return .disabled }
+        guard let tabs = store(), let view = tabs.existingView(key), freezer(view) != nil else { return .unsupported }
+        let stored = tabs.resolve(key)
+        // A crashed page keeps its notice; a New Tab page follows its own parking (the spare pool).
+        if view.showsCrashNotice || view.model.newTab != nil || tabs.newTabPages[stored] != nil { return .unsupported }
+        // The Chief's own chats stay as they are.
+        if let (record, _) = tabs.lookup(stored),
+           AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .chief {
+            return .unsupported
+        }
+        if onScreen, Self.isOnScreen(view) { return .unsupported }
+        if isPinned(key), !setting.includesPinnedTabs { return .pinned }
+        // No watch, no known turn: a chat that looks idle may be working.
+        if !turnsWatched() { return .agentTurnsUnknown }
+        if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
+        return nil
+    }
+
+    /// Freezes the page; false when the engine refused (it is asked again `freezeSeconds` later).
+    private func freeze(_ key: String) -> Bool {
+        guard let view = store()?.existingView(key), let page = freezer(view) else { return true }
+        guard page.setFrozen(true) else {
+            freezeRefusedAt[key] = now()
+            logger.debug("agent page \(key, privacy: .public) freeze refused")
+            return false
+        }
+        freezeRefusedAt[key] = nil
+        frozen.insert(key)
+        logger.debug("froze agent page \(key, privacy: .public)")
+        return true
+    }
+
+    /// Thaws a frozen page (shown, its turn started, or about to be released).
+    private func thaw(_ key: String) {
+        guard frozen.remove(key) != nil else { return }
+        if let view = store()?.existingView(key) { freezer(view)?.setFrozen(false) }
+        logger.debug("thawed agent page \(key, privacy: .public)")
     }
 
     private func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {
