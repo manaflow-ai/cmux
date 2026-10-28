@@ -184,7 +184,7 @@ test("an opened call's output copies whole, without colour codes", async () => {
   const lines = Array.from({ length: count }, (_, index) => `\x1b[1mrow\x1b[0m ${index}`);
   (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "hover-actions": "all" };
   try {
-    await openRow("fetch", lines.join("\n"));
+    await openRow("other", lines.join("\n"));
     await click(button("Copy"));
   } finally {
     delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
@@ -198,7 +198,7 @@ test("an opened call's output copies whole from its menu", async () => {
   const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");
   const count = 5000;
   const lines = Array.from({ length: count }, (_, index) => `\x1b[1mrow\x1b[0m ${index}`);
-  await openRow("fetch", lines.join("\n"));
+  await openRow("other", lines.join("\n"));
   expect(button("Copy")).toBeUndefined();
   const output = host.querySelector(".cv-tool-output-card");
   expect(menuPartAt(output)?.output).toBe(Array.from({ length: count }, (_, index) => `row ${index}`).join("\n"));

@@ -108,10 +108,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const result = useMemo(() => {
     if (shell || !tool.output || !fold.present) return undefined;
     const webRead =
+      tool.kind === "fetch" ||
       /^(?:fetch|web[\s._:-]*read)(?:\s|$)/i.test(tool.title.trim()) ||
       /\bweb[\s._:-]*read\b/i.test(`${tool.title} ${tool.description ?? ""}`);
     return toolResult(tool.output, cleanText, strip, { markdown: webRead });
-  }, [shell, tool.description, tool.output, tool.title, fold.present, strip]);
+  }, [shell, tool.description, tool.kind, tool.output, tool.title, fold.present, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   // Whether a closed call has anything to open, read once per output, not on every render.
   const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
