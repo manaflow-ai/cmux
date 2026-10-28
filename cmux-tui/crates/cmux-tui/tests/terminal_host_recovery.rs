@@ -5338,6 +5338,9 @@ mod adoption_startup_state;
 #[path = "terminal_host_recovery/attach_first.rs"]
 mod attach_first;
 
+#[path = "terminal_host_recovery/cold_start.rs"]
+mod cold_start;
+
 #[path = "terminal_host_recovery/hosted_resize.rs"]
 mod hosted_resize;
 
