@@ -12,13 +12,14 @@
 #     drag     drag the content slowly from the middle to the screen's bottom
 #              (interactive dismissal)
 #     fling    the same drag, fast (released while moving)
-#     peek     drag into the keyboard and back up without letting go (the
-#              keyboard follows the finger, then returns)
+#     peek     drag slowly 70 pt into the keyboard and let go (UIKit calls the
+#              dismissal off and the keyboard springs back up)
 #     hwkey    press a key on a hardware keyboard (the software keyboard
 #              gives way to the hardware one)
 #     wait     1.6 s
 # Needs: the app installed (bundle id in $BUNDLE, default dev.cmux.mobile),
-# AXe, ffmpeg. The pauses pace the recording; they are not synchronization.
+# AXe, ffmpeg. After each step the script waits (bounded) until the app's
+# trace shows the keyboard and the field holding still.
 set -euo pipefail
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:$PATH"
 udid=$1 dir=$2 label=$3 demo=$4
@@ -43,6 +44,31 @@ for line in reversed(sys.stdin.read().splitlines()):
     kv = dict(re.findall(r"(\w+)=(\S+)", line))
     if "fy" in kv:
         print(int(float(kv["fx"]) + min(float(kv["fw"]) / 2, 120)), int((float(kv["fy"]) + float(kv["fb"])) / 2), kv["win"].replace("x", " "))
+        break'
+}
+
+# Bounded wait until the trace's last 12 frames agree on the keyboard and the
+# field (or 6 s pass): a step's motion has finished.
+settle() {
+  python3 -I - "$trace" <<'PY'
+import re, sys, time
+deadline = time.time() + 6
+while time.time() < deadline:
+    time.sleep(0.25)
+    lines = [l for l in open(sys.argv[1]).read().splitlines()[-40:] if "ev=" not in l][-12:]
+    vals = {tuple(dict(re.findall(r"(\w+)=(\S+)", l)).get(k) for k in ("kb", "fb")) for l in lines}
+    if len(lines) == 12 and len(vals) == 1:
+        break
+PY
+}
+# The drawn keyboard's top in the trace's last frame (the window's bottom when none).
+kb_top() {
+  tail -n 5 "$trace" | python3 -I -c '
+import re, sys
+for line in reversed(sys.stdin.read().splitlines()):
+    kv = dict(re.findall(r"(\w+)=(\S+)", line))
+    if "win" in kv:
+        print(int(float(kv["kb"])) if kv.get("kb", "-") != "-" else int(float(kv["win"].split("x")[1])))
         break'
 }
 
@@ -72,13 +98,13 @@ for step in "${steps[@]}"; do
     swipe) axe drag --start-x "$fx" --start-y "$fy" --end-x "$fx" --end-y $((fy + 160)) --duration 0.25 --steps 15 --udid "$udid" >/dev/null ;;
     drag) axe drag --start-x "$midx" --start-y "$top" --end-x "$midx" --end-y $((wh - 4)) --duration 1.6 --steps 96 --udid "$udid" >/dev/null ;;
     fling) axe drag --start-x "$midx" --start-y "$top" --end-x "$midx" --end-y $((wh - 4)) --duration 0.18 --steps 11 --udid "$udid" >/dev/null ;;
-    peek) axe drag --start-x "$midx" --start-y "$top" --end-x "$midx" --end-y $((wh - 120)) --duration 1.0 --steps 60 --udid "$udid" >/dev/null
-          axe drag --start-x "$midx" --start-y $((wh - 120)) --end-x "$midx" --end-y "$top" --duration 0.6 --steps 36 --udid "$udid" >/dev/null ;;
+    peek) k=$(kb_top); axe drag --start-x "$midx" --start-y "$top" --end-x "$midx" --end-y $((k + 70)) --duration 1.4 --steps 84 --udid "$udid" >/dev/null ;;
     hwkey) axe key 4 --udid "$udid" >/dev/null ;;  # HID 'a'
     wait) ;;
     *) echo "unknown step $step" >&2; exit 2 ;;
   esac
-  sleep 1.6
+  sleep 0.5
+  settle
 done
 kill -INT $rec; wait $rec || true
 trap - EXIT

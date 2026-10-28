@@ -35,11 +35,14 @@ public final class MobileKeyboardDock: NSObject {
     private static var lastEndFrame: CGRect?
 
     private weak var view: UIView?
-    /// `guide.top <= view.bottom - overlap`: the notified keyboard.
+    private let usesBottomSafeArea: Bool
+    /// `guide.top == view.bottom + constant`: the notified keyboard, or where
+    /// a drag left it.
     private let notifiedTop: NSLayoutConstraint
     /// `guide.top == system guide top`: during an interactive dismissal.
     private let systemTop: NSLayoutConstraint
-    /// A drag ended and its keyboard notification has not come yet.
+    /// A drag moved the keyboard and let go; UIKit's notification for where
+    /// the keyboard goes next has not come yet.
     private var holdingAfterDrag = false
 
     /// - Parameters:
@@ -48,29 +51,27 @@ public final class MobileKeyboardDock: NSObject {
     ///     `UIKeyboardLayoutGuide.usesBottomSafeArea`), else on the view's bottom.
     public init(view: UIView, usesBottomSafeArea: Bool) {
         self.view = view
+        self.usesBottomSafeArea = usesBottomSafeArea
         let system = view.keyboardLayoutGuide
         system.followsUndockedKeyboard = false
         system.usesBottomSafeArea = usesBottomSafeArea
         guide.identifier = Self.guideIdentifier
         view.addLayoutGuide(guide)
-        notifiedTop = guide.topAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor)
+        notifiedTop = guide.topAnchor.constraint(equalTo: view.bottomAnchor)
         systemTop = guide.topAnchor.constraint(equalTo: system.topAnchor)
-        // As low as the keyboard and the resting line allow.
-        let pull = guide.topAnchor.constraint(equalTo: view.bottomAnchor)
-        pull.priority = UILayoutPriority(999)
-        var constraints = [
+        super.init()
+        NSLayoutConstraint.activate([
             guide.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             guide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             guide.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            notifiedTop, pull,
-        ]
-        if usesBottomSafeArea {
-            constraints.append(guide.topAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor))
-        }
-        super.init()
-        NSLayoutConstraint.activate(constraints)
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)),
-                                               name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            notifiedTop,
+        ])
+        notifiedTop.constant = notifiedConstant
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)),
+                           name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidChangeFrame(_:)),
+                           name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
     }
 
     /// Whether an interactive dismissal is handing the guide to the system
@@ -83,13 +84,21 @@ public final class MobileKeyboardDock: NSObject {
         scrollView.panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
     }
 
-    /// Re-reads the notified keyboard against the view's current frame (the
-    /// view moved or resized while the keyboard stayed). Call it from the
-    /// view's layout pass.
+    /// Re-reads the notified keyboard against the view's current frame and
+    /// safe area (the view moved, resized or rotated while the keyboard
+    /// stayed). Call it from the view's layout pass.
     public func refresh() {
         guard !systemTop.isActive, !holdingAfterDrag else { return }
-        let overlap = Self.lastEndFrame.map(overlap(of:)) ?? 0
-        if notifiedTop.constant != -overlap { notifiedTop.constant = -overlap }
+        let constant = notifiedConstant
+        if notifiedTop.constant != constant { notifiedTop.constant = constant }
+    }
+
+    /// `guide.top - view.bottom` for the notified keyboard: the keyboard's
+    /// overlap of the view's bottom edge, at least the resting line's.
+    private var notifiedConstant: CGFloat {
+        guard let view else { return 0 }
+        let rest = usesBottomSafeArea ? view.safeAreaInsets.bottom : 0
+        return -max(Self.lastEndFrame.map(overlap(of:)) ?? 0, rest)
     }
 
     /// How far a keyboard at `screenFrame` covers the view from its bottom edge.
@@ -104,11 +113,12 @@ public final class MobileKeyboardDock: NSObject {
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
         guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
         Self.lastEndFrame = end
-        guard let view, view.window != nil else { return }
-        // UIKit has decided where the keyboard goes: any drag hand-off ends.
+        // UIKit has decided where the keyboard goes: any drag hand-off ends,
+        // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
         followNotifications()
-        notifiedTop.constant = -overlap(of: end)
+        guard let view, view.window != nil else { return }
+        notifiedTop.constant = notifiedConstant
         view.setNeedsLayout()
         // UIKit posts this inside the keyboard's animation; a nested animation
         // inherits its remaining duration and curve, so the composer rides it.
@@ -121,15 +131,26 @@ public final class MobileKeyboardDock: NSObject {
         UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) { view.layoutIfNeeded() }
     }
 
+    /// A keyboard that settled with no will-change notification after a drag
+    /// (a dismissal the finger called off): back on the notified keyboard.
+    @objc private func keyboardDidChangeFrame(_ note: Notification) {
+        guard holdingAfterDrag, let view, view.window != nil else { return }
+        holdingAfterDrag = false
+        refresh()
+        view.layoutIfNeeded()
+    }
+
     @objc private func panned(_ pan: UIPanGestureRecognizer) {
         guard let view else { return }
         switch pan.state {
         case .began:
-            // Hand the drag to the system guide only where it agrees with the
-            // keyboard: an iOS 27 guide that reads a docked keyboard as
-            // undocked would drop the composer under it.
-            let system = view.keyboardLayoutGuide.layoutFrame.minY
-            guard !systemTop.isActive, abs(system - guide.layoutFrame.minY) < 1 else { return }
+            // A drag over a shown keyboard, where the system guide agrees with
+            // it: an iOS 27 guide that reads a docked keyboard as undocked
+            // would drop the composer under the keyboard.
+            let restingTop = view.bounds.maxY - (usesBottomSafeArea ? view.safeAreaInsets.bottom : 0)
+            let top = guide.layoutFrame.minY
+            guard !systemTop.isActive, top < restingTop - 0.5,
+                  abs(view.keyboardLayoutGuide.layoutFrame.minY - top) < 1 else { return }
             holdingAfterDrag = false
             notifiedTop.isActive = false
             systemTop.isActive = true
@@ -137,11 +158,19 @@ public final class MobileKeyboardDock: NSObject {
             break
         default:
             guard systemTop.isActive else { return }
-            // Hold where the finger left the keyboard: UIKit moves its guide to
-            // rest before the keyboard's own animation (and notification) start.
-            notifiedTop.constant = guide.layoutFrame.minY - view.bounds.maxY
+            // Where the finger left the keyboard. UIKit moves its guide to rest
+            // before the keyboard's own animation (and notification) start, so
+            // a keyboard the drag moved holds there until that notification.
+            let top = guide.layoutFrame.minY
             followNotifications()
-            holdingAfterDrag = true
+            let notified = notifiedConstant
+            let dragged = top - view.bounds.maxY
+            if abs(dragged - notified) > 0.5 {
+                notifiedTop.constant = dragged
+                holdingAfterDrag = true
+            } else {
+                notifiedTop.constant = notified
+            }
         }
     }
 

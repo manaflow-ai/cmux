@@ -192,6 +192,11 @@ public final class ConversationComposeViewController: UIViewController {
         recipientField.textField.becomeFirstResponder()
     }
 
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        keyboardDock?.refresh()
+    }
+
     private func sessionDidChange(_ change: ConversationComposeSession.Change) {
         switch change {
         case .recipients:
