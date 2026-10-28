@@ -121,7 +121,7 @@ export function WorkflowCard({
         </span>
       ) : (
         <>
-          {latest && <span className="acpmux-workflow-card__latest" title={latest}>{latest}</span>}
+          <span className="acpmux-workflow-card__latest" title={latest}>{latest ?? ""}</span>
           <span className="acpmux-workflow-card__progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
             <span style={{ transform: `scaleX(${progress})` }} />
           </span>

@@ -174,6 +174,12 @@ function cardKey(node: Subagent): string {
     node.startedAt,
     node.endedAt ?? "",
     node.agents?.started ?? "",
+    node.agents?.done ?? "",
+    node.agents?.failed ?? "",
+    node.agents?.queued ?? "",
+    node.tokens ?? "",
+    node.action ?? "",
+    node.phases?.map((phase) => `${phase.index}:${phase.title}`).join(",") ?? "",
     agents
       .map((agent) =>
         [
