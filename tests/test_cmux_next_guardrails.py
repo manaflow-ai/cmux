@@ -979,6 +979,7 @@ class ImplicitWindowRuleTests(Fixture):
                 self.assertEqual(self.add(f"func f() {{\n    {bind}\n    let w = app.keyWindow ?? app.mainWindow\n}}\n"),
                                  [("implicit-window", ["HomeHandlers.swift: let w = app.keyWindow ?? app.mainWindow"])])
         self.assertEqual(self.add("func f(_ app: Host) {\n    let w = app.keyWindow\n    let d = NSApp.delegate\n}\n"), [])
+        self.assertEqual(self.add("// let app = NSApp\nfunc f(_ app: Host) {\n    let w = app.mainWindow\n}\n"), [])
 
     def test_an_if_let_first_opens_its_body_and_is_refused(self):
         self.assertEqual(self.add("func run() {\n    if let c = controllers.first { c.show() }\n}\n"),

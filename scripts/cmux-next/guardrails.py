@@ -5088,9 +5088,8 @@ def balanced_prefix(text: str) -> str:
 def implicit_window_aliases(version: Version) -> frozenset[str]:
     """The names VERSION's file binds to the application (APP_ALIAS), read once per side."""
     if IMPLICIT_WINDOW_MEMO + ":aliases" not in version.memo:
-        text = "\n".join(version.lines)
-        version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"] = (
-            frozenset(APP_ALIAS.findall(text)) if "NSApp" in text or "NSApplication" in text else frozenset())
+        version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"] = frozenset(
+            name for line in version.lines if "NSApp" in line for name in APP_ALIAS.findall(code_of(line)))
     return version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"]
 
 
@@ -5195,7 +5194,7 @@ def implicit_window_record(changes: list[FileChange], moved: collections.Counter
 
 def implicit_window_tree(repo: Path, rev: str) -> dict[str, int]:
     """{path: implicit lookups} of every Sources file at REV with at least one."""
-    listed = git(repo, "grep", "-l", "-E", r"keyWindow|mainWindow|orderedWindows|\.first|\.active|targetWindow|"
+    listed = git(repo, "grep", "-l", "-E", r"keyWindow|mainWindow|orderedWindows|\.first|\.last|\.active|targetWindow|"
                  r"WindowTargeting", rev,
                  "--", SWIFT_SOURCES, check=False)
     paths = sorted({line.split(":", 1)[1] for line in listed.split("\n") if ":" in line})
