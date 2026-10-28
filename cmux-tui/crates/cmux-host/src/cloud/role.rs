@@ -29,8 +29,9 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
-use super::github::{self, TokenAsk};
-use super::github_minter::{Minter, Stop};
+use super::github;
+use super::github_minter::{Ask, Minter, Stop};
+use super::handoff::{self, HandoffReport};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -608,21 +609,22 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
-        // A GitHub token ask takes its connection to the minter, which
-        // answers it with one line and closes it: one ask per connection,
-        // and the poll loop never waits on a mint.
+        // A GitHub token ask or a hand-off report takes its connection to
+        // the minter, which answers it with one line and closes it: one ask
+        // per connection, and the poll loop never waits on the API.
         let mut session_lines = Vec::new();
-        let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
+        let mut asks: Vec<(usize, Ask)> = Vec::new();
         for (i, line) in lines {
             // One ask per connection, and none from a client already gone:
-            // nobody would read the token.
+            // nobody would read the reply.
             if asks.iter().any(|(asker, _)| *asker == i) {
                 continue;
             }
-            if closed.contains(&i) && github_ask(&line).is_some() {
+            let ask = agent_ask(&line);
+            if closed.contains(&i) && ask.is_some() {
                 continue;
             }
-            match github_ask(&line) {
+            match ask {
                 Some(ask) => asks.push((i, ask)),
                 None => session_lines.push(line),
             }
@@ -891,12 +893,15 @@ fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHt
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
 }
 
-/// The ask of a `{"github_token": {...}}` line (checked), or `None` for
-/// every other line (the session's).
-fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
+/// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
+/// line (checked), or `None` for every other line (the session's).
+fn agent_ask(line: &str) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
-    let ask = msg.get(github::REQUEST_KEY)?;
-    Some(TokenAsk::from_json(ask))
+    if let Some(ask) = msg.get(github::REQUEST_KEY) {
+        return Some(github::TokenAsk::from_json(ask).into());
+    }
+    let report = msg.get(handoff::REQUEST_KEY)?;
+    Some(HandoffReport::from_json(report).into())
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.

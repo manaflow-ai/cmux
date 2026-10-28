@@ -745,7 +745,7 @@ os.replace(path + ".part", path)
     if (c.way === "menu") {
       await page.locator(".acpmux-composer-plus .acpmux-picker-button").click();
       const chooser = page.waitForEvent("filechooser", { timeout: 5_000 });
-      await page.locator('[role="listbox"] [role="option"][data-value="attach"]').click();
+      await page.locator('[role="listbox"] [role="option"][data-value="add.files"]').click();
       await (await chooser).setFiles(path.join(dir, c.file!.name));
       await page.waitForFunction(() => (window as unknown as BigWindow).__big.gestureAt > 0, undefined, {
         polling: 20,

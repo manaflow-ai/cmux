@@ -668,6 +668,7 @@ impl Hub {
                 person: false,
                 who: &who,
                 local: req.local,
+                peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
             })

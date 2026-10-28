@@ -558,6 +558,12 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTableView call:otherMouseDown/1": {
+   "27.0.1": true
+  },
+  "NSTableView call:otherMouseUp/1": {
+   "27.0.1": true
+  },
   "NSTableView call:updateTrackingAreas/0": {
    "26.5.2": true,
    "26.7": true,
