@@ -6561,8 +6561,8 @@ export class AcpmuxDirectClient {
   async reconnectPeer(name: string, wait = false, dropped = false): Promise<void> {
     // One reconnect of a machine at a time: a send behind a pick's waits for it, and asks again,
     // waiting, only when the machine is still not back.
-    const inFlight = this.peerReconnects.get(name);
-    if (inFlight) {
+    // Read again after each wait: another caller may have started the next one meanwhile.
+    for (let inFlight = this.peerReconnects.get(name); inFlight; inFlight = this.peerReconnects.get(name)) {
       await inFlight;
       if (!wait || !this.peerDown(name)) return;
     }
