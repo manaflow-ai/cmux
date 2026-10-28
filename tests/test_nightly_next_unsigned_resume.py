@@ -51,13 +51,12 @@ class FakeGitHub:
         self.dispatches = []
         self.reads = []
 
-    def jobs(self, run):
-        self.reads.append(("jobs", run["id"]))
-        return self.jobs_by_run.get(run["id"], jobs())
-
     def call(self, method, path, body=None):
-        self.reads.append((method, path))
         run_id = int(path.split("/")[3])
+        if "/jobs?" in path:
+            self.reads.append(("jobs", run_id))
+            return {"jobs": self.jobs_by_run.get(run_id, jobs())}
+        self.reads.append((method, path))
         return {"artifacts": self.artifacts_by_run.get(run_id, KEPT)}
 
     def dispatch(self, workflow, ref, inputs=None):
@@ -87,6 +86,14 @@ class DecideTests(unittest.TestCase):
         gh = FakeGitHub({NEWER: jobs(app="failure")})
         self.assertIn("build-nightly-app did not succeed", decide(gh, [push(NEWER)]))
         self.assertEqual(gh.dispatches, [])
+
+    def test_the_producer_attempt_is_the_one_that_succeeded_not_the_newest(self):
+        # Attempt 1 compiled; attempt 2 re-ran the picker and its dependents, and the compile failed there.
+        rerun = jobs() + [{"name": "build-nightly-app", "conclusion": "failure", "run_attempt": 2},
+                          {"name": "build-nightly-ghostty-cli-helper", "conclusion": "success", "run_attempt": 2}]
+        gh = FakeGitHub({NEWER: rerun})
+        decide(gh, [push(NEWER)])
+        self.assertEqual(gh.dispatches[0][2]["nightly_next_unsigned_attempt"], "1")
 
     def test_producers_from_different_attempts_are_not_resumed(self):
         gh = FakeGitHub({NEWER: jobs(app_attempt=2, helper_attempt=1)})
@@ -149,6 +156,23 @@ class DecideTests(unittest.TestCase):
         gh = FakeGitHub({NEWER - i: jobs(app="failure") for i in range(10)})
         decide(gh, [push(NEWER - i) for i in range(10)])
         self.assertEqual(len([read for read in gh.reads if read[0] == "jobs"]), resume.CANDIDATES_READ)
+
+
+class ListingTests(unittest.TestCase):
+    def test_resumes_are_counted_over_the_whole_unsigned_app_lifetime(self):
+        import datetime as dt
+        calls = []
+
+        class Lister:
+            def call(self, method, path, body=None):
+                calls.append(path)
+                return {"workflow_runs": []}
+
+        resume.runs_to_judge(Lister(), dt.datetime(2026, 10, 28, 22, 0, tzinfo=dt.timezone.utc))
+        dispatch = [c for c in calls if "event=workflow_dispatch" in c]
+        self.assertEqual(len(dispatch), 1)
+        self.assertIn("created=%3E%3D2026-10-27T20%3A00%3A00Z", dispatch[0])
+        self.assertTrue(any("event=push" in c for c in calls))
 
 
 class StarvationTests(unittest.TestCase):

@@ -38,6 +38,7 @@ Needs GH_TOKEN with actions: write. A failed read only warns: exit 0.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import os
 from pathlib import Path
 import sys
@@ -56,7 +57,11 @@ UNSIGNED_ARTIFACTS = ("cmux-nightly-unsigned-app", "cmux-nightly-remote-daemon",
                       "cmux-next-license-trees", "cmux-next-source-archive")
 RECOVERY_PREFIX = "cmux-nightly-notarization-recovery-"
 FAILED = {"failure", "timed_out"}
-RUNS_READ = 30  # nightly-next runs read, newest first: a day of ticks and resumes
+PUSH_RUNS_READ = 30  # nightly-next push runs read, newest first: more than a day of ticks
+# Resumes are counted over every nightly-next dispatch in this window: the unsigned app they
+# resume is kept one day, so no earlier resume of a still-resumable run is older.
+RESUME_LOOKBACK = dt.timedelta(hours=26)
+JOB_PAGES = 3
 CANDIDATES_READ = 3  # failed runs whose jobs and artifacts are read per check
 
 
@@ -77,17 +82,22 @@ def failed_push_runs(runs: list[dict], feed_build: int) -> list[dict]:
 
 
 def producer_attempt(jobs: list[dict]) -> int | str:
-    """The one attempt in which every producer job succeeded, or why there is none.
-    `jobs` is the run's latest view, so a producer a failed-jobs re-run kept shows its own attempt."""
-    attempts = set()
+    """The newest attempt in which every producer job itself ran and succeeded, or why there is none.
+
+    `jobs` lists every attempt's jobs (filter=all), because resume-unsigned-nightly.py validates the
+    exact attempt that produced the artifacts: a failed-jobs re-run's latest view can carry a
+    producer from an earlier attempt, and the newest attempt of a job is not always the one that
+    succeeded."""
+    common: set[int] | None = None
     for name in PRODUCERS:
-        found = [job for job in jobs if job.get("name") == name]
-        if len(found) != 1 or found[0].get("conclusion") != "success":
+        good = {int(job.get("run_attempt") or 0) for job in jobs
+                if job.get("name") == name and job.get("conclusion") == "success"} - {0}
+        if not good:
             return f"{name} did not succeed"
-        attempts.add(int(found[0].get("run_attempt") or 0))
-    if len(attempts) != 1 or 0 in attempts:
+        common = good if common is None else common & good
+    if not common:
         return "the compile and the helper succeeded in different attempts"
-    return attempts.pop()
+    return max(common)
 
 
 def artifact_problem(artifacts: list[dict]) -> str:
@@ -97,6 +107,17 @@ def artifact_problem(artifacts: list[dict]) -> str:
         return "it holds a notarization recovery artifact (continue-nightly-next.sh publishes it once Apple accepts)"
     missing = [name for name in UNSIGNED_ARTIFACTS if name not in kept]
     return f"its {', '.join(missing)} expired or was never saved" if missing else ""
+
+
+def all_jobs(gh: GitHub, run_id: int) -> list[dict]:
+    """Every attempt's jobs of one run, at most JOB_PAGES pages (a nightly has about 25 jobs an attempt)."""
+    jobs: list[dict] = []
+    for page in range(1, JOB_PAGES + 1):
+        batch = gh.call("GET", f"/actions/runs/{run_id}/jobs?filter=all&per_page=100&page={page}")["jobs"]
+        jobs.extend(batch)
+        if len(batch) < 100:
+            break
+    return jobs
 
 
 def feed_newest_build(feed_xml: str) -> int | None:
@@ -114,6 +135,21 @@ def ref_names_resumes(gh: GitHub) -> bool:
         return RUN_NAME_MARKER.encode() in response.read()
 
 
+def runs_to_judge(gh: GitHub, now: dt.datetime) -> list[dict]:
+    """The newest push runs, and every dispatch run of the resume window (to count resumes)."""
+    def listing(**query) -> list[dict]:
+        path = f"/actions/workflows/{WORKFLOW}/runs?{urllib.parse.urlencode({'branch': BRANCH, **query})}"
+        return gh.call("GET", path)["workflow_runs"]
+    since = (now - RESUME_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
+    dispatches: list[dict] = []
+    for page in range(1, 4):  # at most 300 dispatches a day; there are a few dozen
+        batch = listing(event="workflow_dispatch", created=f">={since}", per_page=100, page=page)
+        dispatches.extend(batch)
+        if len(batch) < 100:
+            break
+    return listing(event="push", per_page=PUSH_RUNS_READ) + dispatches
+
+
 def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, names_resumes) -> str:
     """Dispatch at most one resume and say what was decided. `names_resumes` is read only before a dispatch."""
     if max_resumes <= 0:
@@ -128,7 +164,7 @@ def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, name
     notes = []
     for run in failed_push_runs(runs, feed_build)[:CANDIDATES_READ]:
         run_id = int(run["id"])
-        attempt = producer_attempt(gh.jobs(run))
+        attempt = producer_attempt(all_jobs(gh, run_id))
         if isinstance(attempt, str):
             notes.append(f"run {run_id}: {attempt}")
             continue
@@ -173,8 +209,7 @@ def main(argv: list[str]) -> int:
         if feed_build is None:
             print(f"::warning::no Nightly build in {args.feed_url}; not resuming anything")
             return 0
-        query = urllib.parse.urlencode({"branch": BRANCH, "per_page": RUNS_READ})
-        runs = gh.call("GET", f"/actions/workflows/{WORKFLOW}/runs?{query}")["workflow_runs"]
+        runs = runs_to_judge(gh, dt.datetime.now(dt.timezone.utc))
         print("nightly-next unsigned resume: " + decide(gh, feed_build, runs, args.max_resumes, lambda: ref_names_resumes(gh)))
     except (*TRANSPORT, KeyError, TypeError, ValueError) as error:
         print(f"::warning::nightly-next unsigned resume skipped this check: {error!r}")
