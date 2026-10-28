@@ -70,6 +70,7 @@ export function useInlineAttachments(options: Options) {
   // for it, its attachments come with it (keptAttachments.ts).
   useLayoutEffect(() => {
     seen.current = options.text;
+    placedNow.current = placedIn(options.text, true);
   }, [options.text]);
 
   const keep = (attachment: ComposerAttachment) => {
@@ -103,6 +104,16 @@ export function useInlineAttachments(options: Options) {
     cancelled.current.has(id) ||
     live.current.pending.some((chip) => chip.id === id) ||
     sourceFor(id) !== undefined;
+  /// The attachments placed in the text: the editor's own nodes, never text the person typed or
+  /// pasted in a token's shape (review of #26667); read from `markdown`, as the editor reads a value,
+  /// before the editor is made. `all`: also the nodes of ids the composer does not know.
+  const placedIn = (markdown: string, all = false) => {
+    const ids = live.current.field.current?.inlineIds();
+    if (!ids) return inlineTokenIds(markdown, all ? undefined : known);
+    return all ? ids : ids.filter(known);
+  };
+  /// The nodes in the text the last edit left, or the value from outside put there, by id.
+  const placedNow = useRef<string[]>([]);
   /// Whether `id` went with a prompt and has not been put back.
   const isSent = (id: string) =>
     sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
@@ -120,20 +131,21 @@ export function useInlineAttachments(options: Options) {
     ready() {
       const { attachments, field, placing } = live.current;
       if (!placing()) return;
-      const marks = new Set(inlineTokenIds(field.current?.value() ?? seen.current, known));
+      const marks = new Set(placedIn(field.current?.value() ?? seen.current));
       const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
       if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
     edited(markdown: string) {
-      const before = seen.current;
       seen.current = markdown;
-      const stale = inlineTokenIds(markdown).filter(isSent);
+      const nodes = placedIn(markdown, true);
+      const stale = nodes.filter(isSent);
       // After the edit's own render: the field is still dispatching it.
       if (stale.length)
         queueMicrotask(() => stale.filter(isSent).forEach((id) => live.current.field.current?.removeInline(id)));
-      const was = inlineTokenIds(before, known);
-      const now = inlineTokenIds(markdown, known);
+      const was = placedNow.current.filter(known);
+      const now = nodes.filter(known);
+      placedNow.current = nodes;
       if (!was.length && !now.length) return;
       const kept = new Set(now);
       const had = new Set(was);
@@ -188,7 +200,7 @@ export function useInlineAttachments(options: Options) {
       const next = reordered(attachmentsRef.current, id, index);
       attachmentsRef.current = next;
       setAttachments(() => next);
-      const inText = new Set(inlineTokenIds(seen.current, known));
+      const inText = new Set(placedIn(seen.current));
       if (inText.size > 1)
         field.current?.orderInline(next.filter((each) => inText.has(each.id)).map((each) => each.id));
     },
