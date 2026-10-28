@@ -349,8 +349,6 @@ export function NewTabScreen(props: Props) {
   const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<MarkdownFieldHandle | null>(null);
-  const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
-  attachmentsRef.current = attachments;
   const fieldElement = () => field.current?.element() ?? null;
   const fieldText = () => field.current?.text() ?? { value: text, selectionStart: text.length, selectionEnd: text.length };
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
@@ -387,6 +385,8 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
+  const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
+  attachmentsRef.current = attachments;
   const inline = useInlineAttachments({
     field,
     text,
