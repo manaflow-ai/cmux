@@ -142,6 +142,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
         snapshot = l?.row.snapshot ? host.snapshot(l.row.snapshot) : undefined
         if (created?.t !== "result" && !snapshot) return fromReject(created)
       }
+      if (snapshot && snapshot.machine !== source.id) return refused("idempotency.conflict", "this fork name already belongs to another source machine", false)
       if (!snapshot || snapshot.status !== "ready") return refused("mutation.indeterminate", "the fork snapshot is still being taken; retry", true)
       const childKey = ledgerKey(p.identity, forkKey("restore", call.name))
       const existing = host.ledger(childKey)?.row
@@ -152,7 +153,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       const child = host.ledger(childKey)?.row
       const childMachine = child ? host.machine(child.machine) : undefined
       if (!childMachine) return refused("mutation.indeterminate", "the fork machine is still starting; retry", true)
-      const deleted = await submit("cloud.snapshot.delete", { snapshot: snapshot.id }, forkKey("cleanup", call.name))
+      const deleted = await submit("cloud.snapshot.delete", { snapshot: snapshot.id }, forkKey("cleanup", `${call.name}:${snapshot.revision}`))
       if (host.snapshot(snapshot.id)) return refused("mutation.indeterminate", "the fork snapshot cleanup is still running; retry", true)
       if (deleted?.t !== "result") return fromReject(deleted)
       return ok({ id: childMachine.id })
