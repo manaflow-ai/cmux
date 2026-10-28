@@ -18,6 +18,11 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 type GroupEntry = { item: AcpmuxActivity };
+const GROUP_KINDS = [
+  ["commands", "execute"],
+  ["reads", "read"],
+  ["searches", "search"],
+] as const;
 
 async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
@@ -89,7 +94,6 @@ test("opening a command group shows all 13 calls and the intervening thought wit
   expect(container.querySelectorAll(".cv-thought")).toHaveLength(1);
   expect(container.textContent).not.toMatch(/\+\d+ more/);
   expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(0);
-  // Full command bodies remain independent of the group's disclosure.
   const first = container.querySelector<HTMLButtonElement>(".cv-command")!;
   await act(async () => first.click());
   expect(first.getAttribute("aria-expanded")).toBe("true");
@@ -101,10 +105,7 @@ test("opening a command group shows all 13 calls and the intervening thought wit
   expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(1);
 });
 
-for (const [kind, toolKind] of [
-  ["reads", "read"],
-  ["searches", "search"],
-] as const)
+for (const [kind, toolKind] of GROUP_KINDS.slice(1))
   test(`an open ${kind} group shows every call`, async () => {
     const items = calls(toolKind);
     const container = await render(<ToolGroupRow kind={kind} items={items} disclosureKey={`all-${kind}`} />);
@@ -115,14 +116,9 @@ for (const [kind, toolKind] of [
     for (const item of items) expect(container.textContent).toContain(item.text);
   });
 
-for (const [kind, toolKind] of [
-  ["commands", "execute"],
-  ["reads", "read"],
-  ["searches", "search"],
-] as const)
+for (const [kind, toolKind] of GROUP_KINDS)
   test(`streaming a ${kind} group renders only its changed item`, async () => {
     // rowFailed runs once inside each real CommandRow/ToolRow render, never in the group summary.
-    // Count that work without replacing either production row with a test renderer.
     const rendered: string[] = [];
     const rowFailed = toolFailure.rowFailed;
     const probe = spyOn(toolFailure, "rowFailed").mockImplementation((tool) => {
@@ -153,7 +149,6 @@ for (const [kind, toolKind] of [
       const ids = () =>
         [...container.querySelectorAll("[data-tool-id]")].map((node) => node.getAttribute("data-tool-id"));
       expect(ids()).toEqual(allIds);
-      // Open only the live call's full body; its streamed result must stay live through the bailout.
       const toggle = container.querySelector<HTMLButtonElement>('[data-tool-id="stream-item"]')!;
       await act(async () => toggle.click());
       for (let chunk = 1; chunk <= 5; chunk += 1) {
@@ -165,7 +160,6 @@ for (const [kind, toolKind] of [
         expect(ids()).toEqual(allIds);
         expect(container.textContent).toContain(`chunk-${chunk}`);
       }
-      // A thought chunk changes the activity version too, while every tool snapshot stays intact.
       row = { ...row, version: row.version + 1, items: appendThought(row.items!, "Inspect the next sample.", 1_000) };
       rendered.length = 0;
       await act(async () => root!.render(<ToolRows row={row} sessionId={`stream-${kind}`} />));
@@ -176,11 +170,7 @@ for (const [kind, toolKind] of [
     }
   });
 
-for (const [kind, toolKind] of [
-  ["commands", "execute"],
-  ["reads", "read"],
-  ["searches", "search"],
-] as const)
+for (const [kind, toolKind] of GROUP_KINDS)
   test(`a nested subagent's ${kind} stream keeps its completed item snapshots and skips their renders`, async () => {
     const fold = new SubagentFold();
     const nestedId = `nested-${kind}`;
@@ -296,7 +286,6 @@ for (const [kind, toolKind] of [
         expect(ids()).toEqual(expected);
         expect(container.textContent).toContain(`nested-${chunk}`);
       }
-      // Updating a different nested child's status invalidates the parent's view too.
       const before = fold.views().parent!.find((row) => row.kind === "subagents")!;
       feed({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id: nestedId, state: "completed" }] });
       const after = fold.views().parent!.find((row) => row.kind === "subagents")!;

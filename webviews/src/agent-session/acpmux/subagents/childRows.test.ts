@@ -24,7 +24,7 @@ const feed = (fold: SubagentFold, step: Step, at: number) =>
     step.update,
   );
 
-test("incremental child views match cold replay across batches and leave published snapshots immutable", () => {
+test("child views preserve call generations, match cold replay and keep old snapshots immutable", () => {
   const steps: Step[] = [
     spawn("parent", null),
     text("agent_message_chunk", "Read the samples."),
@@ -37,7 +37,6 @@ test("incremental child views match cold replay across batches and leave publish
     text("agent_message_chunk", "First pass finished."),
     spawn("nested", "parent"),
     own({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Nested sample." } }, "nested"),
-    // A delayed result still updates the call in its original activity row.
     own({
       sessionUpdate: "tool_call_update",
       toolCallId: "second",
@@ -52,13 +51,15 @@ test("incremental child views match cold replay across batches and leave publish
     text("agent_message_chunk", "Next pass."),
     text("agent_thought_chunk", "Read another file."),
     tool("read", { kind: "read", locations: [{ path: "sample.ts" }], status: "completed" }),
+    text("agent_message_chunk", "Begin another check."),
+    own({ sessionUpdate: "tool_call_update", toolCallId: "first", content: { type: "text", text: "late first" } }),
+    tool("first", { rawInput: { command: "echo reused" }, status: "in_progress" }),
   ];
   const fold = new SubagentFold();
   let published = fold.views();
   let frozen = JSON.stringify(published);
   for (const [at, step] of steps.entries()) {
     feed(fold, step, at + 1);
-    // Alternate single-entry reads with a batch of three newly appended source entries.
     if (at % 4 === 1 || at % 4 === 2) continue;
     const next = fold.views();
     const replay = new SubagentFold();
@@ -70,9 +71,17 @@ test("incremental child views match cold replay across batches and leave publish
   }
   const before = fold.views().parent!;
   const activity = before.find((row) => row.kind === "activity")!;
+  expect(
+    before
+      .flatMap((row) => row.items ?? [])
+      .filter((item) => item.tool?.id === "first")
+      .map((item) => [item.tool?.command, item.tool?.output]),
+  ).toEqual([
+    ["echo first", "late first"],
+    ["echo reused", undefined],
+  ]);
   expect(activity.items?.some((item) => item.tool?.id === "hidden")).toBe(false);
   expect(activity.items?.find((item) => item.tool?.id === "second")?.tool?.output).toBe("done");
-  // A status-only child update refreshes its parent's group without replaying historical content.
   feed(
     fold,
     { update: { sessionUpdate: "subagent_state_update" }, acpmux: { subagents: [{ id: "another", state: "failed" }] } },
