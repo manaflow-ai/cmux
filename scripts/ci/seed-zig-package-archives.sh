@@ -54,14 +54,30 @@ mkdir -p "$cache/p"
 pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print \
   | while IFS= read -r zon; do
       awk '
-        function field(line, name,    v) {
-          if (!match(line, "\\." name "[[:space:]]*=[[:space:]]*\"[^\"]*\"")) return ""
-          v = substr(line, RSTART, RLENGTH); sub(/^[^"]*"/, "", v); sub(/"$/, "", v); return v
+        # The line with any // comment outside a quoted string removed.
+        function code(line,    out, i, c, quoted) {
+          out = ""; quoted = 0
+          for (i = 1; i <= length(line); i++) {
+            c = substr(line, i, 1)
+            if (c == "\\" && quoted) { out = out c substr(line, i + 1, 1); i++; continue }
+            if (c == "\"") quoted = !quoted
+            if (!quoted && c == "/" && substr(line, i + 1, 1) == "/") break
+            out = out c
+          }
+          return out
         }
-        /^[[:space:]]*\/\// { next }
-        { v = field($0, "url"); if (v != "") u = v
-          v = field($0, "hash"); if (v != "" && u != "") { print v, u; u = "" } }
-        /^[[:space:]]*\}/ { u = "" }
+        # Every .url or .hash value on the line, in order, as "name value" lines.
+        {
+          line = code($0)
+          while (match(line, "\\.(url|hash)[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+            item = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH)
+            name = item; sub(/[[:space:]]*=.*/, "", name); sub(/^\./, "", name)
+            value = item; sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+            if (name == "url") u = value
+            else if (u != "") { print value, u; u = "" }
+          }
+          if (line ~ /^[[:space:]]*\}/ || code($0) ~ /^[[:space:]]*\}/) u = ""
+        }
       ' "$zon"
     done | sort -u)"
 

@@ -34,8 +34,9 @@ cat > "$TMP/src/build.zig.zon" <<EOF
     .dependencies = .{
         .one = .{
             .url = "$base/one.tar.gz",
-            .hash = "N-one",
+            .hash = "N-one", // was .url = "$base/cut.tar.gz"
         },
+        .four = .{ .url = "$base/one.tar.gz", .hash = "N-four" }, .five = .{ .url = "$base/two.tgz", .hash = "N-five" },
         // .commented = .{ .url = "$base/never.tar.gz", .hash = "N-never" },
         .two = .{ .url = "$base/two.tgz", .hash = "N-two" },
         .gone = .{
@@ -72,6 +73,8 @@ status=0
 [[ "$status" == 0 ]] || fail "seeding exits 0 even when a package cannot be seeded (got $status)"
 cmp -s "$TMP/cache/p/N-one.tar.gz" "$TMP/www/one.tar.gz" || fail "a .tar.gz package was not seeded as p/<hash>.tar.gz"
 cmp -s "$TMP/cache/p/N-two.tar.gz" "$TMP/www/two.tgz" || fail "a .tgz package was not seeded"
+cmp -s "$TMP/cache/p/N-four.tar.gz" "$TMP/www/one.tar.gz" && cmp -s "$TMP/cache/p/N-five.tar.gz" "$TMP/www/two.tgz" \
+  || fail "two dependencies on one line were not both seeded"
 [[ ! -e "$TMP/cache/p/N-never.tar.gz" ]] || fail "a commented-out dependency was seeded"
 [[ ! -e "$TMP/cache/p/N-gone.tar.gz" ]] || fail "a missing download left an archive"
 [[ ! -e "$TMP/cache/p/N-cut.tar.gz" ]] || fail "a cut-short download took the final name"
@@ -82,9 +85,9 @@ cmp -s "$TMP/cache/p/N-two.tar.gz" "$TMP/www/two.tgz" || fail "a .tgz package wa
 if [[ "$have_xz" == true ]]; then
   gzip -t "$TMP/cache/p/N-three.tar.gz" 2>/dev/null || fail "a .tar.xz package was not re-compressed to gzip"
   [[ "$(tar -xzOf "$TMP/cache/p/N-three.tar.gz" pkg-1.0/file)" == hello ]] || fail "the re-compressed archive lost its contents"
-  grep -q "Seeded 3 of 5 Zig package archives" "$TMP/out" || fail "the summary miscounts"
+  grep -q "Seeded 5 of 7 Zig package archives" "$TMP/out" || fail "the summary miscounts"
 else
-  grep -q "Seeded 2 of 4 Zig package archives" "$TMP/out" || fail "the summary miscounts"
+  grep -q "Seeded 4 of 6 Zig package archives" "$TMP/out" || fail "the summary miscounts"
 fi
 
 # A second run downloads nothing: everything seeded is already there.

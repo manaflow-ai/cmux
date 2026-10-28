@@ -173,7 +173,7 @@ fetch_once() {
   return "$status"
 }
 
-# Download what curl can first, with retries, resume and a speed floor that
+# Download what curl can first, with retries and a speed floor that
 # Zig's own HTTP read lacks; Zig then unpacks those from the cache offline.
 if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
   "$script_dir/seed-zig-package-archives.sh" "$cache" . || true
