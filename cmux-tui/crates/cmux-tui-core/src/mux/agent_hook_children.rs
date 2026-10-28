@@ -74,7 +74,7 @@ impl Mux {
             return Ok(());
         };
         let held = {
-            let mut children = self.agent_hook_children.lock().unwrap();
+            let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
             let entry = children.entry(terminal_id.clone()).or_default();
             if ingress.kind == "agent.child.spawned" {
                 if !entry.ended.contains(child) {
@@ -91,7 +91,7 @@ impl Mux {
         let Some(held) = held else { return Ok(()) };
         self.post_held_agent_finish(&terminal_id, &held)?;
         // Taken only once it posted: a failed post retries this hook and finds it still held.
-        let mut children = self.agent_hook_children.lock().unwrap();
+        let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = children.get_mut(&terminal_id)
             && entry.held.as_ref().is_some_and(|h| h.sequence == held.sequence)
         {
@@ -109,7 +109,7 @@ impl Mux {
         sequence: u64,
         notification: Option<&(String, String, NotificationLevel)>,
     ) -> FinishGate {
-        let mut children = self.agent_hook_children.lock().unwrap();
+        let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent.session.started" | "agent.session.ended" => children
                 .remove(terminal_id)
