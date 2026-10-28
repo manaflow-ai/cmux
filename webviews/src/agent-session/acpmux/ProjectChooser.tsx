@@ -24,7 +24,8 @@ export type Project = {
 type Row = { key: string; project?: Project };
 
 const NO_PROJECT_KEY = "\u0000none";
-const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd);
+const rowKey = (project: Project) =>
+  project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd;
 
 /// The project pill on the composer's tray: it opens a menu below the tray with a search field over the
 /// projects the user has chats in, newest first. Picking one other than the current
@@ -46,6 +47,7 @@ export function ProjectChooser({
   projectHost,
   side = "bottom",
   inline = false,
+  galleryVariant = "aligned",
 }: {
   projects: Project[];
   current?: string;
@@ -62,6 +64,8 @@ export function ProjectChooser({
   /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
   side?: "top" | "bottom";
   inline?: boolean;
+  /// Gallery-only visual alternatives; the shipped default is the aligned-column treatment.
+  galleryVariant?: "aligned" | "airy" | "quiet";
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -81,7 +85,11 @@ export function ProjectChooser({
     });
     const currentIndex = filtered.findIndex((project) => rowKey(project) === currentKey);
     return currentIndex > 0
-      ? [filtered[currentIndex]!, ...filtered.slice(0, currentIndex), ...filtered.slice(currentIndex + 1)]
+      ? [
+          filtered[currentIndex]!,
+          ...filtered.slice(0, currentIndex),
+          ...filtered.slice(currentIndex + 1),
+        ]
       : filtered;
   }, [projects, query, currentKey]);
   const rows = useMemo<Row[]>(() => {
@@ -129,7 +137,10 @@ export function ProjectChooser({
   }, [open]);
 
   const pinned = [...(onNoProject ? [NO_PROJECT_KEY] : []), ...(onBrowse ? [ADD_PROJECT_KEY] : [])];
-  const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
+  const suggestions = [
+    ...pinned,
+    ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key),
+  ];
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
   const rowLabel = (key: string) => {
     if (key === ADD_PROJECT_KEY) return t("project.new");
@@ -157,7 +168,9 @@ export function ProjectChooser({
       >
         {!inline &&
           (current ? (
-            <ProjectBadge project={{ cwd: current, label, ...(currentPeer ? { peer: currentPeer } : {}) }} />
+            <ProjectBadge
+              project={{ cwd: current, label, ...(currentPeer ? { peer: currentPeer } : {}) }}
+            />
           ) : (
             icon
           ))}
@@ -169,7 +182,7 @@ export function ProjectChooser({
         onOpenChange={(next) => (next ? show() : close(true))}
         anchor={open ? trigger.current : null}
         label={t("project.label")}
-        className="acpmux-menu acpmux-project-menu"
+        className={`acpmux-menu acpmux-project-menu acpmux-project-menu--${galleryVariant}`}
         side={side}
         initialFocus={search}
         finalFocus={false}
@@ -190,7 +203,9 @@ export function ProjectChooser({
                 rowsByKey.get(key) ??
                 (!key && !query.trim()
                   ? (rows.find(
-                      (candidate) => candidate.key === currentKey || (noProject && candidate.key === NO_PROJECT_KEY),
+                      (candidate) =>
+                        candidate.key === currentKey ||
+                        (noProject && candidate.key === NO_PROJECT_KEY),
                     ) ?? rows[0])
                   : undefined);
               if (row || (typedPath && key === typedPath)) pick(row);
@@ -217,13 +232,19 @@ export function ProjectChooser({
               const row = rowsByKey.get(key);
               const project = row?.project;
               const checked = isCurrent(key);
-              const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
+              const name = project
+                ? project.label
+                : row
+                  ? t("project.noProject")
+                  : t("project.usePath", { path: key });
               return (
                 <>
                   {project ? <ProjectBadge project={project} /> : row ? <NoProjectIcon /> : icon}
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{name}</span>
-                    {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
+                    {project && (
+                      <span className="acpmux-menu-description" data-path={project.cwd} />
+                    )}
                   </span>
                   {project?.host && (
                     <span className="acpmux-project-host">
@@ -240,7 +261,9 @@ export function ProjectChooser({
             inline
           />
           {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
-            <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
+            <div className="acpmux-project-empty">
+              {t(query.trim() ? "project.none" : "project.noneYet")}
+            </div>
           )}
         </div>
       </Popover>
