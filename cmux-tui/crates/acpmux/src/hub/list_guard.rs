@@ -167,7 +167,17 @@ impl Snapshot {
 struct Rows {
     text: Vec<u8>,
     spans: Vec<Range<usize>>,
-    keys: Vec<Value>,
+    keys: Vec<RowKey>,
+}
+
+/// The fields needed for ordering, filtering, and cursors. Keeping these typed avoids
+/// allocating a JSON object for every row while the snapshot is being built.
+struct RowKey {
+    at: usize,
+    session_id: Option<String>,
+    updated_at: u64,
+    peer: Option<String>,
+    status: Option<String>,
 }
 
 impl Rows {
@@ -176,37 +186,55 @@ impl Rows {
         // A Value always serializes, and Vec's writer cannot fail.
         serde_json::to_writer(&mut self.text, row).expect("serialize session summary");
         self.spans.push(start..self.text.len());
-        let mut key = json!({"at": self.keys.len()});
-        for name in ["sessionId", "updatedAt", "peer", "status"] {
-            if let Some(value) = row.get(name) {
-                key[name] = value.clone();
-            }
-        }
-        self.keys.push(key);
+        self.keys.push(RowKey {
+            at: self.keys.len(),
+            session_id: row.get("sessionId").and_then(Value::as_str).map(str::to_owned),
+            updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
+            peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
+            status: row.get("status").and_then(Value::as_str).map(str::to_owned),
+        });
     }
 
     fn finish(mut self) -> Built {
         // Stable ties keep the original local-before-remote order, including duplicate IDs.
-        super::session_pages::sort_session_summaries(&mut self.keys);
+        self.keys.sort_by(|a, b| {
+            b.updated_at.cmp(&a.updated_at).then_with(|| {
+                a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
+            })
+        });
         let prefix = br#"{"sessions":["#;
         let mut whole = Vec::with_capacity(
             prefix.len() + self.text.len() + self.keys.len().saturating_sub(1) + 2,
         );
         whole.extend_from_slice(prefix);
         let mut spans = Vec::with_capacity(self.spans.len());
-        for (at, key) in self.keys.iter_mut().enumerate() {
+        let mut keys = Vec::with_capacity(self.keys.len());
+        for (at, key) in self.keys.into_iter().enumerate() {
             if at > 0 {
                 whole.push(b',');
             }
-            let source = key["at"].as_u64().expect("row index") as usize;
+            let source = key.at;
             let start = whole.len();
             whole.extend_from_slice(&self.text[self.spans[source].clone()]);
             spans.push(start..whole.len());
-            key["at"] = json!(at);
+            let mut value = json!({"at": at});
+            if let Some(session_id) = key.session_id {
+                value["sessionId"] = Value::String(session_id);
+            }
+            if key.updated_at != 0 {
+                value["updatedAt"] = Value::from(key.updated_at);
+            }
+            if let Some(peer) = key.peer {
+                value["peer"] = Value::String(peer);
+            }
+            if let Some(status) = key.status {
+                value["status"] = Value::String(status);
+            }
+            keys.push(value);
         }
         whole.extend_from_slice(b"]}");
         // serde_json writes UTF-8, and rows are copied only at their boundaries.
-        (String::from_utf8(whole).expect("JSON is UTF-8"), spans, self.keys)
+        (String::from_utf8(whole).expect("JSON is UTF-8"), spans, keys)
     }
 }
 
