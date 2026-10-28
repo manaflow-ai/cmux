@@ -19,11 +19,11 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, FileDoc, ImageIcon, Pencil, Spinner } from "./icons";
+import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent, isStripMedia } from "./InlinePromptContent";
+import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -125,23 +125,14 @@ export function UserBubble({
                 {renderImage(part)}
               </span>
             ) : (
-              <span
-                key={`${part.kind}-${part.id ?? part.name}-${index}`}
-                className="cv-user__inline-file"
-                title={part.name}
-              >
-                <FileDoc size={14} />
-                <span className="cv-user__inline-file-name">{part.name}</span>
-              </span>
+              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
             ),
           )}
         </div>
       )}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
-      {(strip
-        ? shownParts!.some((part) => part.kind === "pasted" || (part.kind === "text" && part.text.trim()))
-        : hasInterleaved || text.trim()) && (
+      {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
           {hasInterleaved ? (
             <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />

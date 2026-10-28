@@ -1,7 +1,7 @@
 import { Fragment, memo, useContext, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
-import { FileDoc } from "./icons";
+import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PasteChip, PromptText } from "./PromptText";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
@@ -62,14 +62,28 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       return (
         <PasteChip key={`pasted-${index}`} rowId={rowId} index={index} text={body} needle={needle} onOpen={open} />
       );
-    return (
-      <span key={`${part.kind}-${part.id ?? part.name}-${index}`} className="cv-user__inline-file" title={part.name}>
-        <FileDoc size={14} />
-        <span className="cv-user__inline-file-name">{part.name}</span>
-      </span>
-    );
+    return <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
   }
 });
+
+/** A sent file, document or recording in a prompt's order (the bubble's text, or the strip view's
+ * band): the same file chip a legacy prompt's band and the composer draw (FileAttachment.tsx), with
+ * its size and its whole path as its tooltip, so two files of one name read apart. */
+export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: "text" | "image" }> }) {
+  return (
+    <span className="cv-user__inline-file">
+      <FileAttachment
+        file={{ name: part.name, size: part.size, mimeType: part.mimeType, path: attachmentPath(part.uri) }}
+      />
+    </span>
+  );
+}
+
+/** Whether a part the strip view keeps in the bubble gives it something to read: typed text with
+ * more than space, a pasted block, a text file's body. */
+export function readsAsText(part: PromptContentPart): boolean {
+  return part.kind === "text" ? part.text.trim() !== "" : part.kind === "pasted" || Boolean(blockText(part));
+}
 
 /** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
  * none for an attachment. */
