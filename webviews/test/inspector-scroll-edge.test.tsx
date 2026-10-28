@@ -2,6 +2,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { ScrollEdge } from "../src/ui/ScrollEdge";
 
 const dom = new JSDOM("<!doctype html><html><body /></html>");
@@ -30,4 +32,11 @@ test("ScrollEdge renders a CSS-only sticky boundary without scroll listeners", (
   expect(edge?.parentElement?.dataset.scrollEdgeVariant).toBe("balanced");
   expect(edge?.getAttribute("style")).toBeNull();
   root.unmount();
+});
+
+test("scroll-edge fallback covers the host Reduce Transparency attribute", () => {
+  const css = readFileSync(path.resolve(import.meta.dir, "../src/ui/scrollEdge.css"), "utf8");
+  expect(css).toContain(":root[data-reduce-transparency] .ui-scroll-edge-fade");
+  expect(css).toContain(":root[data-reduce-transparency] .ui-scroll-edge-fade::after");
+  expect(css).toContain("backdrop-filter: none");
 });

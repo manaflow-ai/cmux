@@ -110,10 +110,10 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
       await page.goto(
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant, theme: "light" })}`,
       );
-      await page.locator(".acpmux-chat-inspector-task.acpmux-wave-item").first().waitFor();
+      await page.locator(".acpmux-chat-inspector-task__wave.acpmux-wave-item").first().waitFor();
       expect(
         await page
-          .locator(".acpmux-chat-inspector-task.acpmux-wave-item")
+          .locator(".acpmux-chat-inspector-task__wave.acpmux-wave-item")
           .first()
           .evaluate((node) => getComputedStyle(node).animationDuration),
       ).toBe(duration);

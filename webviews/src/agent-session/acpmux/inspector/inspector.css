@@ -844,6 +844,12 @@ button.acpmux-chat-inspector-port:hover,
   gap: 2px;
   padding: 0 4px 0 0;
 }
+.acpmux-chat-inspector-task__wave {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+}
 .acpmux-chat-inspector-task__open {
   flex: 1 1 auto;
   min-width: 0;

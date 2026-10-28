@@ -43,7 +43,7 @@
     [data-cmux-page-hidden]
   )
   [data-wave-speed]
-  .acpmux-chat-inspector-task.acpmux-wave-item,
+  .acpmux-chat-inspector-task__wave.acpmux-wave-item,
 :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-status-indicators="static"]):not(
     [data-cmux-page-hidden]
   )

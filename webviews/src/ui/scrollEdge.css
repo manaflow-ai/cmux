@@ -71,3 +71,18 @@
     background: var(--glass-surface, var(--agent-page-bg));
   }
 }
+:root[data-reduce-transparency] .ui-scroll-edge-fade,
+:root[data-reduce-transparency] .ui-scroll-edge-fade::after {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-reduce-transparency] .ui-scroll-edge-fade::after {
+  background: linear-gradient(
+    to bottom,
+    var(--glass-surface, var(--agent-page-bg)),
+    transparent
+  );
+}
+:root[data-reduce-transparency] .ui-scroll-edge-fade {
+  background: var(--glass-surface, var(--agent-page-bg));
+}

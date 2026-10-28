@@ -85,10 +85,7 @@ export function TasksSection({
       // it FLICKER").
       <li
         key={arrivalKey(command)}
-        className={["acpmux-chat-inspector-task acpmux-chat-inspector-task--command", shimmer.className]
-          .filter(Boolean)
-          .join(" ")}
-        style={shimmer.style}
+        className="acpmux-chat-inspector-task acpmux-chat-inspector-task--command"
         data-state={command.state}
         data-enter={enters ? "top" : undefined}
         title={why && t(why)}
@@ -96,22 +93,27 @@ export function TasksSection({
           enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
         }
       >
-        <button
-          type="button"
-          className="acpmux-chat-inspector-task__open"
-          disabled={why !== undefined}
-          onClick={() => {
-            void openCommand(toolCallId, { local, showCall: onShowCall });
-          }}
+        <div
+          className={["acpmux-chat-inspector-task__wave", shimmer.className].filter(Boolean).join(" ")}
+          style={shimmer.style}
         >
-          <Icon name="terminal" size={ROW_ICON} row />
-          <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
-          {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
-        </button>
-        {command.state === "running" && command.processId && onStop && (
-          <StopButton id={command.processId} name={command.command} stop={onStop} />
-        )}
+          <button
+            type="button"
+            className="acpmux-chat-inspector-task__open"
+            disabled={why !== undefined}
+            onClick={() => {
+              void openCommand(toolCallId, { local, showCall: onShowCall });
+            }}
+          >
+            <Icon name="terminal" size={ROW_ICON} row />
+            <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
+            {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
+            {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
+          </button>
+          {command.state === "running" && command.processId && onStop && (
+            <StopButton id={command.processId} name={command.command} stop={onStop} />
+          )}
+        </div>
       </li>
     );
   };
