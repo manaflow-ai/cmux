@@ -28,7 +28,7 @@ extension ActionWorkFailure {
 }
 
 extension DaemonError {
-    var isTerminalStartTimeout: Bool {
+    nonisolated var isTerminalStartTimeout: Bool {
         if case .terminalStartTimedOut = self { return true }
         return false
     }

@@ -83,8 +83,10 @@ public final class PhoneService {
     }
 
     /// Sends `input`, logging it into the running recording first so its
-    /// time matches the moment it was asked for.
+    /// time matches the moment it was asked for. A point or swipe time no
+    /// screen has is refused first, so the recording never holds one.
     public func send(_ input: PhoneInput, to id: PhoneDeviceID) async throws {
+        try input.validate()
         let device = try await device(id)
         guard backend.capabilities(for: device).contains(input.requiredCapability) else {
             throw PhoneError.unsupported(mode: id.mode, what: input.kind)
@@ -189,7 +191,7 @@ public final class PhoneService {
     public func sendFeedback(notes: String = "", recording finished: PhoneRecording? = nil) async throws -> PhoneFeedbackClip {
         let done: PhoneRecording
         if let finished { done = finished } else { done = try await stopRecording(notes: notes) }
-        let clip = PhoneFeedbackClip.load(done)
+        let clip = try PhoneFeedbackClip.load(done)
         try await feedbackSink?.send(clip)
         return clip
     }

@@ -123,7 +123,9 @@ pub fn enroll(
     let response = identity.begin_response()?;
     let begun = response
         .as_ref()
-        .filter(|v| v["expires_at"].as_u64().is_some_and(|at| code_live(at, now_ms)))
+        .filter(|v| {
+            v.get("expires_at").and_then(Value::as_u64).is_some_and(|at| code_live(at, now_ms))
+        })
         .map(|v| Begun::parse(v, &thumbprint, now_ms))
         .transpose()
         .map_err(|_| Error::verification("server.pair.invalid_begin"))?;
@@ -131,8 +133,9 @@ pub fn enroll(
         Some(begun) => begun,
         None => {
             let health = transport.health(&api)?;
-            let env = health["environment"]
-                .as_str()
+            let env = health
+                .get("environment")
+                .and_then(Value::as_str)
                 .filter(|s| {
                     !s.is_empty()
                         && s.len() <= 32
@@ -172,8 +175,10 @@ pub fn enroll(
             // Store only the bounded, validated fields needed for same-code recovery.
             let mut saved = json!({"code":begun.code.as_str(),"expires_at":begun.expires_at,
                 "thumbprint":begun.thumbprint,"collect_secret":begun.collect_secret()});
-            if let Some(uri) = verification_uri(&response, &begun) {
-                saved["verification_uri"] = uri.into();
+            if let Some(uri) = verification_uri(&response, &begun)
+                && let Some(saved) = saved.as_object_mut()
+            {
+                saved.insert("verification_uri".to_owned(), uri.into());
             }
             identity.save_response(&saved)?;
             store.save(&identity)?;
@@ -183,8 +188,9 @@ pub fn enroll(
     let mut public_progress = begun.public_progress();
     if let Some(response) = identity.begin_response()?
         && let Some(uri) = verification_uri(&response, &begun)
+        && let Some(public_progress) = public_progress.as_object_mut()
     {
-        public_progress["verification_uri"] = uri.into();
+        public_progress.insert("verification_uri".to_owned(), uri.into());
     }
     progress(&public_progress)?;
     match transport.wait(&api, &begun)? {

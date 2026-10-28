@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextInput
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -9,7 +10,8 @@ import Testing
 /// `CmuxApplication.sendEvent` runs them, with eight live subscribers (two window-scoped, one with a
 /// `while` gate) and a key, a button, a move and a drag in a window. It prints the per-event
 /// nanoseconds of each batch of `batch` events as p50, p95, p99 and max over `batches` batches. A
-/// measurement, not a gate: run it in a Release build on each macOS major and quote the line.
+/// measurement, not a gate: run it in a Release build on each macOS major and quote the line. With
+/// CMUX_PERF_RESULT_DIR it also writes the batches as result-v1 (lab story swift-input-tap).
 ///
 /// ```
 /// CMUX_INPUT_TAP_BENCH=1 swift test -c release --filter InputEventTapBench
@@ -63,6 +65,7 @@ struct InputEventTapBench {
             for _ in 0..<Self.batch { Self.dispatch(event, through: tap) }
             perEvent.append(Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / Double(Self.batch))
         }
+        try PerfResultWriter()?.record("swift.input_tap.event_ns", unit: .ns, samples: perEvent)
         perEvent.sort()
         func quantile(_ q: Double) -> Double { perEvent[min(perEvent.count - 1, Int(Double(perEvent.count) * q))] }
         print(String(format: "input-tap bench: macOS %@, %d batches of %d events, 8 subscribers: ns per event p50 %.0f p95 %.0f p99 %.0f max %.0f",

@@ -1016,7 +1016,7 @@ final class RowBitmaps { // memory: consumer via MessagesLabMemoryConsumer (Cmux
             bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
             // Freed off the main thread (vm_deallocate blocked main for up to 291 ms).
             Reclaimer.release(bitmaps: imgs)
-            order.removeFirst(drop.count)
+            order.removeSubrange(..<drop.endIndex)
         }
     }
     var count: Int { cache.count }
@@ -1039,7 +1039,7 @@ final class RowBitmaps { // memory: consumer via MessagesLabMemoryConsumer (Cmux
         let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
         bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
         Reclaimer.release(bitmaps: imgs)
-        order.removeFirst(drop.count)
+        order.removeSubrange(..<drop.endIndex)
     }
 
     /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the bitmaps of `specs` at `scale`

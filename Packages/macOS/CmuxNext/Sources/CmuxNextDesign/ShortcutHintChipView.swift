@@ -112,7 +112,7 @@ public final class ShortcutHintChipView: NSView {
                 fill.layer?.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
                 layer?.shadowOpacity = 1
                 layer?.shadowColor = Palette.shadow.withAlphaComponent(0.22).cgColor
-                layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+                layer?.shadowPath = CGPath.roundedRect(bounds, cornerWidth: radius, cornerHeight: radius)
             } else {
                 // Glass draws its own edge light; a layer shadow under it would darken the see-through center.
                 let glass = self.glass ?? makeGlass()

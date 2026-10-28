@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextRemoteView
+import CmuxNextWakeups
 import Testing
 
 @MainActor
@@ -13,7 +14,7 @@ struct RemoteDesktopPaneInputSinkTests {
     /// given must stay alive, or control-mode input goes nowhere.
     @Test func paneKeepsItsInputSink() {
         let pane = RemoteDesktopPane(hostName: "mock", source: MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming)),
-                                     inputSink: Recorder())
+                                     inputSink: Recorder(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(pane.view.capture.controller.sink != nil)
     }
 }

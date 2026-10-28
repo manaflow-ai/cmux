@@ -9,6 +9,7 @@
 //! one JSON line per panic (cmux-panic-log). The cmux-next app sends new
 //! lines to Sentry (`RustPanicSource.agentHost`).
 
+use cmux_blocking::{BlockingKind, scoped_blocking_call};
 use std::os::fd::AsRawFd;
 
 /// The panic log's path, set by the controller ([`super::link`]). A path,
@@ -78,7 +79,11 @@ fn is_test_panic_thread(thread: &str) -> bool {
 
 /// Point stdin and stdout at /dev/null so the bootstrap pipes close.
 pub(super) fn detach_stdio() {
-    if let Ok(null) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null") {
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let opened = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).open("/dev/null")
+    });
+    if let Ok(null) = opened {
         // SAFETY: dup2 onto the standard descriptors of this process.
         unsafe {
             libc::dup2(null.as_raw_fd(), 0);

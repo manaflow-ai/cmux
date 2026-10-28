@@ -1,6 +1,7 @@
 // The Stats page's state owner: the chosen range and the summary for it. React reads it through
 // `useSyncExternalStore`; a reply for a range the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { restoredPageInputs } from "../shared/pageState";
 import { RANGES, StatsOps, type Range, type StatsSummary } from "./types";
 
 export interface StatsSnapshot {
@@ -16,9 +17,23 @@ export interface StatsSnapshot {
   unavailable?: boolean;
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const STATS_PAGE = "stats";
+
+/** What the page keeps across a discard: the range the person picked. */
+export interface StatsInputs {
+  range: Range;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredStatsInputs(state: unknown): Partial<StatsInputs> {
+  const saved = (state as { range?: unknown } | null | undefined)?.range;
+  const range = RANGES.find((known) => known === saved);
+  return range === undefined ? {} : { range };
+}
+
 export class StatsStore {
-  // Nothing is on its way until the first read, so picking the default range first still reads it.
-  private snapshot: StatsSnapshot = { range: RANGES[RANGES.length - 1], loading: false };
+  private snapshot: StatsSnapshot;
   private listeners = new Set<() => void>();
   private request = 0;
 
@@ -26,7 +41,19 @@ export class StatsStore {
     private readonly client: PageClient | null,
     /** The person's UTC offset in minutes, east positive. */
     private readonly offsetMinutes: () => number = () => -new Date().getTimezoneOffset(),
-  ) {}
+  ) {
+    // Nothing is on its way until the first read, so picking the default range first still reads it.
+    this.snapshot = {
+      range: RANGES[RANGES.length - 1],
+      ...restoredStatsInputs(restoredPageInputs(client, STATS_PAGE)),
+      loading: false,
+    };
+  }
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredStatsInputs` reads it back. */
+  pageInputs(): StatsInputs {
+    return { range: this.snapshot.range };
+  }
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);

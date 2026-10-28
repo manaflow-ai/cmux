@@ -135,6 +135,13 @@ impl AppsSlot {
             .clone()
     }
 
+    /// Frees the app storage database's unused page cache, when a
+    /// supervisor runs and its storage is open (`mux/sqlite_trim.rs`).
+    #[cfg(unix)]
+    pub(crate) fn release_memory(&self) -> Result<(), storage::StorageError> {
+        self.supervisor.get().map_or(Ok(()), |supervisor| supervisor.release_storage_memory())
+    }
+
     /// `client` cancels its own request `target` (`cancel-request`). Before
     /// the first `apps-*` command no run exists, so there is nothing to do.
     #[cfg(unix)]

@@ -2,15 +2,17 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 
-/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`
-/// and, with renderer-owned frames, `presented_userdata` (ghostty.h).
+/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`,
+/// with renderer-owned frames `presented_userdata`, on external vsync
+/// `vsync_userdata`, and with an external cursor `cursor_userdata` (ghostty.h).
 ///
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
-/// Checked Sendable: Ghostty's IO and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames` and `frameMarks`; everything
+/// Checked Sendable: Ghostty's IO, renderer and Core Animation threads read only the
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks`, `vsync` (itself Sendable) and
+/// `cursor`, and an input lock wait report only the immutable `lockWait`; everything
 /// mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
@@ -33,17 +35,51 @@ nonisolated final class SurfaceBridge: Sendable {
     let linkFilter = TerminalLinkFilter()
     /// What the Ghostty trace hook marks for this surface's frames (``GhosttyTraceHook``).
     let frames: GhosttyTraceHook.Surface
+    /// The hook ``frames`` are registered with and the surface's trace id; nil while not registered.
+    @MainActor private var traceRegistration: (hook: GhosttyTraceHook, id: UInt64)?
     /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
     let frameMarks: GhosttyTraceHook.Recorder?
+    /// Paces the surface from its display's ``VSyncHub`` thread on external vsync (``TerminalVSync``). Owned here
+    /// so it lives exactly as long as the `vsync_userdata` Ghostty holds, past `ghostty_surface_free`.
+    let vsync = TerminalVSync()
+    /// Where Ghostty's present puts the surface's cursor cell (``ghosttySurfaceCursor(_:_:)``); nil: Ghostty draws
+    /// the cursor.
+    let cursor: TerminalCursorPresenter?
+    /// Where the surface's input waits for Ghostty's terminal lock go (``GhosttyLockWaitSignpost``): one handle
+    /// for the surface's life, so a report builds nothing.
+    let lockWait = GhosttyLockWaitSignpost()
 
-    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil) {
+    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
+         cursor: TerminalCursorPresenter? = nil) {
         self.input = input
         self.frameMarks = frameMarks
+        self.cursor = cursor
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
-        // An answer that changed shows at once: the pointer goes to Ghostty again.
+    }
+
+    /// A link answer that changed (on the filter's queue) shows in the next main turn: the pointer goes to
+    /// Ghostty again, as one `userBlocking` task on `mainWork`, the rest of the person's Command-hover.
+    @MainActor func followLinkAnswers(on mainWork: MainWorkScheduler) {
+        let owner = mainWork.board.owner("terminal.link-answer")
         linkFilter.onChange { [weak self] in
-            MainDelivery().run { self?.sendPointerAgain() }
+            mainWork.postFromAnyThread(.userBlocking, owner: owner) { self?.sendPointerAgain() }
         }
+    }
+
+    /// Registers ``frames`` with `hook` under `surface`'s trace id, right after `ghostty_surface_new`.
+    @MainActor func traceFrames(of surface: ghostty_surface_t, with hook: GhosttyTraceHook?) {
+        guard let hook else { return }
+        // SAFETY: the caller's live surface, just made (TerminalSurfaceView.createSurface); only its id is read.
+        let id = unsafe hook.register(frames, of: surface)
+        if id != 0 { traceRegistration = (hook, id) }
+    }
+
+    /// After `ghostty_surface_free` returned and before this bridge's release: the hook stops reading the
+    /// surface's calls while ``frames`` is still alive.
+    @MainActor func surfaceFreed() {
+        guard let traceRegistration else { return }
+        traceRegistration.hook.unregister(id: traceRegistration.id)
+        self.traceRegistration = nil
     }
 
     /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the key router opens a press
@@ -61,11 +97,13 @@ nonisolated final class SurfaceBridge: Sendable {
     }
 
     /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its target's
-    /// window, to the target that shows it then.
+    /// window, to the target that shows it then; while nobody sees the target's tab they wait for it to show.
     @MainActor var actionMailbox: GhosttyActionMailbox {
         if let mailbox { return mailbox }
         let made = GhosttyActionMailbox(owner: "terminal.actions", scheduler: { [weak self] in
             self?.target?.actionFrameScheduler ?? .app
+        }, node: { [weak self] in
+            self?.target?.actionNode
         }, apply: { [weak self] action in
             _ = self?.target?.applyAction(action)
         })
@@ -124,6 +162,20 @@ nonisolated final class SurfaceBridge: Sendable {
         unsafe config.presented_cb = ghosttySurfacePresented
         // SAFETY: as above.
         unsafe config.presented_userdata = userdata
+        #endif
+    }
+
+    /// Turns external vsync on in `config` (ghostty-next p03-rendering-082): the surface makes no display link,
+    /// and its wanted edges reach ``vsync`` through ``ghosttySurfaceVSyncWanted(_:_:)``. `userdata` is the
+    /// surface's bridge, as in ``setCallbacks(in:userdata:)``. Without the export (`GHOSTTY_EXTERNAL_VSYNC` off)
+    /// the config is left as it is.
+    static func setExternalVSync(in config: inout ghostty_surface_config_s, userdata: UnsafeMutableRawPointer) {
+        #if GHOSTTY_EXTERNAL_VSYNC
+        config.vsync_external = true
+        // SAFETY: the callback has ghostty_surface_vsync_wanted_cb's signature; `userdata` as above.
+        unsafe config.vsync_wanted_cb = ghosttySurfaceVSyncWanted
+        // SAFETY: as above.
+        unsafe config.vsync_userdata = userdata
         #endif
     }
 
