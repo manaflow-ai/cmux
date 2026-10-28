@@ -19,8 +19,9 @@ extension InternalPageID {
 }
 
 /// Owns the Passwords page: a React page tab (one per window) whose `cmux.passwords.*` ops the
-/// app serves from one ``PasswordStore``. User-only: it opens from the palette (`passwords.open`,
-/// person-only), and nothing on the control socket, the CLI or MCP reaches its ops.
+/// app serves from one ``PasswordStore``. Nothing opens it any more: Passwords, `chrome://password-manager`
+/// and Settings > Browser > Autofill and passwords open Chromium's own page (Lawrence 2026-10-28); a
+/// tab restored from an older session still draws. Nothing on the control socket, the CLI or MCP reaches its ops.
 @MainActor
 final class PasswordsPageService: InternalPageProvider {
     private weak var services: AppServices?
@@ -39,11 +40,6 @@ final class PasswordsPageService: InternalPageProvider {
         if ProcessInfo.processInfo.environment["CMUX_NEXT_PASSWORDS_SAMPLE"] == "1" { return SamplePasswordStore() }
         #endif
         return ChromiumPasswordStore(engine: { [weak services] in services?.cache.cef })
-    }
-
-    func open(focus: Bool) throws {
-        guard let services else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-        try ChromiumPageRouter.showPasswords(services, focus: focus)
     }
 
     var page: InternalPageID { .passwords }

@@ -227,6 +227,7 @@ extension ActionDescriptor {
                           "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
                           "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault",
                           "browserProfile.clearBrowsingData", "browserProfile.manageExtensions",
+                          "browserProfile.managePasswords", "browserProfile.manageAddresses",
                       ]),
         PaletteFamily("animations", title: familyTitle("palette.family.animations", "Animations…"),
                       symbol: "wand.and.rays", members: [

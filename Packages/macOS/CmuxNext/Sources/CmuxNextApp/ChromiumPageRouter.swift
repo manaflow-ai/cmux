@@ -6,16 +6,15 @@ import Foundation
 
 /// CHROME-INTERNAL-PAGES routing on the person's paths (omnibar, New Tab
 /// field, bookmarks): `chrome://history` and `chrome://bookmarks` show cmux's
-/// own pages, `chrome://settings` opens Settings > Browser, Chromium's
-/// password manager opens the Passwords page, `cmux://stashed` the Stashed Tabs page, every
-/// other page is Chromium's.
+/// own pages, `chrome://settings` opens Settings > Browser, `cmux://stashed`
+/// the Stashed Tabs page, every other page (the password manager too) is Chromium's.
 /// Agent paths refuse these URLs before they get here (AgentURLPolicy).
 /// `openBrowser` uses the same route (BrowserOpenPlan). A Mac Screen address
 /// (`cmux://mac-screen`) opens the Mac Screen tab: it is no browser page.
 @MainActor
 enum ChromiumPageRouter {
     /// What a page load of `url` becomes: cmux's page for a page cmux shows
-    /// itself, nil when Settings or the Passwords page opened instead (nothing
+    /// itself, nil when Settings opened instead (nothing
     /// to load), else `url`. A Mac Screen address opens its page tab in
     /// `pane` (else the active window's focused pane), connecting at once
     /// only for a person's input, and returns nil.
@@ -35,18 +34,8 @@ enum ChromiumPageRouter {
         case .browserSettings?:
             try? services.settingsWindow.show(section: .browser, focus: focus)
             return nil
-        case .passwordsPage?:
-            try? showPasswords(services, focus: focus)
-            return nil
         case .chromium?, nil:
             return url
-        }
-    }
-
-    /// The Passwords page tab in the active window, for `chrome://password-manager`.
-    static func showPasswords(_ services: AppServices, focus: Bool) throws {
-        guard let window = services.windows.active, services.pages.show(.passwords, in: window, focus: focus) != nil else {
-            throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
     }
 }

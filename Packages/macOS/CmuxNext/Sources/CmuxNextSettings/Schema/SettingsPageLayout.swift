@@ -28,6 +28,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
         /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
+        /// Settings > Browser > Autofill and passwords: Password manager and Contact info, each
+        /// opening Chromium's own page in a browser profile (`browserProfile.managePasswords`,
+        /// `browserProfile.manageAddresses`).
+        case autofill
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -222,7 +226,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.import"), group("settings.group.memory"), group("settings.group.remote"),
             ],
-            trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
+            trail: [.autofill, .browserProfiles], actions: [.browser], aliases: [.browser]),
         // Bring things over from other browsers, agents and terminals on this Mac.
         CategorySpec(
             id: "import", title: SettingsText.keyed("settings.category.import", "Import"), symbol: "square.and.arrow.down",

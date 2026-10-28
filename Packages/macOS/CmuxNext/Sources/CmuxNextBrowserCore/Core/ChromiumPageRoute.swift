@@ -9,11 +9,12 @@ public import Foundation
 /// - `chrome://settings` (the root only) is Settings > Browser. Its sections
 ///   (`chrome://settings/content`, `/cookies`, ...) stay Chromium pages,
 ///   because cmux does not cover them.
-/// - `chrome://password-manager` (any path) and `chrome://settings/passwords`
-///   are cmux's Passwords page (decision P4): Chromium's own page exports
-///   passwords past `browser.passwords.allowExport`.
 /// - Every other `chrome://` page (extensions, version, flags, downloads, ...)
-///   is Chromium's own page.
+///   is Chromium's own page. That includes the password manager
+///   (`chrome://password-manager`, `chrome://settings/passwords`) and contact
+///   info (`chrome://settings/addresses`): Settings > Browser > Autofill and
+///   passwords opens them (Lawrence 2026-10-28: "use native chrome UIs and
+///   functionality"), on the same stores the save prompt and autofill write.
 ///
 /// The inventory of pages and the reason for each row:
 /// .cmux-scratch/hq-ff/cx-ldj-webui-inventory.md (hq).
@@ -22,8 +23,6 @@ public nonisolated enum ChromiumPageRoute: Equatable, Sendable {
     case cmuxPage(URL)
     /// Settings, Browser section.
     case browserSettings
-    /// cmux's Passwords page tab.
-    case passwordsPage
     /// Chromium's own page, in a Chromium tab.
     case chromium(URL)
 
@@ -42,8 +41,6 @@ public nonisolated enum ChromiumPageRoute: Equatable, Sendable {
         let path = page.url.path()
         if let address = Self.cmuxPages[host], let cmuxURL = URL(string: address) {
             self = .cmuxPage(cmuxURL)
-        } else if host == "password-manager" || (host == "settings" && (path == "/passwords" || path.hasPrefix("/passwords/"))) {
-            self = .passwordsPage
         } else if host == "settings", path == "/" {
             self = .browserSettings
         } else {

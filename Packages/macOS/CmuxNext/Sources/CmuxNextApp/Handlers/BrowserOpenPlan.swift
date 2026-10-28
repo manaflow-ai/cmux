@@ -14,9 +14,6 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
         /// `chrome://settings`: Settings > Browser opens instead of a tab
         /// (ChromiumPageRoute).
         case browserSettings
-        /// `chrome://password-manager`: the Passwords page opens instead of a
-        /// tab (ChromiumPageRoute).
-        case passwordsPage
     }
 
     /// The page to load; nil opens the default page.
@@ -48,7 +45,6 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
             switch ChromiumPageRoute(resolved) {
             case .cmuxPage(let page)?: url = page
             case .browserSettings?: return .browserSettings
-            case .passwordsPage?: return .passwordsPage
             case .chromium?, nil: url = resolved
             }
         }

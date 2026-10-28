@@ -26,8 +26,8 @@ test("Manage opens Chromium's password manager and contact info in the default p
   expect(card).not.toBeNull();
   const passwords = card!.querySelector<HTMLElement>('[data-autofill="passwords"]')!;
   const addresses = card!.querySelector<HTMLElement>('[data-autofill="addresses"]')!;
-  expect(passwords.textContent).toContain("Password manager");
-  expect(addresses.textContent).toContain("Contact info");
+  expect(passwords.textContent).toContain("Password Manager");
+  expect(addresses.textContent).toContain("Contact Info");
 
   await act(async () => passwords.querySelector<HTMLButtonElement>("[data-manage]")!.click());
   await settle();

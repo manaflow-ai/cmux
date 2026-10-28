@@ -216,9 +216,6 @@ enum TabLifecycle {
         case .browserSettings:
             do { try ctx.services.settingsWindow.show(section: .browser, focus: invocation.allowsViewChange) } catch { ctx.refuse(String(describing: error)) }
             return
-        case .passwordsPage:
-            do { try ChromiumPageRouter.showPasswords(ctx.services, focus: invocation.allowsViewChange) } catch { ctx.refuse(String(describing: error)) }
-            return
         }
         let url = plan.url
         let rawProfile = invocation["profile"]?.stringValue

@@ -175,6 +175,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.siteSettings",
             "browser.pageInfo.aboutThisPage", "browser.extensions.menu", "browser.extensions.manage",
             "browser.extensions.webStore", "browser.extension.options", "browserProfile.manageExtensions",
+            "browserProfile.managePasswords", "browserProfile.manageAddresses",
             "toggleSidebar", "toggleRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
             "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",

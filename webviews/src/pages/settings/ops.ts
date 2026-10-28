@@ -996,6 +996,8 @@ export const settingsPageActions = [
   "browserProfile.manageExtensions",
   "browserProfile.delete",
   "browserProfile.clearBrowsingData",
+  "browserProfile.managePasswords",
+  "browserProfile.manageAddresses",
   "reloadConfiguration",
   "palette.computerUse.setup",
   "palette.computerUse.restart",

@@ -121,6 +121,8 @@ nonisolated extension ActionSurfaceCatalog {
         "browserProfile.moveTab": [p(.tab, .reopen, 102, folder: .openIn)],
         "browserProfile.duplicateTab": [p(.tab, .reopen, 103, folder: .openIn)],
         "browserProfile.manageExtensions": [p(.browserProfile, .inspect, 200)],
+        "browserProfile.managePasswords": [p(.browserProfile, .inspect, 201)],
+        "browserProfile.manageAddresses": [p(.browserProfile, .inspect, 202)],
         "toggleSidebar": [p(.sidebarBackground, .view, 300)],
         "notificationOpen": [p(.notification, .navigate, 0)],
         "notificationCopy": [p(.notification, .inspect, 0)],
