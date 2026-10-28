@@ -101,6 +101,11 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
             _ => false,
         };
         if !unchanged {
+            // `desired` is only a comparison snapshot. Do not let its Arc be
+            // dropped on the Tokio worker while the active listener drains.
+            if let Some((node, _)) = desired {
+                release_node(node);
+            }
             if let Some(old) = active.take() {
                 old.stop().await;
             }
@@ -108,18 +113,24 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
             let latest = controller.snapshot();
             let desired =
                 latest.running().then(|| controller.node().zip(latest.dns_name)).flatten();
-            if !*stopping.borrow()
-                && let Some((node, name)) = desired
-            {
-                let (stop, stopping) = watch::channel(false);
-                let task = tokio::spawn(crate::server::tailnet_ingress::serve(
-                    hub.clone(),
-                    node.clone(),
-                    name.clone(),
-                    stopping,
-                ));
-                active = Some(Active { node: Some(node), name, stop, task });
+            if !*stopping.borrow() {
+                if let Some((node, name)) = desired {
+                    let (stop, stopping) = watch::channel(false);
+                    let task = tokio::spawn(crate::server::tailnet_ingress::serve(
+                        hub.clone(),
+                        node.clone(),
+                        name.clone(),
+                        stopping,
+                    ));
+                    active = Some(Active { node: Some(node), name, stop, task });
+                }
+            } else if let Some((node, _)) = desired {
+                release_node(node);
             }
+        } else if let Some((node, _)) = desired {
+            // The active listener already owns its identity. Release this
+            // comparison-only clone away from the Tokio worker.
+            release_node(node);
         }
         tokio::select! {
             biased;
