@@ -43,9 +43,9 @@ long the start took, how long the chat slept).
 ## What is stopped, and what is not
 
 Only what acpmux spawned and holds for the agent is stopped: the agent's process and its MCP
-sidecars, and only once the census found nothing else under it. Work that left the agent's process tree on purpose (a server started with `setsid`, a
-daemon it detached) is out of scope by design. Nothing signals it, so it keeps running after the
-chat hibernates.
+sidecars, and only once the census found nothing else under it. Work that left the agent's
+process tree on purpose (a server started with `setsid`, a daemon it detached) is out of scope
+by design. Nothing signals it, so it keeps running after the chat hibernates.
 
 Background tasks are never killed by hibernation, by design. Leo, 2026-10-27: "also when it
 comes to hibernation...can't you hibernate the agent but not hibernate the bg tasks?" A
