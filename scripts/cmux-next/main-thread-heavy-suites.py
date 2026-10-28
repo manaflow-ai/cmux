@@ -36,7 +36,16 @@ def top_level_blocks(text: str) -> list[tuple[str, str]]:
             for i, (at, name) in enumerate(starts)]
 
 
-def heavy_suites(tests_root: Path) -> list[tuple[str, str]]:
+def heavy_suites(tests_root: Path, targets: str = "all") -> list[tuple[str, str]]:
+    """Every main-thread-heavy suite of the selected test targets ('all', or target names space-separated)."""
+    found = _heavy_suites(tests_root)
+    if targets.strip() == "all":
+        return found
+    wanted = set(targets.split())
+    return [(t, n) for t, n in found if t in wanted]
+
+
+def _heavy_suites(tests_root: Path) -> list[tuple[str, str]]:
     files = {p: p.read_text(encoding="utf-8", errors="replace") for p in sorted(tests_root.rglob("*.swift"))}
     driving = {p for p, text in files.items() if FRAME_DRIVERS.search(text)}
     # Helper types a driving file declares with no tests of its own (a bench class): their users drive frames too.
@@ -65,8 +74,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("tests_root", type=Path, help="Packages/macOS/CmuxNext/Tests")
     parser.add_argument("--list", action="store_true", help="one Target.Suite per line instead of the regex")
+    parser.add_argument("--targets", default="all", help="'all' or the selected test targets, space-separated")
     args = parser.parse_args(argv)
-    suites = heavy_suites(args.tests_root)
+    suites = heavy_suites(args.tests_root, args.targets)
+    if not suites:
+        return 0  # nothing heavy selected: no output, never a pattern that would match every test
     if args.list:
         print("\n".join(f"{t}.{n}" for t, n in suites))
     else:

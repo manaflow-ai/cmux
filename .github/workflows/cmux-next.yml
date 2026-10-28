@@ -3264,18 +3264,19 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
-      # The suites that drive the main thread for long stretches (Core Animation
-      # frame commits, real WebKit downloads), read from the test sources:
-      # the broad pass skips them and the step after it runs them alone.
+      # The suites of the selected targets that drive the main thread for long
+      # stretches (Core Animation frame commits, real WebKit downloads), read
+      # from the test sources: the changed-suites pass and the broad pass skip
+      # them and a step of their own runs them, each in a fresh process.
       - name: Find the main-thread-heavy suites
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
         run: |
           set -euo pipefail
-          heavy="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests)"
+          heavy="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests --targets "$SWIFT_TARGETS")"
           echo "CMUX_NEXT_MAIN_THREAD_HEAVY=$heavy" >> "$GITHUB_ENV"
-          suites="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests --list)"
-          echo "CMUX_NEXT_MAIN_THREAD_HEAVY_SUITES=$(echo $suites)" >> "$GITHUB_ENV"
-          printf 'main-thread heavy: %s\n' $suites
+          suites="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests --targets "$SWIFT_TARGETS" --list)"
+          echo "CMUX_NEXT_MAIN_THREAD_HEAVY_SUITES=${suites//$'\n'/ }" >> "$GITHUB_ENV"
+          while read -r suite; do [[ -z "$suite" ]] || echo "main-thread heavy: $suite"; done <<< "$suites"
 
       # Samples and fails a run still going after 15 minutes, so a hang shows
       # its stacks; each test step timeout stops it holding the runner regardless.
@@ -3304,13 +3305,16 @@ jobs:
           # One deadline for both passes, 2 min inside the step timeout, so a pass
           # hung before any test starts is still sampled and reported.
           deadline=$(( $(date +%s) + 1680 ))
-          filter=()
-          [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
+          # The heavy suites only ever run in their own step: never --skip "" (an
+          # empty pattern matches, and so skips, every test).
+          heavy_skip=()
+          [[ -z "$CMUX_NEXT_MAIN_THREAD_HEAVY" ]] || heavy_skip=(--skip "$CMUX_NEXT_MAIN_THREAD_HEAVY")
           priority_skip=()
           priority_status=0
           if [[ -n "$SWIFT_PRIORITY_FILTER" ]]; then
             echo "Changed Swift suites first: $SWIFT_PRIORITY_FILTER"
-            if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$SWIFT_PRIORITY_FILTER"; then
+            if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$SWIFT_PRIORITY_FILTER" \
+                ${heavy_skip[@]+"${heavy_skip[@]}"}; then
               :
             else
               priority_status=$?
@@ -3318,13 +3322,18 @@ jobs:
             fi
             priority_skip=(--skip "$SWIFT_PRIORITY_FILTER")
           fi
+          # The selected targets as several test processes at once, split by
+          # target and suite prefix (scripts/cmux-next/swift-test-shards.py), as
+          # many at a time as the runner's cores and memory hold. One process ran
+          # them all before: ~6,300 tests queued on its one main thread and the
+          # windows they left open piled up (3 -> 428), so throughput fell from
+          # ~2,000 to ~100 tests a minute and the pass hit its limit with 466
+          # tests unfinished (#26809, run 40705037968).
           broad_status=0
-          left=$(( deadline - $(date +%s) ))
-          (( left >= 60 )) || left=60
-          (( left <= CMUX_NEXT_TEST_HANG_SECONDS )) || left=$CMUX_NEXT_TEST_HANG_SECONDS
-          if CMUX_NEXT_TEST_HANG_SECONDS="$left" ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} \
-              ${priority_skip[@]+"${priority_skip[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests \
-              --skip CommitBoundaryAppKitTests --skip "$CMUX_NEXT_MAIN_THREAD_HEAVY"; then
+          if python3 ../../../scripts/cmux-next/swift-test-shards.py run --targets "$SWIFT_TARGETS" \
+              --exclude CmuxNextControlTests --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh \
+              --deadline "$deadline" -- ${priority_skip[@]+"${priority_skip[@]}"} --skip BranchStateResourcesTests \
+              --skip CloudBringBackTests --skip CommitBoundaryAppKitTests ${heavy_skip[@]+"${heavy_skip[@]}"}; then
             :
           else
             broad_status=$?

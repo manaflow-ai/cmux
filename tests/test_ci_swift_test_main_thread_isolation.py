@@ -92,7 +92,27 @@ class Workflow(unittest.TestCase):
         self.assertIn(f"{VAR}=", derive["run"])
         broad = self.step("Run package tests (changed suites first")
         self.assertLess(self.steps.index(derive), self.steps.index(broad))
-        self.assertIn(f'--skip "${VAR}"', broad["run"])
+        # Skipped only when there is something to skip: --skip "" skips every test.
+        self.assertIn(f'[[ -z "${VAR}" ]] || heavy_skip=(--skip "${VAR}")', broad["run"])
+        self.assertEqual(broad["run"].count(f'--skip "${VAR}"'), 1)
+        self.assertEqual(broad["run"].count('${heavy_skip[@]+"${heavy_skip[@]}"}'), 2)
+
+    def test_the_changed_suites_pass_skips_the_heavy_suites_too(self) -> None:
+        # sr2 on #26809: a change touching AAGroupLineGalleryTests and SidebarScrollCostTests selected both into
+        # the one changed-suites process, where the windows piled up again.
+        broad = self.step("Run package tests (changed suites first")["run"]
+        priority = broad[broad.index('--filter "$SWIFT_PRIORITY_FILTER"'):]
+        self.assertTrue(priority.split("then", 1)[0].rstrip().endswith('${heavy_skip[@]+"${heavy_skip[@]}"};'))
+
+    def test_only_the_selected_targets_heavy_suites_run(self) -> None:
+        # sr2 on #26809: a control-only change ran all 56 heavy suites (AppKit benches, WebKit downloads).
+        derive = self.step("Find the main-thread-heavy suites")["run"]
+        self.assertEqual(derive.count('--targets "$SWIFT_TARGETS"'), 2)
+        self.assertEqual(heavy.heavy_suites(TESTS, "CmuxNextControlTests"), [])
+        browser = heavy.heavy_suites(TESTS, "CmuxNextBrowserTests CmuxNextControlTests")
+        self.assertIn(("CmuxNextBrowserTests", "RemoteVideoPageTests"), browser)
+        self.assertEqual({t for t, _ in browser}, {"CmuxNextBrowserTests"})
+        self.assertGreater(len(heavy.heavy_suites(TESTS, "all")), len(browser))
 
     def test_a_serial_step_of_their_own_runs_them(self) -> None:
         own = self.step("Run main-thread-heavy suites in their own process")

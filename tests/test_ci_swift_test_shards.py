@@ -78,6 +78,16 @@ class Width(unittest.TestCase):
         self.assertEqual(shards.width(10, 64, "2"), 2)
 
 
+class Route(unittest.TestCase):
+    def test_a_change_to_either_script_runs_every_swift_target(self) -> None:
+        spec = importlib.util.spec_from_file_location("route", ROOT / "scripts" / "ci" / "cmux_next_route.py")
+        route = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(route)
+        for path in ("scripts/cmux-next/swift-test-shards.py", "scripts/cmux-next/main-thread-heavy-suites.py"):
+            with self.subTest(path=path):
+                self.assertIn(path, route.FULL_INPUTS)
+
+
 class Workflow(unittest.TestCase):
     def test_the_broad_pass_runs_the_shards(self) -> None:
         steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]

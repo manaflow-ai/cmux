@@ -57,6 +57,9 @@ FULL_INPUTS = (
     "scripts/ci/select_package_tests.py",
     "scripts/cmux-next/ci-target-graph.py",
     "scripts/cmux-next/swift-test-with-hang-sampler.sh",
+    # Which suites run in which test process, for every target (#26809).
+    "scripts/cmux-next/main-thread-heavy-suites.py",
+    "scripts/cmux-next/swift-test-shards.py",
     "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",

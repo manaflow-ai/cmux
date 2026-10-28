@@ -274,6 +274,10 @@ path = "tests/test_ci_swift_test_main_thread_isolation.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swift_test_shards.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
