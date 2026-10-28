@@ -5616,6 +5616,130 @@ Result<CursorStyle> Codec<CursorStyle>::decode(const Json& value) {
     return make_error(ErrorCode::decode, "unknown CursorStyle value");
 }
 
+Result<Json> Codec<DaemonStartupMarks>::encode(const DaemonStartupMarks& value) {
+    (void)value;
+    Json::Object object;
+    if (value.config_loaded) {
+        auto encoded = encode_value(*value.config_loaded);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("config_loaded", std::move(encoded).value());
+    }
+    if (value.first_identify_served) {
+        auto encoded = encode_value(*value.first_identify_served);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("first_identify_served", std::move(encoded).value());
+    }
+    if (value.launch_snapshot_writer_started) {
+        auto encoded = encode_value(*value.launch_snapshot_writer_started);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("launch_snapshot_writer_started", std::move(encoded).value());
+    }
+    if (value.lifecycle_ready) {
+        auto encoded = encode_value(*value.lifecycle_ready);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("lifecycle_ready", std::move(encoded).value());
+    }
+    auto encoded_main_start_unix_us = encode_value(value.main_start_unix_us);
+    if (!encoded_main_start_unix_us) return std::move(encoded_main_start_unix_us).error();
+    object.emplace("main_start_unix_us", std::move(encoded_main_start_unix_us).value());
+    if (value.mux_restored) {
+        auto encoded = encode_value(*value.mux_restored);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("mux_restored", std::move(encoded).value());
+    }
+    if (value.owner_event_loop) {
+        auto encoded = encode_value(*value.owner_event_loop);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("owner_event_loop", std::move(encoded).value());
+    }
+    if (value.owner_prepared) {
+        auto encoded = encode_value(*value.owner_prepared);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("owner_prepared", std::move(encoded).value());
+    }
+    if (value.socket_bound) {
+        auto encoded = encode_value(*value.socket_bound);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("socket_bound", std::move(encoded).value());
+    }
+    if (value.websocket_ready) {
+        auto encoded = encode_value(*value.websocket_ready);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("websocket_ready", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<DaemonStartupMarks> Codec<DaemonStartupMarks>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    DaemonStartupMarks result{};
+    const Json* field_config_loaded = value.find("config_loaded");
+    if (field_config_loaded) {
+        auto decoded = decode_value<std::uint64_t>(*field_config_loaded);
+        if (!decoded) return std::move(decoded).error();
+        result.config_loaded = std::move(decoded).value();
+    }
+    const Json* field_first_identify_served = value.find("first_identify_served");
+    if (field_first_identify_served) {
+        auto decoded = decode_value<std::uint64_t>(*field_first_identify_served);
+        if (!decoded) return std::move(decoded).error();
+        result.first_identify_served = std::move(decoded).value();
+    }
+    const Json* field_launch_snapshot_writer_started = value.find("launch_snapshot_writer_started");
+    if (field_launch_snapshot_writer_started) {
+        auto decoded = decode_value<std::uint64_t>(*field_launch_snapshot_writer_started);
+        if (!decoded) return std::move(decoded).error();
+        result.launch_snapshot_writer_started = std::move(decoded).value();
+    }
+    const Json* field_lifecycle_ready = value.find("lifecycle_ready");
+    if (field_lifecycle_ready) {
+        auto decoded = decode_value<std::uint64_t>(*field_lifecycle_ready);
+        if (!decoded) return std::move(decoded).error();
+        result.lifecycle_ready = std::move(decoded).value();
+    }
+    const Json* field_main_start_unix_us = value.find("main_start_unix_us");
+    if (!field_main_start_unix_us) {
+        return make_error(ErrorCode::decode, "missing required field 'main_start_unix_us'");
+    }
+    if (field_main_start_unix_us) {
+        auto decoded = decode_value<std::uint64_t>(*field_main_start_unix_us);
+        if (!decoded) return std::move(decoded).error();
+        result.main_start_unix_us = std::move(decoded).value();
+    }
+    const Json* field_mux_restored = value.find("mux_restored");
+    if (field_mux_restored) {
+        auto decoded = decode_value<std::uint64_t>(*field_mux_restored);
+        if (!decoded) return std::move(decoded).error();
+        result.mux_restored = std::move(decoded).value();
+    }
+    const Json* field_owner_event_loop = value.find("owner_event_loop");
+    if (field_owner_event_loop) {
+        auto decoded = decode_value<std::uint64_t>(*field_owner_event_loop);
+        if (!decoded) return std::move(decoded).error();
+        result.owner_event_loop = std::move(decoded).value();
+    }
+    const Json* field_owner_prepared = value.find("owner_prepared");
+    if (field_owner_prepared) {
+        auto decoded = decode_value<std::uint64_t>(*field_owner_prepared);
+        if (!decoded) return std::move(decoded).error();
+        result.owner_prepared = std::move(decoded).value();
+    }
+    const Json* field_socket_bound = value.find("socket_bound");
+    if (field_socket_bound) {
+        auto decoded = decode_value<std::uint64_t>(*field_socket_bound);
+        if (!decoded) return std::move(decoded).error();
+        result.socket_bound = std::move(decoded).value();
+    }
+    const Json* field_websocket_ready = value.find("websocket_ready");
+    if (field_websocket_ready) {
+        auto decoded = decode_value<std::uint64_t>(*field_websocket_ready);
+        if (!decoded) return std::move(decoded).error();
+        result.websocket_ready = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<DeadPane>::encode(const DeadPane& value) {
     (void)value;
     Json::Object object;
@@ -7364,6 +7488,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("session_id", std::move(encoded).value());
     }
+    if (!value.startup_marks.is_absent()) {
+        auto encoded = encode_value(value.startup_marks);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("startup_marks", std::move(encoded).value());
+    }
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
@@ -7609,6 +7738,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_session_id);
         if (!decoded) return std::move(decoded).error();
         result.session_id = std::move(decoded).value();
+    }
+    const Json* field_startup_marks = value.find("startup_marks");
+    if (field_startup_marks) {
+        if (field_startup_marks->is_null()) {
+            result.startup_marks = Field<DaemonStartupMarks>::null();
+        } else {
+            auto decoded = decode_value<DaemonStartupMarks>(*field_startup_marks);
+            if (!decoded) return std::move(decoded).error();
+            result.startup_marks = Field<DaemonStartupMarks>(std::move(decoded).value());
+        }
     }
     const Json* field_terminal_revision = value.find("terminal_revision");
     if (!field_terminal_revision) {
@@ -31899,6 +32038,11 @@ Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("revisions", std::move(encoded).value());
     }
+    if (value.startup_marks) {
+        auto encoded = encode_value(*value.startup_marks);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("startup_marks", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -31917,6 +32061,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_revisions);
         if (!decoded) return std::move(decoded).error();
         result.revisions = std::move(decoded).value();
+    }
+    const Json* field_startup_marks = value.find("startup_marks");
+    if (field_startup_marks) {
+        auto decoded = decode_value<bool>(*field_startup_marks);
+        if (!decoded) return std::move(decoded).error();
+        result.startup_marks = std::move(decoded).value();
     }
     return result;
 }
@@ -53398,9 +53548,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand160FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand186FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand186FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
+    {"startup_marks", 12U, "startup-marks-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand223FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},

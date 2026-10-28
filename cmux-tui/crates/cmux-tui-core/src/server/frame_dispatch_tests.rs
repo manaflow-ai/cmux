@@ -311,7 +311,8 @@ fn frame_dispatch_identify_lists_the_framed_methods_and_their_schema() {
 #[test]
 fn frame_dispatch_identify_without_the_offer_lists_no_framed_methods() {
     let mux = Mux::new_for_test("frame-dispatch-no-offer", crate::SurfaceOptions::default());
-    let identity = cmd_server::identify(&mux, 0, false, true).unwrap();
+    let params = cmd_server::IdentifyParams { revisions: true, ..Default::default() };
+    let identity = cmd_server::identify(&mux, 0, params).unwrap();
     assert!(identity.get("api_revision").is_some(), "{identity}");
     assert!(identity.get("framed_methods").is_none(), "{identity}");
     assert!(identity.get("sdk_schema_digest").is_none(), "{identity}");

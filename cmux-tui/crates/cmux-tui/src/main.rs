@@ -138,6 +138,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
+use cmux_tui_core::startup_marks::{StartupMark, StartupMarks};
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions, echo_thread::ECHO_PATH_QOS};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
@@ -1710,6 +1711,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    let startup = Arc::new(StartupMarks::starting_now());
     // Before any mode can serve `identify` or `ping`.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
@@ -1727,7 +1729,7 @@ pub fn main() -> std::process::ExitCode {
     if let Some(code) = classic_hooks::run() {
         return code;
     }
-    run_main();
+    run_main(startup);
     // Reached only by the normal return paths (never client_log::exit): flush
     // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
@@ -1762,7 +1764,7 @@ struct CloudTemplateEnv {
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
-fn run_main() {
+fn run_main(startup: Arc<StartupMarks>) {
     startup_env::take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
     // handlers and argv decoding: the wrapper execs Claude with arguments
@@ -1931,6 +1933,7 @@ fn run_main() {
     }
     let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
+    startup.mark(StartupMark::ConfigLoaded);
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
     #[cfg(unix)]
@@ -1966,13 +1969,13 @@ fn run_main() {
             run_provider_machine_client(provider, local_machines, connect_external, config)
         }
         None if args.attach => run_attach(args, config),
-        None => run_server(args, provider_workspace_authority, config),
+        None => run_server(args, provider_workspace_authority, config, startup),
     };
     #[cfg(not(unix))]
     let result = match provider {
         Some(_) => Err(anyhow::anyhow!("dynamic machine providers require Unix")),
         None if args.attach => run_attach(args, config),
-        None => run_server(args, provider_workspace_authority, config),
+        None => run_server(args, provider_workspace_authority, config, startup),
     };
     if result.is_ok() && !headless {
         // After the TUI restored the terminal: the one update line (#8).
@@ -2138,69 +2141,6 @@ fn new_mux_generation() -> anyhow::Result<String> {
     Ok(generation)
 }
 
-#[cfg(target_os = "linux")]
-fn take_provider_management_listener() -> anyhow::Result<Option<std::os::unix::net::UnixListener>> {
-    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
-
-    const SYSTEMD_FIRST_FD: RawFd = 3;
-    const FD_NAME: &str = "cmux-provider-authority";
-    // Taken from the environment as the first statement of `main`, before
-    // this function's caller started its threads.
-    let startup_env::SystemdListenEnv { pid: listen_pid, fds: listen_fds, names: listen_names } =
-        startup_env::take_systemd_listen_env();
-    if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
-        return Ok(None);
-    }
-    let pid = listen_pid
-        .as_deref()
-        .and_then(|value| value.parse::<u32>().ok())
-        .ok_or_else(|| anyhow::anyhow!("invalid systemd LISTEN_PID"))?;
-    if pid != std::process::id() {
-        anyhow::bail!("systemd listener belongs to a different process");
-    }
-    if listen_fds.as_deref() != Some("1") || listen_names.as_deref() != Some(FD_NAME) {
-        anyhow::bail!("expected exactly one named provider management listener");
-    }
-    let socket_type = socket_option(SYSTEMD_FIRST_FD, libc::SO_TYPE)?;
-    let accepting = socket_option(SYSTEMD_FIRST_FD, libc::SO_ACCEPTCONN)?;
-    if socket_type != libc::SOCK_STREAM || accepting != 1 {
-        anyhow::bail!("provider management descriptor is not a listening stream socket");
-    }
-    // SAFETY: F_GETFD takes no pointer; descriptor 3 was checked above to be the listening socket
-    // systemd passed to this process.
-    let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
-    if flags < 0
-        // SAFETY: F_SETFD takes an integer flag set; descriptor 3 is open (checked above).
-        || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
-    {
-        return Err(io::Error::last_os_error().into());
-    }
-    // SAFETY: systemd passed descriptor 3 to this process (LISTEN_PID and LISTEN_FDS checked
-    // above), and only the first take of the variables reaches this line, so this is its one owner.
-    let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
-    Ok(Some(std::os::unix::net::UnixListener::from(owned)))
-}
-
-#[cfg(target_os = "linux")]
-fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc::c_int> {
-    use std::mem::size_of;
-
-    let mut value = 0;
-    let mut length = size_of::<libc::c_int>() as libc::socklen_t;
-    // SAFETY: getsockopt writes at most `length` bytes into `value` and updates `length`; both are
-    // live locals and `length` starts as the size of `value`.
-    let result = unsafe {
-        libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
-    };
-    if result != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if length as usize != size_of::<libc::c_int>() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid socket option length"));
-    }
-    Ok(value)
-}
-
 struct ServedMuxCleanup {
     mux: Option<Arc<Mux>>,
     socket_path: PathBuf,
@@ -2271,6 +2211,7 @@ fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     config: config::StartupConfigSnapshot,
+    startup: Arc<StartupMarks>,
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
@@ -2280,9 +2221,10 @@ fn run_server(
     #[cfg(unix)]
     host_orphan_policy::install();
     let supervisor = owner_start::start_server_process(&args)?;
+    startup.mark(StartupMark::OwnerPrepared);
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
-    let provider_management_listener = take_provider_management_listener()?;
+    let provider_management_listener = provider_authority::take_management_listener()?;
     #[cfg(not(target_os = "linux"))]
     let provider_management_listener: Option<()> = None;
     if provider_workspace_authority.is_some() && provider_management_listener.is_some() {
@@ -2438,6 +2380,7 @@ fn run_server(
     let restoring_server =
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
             .serve_restoring()?;
+    startup.mark(StartupMark::SocketBound);
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2483,6 +2426,8 @@ fn run_server(
             ));
         }
     };
+    mux.install_startup_marks(startup);
+    mux.mark_startup(StartupMark::MuxRestored);
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2540,6 +2485,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    mux.mark_startup(StartupMark::OwnerEventLoop);
     let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
@@ -2624,6 +2570,7 @@ fn run_server(
         // A forwarded page must never reach the daemon's own control port.
         loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    mux.mark_startup(StartupMark::WebsocketReady);
     let websocket_server = websocket_server.map(|server| {
         websocket_credential::attach(server, &socket_path, ws_token_minted, &ws_token)
     });
@@ -2710,6 +2657,7 @@ fn run_server(
             None
         }
     };
+    mux.mark_startup(StartupMark::LaunchSnapshotWriterStarted);
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
