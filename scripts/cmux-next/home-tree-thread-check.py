@@ -17,8 +17,7 @@ Chief home's cmux-tui session) it makes a conversation. Then, through the user's
 7. follows the permalink of C (the docked Home's hand-off route `#/conversation/<c>/message/<C>`): Home opens
    C's branch, path [R, A, B, C], the same path the owner resolves;
 8. the Channels page (the React view of the same daemon data) at that route shows A, B and C at depth 1, 2, 3.
-Then the thread header (conversation-thread-objects-v1): resolve by the status chip, rename, assign, each on the owner
-and in the header, and the same state in Channels; Copy Link on C gives the permalink the owner resolves; and a
+Then the thread view draws no header above its root (as in Messages, cmux#26686); Copy Link on C gives the permalink the owner resolves; and a
 permalink to a nested message 130 messages older than the loaded window loads older pages and opens its branch.
 No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui --app-from-fleet); ends with the
 DEBUG quit fixture, endAgents and the tag's `acpmux daemon shutdown`.
@@ -262,29 +261,11 @@ try:
           state.get("thread_path") == want_path and state.get("thread_message") == ids["C"], state)
     shot("6-permalink-C")
 
-    # 9: the thread header (the daemon's thread object, conversation-thread-objects-v1), as in Channels.
-    def root_thread():
-        for m in (daemon(owner, "conversation-snapshot", conversation=conversation, tail=50).get("messages") or []):
-            if m.get("id") == ids["R"]:
-                return m.get("thread") or {}
-        return {}
+    # 9: no thread header (https://github.com/manaflow-ai/cmux/issues/26686): as in Messages, the root bubble is the
+    # thread view's first row; the thread object stays on the owner and in Channels.
     head = drive("header")
     result["header"] = head
-    check("the thread view has a header: R's first line, open, unassigned",
-          head.get("title") == texts["R"] and head.get("status") == "open" and head.get("owner") == "", head)
-    chip = drive("chip")
-    resolved = poll(lambda: root_thread().get("resolved"))
-    check("a click on the status chip resolves the thread on the owner (thread.update)", bool(resolved), {"chip": chip, "thread": root_thread()})
-    check("the header shows the thread resolved", bool(poll(lambda: drive("header").get("status") == "resolved", timeout=10)), drive("header"))
-    shot("8-header-resolved")
-    new_title = f"Tree title {stamp}"
-    drive("rename", value=new_title)
-    check("rename sets the owner's thread title", bool(poll(lambda: root_thread().get("title") == new_title)), root_thread())
-    check("the header shows the new title", bool(poll(lambda: drive("header").get("title") == new_title, timeout=10)), drive("header"))
-    drive("assign", value=me)
-    check("assign sets the owner's thread owner", bool(poll(lambda: root_thread().get("owner") == me)), root_thread())
-    check("the header names the owner", bool(poll(lambda: drive("header").get("owner") == "Me", timeout=10)), drive("header"))
-    shot("9-header-owner")
+    check("the thread view draws no header above the root", head.get("header") == "", head)
 
     # 10: Copy Link on a message: the daemon's permalink form, which the owner resolves to its thread path.
     drive("escape"); drive("escape")
