@@ -400,6 +400,29 @@ class ResourceApiTests(unittest.TestCase):
                             self.assertTrue(client.session(SESSION).ping().alive)
                 self.assertEqual(observed, ["session.ping"])
 
+    def test_close_during_dispatch_setup_preserves_mutation_error_key(self) -> None:
+        def handler(connection, _index):
+            while connection.recv(1):
+                pass
+
+        with UnixJsonServer(handler) as server, Client(server.path) as client:
+            wire = client._connection._wire
+            sock = wire._socket
+
+            def close_before_setup():
+                timeout = sock.gettimeout()
+                wire.close()
+                return timeout
+
+            with patch.object(wire, "_socket", wraps=sock) as proxy:
+                proxy.gettimeout.side_effect = close_before_setup
+                with self.assertRaises(MutationTransportError) as raised:
+                    client.session(SESSION).terminal(TERMINAL).write(
+                        "not sent", idempotency_key="close-during-dispatch"
+                    )
+            self.assertIsInstance(raised.exception.__cause__, CmuxConnectionError)
+            self.assertEqual(raised.exception.idempotency_key, "close-during-dispatch")
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
