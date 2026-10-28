@@ -104,9 +104,13 @@ describe("docs search index", () => {
       );
       const texts = agentsPage?.sections.flatMap((section) => section.texts) ?? [];
 
-      expect(texts).toContain("Muse Code");
-      for (const command of ["muse login", "muse usage", "muse logout"]) {
-        expect(texts.some((text) => text.includes(command))).toBe(true);
+      // Search aliases already contain "Muse Code" and "muse login", so look
+      // for the one translated paragraph that carries the recovery steps.
+      const recovery = texts.find(
+        (text) => text.includes("muse usage") && text.includes("muse logout"),
+      );
+      for (const term of ["Muse Code", "CodeRouter", "muse login", "META_API_KEY"]) {
+        expect(recovery).toContain(term);
       }
     }
   });
