@@ -66,7 +66,7 @@ public final class ControlConnectionClosures: Sendable {
     /// Runs `handler` when `connection` closes (never for the in-process connection), or at once
     /// when it already has.
     public func add(_ connection: ControlConnectionID, _ handler: @escaping @Sendable () -> Void) -> Token {
-        let (token, gone) = state.withLock { state in
+        let (token, gone) = state.withLock { state -> (Token, Bool) in
             state.next += 1
             let gone = connection != .inProcess && state.closed.contains(connection)
             if connection != .inProcess, !gone { state.handlers[connection, default: [:]][state.next] = handler }
@@ -82,13 +82,13 @@ public final class ControlConnectionClosures: Sendable {
 
     /// `connection` closed: runs and drops its handlers.
     public func closed(_ connection: ControlConnectionID) {
-        let handlers = state.withLock { state in
+        let handlers = state.withLock { state -> [UInt64: @Sendable () -> Void] in
             if connection != .inProcess, !state.closed.contains(connection) {
                 state.closed.append(connection)
                 if state.closed.count > Self.remembered { state.closed.removeFirst() }
             }
-            return state.handlers.removeValue(forKey: connection)
-        } ?? [:]
+            return state.handlers.removeValue(forKey: connection) ?? [:]
+        }
         for handler in handlers.values { handler() }
     }
 }
