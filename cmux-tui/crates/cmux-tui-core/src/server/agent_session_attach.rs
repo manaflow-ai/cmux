@@ -148,6 +148,11 @@ impl AgentSessions {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
     }
 
+    /// The link shares (`agent-session-share-*`).
+    pub(super) fn link_shares(&self) -> &proxy::shares::LinkShares {
+        &self.link_shares
+    }
+
     pub(super) fn past_first_line(&self, client: u64) -> bool {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }

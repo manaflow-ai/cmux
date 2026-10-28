@@ -341,3 +341,76 @@ fn share_verbs_and_guest_binds_need_the_owners_local_connection() {
     assert_code(&both.request(frame), "agent_session.bad_request");
     assert_eq!(list(&mut owner)[0]["uses_left"], 1, "nothing else was redeemed");
 }
+
+/// An expiry a verb notices before the timer runs (here a list) closes the guest's connection in
+/// the same step, and a guest's live stream stops at its first record after the expiry.
+#[test]
+fn an_expiry_any_path_notices_ends_the_guests_connection_and_stream() {
+    let mut fake = FakeAcpmux::start("share-noticed");
+    let mux = mux_with(&fake, "share-noticed");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-noticed-owner");
+    let share = create(&mut owner, surface, json!({"ttl_secs":60, "uses":2}));
+    let first = redeem(&mut owner, &share, "Ann", "a1");
+    let second = redeem(&mut owner, &share, "Bob", "a2");
+    let (mut ann, _) = bind(&mux, &share, &first, "share-noticed-ann");
+    let (mut bob, _) = bind(&mux, &share, &second, "share-noticed-bob");
+    for client in [&mut ann, &mut bob] {
+        let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+        assert_eq!(attach["ok"], true, "{attach}");
+    }
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    shares.advance(Duration::from_secs(61));
+    // No verb yet: the next record reaches neither guest, whose streams end.
+    fake.notify(
+        "_acpmux/event",
+        json!({"sessionId": SESSION, "seq": 9, "at": 1, "dir": "mux", "kind": "user_message"}),
+    );
+    for client in [&mut ann, &mut bob] {
+        let closed = client.named_event("agent-session-closed", WAIT).expect("the stream ends");
+        assert_eq!(closed["reason"], "share_ended");
+        assert!(client.named_event("agent-session-record", Duration::from_millis(200)).is_none());
+    }
+    // The owner's list notices the expiry first: both connections close, the timer is gone.
+    assert_eq!(list(&mut owner)[0]["state"], "expired");
+    wait_unbound(&mux, 0);
+    assert!(shares.armed.lock().unwrap().is_none());
+}
+
+/// Creates and revokes racing on several connections leave the one timer at the earliest live
+/// expiry (or none), never one a concurrent revoke cancelled after a create installed it.
+#[test]
+fn concurrent_creates_and_revokes_keep_the_timer_on_the_next_expiry() {
+    let fake = FakeAcpmux::start("share-race");
+    let mux = mux_with(&fake, "share-race");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let workers: Vec<_> = (0..4u64)
+        .map(|worker| {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                let mut owner = Client::connect(&mux, &format!("share-race-{worker}"));
+                // One kept per worker, then churn: a create and its revoke.
+                create(&mut owner, surface, json!({"ttl_secs": 600 + worker * 60}));
+                for round in 0..3u64 {
+                    let ttl = 60 + worker * 10 + round;
+                    let churn = create(&mut owner, surface, json!({"ttl_secs": ttl}));
+                    let revoke =
+                        json!({"cmd":"agent-session-share-revoke", "share_id":churn["share_id"]});
+                    assert_eq!(owner.request(revoke)["ok"], true);
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let next = shares
+        .with(None, |all, _| {
+            let live = all.iter().filter(|s| s.state == ShareState::Active);
+            Ok((live.map(|s| s.expires_at).min(), false))
+        })
+        .unwrap();
+    assert!(next.is_some());
+    assert_eq!(shares.armed.lock().unwrap().as_ref().map(|(_, at)| *at), next);
+}

@@ -10,15 +10,17 @@
 //! secret once. A redeemed guest binds a connection with `agent-session-proxy-bind {link_guest}`
 //! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, approval: "owner"}`,
 //! so acpmux holds each of its prompts for the owner. Every guest frame re-checks the share (its
-//! state and expiry) and the guest (kicked). Revoke, kick and expiry close the guest's connections
-//! at once; expiry is one one-shot timer to the next `expires_at` (no polling).
+//! state and expiry) and the guest (kicked), and a guest's live stream checks them on every
+//! record. Whatever path ends a share or a guest (a revoke, a kick, the expiry timer, or any verb
+//! that notices the expiry first) closes its bound connections in the same step (`settle`);
+//! expiry is one one-shot timer to the next `expires_at` (no polling).
 //!
 //! The hosted room (`room`, `provision_key`, `pending_room_ops`, the `provisioning` state) comes
 //! with the room bridge: until then a share is `active` from its create and `url` is null.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
@@ -127,8 +129,13 @@ impl LinkShare {
 pub(in crate::server) struct LinkShares {
     shares: Mutex<Option<Vec<LinkShare>>>,
     timers: Timers,
-    /// The one timer armed, and the expiry it ends.
+    /// The one timer armed, and the expiry it ends. Changed only under the shares lock (taken
+    /// first), so the timer always matches the shares it was computed from.
     armed: Mutex<Option<(TimerId, u64)>>,
+    /// Shares (`None`) and guests that ended since the last `settle`, whose connections close.
+    ended: Mutex<Vec<(String, Option<String>)>>,
+    /// The daemon the timer's job runs for (set by the first verb or bind).
+    mux: Mutex<Weak<Mux>>,
     /// Added to the wall clock (tests move time with it).
     skew_ms: AtomicU64,
 }
@@ -256,7 +263,8 @@ impl LinkShares {
 
     /// Runs `change` on the shares under their lock, with every share past its expiry marked
     /// expired first. A change answering `(value, true)` is written before the answer and rolled
-    /// back when the write fails (`share.unsaved`).
+    /// back when the write fails (`share.unsaved`). Every share or guest that stops being live
+    /// here is queued for [`Self::settle`], whatever the change answered.
     fn with<T>(
         &self,
         directory: Option<&Path>,
@@ -265,22 +273,82 @@ impl LinkShares {
         let now = self.now();
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
         let shares = slot.get_or_insert_with(|| load(directory));
+        let start = shares.clone();
         for share in shares.iter_mut() {
             if share.state == ShareState::Active && now >= share.expires_at {
                 share.state = ShareState::Expired;
             }
         }
         let before = shares.clone();
-        let (value, changed) = change(shares, now)?;
-        if changed
-            && let Some(directory) = directory
-            && let Err(error) = save(directory, FILE, shares)
-        {
-            *shares = before;
-            eprintln!("cmux-tui: link shares not written: {error}");
-            return Err("share.unsaved");
+        let answer = match change(shares, now) {
+            Ok((value, true)) => match directory.map(|d| save(d, FILE, shares)) {
+                Some(Err(error)) => {
+                    *shares = before;
+                    eprintln!("cmux-tui: link shares not written: {error}");
+                    Err("share.unsaved")
+                }
+                _ => Ok(value),
+            },
+            Ok((value, false)) => Ok(value),
+            Err(code) => Err(code),
+        };
+        self.note_ended(&start, shares);
+        answer
+    }
+
+    /// Queues what was live in `start` and is not in `now`.
+    fn note_ended(&self, start: &[LinkShare], now: &[LinkShare]) {
+        let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
+        for was in start.iter().filter(|s| s.live().is_ok()) {
+            let is = now.iter().find(|s| s.share_id == was.share_id);
+            if is.is_none_or(|s| s.live().is_err()) {
+                ended.push((was.share_id.clone(), None));
+                continue;
+            }
+            for guest in was.guests.iter().filter(|g| g.state == GuestState::Active) {
+                let still = is
+                    .into_iter()
+                    .flat_map(|s| &s.guests)
+                    .any(|g| g.guest_id == guest.guest_id && g.state == GuestState::Active);
+                if !still {
+                    ended.push((was.share_id.clone(), Some(guest.guest_id.clone())));
+                }
+            }
         }
-        Ok(value)
+    }
+
+    /// Whether `author` may still read: a guest of a live, unexpired share who was not removed.
+    /// Any other author is not a link guest's and passes. Cheap: one lock, no write.
+    pub(in crate::server) fn guest_live(&self, author: &Value) -> bool {
+        let Some(rest) = author["id"].as_str().and_then(|id| id.strip_prefix(GUEST_PREFIX)) else {
+            return true;
+        };
+        let Some((share_id, guest_id)) = rest.split_once('.') else { return false };
+        let now = self.now();
+        let slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        slot.iter().flatten().any(|s| {
+            s.share_id == share_id
+                && s.live().is_ok()
+                && now < s.expires_at
+                && s.guests.iter().any(|g| g.guest_id == guest_id && g.state == GuestState::Active)
+        })
+    }
+
+    /// Closes the connections of every share and guest that ended, then arms the next expiry.
+    /// Called after every verb, bind and guest frame, and by the timer.
+    pub(in crate::server) fn settle(&self, mux: &Mux) {
+        let ended = std::mem::take(&mut *self.ended.lock().unwrap_or_else(|e| e.into_inner()));
+        if !ended.is_empty() {
+            close(mux, |id| {
+                let Some((share, guest)) =
+                    id.strip_prefix(GUEST_PREFIX).and_then(|rest| rest.split_once('.'))
+                else {
+                    return false;
+                };
+                ended.iter().any(|(s, g)| s == share && g.as_deref().is_none_or(|g| g == guest))
+            });
+        }
+        self.rearm();
     }
 
     /// A new share of `session`, shown on `surface`; answers the secret once.
@@ -409,17 +477,17 @@ impl LinkShares {
         })
     }
 
-    /// Arms the one timer at the next active share's expiry (cancelling an earlier one).
-    fn rearm(&self, mux: &Arc<Mux>) {
-        let next = {
-            let shares = self.shares.lock().unwrap_or_else(|e| e.into_inner());
-            shares
-                .iter()
-                .flatten()
-                .filter(|s| s.state == ShareState::Active)
-                .map(|s| s.expires_at)
-                .min()
-        };
+    /// Arms the one timer at the next active share's expiry (cancelling an earlier one). The
+    /// expiry is read and the timer replaced under the shares lock, so two callers never leave a
+    /// timer that does not match the shares.
+    fn rearm(&self) {
+        let shares = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        let next = shares
+            .iter()
+            .flatten()
+            .filter(|s| s.state == ShareState::Active)
+            .map(|s| s.expires_at)
+            .min();
         let mut armed = self.armed.lock().unwrap_or_else(|e| e.into_inner());
         if armed.as_ref().map(|(_, at)| *at) == next {
             return;
@@ -428,7 +496,7 @@ impl LinkShares {
             self.timers.cancel(timer);
         }
         let Some(at) = next else { return };
-        let weak = Arc::downgrade(mux);
+        let weak = self.mux.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let after = Duration::from_millis(at.saturating_sub(self.now()));
         let timer = self.timers.schedule(after, move || {
             if let Some(mux) = weak.upgrade() {
@@ -438,19 +506,21 @@ impl LinkShares {
         *armed = Some((timer, at));
     }
 
-    /// The timer's job: closes the guests of every share that ended, then arms the next expiry.
-    pub(super) fn expired(&self, mux: &Arc<Mux>) {
-        *self.armed.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    /// Remembers the daemon the timer runs for.
+    fn serve(&self, mux: &Arc<Mux>) {
+        *self.mux.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(mux);
+    }
+
+    /// The timer's job: marks what expired, closes its guests, then arms the next expiry (again
+    /// at the same one, if the timer ran early).
+    pub(super) fn expired(&self, mux: &Mux) {
+        {
+            let _shares = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+            *self.armed.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         let directory = mux.session_state_directory();
-        let ended = self.with(directory.as_deref(), |shares, _| {
-            let ended = shares
-                .iter()
-                .filter(|s| s.live().is_err())
-                .map(|s| format!("{GUEST_PREFIX}{}.", s.share_id));
-            Ok((ended.collect::<Vec<_>>(), false))
-        });
-        close(mux, |id| ended.iter().flatten().any(|prefix| id.starts_with(prefix.as_str())));
-        self.rearm(mux);
+        let _ = self.with(directory.as_deref(), |_, _| Ok(((), false)));
+        self.settle(mux);
     }
 }
 
@@ -489,6 +559,7 @@ pub(super) fn handle(
         return fail(writer, id, "share.not_trusted");
     }
     let shares = &mux.control_clients.agent_sessions.link_shares;
+    shares.serve(mux);
     let directory = mux.session_state_directory();
     let directory = directory.as_deref();
     let params = Value::Object(object);
@@ -517,17 +588,7 @@ pub(super) fn handle(
                 if (cmd == "agent-session-share-kick") != p.guest_id.is_some() {
                     return Err("share.bad_request");
                 }
-                let reply = shares.end(directory, &p)?;
-                let ended = format!(
-                    "{GUEST_PREFIX}{}.{}",
-                    p.share_id,
-                    p.guest_id.as_deref().unwrap_or_default()
-                );
-                close(
-                    mux,
-                    |id| if p.guest_id.is_some() { id == ended } else { id.starts_with(&ended) },
-                );
-                Ok(reply)
+                shares.end(directory, &p)
             })
         }
         "agent-session-share-redeem" => {
@@ -535,7 +596,8 @@ pub(super) fn handle(
         }
         _ => Err("share.bad_request"),
     };
-    shares.rearm(mux);
+    // A revoke, a kick, or an expiry any verb noticed closes the guests' connections now.
+    shares.settle(mux);
     match answer {
         Ok(data) => ok(writer, id, data),
         Err(code) => fail(writer, id, code),
@@ -587,8 +649,9 @@ pub(super) fn guest_author(mux: &Arc<Mux>, link: Value) -> Result<Value, Refusal
     let link: Link = serde_json::from_value(link).map_err(|_| Refusal::BadRequest)?;
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
+    shares.serve(mux);
     let found = shares.guest(directory.as_deref(), &link.share_id, &link.guest_id);
-    shares.rearm(mux);
+    shares.settle(mux);
     found.map(|(_, _, author)| author).map_err(|_| Refusal::ShareEnded)
 }
 
@@ -610,8 +673,9 @@ pub(super) fn check_guest(
         .ok_or(Refusal::NotTrusted)?;
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
-    let (session, surface, author) =
-        shares.guest(directory.as_deref(), share_id, guest_id).map_err(|_| Refusal::ShareEnded)?;
+    let found = shares.guest(directory.as_deref(), share_id, guest_id);
+    shares.settle(mux);
+    let (session, surface, author) = found.map_err(|_| Refusal::ShareEnded)?;
     if author != bound
         || supplied.is_some_and(|a| a != bound)
         || pinned.is_some_and(|p| p.as_str() != Some(session.as_str()))
