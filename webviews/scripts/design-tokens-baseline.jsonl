@@ -335,7 +335,7 @@
 {"file":"ui/findPill.css","kind":"spacing","property":"padding","values":{"0 6px":1}}
 {"file":"ui/findPill.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
 {"file":"ui/findPill.css","kind":"spacing","property":"padding-top","values":{"5px":1}}
-{"file":"ui/ghost.css","kind":"height","property":"height","values":{"22px":1,"14px":1}}
+{"file":"ui/ghost.css","kind":"height","property":"height","values":{"22px":1}}
 {"file":"ui/ghost.css","kind":"spacing","property":"gap","values":{"6px":1,"2px":1}}
 {"file":"ui/importCards.css","kind":"height","property":"height","values":{"4px":1}}
 {"file":"ui/importCards.css","kind":"spacing","property":"gap","values":{"10px":1,"1px":1,"6px":1}}
