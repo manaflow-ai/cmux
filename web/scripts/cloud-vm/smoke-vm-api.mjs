@@ -592,8 +592,12 @@ try {
 } finally {
   // A create that failed before returning an id, or a VM that could not be
   // deleted, may still exist; deleting its owner would orphan it.
-  if (user && keepUserForSweep && sweepOlderThanMinutes !== null) {
-    console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+  if (user && keepUserForSweep) {
+    if (sweepOlderThanMinutes !== null) {
+      console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+    } else {
+      console.error(`cleanup_kept_user_for_reconciliation=${user.id}`);
+    }
   } else if (user) {
     try {
       await user.delete();
