@@ -5908,6 +5908,9 @@ function AcpmuxPane() {
   const runModePicked = useRef(false);
   /// Cloud is this new chat's mode by default, not by the person's pick: the folder may undo it.
   const cloudByDefault = useRef(false);
+  /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
+  /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
+  const cloudStartPending = useRef(false);
   const sandboxModeRows = {
     mode: sandbox.mode,
     onMode: (mode: RunMode) => {
@@ -5931,7 +5934,10 @@ function AcpmuxPane() {
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (refused) return translate("composer.cloudAttachments");
-    void startCloud({ task: text, ...start })?.then((answer) => {
+    const started = startCloud({ task: text, ...start });
+    if (started) cloudStartPending.current = true;
+    void started?.then((answer) => {
+      cloudStartPending.current = false;
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
@@ -6729,7 +6735,7 @@ function AcpmuxPane() {
       // which this folder's history may undo.
       if (sandbox.mode === "cloud") cloudByDefault.current = true;
     }
-    if (runModePicked.current || snapshot.sessionId) return;
+    if (runModePicked.current || snapshot.sessionId || cloudStartPending.current) return;
     if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
       cloudByDefault.current = true;
       sandbox.setMode("cloud");
