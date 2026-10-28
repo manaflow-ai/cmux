@@ -6232,11 +6232,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     // Title/description ownership lives in Workspace+TitleOwnership.swift.
 
     func setCustomColor(_ hex: String?) {
-        if let hex {
-            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
-        } else {
-            customColor = nil
-        }
+        let next = hex.flatMap { WorkspaceTabColorSettings.normalizedHex($0) }
+        guard next != customColor else { return }
+        customColor = next
+        NotificationCenter.default.post(name: .workspaceColorDidChange, object: self, userInfo: [GhosttyNotificationKey.tabId: id])
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

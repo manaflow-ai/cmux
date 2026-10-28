@@ -4604,6 +4604,7 @@
 		ED4BE012ED4BE012ED4BE012 /* WorkspaceCloudBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4BE013ED4BE013ED4BE013 /* WorkspaceCloudBindingState.swift */; };
 		D00A8E8C47DD8DC05D500C66 /* WorkspaceCloudVMBinding+OwningTeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA8781ABBE7A67C2E61F17D /* WorkspaceCloudVMBinding+OwningTeam.swift */; };
 		266DFDCC29A6299F0CC1091D /* WorkspaceCloudVMBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B66C7DD8A6A89CAF4027DA /* WorkspaceCloudVMBinding.swift */; };
+		C0105A1E0000000000000001 /* WorkspaceColorIndexReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0105A1E0000000000000002 /* WorkspaceColorIndexReader.swift */; };
 		970900030000000000000001 /* WorkspaceColorMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970900030000000000000002 /* WorkspaceColorMenuTests.swift */; };
 		D10A00000000000000000002 /* WorkspaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10A00000000000000000001 /* WorkspaceCommands.swift */; };
 		A5FB1203 /* WorkspaceConfigActionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1204 /* WorkspaceConfigActionCapture.swift */; };
@@ -9258,6 +9259,7 @@
 		ED4BE013ED4BE013ED4BE013 /* WorkspaceCloudBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloudBindingState.swift; sourceTree = "<group>"; };
 		DFA8781ABBE7A67C2E61F17D /* WorkspaceCloudVMBinding+OwningTeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/WorkspaceCloudVMBinding+OwningTeam.swift"; sourceTree = "<group>"; };
 		A5B66C7DD8A6A89CAF4027DA /* WorkspaceCloudVMBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/WorkspaceCloudVMBinding.swift"; sourceTree = "<group>"; };
+		C0105A1E0000000000000002 /* WorkspaceColorIndexReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/WorkspaceColorIndexReader.swift; sourceTree = "<group>"; };
 		970900030000000000000002 /* WorkspaceColorMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceColorMenuTests.swift; sourceTree = "<group>"; };
 		D10A00000000000000000001 /* WorkspaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommands.swift; sourceTree = "<group>"; };
 		A5FB1204 /* WorkspaceConfigActionCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceConfigActionCapture.swift; sourceTree = "<group>"; };
@@ -12006,6 +12008,7 @@
 				D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */,
 				D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */,
 				D77690000000000000000004 /* NotificationPopoverRow.swift */,
+				C0105A1E0000000000000002 /* WorkspaceColorIndexReader.swift */,
 				D77690000000000000000010 /* NotificationsPopoverMetrics.swift */,
 				D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */,
 				D7769000000000000000000A /* NotificationsPopoverResizeView.swift */,
@@ -17823,6 +17826,7 @@
 				ED4BE012ED4BE012ED4BE012 /* WorkspaceCloudBindingState.swift in Sources */,
 				D00A8E8C47DD8DC05D500C66 /* WorkspaceCloudVMBinding+OwningTeam.swift in Sources */,
 				266DFDCC29A6299F0CC1091D /* WorkspaceCloudVMBinding.swift in Sources */,
+				C0105A1E0000000000000001 /* WorkspaceColorIndexReader.swift in Sources */,
 				A5FB1203 /* WorkspaceConfigActionCapture.swift in Sources */,
 					5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */,
 				DFAAE6D5B2C449C4BC3AC238 /* WorkspaceContentView+PanelVisibility.swift in Sources */,
