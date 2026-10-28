@@ -478,7 +478,7 @@ export function useChatInspector({
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
-        onOpenSourceFile={onOpenSourceFile}
+        onOpenSourceFile={subagent?.agent.host ? undefined : onOpenSourceFile}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
