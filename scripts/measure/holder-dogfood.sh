@@ -57,14 +57,17 @@ if [[ -z "$app" || ! -d "$app" ]]; then
 fi
 ls -l "$app/Contents/Resources/bin/" | grep -E "cmux-holder|cmux-tui-host" || echo "holder-dogfood: the bundle has no cmux-holder"
 python3 scripts/cmux-next/bench_launch.py session || { echo "holder-dogfood: no GUI session on this host" >&2; exit 1; }
-vdisplay_pid=""
+vdisplay_pid="" dogfood_pid=""
 # shellcheck disable=SC2329 # run by the traps below
 stop_vdisplay() {
+  if [[ -n "$dogfood_pid" ]]; then kill -TERM "$dogfood_pid" 2>/dev/null || true; wait "$dogfood_pid" 2>/dev/null || true; fi  # the dogfood this script started
+  dogfood_pid=""
   if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
   vdisplay_pid=""
 }
 trap stop_vdisplay EXIT
-# A cancelled step (TERM, INT or HUP) stops the helper too; SIGKILL leaves it to its own hold.
+# A cancelled step (TERM, INT or HUP) stops the dogfood and the helper at once (the dogfood runs in the
+# background and is waited for, so the trap runs between commands); SIGKILL leaves the helper to its own hold.
 trap 'stop_vdisplay; exit 143' TERM
 trap 'stop_vdisplay; exit 130' INT
 trap 'stop_vdisplay; exit 129' HUP
@@ -92,7 +95,10 @@ fi
 status=0
 for model in $models; do
   python3 scripts/cmux-next/holder-dogfood.py --app "$app" --model "$model" --out "$out/$model" \
-    | tee "$out/$model.log" || status=$?
+    > >(tee "$out/$model.log") &
+  dogfood_pid=$!
+  wait "$dogfood_pid" || status=$?
+  dogfood_pid=""
 done
 python3 - "$out" $models > "$PWD/holder-dogfood.json" <<'PY' || true
 import json, sys
