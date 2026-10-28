@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInputModel
 
 // AppKit input into the journal. `CmuxApplication.sendEvent` calls
 // `record(_:)` for every event before anything (including the app-wide key
@@ -72,7 +73,7 @@ extension InputJournal {
     }
 }
 
-extension InputJournalEntry.ModifierClasses {
+nonisolated extension InputJournalEntry.ModifierClasses {
     init(_ flags: NSEvent.ModifierFlags) {
         var classes: Self = []
         if flags.contains(.command) { classes.insert(.command) }

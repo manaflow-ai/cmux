@@ -1,0 +1,10 @@
+{
+  "updates": {
+    "idleInstallQuietSeconds": 302.5
+  },
+  "oracleUnknown": {
+    "nested": {
+      "key": [true]
+    }
+  }
+}

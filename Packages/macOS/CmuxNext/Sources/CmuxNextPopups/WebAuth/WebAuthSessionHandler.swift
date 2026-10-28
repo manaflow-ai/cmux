@@ -24,12 +24,14 @@ package nonisolated final class WebAuthSessionHandler: NSObject, Sendable, ASWeb
     @MainActor
     package init(broker: WebAuthSessionBroker) {
         // concurrency-allow: one call per sign-in the person starts or ends (human rate), drained at once on the main actor; a dropped begin or cancel would leave the system's request unanswered
+        // memory: bounded-by the person: one begin and one cancel per sign-in they start, each a closure of two references
         let (stream, calls) = AsyncStream.makeStream(of: MainCall.self, bufferingPolicy: .unbounded)
         self.broker = broker
         self.calls = calls
         super.init()
         // The one consumer runs the calls in order. It holds the stream, not
         // the handler, and ends when the handler goes (deinit finishes the stream).
+        // main-hop-allow: the one FIFO consumer of macOS's sign-in begin and cancel calls (human rate, from any thread); each runs whole on the main actor in arrival order, which a per-call post across classes would not keep
         Task { @MainActor in
             for await call in stream { call() }
         }

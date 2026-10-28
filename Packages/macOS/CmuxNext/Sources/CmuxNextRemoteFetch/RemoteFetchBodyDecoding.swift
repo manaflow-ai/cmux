@@ -37,7 +37,7 @@ nonisolated struct RemoteFetchChunkedBody {
     mutating func append(_ data: Data) throws(RemoteFetchReplyReader.Refusal) -> Bool {
         pending.append(contentsOf: data)
         var cursor = 0
-        defer { pending.removeFirst(cursor) }
+        defer { if cursor >= pending.count { pending.removeAll(keepingCapacity: true) } else { pending.removeFirst(cursor) } }
         // Each pass consumes received bytes or returns to wait for more.
         while !isComplete {
             switch state {

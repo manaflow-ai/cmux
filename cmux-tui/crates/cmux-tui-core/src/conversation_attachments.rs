@@ -286,9 +286,8 @@ impl Attachments {
             Blobs::Memory(map) => {
                 let bytes =
                     map.get(hash).ok_or_else(|| refused(Reject::UnknownAttachment.code()))?;
-                let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
-                let end = start.saturating_add(length).min(bytes.len());
-                Ok(bytes[start..end].to_vec())
+                let start = usize::try_from(offset).unwrap_or(usize::MAX);
+                Ok(bytes.iter().skip(start).take(length).copied().collect())
             }
         }
     }
@@ -659,8 +658,8 @@ impl ConversationStore {
         }
         let needed = pieces.iter().map(|(_, _, byte_count)| byte_count).sum();
         self.make_room(needed)?;
+        let needs = pieces.iter().map(|(piece, _, _)| *piece).collect();
         let id = self.open_upload(client, actor, conversation, record, pieces, None)?;
-        let needs = self.attachments.uploads[&id].pieces.iter().map(|piece| piece.piece).collect();
         Ok(BeginReply { upload: Some(id), needs, stored: None })
     }
 

@@ -115,6 +115,7 @@ impl BrowserSupervisor {
         let first = spawn(&cmd, &shared)?;
         let s = Arc::clone(&shared);
         // A supervisor waits on the browser's exit and restarts it: Utility.
+        // supervise-allow: the browser's restarter, owned by BrowserSupervisor (joined at drop); a panic ends restarts only: the running browser keeps serving, and its next crash is final.
         let thread =
             cmux_threads::spawn("cmux-rd-browser", cmux_threads::ThreadQos::Utility, move || {
                 supervise(cmd, backoff, first, &s)
@@ -198,6 +199,7 @@ fn supervise(cmd: BrowserCommand, backoff: Backoff, first: Child, shared: &Share
 fn terminate(pid: u32) {
     if pid != 0 {
         // SIGTERM lets Chrome flush its profile; the wait in `supervise` reaps it.
+        // SAFETY: kill takes integers only and touches no memory.
         unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
     }
 }
@@ -234,6 +236,7 @@ mod tests {
     }
 
     fn alive(pid: u32) -> bool {
+        // SAFETY: kill with signal 0 only checks that the process exists; it takes integers only.
         unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
     }
 
@@ -250,6 +253,8 @@ mod tests {
         let first = sup.pid();
         assert_eq!(sup.starts(), 1);
         // The browser crashes (or a person quits it): the supervisor starts a new one.
+        // SAFETY: kill takes integers only; `first` is the supervisor's live, unreaped browser
+        // child.
         unsafe { libc::kill(first as libc::pid_t, libc::SIGKILL) };
         wait_until("restart", || sup.starts() == 2 && sup.pid() != 0 && sup.pid() != first);
         let second = sup.pid();

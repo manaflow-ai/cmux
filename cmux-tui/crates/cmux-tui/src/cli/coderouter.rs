@@ -337,7 +337,7 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
 
 /// The CodeRouter CLI inside the app bundle that holds `exe`.
 pub(super) fn bundled_coderouter(exe: &Path) -> Option<PathBuf> {
-    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let exe = cmux_blocking::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
     crate::app_identity::containing_app_bundle(&exe).map(|bundle| bundle.join(BUNDLED_CODEROUTER))
 }
 
@@ -374,7 +374,7 @@ fn exec_bundled(args: &[String]) -> i32 {
         eprintln!("cmux: {}", messages.no_bundle);
         return 127;
     };
-    if !program.is_file() {
+    if !cmux_blocking::fs::metadata(&program).is_ok_and(|metadata| metadata.is_file()) {
         eprintln!(
             "cmux: {}",
             messages.missing_binary.replace("{path}", &program.display().to_string())
@@ -588,6 +588,7 @@ fn read_hidden_line(prompt: &str) -> std::io::Result<String> {
     stderr.flush()?;
     // SAFETY: termios is plain data; tcgetattr fills it for fd 0.
     let mut original: libc::termios = unsafe { std::mem::zeroed() };
+    // SAFETY: tcgetattr writes one termios into `original`, a live local.
     let has_terminal = unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut original) } == 0;
     if has_terminal {
         let mut hidden = original;

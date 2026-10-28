@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Where new panes open (`CmuxConfigSnapshot+PanePlacement`), in the General
 /// section's Columns group.

@@ -249,15 +249,17 @@ extension WindowOverlayHost {
         return Self.frontPageWindow(at: screenPoint, in: window) ?? window
     }
 
-    /// The frontmost visible page window (``isPageWindow(_:)``) of `window` under `screenPoint`, as the window
-    /// server picks the window a pointer event goes to; nil over no page.
+    /// The frontmost visible page window (``isPageWindow(_:on:)``) of `window` under `screenPoint`, as the window
+    /// server picks the window a pointer event goes to; nil over no page. With pages in the view tree
+    /// (``PageSurface/views``) only a content panel can be one: the window itself takes the rest.
     ///
     /// - Parameters:
     ///   - screenPoint: A point in screen coordinates.
     ///   - window: The window whose child page windows are searched.
     /// - Returns: The page window under the point, or nil.
     public static func frontPageWindow(at screenPoint: NSPoint, in window: NSWindow) -> NSWindow? {
-        let pages = (window.childWindows ?? []).filter { isPageWindow($0) && $0.isVisible && $0.frame.contains(screenPoint) }
+        let surface = PageSurface.of(window)
+        let pages = (window.childWindows ?? []).filter { isPageWindow($0, on: surface) && $0.isVisible && $0.frame.contains(screenPoint) }
         guard pages.count > 1 else { return pages.first }
         // Front to back (child order is add order, not z-order).
         let order = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)

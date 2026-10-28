@@ -57,11 +57,10 @@ extension WindowStateDocument {
 }
 
 extension LaunchSnapshot {
-    /// `session`'s launch snapshot, found as `DaemonService.showLaunchSnapshot` finds it; nil when there is none or
-    /// it cannot be used. It reads the file: call it off the main thread.
+    /// `session`'s launch snapshot (``find(session:stateDirectory:location:)``); nil when there is none or it cannot
+    /// be used. It reads the file: call it off the main thread.
     public static func saved(session: String, stateDirectory: URL?, location: LaunchSnapshotLocation = LaunchSnapshotLocation()) -> Self? {
-        guard let path = location.path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return nil }
-        return try? load(path: path, session: session)
+        find(session: session, stateDirectory: stateDirectory, location: location).snapshot
     }
 
     /// The saved window the launch shows first from this snapshot; nil without window records.

@@ -20,11 +20,16 @@ mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
+mod catalog;
 mod code_mode;
 mod config;
+#[cfg(unix)]
+mod host;
 mod keybinding_tools;
 mod messages;
+mod panic_log;
 mod render_tool;
+mod results;
 mod schema;
 mod terminal_talk_tools;
 #[cfg(test)]
@@ -41,9 +46,15 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::caller_env;
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
+use catalog::{ActionCatalog, SharedCatalog};
+pub(super) use config::outside_chats;
+use config::refusal;
+pub(super) use results::failure_result;
+use results::{envelope, error_response, success, tool_error};
 use transport::Prefix;
 pub(super) use transport::{CallFailure, FailureKind};
 
@@ -183,6 +194,12 @@ pub(super) trait Backend {
     /// (`energy.status`), or why it gave none.
     fn daemon_line(&self, cmd: &str) -> Result<Value, String>;
 
+    /// The app whose `action.list` this backend reads (its control socket),
+    /// the key of the catalog the shared host keeps for it.
+    fn catalog_key(&self) -> Option<PathBuf> {
+        None
+    }
+
     /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
     /// and acpmux (chats) together. A backend without both runs none.
     fn chat(
@@ -261,6 +278,10 @@ impl Backend for LiveBackend {
         super::energy::daemon_line(&self.global, cmd)
     }
 
+    fn catalog_key(&self) -> Option<PathBuf> {
+        super::app::socket_path(&self.global).ok()
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -308,16 +329,18 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
+        #[cfg(unix)]
+        [command, socket] if command == host::START_VERB => {
+            host::start_detached(std::path::Path::new(socket))
+        }
+        #[cfg(unix)]
+        [command, socket] if command == host::RUN_VERB => host::run(std::path::Path::new(socket)),
         _ => {
             eprintln!("cmux: {usage}");
             2
         }
     }
 }
-
-/// The env acpmux gives the cmux MCP server of an agent chat
-/// (`CMUX_AGENT_SESSION`, acpmux `agent_tools.rs`).
-const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
 /// The env acpmux gives the cmux MCP server of a session whose preset names
 /// the tools it may use (acpmux `agent_tools::MCP_TOOLS_ENV`, the Chief's
@@ -339,56 +362,45 @@ fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> 
     )
 }
 
-/// Why `serve` must not run with the settings file at `path`, or `None`
-/// when cmux.json turns the server on. An agent chat that cmux started
-/// (`CMUX_AGENT_SESSION` set) has it on unless the file says `false`
-/// (cx-wx93i, Lawrence 2026-10-14: every agent chat gets the cmux MCP tools
-/// by default); any other client needs `"mcp": {"enabled": true}`. The env
-/// is no security boundary: the same process can run the cmux CLI.
-pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
-    let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
-    refusal_for(path, agent_chat)
-}
-
-/// The settings file, and whether it turns `serve` on for a client outside
-/// a cmux agent chat (Claude Code or Codex started in a terminal), or why
-/// it cannot be read (`cmux setup mcp`).
-pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
-    let path = config::path();
-    let on = config::setting(&path).map(|setting| setting == Some(true));
-    (path, on)
-}
-
-fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
-    let messages = messages::messages();
-    match config::setting(path) {
-        Ok(Some(true)) => None,
-        Ok(None) if agent_chat => None,
-        Ok(_) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
-        Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
-    }
-}
-
 fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let path = config::path();
     if let Some(message) = refusal(&path) {
         eprintln!("cmux: {message}");
         return 1;
     }
+    // With `mcpCatalogHost` on, this process becomes a relay to the shared
+    // host (`host.rs`) and does not return; it serves here only when it can not.
+    #[cfg(unix)]
+    if let Some(why) = host::relay(&global, code_mode, &path) {
+        eprintln!("cmux mcp: serving in this process: {why}");
+    }
+    // The process that serves logs its panics; a relay above has replaced
+    // itself, and the shared host installs the same hook (`host::run`).
+    panic_log::install();
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();
     let output = watch::Output::new(io::stdout());
-    watch::spawn(global.clone(), output.clone());
-    let mut server = Server::new(LiveBackend { global }, Some(path));
+    let notes = output.clone();
+    watch::spawn(global.clone(), move || {
+        let _ = notes.tools_changed();
+    });
+    client_server(global, path, code_mode).run(io::stdin().lock(), &output)
+}
+
+/// The server of one client: its settings file and mode, and the allowlist
+/// and proxied servers its environment names (the caller in scope, in the
+/// shared host).
+fn client_server(global: GlobalArgs, config: PathBuf, code_mode: bool) -> Server<LiveBackend> {
+    let mut server = Server::new(LiveBackend { global }, Some(config));
     server.list_changed = true;
     server.code_mode = code_mode;
-    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
-    server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
+    server.allowed = allowed_tools(caller_env::var_os(ALLOWED_TOOLS_ENV));
+    server.upstreams = upstream::specs(caller_env::var_os(upstream::ENV))
         .into_iter()
         .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
         .collect();
-    server.run(io::stdin().lock(), &output)
+    server
 }
 
 /// `cmux mcp tools [--json]`: what `serve` offers and what it leaves out.
@@ -397,7 +409,7 @@ fn list_tools(global: GlobalArgs) -> i32 {
     let mut server = Server::new(LiveBackend { global }, None);
     let tools = server.list();
     let mut excluded = v2_tools::exclusions();
-    excluded.extend(server.action_exclusions.iter().cloned());
+    excluded.extend(server.actions.exclusions.iter().cloned());
     excluded.extend(action_tools::EXCLUDED_APP_METHODS.iter().map(|(name, reason)| Exclusion {
         kind: "app_method",
         name: (*name).to_owned(),
@@ -445,9 +457,11 @@ pub(super) struct Server<B> {
     backend: B,
     /// The settings file to check before every call; `None` lists only.
     config: Option<PathBuf>,
-    actions: Vec<ActionTool>,
-    action_exclusions: Vec<Exclusion>,
+    /// The app's action tools as last read; in the shared host, the one
+    /// copy all clients of the app hold (`shared`).
+    actions: std::sync::Arc<ActionCatalog>,
     actions_loaded: bool,
+    shared: Option<SharedCatalog>,
     /// Sends `notifications/tools/list_changed` (`watch`); `serve` only.
     list_changed: bool,
     /// The client sent `notifications/initialized`.
@@ -475,9 +489,9 @@ impl<B: Backend> Server<B> {
         Self {
             backend,
             config,
-            actions: Vec::new(),
-            action_exclusions: Vec::new(),
+            actions: std::sync::Arc::default(),
             actions_loaded: false,
+            shared: None,
             list_changed: false,
             initialized: false,
             code_mode: false,
@@ -562,8 +576,14 @@ impl<B: Backend> Server<B> {
                 if let Some(output) = self.notes.clone()
                     && let Some(job) = self.proxied_job(&params)
                 {
+                    let caller = caller_env::current();
+                    // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
                     std::thread::spawn(move || {
-                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
+                        let result = match caller {
+                            Some(caller) => caller_env::scope(caller, || job.run(None)),
+                            None => job.run(None),
+                        };
+                        let response = json!({"jsonrpc": "2.0", "id": id, "result": result});
                         let _ = output.send(&response);
                     });
                     return None;
@@ -600,7 +620,7 @@ impl<B: Backend> Server<B> {
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
-        tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        tools.extend(self.actions.tools.iter().map(ActionTool::descriptor_json));
         for proxied in &mut self.upstreams {
             proxied.refresh();
             let taken = tools
@@ -624,7 +644,12 @@ impl<B: Backend> Server<B> {
     fn refresh_actions(&mut self) {
         match self.backend.app("action.list", json!({}), super::app::READ_TIMEOUT, None, false) {
             Ok(list) => {
-                (self.actions, self.action_exclusions) = action_tools::from_list(&list);
+                let read = std::sync::Arc::new(ActionCatalog::parse(&list));
+                drop(list);
+                self.actions = match (&self.shared, self.backend.catalog_key()) {
+                    (Some(shared), Some(app)) => shared.intern(app, read),
+                    _ => read,
+                };
                 self.actions_loaded = true;
             }
             Err(failure) => {
@@ -847,10 +872,11 @@ impl<B: Backend> Server<B> {
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
         }
-        if !self.actions.iter().any(|tool| tool.name == name) {
+        if self.actions.find(name).is_none() {
             self.refresh_actions();
         }
-        let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
+        let actions = self.actions.clone();
+        let Some(tool) = actions.find(name) else {
             return Err((-32602, format!("unknown tool: {name}")));
         };
         Ok(self.call_action(tool, &arguments))
@@ -950,124 +976,5 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
             acpmux::agent_tools::ASKING_RULE
         ),
-    })
-}
-
-fn error_response(id: Value, code: i64, message: &str) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
-}
-
-/// A successful tool result: the owner's value as structured content (an
-/// array as `{items}`), cut to `MAX_RESULT_BYTES`. A change (`applied`)
-/// whose result does not fit still reports success, so a client never
-/// retries a change that applied.
-pub(super) fn success(value: Value, applied: bool) -> Value {
-    let value = match value {
-        Value::Object(_) => value,
-        Value::Array(items) => json!({ "items": items }),
-        other => json!({ "result": other }),
-    };
-    match fit(value) {
-        Ok(value) => {
-            let text = serde_json::to_string(&value).unwrap_or_default();
-            json!({
-                "content": [{"type": "text", "text": text}],
-                "structuredContent": value,
-                "isError": false,
-            })
-        }
-        Err(_) if applied => {
-            let value = json!({
-                "applied": true,
-                "truncated": true,
-                "message": format!(
-                    "the change applied; its result is larger than {} KiB, so read the object \
-                     with a get or list tool",
-                    MAX_RESULT_BYTES >> 10
-                ),
-            });
-            let text = serde_json::to_string(&value).unwrap_or_default();
-            json!({
-                "content": [{"type": "text", "text": text}],
-                "structuredContent": value,
-                "isError": false,
-            })
-        }
-        Err(error) => tool_error(envelope(error, "rejected", None)),
-    }
-}
-
-/// `value` when it serializes within `MAX_RESULT_BYTES`; else its `items`
-/// halved until it does (`truncated`, `next_offset`), else an error.
-fn fit(mut value: Value) -> Result<Value, Value> {
-    let size = |value: &Value| serde_json::to_vec(value).map(|bytes| bytes.len()).unwrap_or(0);
-    if size(&value) <= MAX_RESULT_BYTES {
-        return Ok(value);
-    }
-    while let Some(items) = value.get_mut("items").and_then(Value::as_array_mut)
-        && items.len() > 1
-    {
-        let keep = items.len() / 2;
-        items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
-        if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
-        }
-        if size(&value) <= MAX_RESULT_BYTES {
-            return Ok(value);
-        }
-    }
-    Err(json!({
-        "code": "result.too_large",
-        "message": format!(
-            "the result is larger than {} KiB; ask for less (limit, max_bytes, or a narrower \
-             selector)",
-            MAX_RESULT_BYTES >> 10
-        ),
-        "details": {},
-        "retryable": false,
-    }))
-}
-
-/// The error a failed call reports: the owner's error unchanged, its
-/// `state` (`rejected`, `not_run`, `in_progress`) and the idempotency key
-/// to retry with.
-fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
-    let mut envelope = json!({ "error": error, "state": state });
-    if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
-    }
-    envelope
-}
-
-pub(super) fn failure_result(failure: CallFailure) -> Value {
-    // An owner that says whether the run started (the app's `busy` and
-    // `timeout`) decides the state.
-    let data = failure.error.get("data").or_else(|| failure.error.get("details"));
-    let owner_state = data.and_then(|data| {
-        if data.get("not_run") == Some(&Value::Bool(true)) {
-            return Some("not_run");
-        }
-        data.get("state")
-            .and_then(Value::as_str)
-            .filter(|state| matches!(*state, "not_run" | "in_progress"))
-    });
-    // The app's queue deadline (`timeout`) says nothing about whether the
-    // run started; a retry with the same key is safe either way.
-    let timed_out = failure.kind == FailureKind::Rejected && failure.error["code"] == "timeout";
-    let state = owner_state
-        .or(timed_out.then_some("in_progress"))
-        .unwrap_or(failure.kind.state())
-        .to_owned();
-    tool_error(envelope(failure.error, &state, failure.idempotency_key.as_deref()))
-}
-
-fn tool_error(envelope: Value) -> Value {
-    let text = serde_json::to_string(&envelope).unwrap_or_default();
-    json!({
-        "content": [{"type": "text", "text": text}],
-        "structuredContent": envelope,
-        "isError": true,
     })
 }

@@ -27,7 +27,7 @@ use reqwest::Method;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use zeroize::Zeroizing;
 
 use crate::admin::{check, http_client};
@@ -105,7 +105,7 @@ impl WeftNode {
     /// file does not exist yet, then start following the netmap.
     pub async fn join(state_path: &Path, options: Option<JoinOptions>) -> anyhow::Result<Self> {
         let http = http_client();
-        let state = match StateFile::load(state_path)? {
+        let state = match StateFile::load(state_path).await? {
             Some(state) => state,
             None => {
                 let options =
@@ -221,9 +221,12 @@ impl WeftNode {
         let bound = listener.local_addr()?;
         let shared = self.shared.clone();
         self.spawn(async move {
+            // The forward owns its connections: stopping the node ends them.
+            let mut connections = JoinSet::new();
             while let Ok((mut tcp, _)) = listener.accept().await {
+                while connections.try_join_next().is_some() {}
                 let Some(mesh) = shared.mesh() else { continue };
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     if let Ok(mut stream) = mesh.connect(remote).await {
                         let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
                     }
@@ -288,9 +291,10 @@ impl WeftNode {
             node_key: crate::b64::encode_key(&next.public()),
         })?;
         check(shared.signed(Method::POST, "/v1/rotate", body).await?).await?;
-        let mut state = StateFile::load(&shared.state_path)?.context("state file vanished")?;
+        let mut state =
+            StateFile::load(&shared.state_path).await?.context("state file vanished")?;
         state.node_private = crate::b64::encode_key(next.private());
-        state.save(&shared.state_path)?;
+        state.save(&shared.state_path).await?;
         write(&shared.node_key, next);
         // Relay registrations carry the old key: drop them until the next
         // netmap brings a ticket for the new one.
@@ -390,7 +394,7 @@ async fn register(
         machine_seed: crate::b64::encode_key(machine.seed()),
         node_private: crate::b64::encode_key(node_key.private()),
     };
-    state.save(state_path)?;
+    state.save(state_path).await?;
     Ok(state)
 }
 
@@ -559,6 +563,7 @@ impl Shared {
         let (removals_done, removals) = tokio::sync::watch::channel(removed.is_empty());
         if !removed.is_empty() {
             let mesh = mesh.clone();
+            // supervise-allow: bounded (one remove_peer per gone key); its end, a panic included, drops `removals_done`, which wakes every link_peer waiter.
             tokio::spawn(async move {
                 for key in removed {
                     let _ = mesh.remove_peer(key).await;
@@ -708,7 +713,11 @@ async fn spawn_listener(
     let mut listener = mesh.listen(port).await?;
     let shared = Arc::downgrade(shared);
     Ok(tokio::spawn(async move {
+        // The listener owns its connections: replacing or stopping the
+        // service ends them with it.
+        let mut connections = JoinSet::new();
         while let Some((stream, key)) = listener.accept().await {
+            while connections.try_join_next().is_some() {}
             let Some(strong) = shared.upgrade() else { return };
             let allowed = read(&strong.filter)
                 .get(&key)
@@ -720,7 +729,7 @@ async fn spawn_listener(
                 continue;
             }
             let service = service.clone();
-            tokio::spawn(async move {
+            connections.spawn(async move {
                 match service {
                     Service::Echo => echo(stream).await,
                     Service::Forward(target) => {

@@ -23,6 +23,16 @@ public struct InputLatencyHistogram: Sendable, Equatable {
         sumNanos &+= nanos
     }
 
+    /// Counts `count` values of `nanos` at once (a bucket of another histogram folded in, as
+    /// CmuxNextBrowser's `CEFHistogramReader` folds Chromium's). Zero counts nothing.
+    public mutating func record(nanos: UInt64, count values: UInt64) {
+        guard values > 0 else { return }
+        buckets.record(nanos: nanos, count: values)
+        count &+= values
+        maxNanos = max(maxNanos, nanos)
+        sumNanos &+= nanos &* values
+    }
+
     /// Adds `other`'s values: the counts per bucket and in total, the sum, and the larger maximum.
     public mutating func add(_ other: InputLatencyHistogram) {
         buckets.add(other.buckets)

@@ -23,8 +23,10 @@ public protocol RenderVisibility {
 /// posted work) reach every window.
 @MainActor
 public struct AppKitRenderVisibility: RenderVisibility {
+    /// AppKit's answer.
     public nonisolated init() {}
 
+    /// Whether `scheduler`'s frames reach a screen now (its window shows, or a screen host's display is awake and a window of the app shows).
     public func showsFrames(of scheduler: FrameScheduler) -> Bool {
         if let window = scheduler.window { return Self.shows(window) }
         guard scheduler.isScreenHost, let app = NSApp else { return false }

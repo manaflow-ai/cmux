@@ -101,7 +101,7 @@ def design(doc):
             f"isDark ? {num(imp['chrome.mainPane.shadeDark'])} : {num(imp['chrome.mainPane.shadeLight'])}"
         shade_lines.append(f"        case .{case_name(s)}: {value}")
     shade_lines += ["        }", "    }"]
-    return (HEADER + "public import CoreGraphics\n\n"
+    return (HEADER + "public import Foundation\n\n"
             "/// `appearance.chromeStyle` in cmux.json: one easy string for the window's\n"
             "/// look. Each style supplies DEFAULTS for finer knobs; a key set in\n"
             "/// cmux.json wins, and a Debug Settings tunable wins over both.\n"
@@ -140,7 +140,7 @@ def choices(doc):
     for s in doc["styles"]:
         key = f"settings.choice.chromeStyle.{s['actionName']}"
         lines.append(f"        case .{case_name(s)}: SettingsText.keyed({swift_string(key)}, {swift_string(s['title'])})")
-    return (HEADER + "public import CmuxNextDesign\n\n"
+    return (HEADER + "public import CmuxNextDesignTokens\n\n"
             "extension ChromeStyleSetting {\n"
             "    /// The Settings picker title of `style`.\n"
             "    static func title(_ style: ChromeStyle) -> SettingText {\n"

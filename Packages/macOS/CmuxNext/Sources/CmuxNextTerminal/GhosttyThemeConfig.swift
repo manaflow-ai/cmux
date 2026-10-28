@@ -42,7 +42,7 @@ extension GhosttyRuntime {
     /// `name` could inject another config line.
     public func themeConfig(named name: String) -> GhosttyThemeConfig? {
         guard app != nil, Self.themeOverrideLine(name) != nil, let configLoader else { return nil }
-        return themeConfigs.config(named: name, loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
+        return themeConfigs.config(named: name, loader: configLoader) { configInputs(theme: $0) }
     }
 
     /// Runs `handler` each time a theme config ``themeConfig(named:)`` asked for lands and is cached: an owner

@@ -13,7 +13,7 @@ struct MacScreenPointerFramesTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     @Test func aDeviceScreenTakesTheFramePointerInput() throws {

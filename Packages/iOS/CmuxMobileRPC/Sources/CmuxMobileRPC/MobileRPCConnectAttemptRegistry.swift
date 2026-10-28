@@ -76,7 +76,7 @@ public actor MobileRPCConnectAttemptRegistry {
         guard let lease, let key = lease.key else {
             let cleanupID = lease?.id ?? UUID()
             activeUntrackedLeaseIDs.remove(cleanupID)
-            untrackedPhysicalCleanupTasks[cleanupID] = Task.detached {
+            untrackedPhysicalCleanupTasks[cleanupID] = Task {
                 [weak self] in
                 await operation()
                 await self?.untrackedPhysicalCleanupDidFinish(cleanupID)
@@ -91,7 +91,7 @@ public actor MobileRPCConnectAttemptRegistry {
         if state.activeLeaseID == lease.id {
             state.activeLeaseID = nil
         }
-        state.physicalCleanupTasks[lease.id] = Task.detached {
+        state.physicalCleanupTasks[lease.id] = Task {
             [weak self] in
             await operation()
             await self?.physicalCleanupDidFinish(

@@ -67,3 +67,7 @@ pub(super) fn move_tab_to_column(
     };
     Ok(tab_drag_outcome_json(&outcome))
 }
+
+#[cfg(test)]
+#[path = "tab_column_wire_tests.rs"]
+mod wire_tests;

@@ -9,26 +9,29 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
     /// Video first, then the poster frame when there is one.
     public let attachments: [URL]
 
-    public init(_ recording: PhoneRecording, logTail: PhoneLogTail? = nil) {
+    /// Throws ``PhoneError/outOfRange(what:)`` for a time or point no whole number holds
+    /// (``PhoneService/send(_:to:)`` and the manifest decoder refuse those first).
+    public init(_ recording: PhoneRecording, logTail: PhoneLogTail? = nil) throws {
         self.recording = recording
         attachments = [recording.videoURL] + (recording.posterURL.map { [$0] } ?? [])
-        markdown = Self.summary(recording, logTail: logTail)
+        markdown = try Self.summary(recording, logTail: logTail)
     }
 
     /// Builds the clip and reads the log tail from the recording's folder.
-    public static func load(_ recording: PhoneRecording) -> PhoneFeedbackClip {
+    public static func load(_ recording: PhoneRecording) throws -> PhoneFeedbackClip {
         let tail = recording.logURL.flatMap { try? Data(contentsOf: $0) }.map { PhoneLogTail(ndjson: $0) }
-        return PhoneFeedbackClip(recording, logTail: tail)
+        return try PhoneFeedbackClip(recording, logTail: tail)
     }
 
-    static func summary(_ recording: PhoneRecording, logTail: PhoneLogTail?) -> String {
+    static func summary(_ recording: PhoneRecording, logTail: PhoneLogTail?) throws -> String {
         let device = recording.device
         let taps = recording.events.filter { $0.kind == "tap" }.count
         var lines: [String] = []
         let title = String(localized: "phone.feedback.title", defaultValue: "Phone feedback", bundle: .module)
-        lines.append("**\(title)**: \(device.name) (\(device.model), \(device.osVersion)) · \(clock(recording.duration)) · "
+        let length = try clock(recording.duration)
+        lines.append("**\(title)**: \(device.name) (\(device.model), \(device.osVersion)) · \(length) · "
             + String(format: String(localized: "phone.feedback.inputs", defaultValue: "%lld inputs, %lld taps", bundle: .module),
-                     Int64(recording.events.count), Int64(taps)))
+                     Int64(truncatingIfNeeded: recording.events.count), Int64(truncatingIfNeeded: taps)))
         let notes = recording.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         if !notes.isEmpty {
             lines.append("")
@@ -37,7 +40,10 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
         if !recording.events.isEmpty {
             lines.append("")
             lines.append(String(localized: "phone.feedback.steps", defaultValue: "Steps:", bundle: .module))
-            for event in recording.events.prefix(30) { lines.append("- \(clock(event.at)) \(describe(event))") }
+            for event in recording.events.prefix(30) {
+                let at = try clock(event.at), step = try describe(event)
+                lines.append("- \(at) \(step)")
+            }
             if recording.events.count > 30 { lines.append("- …") }
         }
         if let logTail, !logTail.lines.isEmpty {
@@ -54,17 +60,31 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
     }
 
     /// `0:07.4`
-    static func clock(_ seconds: Double) -> String {
-        let tenths = Int((seconds * 10).rounded())
+    static func clock(_ seconds: Double) throws -> String {
+        let tenths = try whole((seconds * 10).rounded(), "a recording time")
         return String(format: "%d:%02d.%d", tenths / 600, (tenths / 10) % 60, tenths % 10)
     }
 
-    private static func describe(_ event: PhoneRecordingEvent) -> String {
-        func point(_ p: PhonePoint?) -> String { p.map { "(\(Int($0.x)), \(Int($0.y)))" } ?? "" }
+    private static func describe(_ event: PhoneRecordingEvent) throws -> String {
+        func point(_ p: PhonePoint?) throws -> String {
+            guard let p else { return "" }
+            let x = try whole(p.x.rounded(.towardZero), "a point"), y = try whole(p.y.rounded(.towardZero), "a point")
+            return "(\(x), \(y))"
+        }
         switch event.kind {
-        case "tap": return "tap \(point(event.point))"
-        case "swipe": return "swipe \(point(event.point)) → \(point(event.to))"
+        case "tap":
+            let at = try point(event.point)
+            return "tap \(at)"
+        case "swipe":
+            let from = try point(event.point), to = try point(event.to)
+            return "swipe \(from) → \(to)"
         default: return [event.kind, event.detail.map { "`\($0)`" }].compactMap { $0 }.joined(separator: " ")
         }
+    }
+
+    /// `value` (already whole) as an `Int`; a typed error, not a trap, when no `Int` holds it.
+    private static func whole(_ value: Double, _ what: String) throws -> Int {
+        guard let whole = Int(exactly: value) else { throw PhoneError.outOfRange(what: what) }
+        return whole
     }
 }

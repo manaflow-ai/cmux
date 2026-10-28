@@ -86,6 +86,7 @@ def _sibling(name: str, path: Path):
 store = _sibling("store", HERE / "store.py")
 ingest = _sibling("ingest", HERE / "ingest.py")
 alerts = _sibling("alerts", HERE / "alerts.py")
+harness_alerts = _sibling("harness_alerts", HERE / "harness_alerts.py")
 
 LABEL = "com.cmux.perf-lab"
 PLIST_TEMPLATE = HERE / f"{LABEL}.plist"
@@ -537,7 +538,10 @@ class Labd:
 
     def coverage(self, query: Mapping[str, list[str]]) -> object:
         with self.open_store() as db:
-            return {"coverage": _rows(db.coverage())}
+            broken = harness_alerts.broken_stories(db._db)
+            return {"coverage": _rows(db.coverage()), "harness_broken": [
+                {"story": b.story, "host_class": b.host_class, "start_pos": b.start_pos, "end_pos": b.end_pos,
+                 "errored_batches": b.errored_batches, "reason": b.last_error.reason} for b in broken.values()]}
 
     # ----- write endpoints -----
 
@@ -774,17 +778,21 @@ def load_scheduler():
 
 def plan_driver(scheduler, state_path: Path, *, ls_remote: Callable[[], str | None],
                 first_parent: Callable[[str | None, str], object], clock: Callable[[], datetime],
-                root: Path = REPO_ROOT):
+                root: Path = REPO_ROOT, repo: Path | None = None):
     """scheduler.Driver on the checkout at `root`: its story catalog, its shard map and its expectations.json, which
-    the Driver reads again for every plan (task 023), so an entry skips its story x host-class pair until it expires."""
+    the Driver reads again for every plan (task 023), so an entry skips its story x host-class pair until it expires.
+    With the lab's clone `repo`, a round's story whose needs its commit lacks is a gap (capabilities.py, task 211)."""
     catalog = scheduler._load_sibling("catalog")
     expectations = scheduler._load_sibling("expectations")
+    capabilities = scheduler._load_sibling("capabilities")
     try:
+        lacks = None if repo is None else capabilities.StoryNeeds.from_catalog(
+            root, capabilities.GitCapabilities.of(repo))
         return scheduler.Driver(
             state_path, stories=scheduler.stories_from_catalog(catalog.load_catalog(root)),
             shard_map=scheduler.ShardMap.load(root / "scripts" / "perf-lab" / "shard_map.json"),
             ls_remote=ls_remote, first_parent=first_parent, clock=clock,
-            expectations=lambda now: expectations.active_at(root / expectations.EXPECTATIONS_PATH, now))
+            expectations=lambda now: expectations.active_at(root / expectations.EXPECTATIONS_PATH, now), lacks=lacks)
     except (scheduler.SchedulerError, catalog.CatalogError) as error:
         raise LabdError(f"scheduler: {error}") from None
 
@@ -804,7 +812,7 @@ def serve(args: argparse.Namespace) -> int:
         db.migrate()
     finally:
         db.close()
-    driver = plan_driver(scheduler, data_dir / "scheduler.json", clock=clock,
+    driver = plan_driver(scheduler, data_dir / "scheduler.json", clock=clock, repo=repo,
                          ls_remote=lambda: scheduler.git_ls_remote(args.remote, args.branch, repo=repo),
                          first_parent=scheduler.git_first_parent(args.remote, args.branch, repo=repo))
     canary = _sibling("canary", HERE / "canary.py")

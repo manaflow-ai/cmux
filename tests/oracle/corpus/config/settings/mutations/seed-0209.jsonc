@@ -1,0 +1,12 @@
+{
+  "sidebar": {
+    /* {"k": 1} */ "workspaceRow": {
+      "agent": {
+        "pullRequest": "true"
+      }
+    }
+  },
+  /* * */ "mobile": {
+    "allowIPhoneConnections": 1
+  }
+}

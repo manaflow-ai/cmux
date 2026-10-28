@@ -94,7 +94,7 @@ import Testing
     }
 
     @Test func updateSurfaceChangesKeepTheNewest() async throws {
-        let page = UpdateSurfaceProvider(kind: .updated, services: nil)
+        let page = UpdateSurfaceProvider(kind: .updated, services: nil, mainWork: linklessMainWork())
         let changes = try await Self.subscribe(page, "cmux.changelog.surface.changes")
         defer { changes.cancel() }
         #expect(changes.frozenDelivery == .latest)
@@ -182,6 +182,6 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        return (SettingsPageProvider(settings: settings, hostLists: hostLists), settings, directory)
+        return (SettingsPageProvider(settings: settings, hostLists: hostLists, on: linklessMainWork()), settings, directory)
     }
 }

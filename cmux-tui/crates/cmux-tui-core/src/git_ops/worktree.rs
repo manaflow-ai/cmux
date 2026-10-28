@@ -28,6 +28,7 @@ use super::run::run_git;
 use super::user_run::{UserGit, deadline};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -52,7 +53,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-    let key = key(request);
+    let key = key(request)?;
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
@@ -89,7 +90,7 @@ pub(super) fn dispatch(
             Err(error) => {
                 // A run stopped by the deadline may have made the worktree:
                 // its retry finds it.
-                if error.details["reason"] != "timed_out" {
+                if error.details.field("reason") != "timed_out" {
                     journal.finish();
                 }
                 Err(error)
@@ -227,7 +228,7 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
         "base_commit": attempt.base_commit,
     });
     if let Some(main) = main_root(common_dir) {
-        value["main_root"] = json!(main.to_string_lossy());
+        value.insert("main_root", json!(main.to_string_lossy()));
     }
     value
 }

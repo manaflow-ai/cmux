@@ -53,15 +53,15 @@ import CmuxNextWakeupsTestSupport
 
     /// The updater gives up on its own: the windows hidden at the click come back.
     @Test func theUpdaterGivesUpOnAnInstallThatNeverRelaunches() async throws {
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let wall = WallClock()
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-install-status", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = try #require(UserDefaults(suiteName: "UpdateInstallStatusTests.\(UUID().uuidString)"))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false, now: { wall.now }, clock: clock,
-                                     work: BackgroundWork(label: "test.updater"))
+                                     enableSparkle: false, recordsUpdates: false, now: { wall.now },
+                                     work: BackgroundWork(label: "test.updater"), deadlines: rig.deadlines)
         updater.announcementsFetch = false
         var abandoned = 0
         updater.installAbandoned = { abandoned += 1 }
@@ -73,20 +73,19 @@ import CmuxNextWakeupsTestSupport
         #expect(updater.card == .installing)
         #expect(updater.cardPresentation?.detail == UpdaterStrings.relaunchingDetail)
 
+        // The tick is a `visible` deadline on the rig: its wake and its action run in the rig's frame.
         wall.now += 30
-        try await clock.waitForSleeper()
+        #expect(rig.hasArmedWake, "the install armed no tick")
         let ticks = updater.installTick
-        clock.advance(by: .seconds(30))
-        // The tick must run before the wall clock moves again, or it would read the later time.
-        for _ in 0..<500 where updater.installTick == ticks { try await Task.sleep(for: .milliseconds(5)) }
+        rig.advance(by: .seconds(30))
+        rig.fireAtNow()
         #expect(updater.installTick > ticks, "the installing card's tick never ran")
         #expect(updater.cardPresentation?.detail?.contains("30") == true, "after 30 s: \(String(describing: updater.cardPresentation?.detail))")
         #expect(abandoned == 0)
 
         wall.now += 200
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(200))
-        for _ in 0..<500 where abandoned == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        rig.advance(by: .seconds(200))
+        rig.fireAtNow()
         #expect(abandoned == 1, "the hidden windows never came back")
         #expect(updater.cardPresentation?.dismissible == true)
         #expect(updater.cardPresentation?.actions.contains(.details) == true)

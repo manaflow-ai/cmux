@@ -14,7 +14,7 @@
   "repeats": 1,
   "seconds": 30,
   "needs": ["debug:debug.key", "debug:debug.focus", "debug:debug.frames", "debug:debug.hangs", "debug:debug.timings",
-            "debug:debug.view_churn", "env:CMUX_NEXT_TYPING_PROBE"],
+            "env:CMUX_NEXT_TYPING_PROBE"],
   "hot_paths": ["terminal-key", "key-dispatch"],
   "owner": "PL-typing",
   "component": "Terminal>Typing"

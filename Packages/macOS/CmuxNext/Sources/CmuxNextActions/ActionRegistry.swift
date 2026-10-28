@@ -336,7 +336,7 @@ public final class ActionRegistry {
         placeholders.remove(id)
         guard let index = indexByID[id] else { return }
         actions.remove(at: index)
-        indexByID = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1.id, $0) })
+        indexByID = Dictionary(actions.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         shortcutIndex = nil
     }
 

@@ -270,6 +270,7 @@ pub(super) fn exec(
         return Err(format!("{EXEC} script is larger than {} KiB", MAX_SCRIPT_BYTES >> 10));
     }
     let (to_server, from_script) = mpsc::channel();
+    // supervise-allow: one script run, read until Done; a panic drops `to_server`, so the loop below ends and the call reports no outcome.
     let engine = std::thread::Builder::new()
         .name("cmux-mcp-code-mode".into())
         .stack_size(THREAD_STACK)
@@ -316,7 +317,7 @@ pub(super) fn exec(
             }
         }
     }
-    let _ = engine.join();
+    let _ = crate::blocking::thread::join(engine);
     let Some(outcome) = outcome else {
         return Ok(super::tool_error(json!({
             "error": {
@@ -486,7 +487,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 }
                 let (reply, answer) = mpsc::channel();
                 let value = if to_server.send(ToServer::Request(request, reply)).is_ok() {
-                    answer.recv().unwrap_or_else(|_| closed())
+                    cmux_blocking::sync::recv(&answer).unwrap_or_else(|_| closed())
                 } else {
                     closed()
                 };

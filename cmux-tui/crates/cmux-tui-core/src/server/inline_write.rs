@@ -79,16 +79,13 @@ pub(super) struct WriterState {
     wakeups: usize,
 }
 
-/// What the writer thread writes next.
-pub(in crate::server) enum WriterItem {
-    Item(OutboundItem),
-    /// The tail of a message an inline write began: written as is.
-    Rest(Vec<u8>),
-}
-
-/// The writer thread's turn: while it lives no producer writes inline.
+/// The writer thread's turn: what it writes (a rest an inline write left,
+/// then the batch it took), and while it lives no producer writes inline.
 pub(in crate::server) struct WriterTurn<'a> {
     state: &'a Mutex<BoundedOutboundState>,
+    /// The tail of a message an inline write began: written as is, before
+    /// the batch, and counted when the inline write began it.
+    pub(in crate::server) rest: Option<Vec<u8>>,
 }
 
 impl Drop for WriterTurn<'_> {
@@ -123,7 +120,12 @@ impl BoundedOutbound {
             (Some(socket), true) => state.write_inline(socket),
             _ => Ok(false),
         };
+        // The inline pop freed budget: its room waiters and space hooks wake
+        // once the lock is released, as the writer's turn wakes them.
+        let woken = state.take_space_woken();
         if written.as_ref().is_ok_and(|&done| done) {
+            drop(state);
+            woken.wake();
             return Ok(());
         }
         if written.is_err() {
@@ -131,24 +133,31 @@ impl BoundedOutbound {
         }
         drop(state);
         self.changed.notify_all();
+        woken.wake();
         written.map(|_| ())
     }
 
-    /// The writer thread's next item, a rest first; `None` once the queue
-    /// closed with nothing left. No producer writes inline until the turn
-    /// drops.
-    pub(in crate::server) fn recv_turn(&self) -> Option<(WriterItem, WriterTurn<'_>)> {
+    /// The writer thread's next turn: waits for a rest or an item, then
+    /// takes the rest and a batch of the ready items behind it into `batch`
+    /// (`BoundedOutboundState::take_batch`, p05-ipc-088). `None` once the
+    /// queue closed with nothing left. No producer writes inline until the
+    /// turn drops. The wait is an idle wait, so a writer that disallows
+    /// blocking may take it (p02-threads 308).
+    pub(in crate::server) fn recv_turn(
+        &self,
+        batch: &mut Vec<OutboundItem>,
+    ) -> Option<WriterTurn<'_>> {
+        batch.clear();
         let mut state = self.state.lock().recover_poison();
         loop {
-            let next = match state.writer.rest.take() {
-                Some(rest) => Some(WriterItem::Rest(rest)),
-                None => state.pop().map(WriterItem::Item),
-            };
-            if let Some(item) = next {
+            let rest = state.writer.rest.take();
+            if state.take_batch(batch) || rest.is_some() {
                 state.writer.busy = true;
+                let woken = state.take_space_woken();
                 drop(state);
                 self.changed.notify_all();
-                return Some((item, WriterTurn { state: &self.state }));
+                woken.wake();
+                return Some(WriterTurn { state: &self.state, rest });
             }
             if state.closed {
                 return None;

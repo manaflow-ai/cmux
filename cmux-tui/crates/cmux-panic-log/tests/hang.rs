@@ -1,6 +1,8 @@
 //! The hang log: the file sink appends one owner-only line per record with
 //! the process's fields, and a record before install goes nowhere.
 
+#![cfg(feature = "json")]
+
 use cmux_panic_log::hang;
 
 #[test]

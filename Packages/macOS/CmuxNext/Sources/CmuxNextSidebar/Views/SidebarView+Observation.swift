@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextWakeups
 import Observation
 extension SidebarViewComponents {
     // MARK: Observation
@@ -82,13 +83,45 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
         }
     }
-    func observe() {
+    /// The settings the model lays its rows out by (`applyListPreferences`, Group by Status).
+    struct ListSettings: Equatable {
+        var preferences: SidebarSectionsPreferences
+        var groupsByStatus: Bool
+    }
+
+    /// Follows the model: its own inputs (the list settings, the selection's reveal) on service observations that
+    /// also run while the sidebar is hidden (p06-scheduler.md rule 3), and the draw on a visible observation of the
+    /// sidebar's node, so a hidden or collapsed sidebar does no view work and draws once when it shows (rule 4).
+    func observe(on mainWork: MainWorkScheduler) {
         let model = model, design = design
-        observation = Task { [weak self] in
-            // A trigger: `renderNow` draws outside the stream; `render` compares with what it drew.
-            for await state in ObservationStream({ ObservationTrigger(RenderState(model, design)) }) { self?.render(state.value) }
+        listSettingsWatch = ServiceObservation(.visible, owner: "Sidebar.listSettings", on: mainWork) {
+            ListSettings(preferences: design.sidebarSections, groupsByStatus: SidebarTunables.groupByStatus.value)
+        } apply: { settings in
+            Self.applyListSettings(settings, to: model)
+        }
+        selectionWatch = ServiceObservation(.visible, owner: "Sidebar.revealSelection", on: mainWork) {
+            model.selection
+        } apply: { selection in
+            Self.revealInFolds(selection)
+        }
+        // A trigger: `renderNow` draws outside the observation; `render` compares with what it drew.
+        observation = VisibleObservation(visibility.node, owner: "Sidebar.render", on: mainWork) {
+            ObservationTrigger(RenderState(model, design))
+        } apply: { [weak self] state in
+            self?.render(state.value)
         }
     }
+
+    static func applyListSettings(_ settings: ListSettings, to model: SidebarModel) {
+        model.applyListPreferences(settings.preferences)
+        model.groupByStatus(settings.groupsByStatus)
+    }
+
+    /// A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
+    static func revealInFolds(_ selection: Set<WorkspaceID>) {
+        selection.forEach(SidebarSessionTree.shared.reveal)
+    }
+
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
 
@@ -118,11 +151,10 @@ extension SidebarViewComponents {
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
         let listChanged = rowsChanged || selectionChanged
-        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
-        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
+        // The model's side first, in this turn (renderNow), as the service observations give it while hidden.
+        if selectionChanged { Self.revealInFolds(state.selection) }
         let previous = lastState == nil ? nil : lastSections
-        model.applyListPreferences(state.preferences)
-        model.groupByStatus(state.groupsByStatus)
+        Self.applyListSettings(ListSettings(preferences: state.preferences, groupsByStatus: state.groupsByStatus), to: model)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)

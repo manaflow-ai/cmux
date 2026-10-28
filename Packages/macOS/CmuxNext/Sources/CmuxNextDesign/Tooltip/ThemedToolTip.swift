@@ -162,7 +162,7 @@ final class TooltipTracker: NSResponder {
     private func track(_ on: Bool) {
         guard let view else { return }
         if on, area == nil {
-            var options: NSTrackingArea.Options = [.mouseEnteredAndExited, WindowPlacement.noActivate ? .activeAlways : .activeInActiveApp]
+            var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeForHover]
             if region == nil { options.insert(.inVisibleRect) }
             let made = NSTrackingArea(rect: region ?? .zero, options: options, owner: self, userInfo: nil)
             view.addTrackingArea(made)

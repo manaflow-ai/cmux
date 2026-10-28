@@ -15,7 +15,7 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
           CEFResizeSyncDeadline: 4 ms at 120 Hz)
   on0     the same hosting, syncDeadline 0: the page never holds the commit (it shows its last frame until Chromium
           draws the new size)
-  host    Chromium in the Chromium Host (feature cefHelperHost, Debug builds): each page resize is an ordered op, no
+  host    Chromium in the Chromium Host (features cefHelperHost and chromiumHostTabs, Debug builds): each page resize is an ordered op, no
           fence (the page shows its last frame until the host's page draws the new size)
   hostfence  host, plus feature chromiumHostResizeFence (p01-process-052): the window's commit waits on a Core
           Animation fence until the host's page joins it, one display frame at most from the commit. Rows add
@@ -61,7 +61,8 @@ HOSTING_KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPa
 DEADLINE_KEY = "browserResize.syncDeadline"
 MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0), "host": ("host", None), "hostfence": ("host", None)}
 # The features each host mode starts the app with (pane-perf-terminal.py --enable-features).
-HOST_FEATURES = {"host": "cefHelperHost", "hostfence": "cefHelperHost,chromiumHostResizeFence"}
+HOST_FEATURES = {"host": "cefHelperHost,chromiumHostTabs",
+                 "hostfence": "cefHelperHost,chromiumHostResizeFence,chromiumHostTabs"}
 
 
 def parse(argv=None):

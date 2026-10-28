@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `layout.closeFocus` in cmux.json: "previousNeighbor" (default) or
 /// "mostRecent" (plans/cmux-next/close-focus.md, REWRITE.md round 5).

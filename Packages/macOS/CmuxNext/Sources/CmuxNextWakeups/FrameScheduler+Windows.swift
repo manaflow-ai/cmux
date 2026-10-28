@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextCompat
 import ObjectiveC
 
 /// The window schedulers: one per window, made on first use, kept alive by its window and dropped with it.
@@ -20,7 +19,10 @@ extension FrameScheduler {
         // A window's late frames hold work like the app's (RenderStarvationGuard/watch(_:)).
         app.starvation?.watch(scheduler)
         // A subscribed scheduler is held by its display: let go of it when the window closes.
-        scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
+        // The window's one observer per notice (WindowEvents), as Chromium's NSWindow delegate tells the widget's
+        // observers (components/remote_cocoa/app_shim/views_nswindow_delegate.mm): no node, it decides for the window.
+        let events = WindowEvents.of(window)
+        scheduler.closeObserver = events.subscribe(NSWindow.willCloseNotification, owner: "FrameScheduler.close") { [weak scheduler] in
             scheduler?.invalidate()
         }
         // It ticks on the display the window is on: the window going to another screen moves it there.

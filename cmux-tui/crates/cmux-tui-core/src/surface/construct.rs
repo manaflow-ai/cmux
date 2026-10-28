@@ -2,6 +2,7 @@
 //! id, resource identity and cell pixels, prelaunched hosts, and the deferred
 //! cell-pixel and hosted clear-history helpers they install.
 
+use super::spawn::LocalEnd;
 use super::*;
 
 /// When a new terminal surface takes its share of the Kitty image budget.
@@ -295,8 +296,11 @@ impl Surface {
             ),
         };
         let argv = launch.command;
-        let mut cmd = PtyCommand::new(&argv[0]);
-        cmd.args(argv[1..].iter().cloned());
+        let Some((program, args)) = argv.split_first() else {
+            anyhow::bail!("terminal launch has no program to run");
+        };
+        let mut cmd = PtyCommand::new(program);
+        cmd.args(args.iter().cloned());
         cmd.env("TERM", &opts.term);
         // The embedded ghostty-vt terminal always parses 24-bit SGR and every
         // frontend forwards RGB cells losslessly, so children can rely on
@@ -318,7 +322,7 @@ impl Surface {
 
         crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(cmd)?;
-        let mut child = PtyChildStartupGuard::new(child);
+        let child = PtyChildStartupGuard::new(child);
         let pid = child.process_id();
         let killer = child.clone_killer();
         #[cfg(unix)]
@@ -327,12 +331,19 @@ impl Surface {
         let supports_clear_history_key_fallback = false;
         let reader = master.try_clone_reader()?;
         let writer = master.take_writer()?;
+        #[cfg(unix)]
+        let end = LocalEnd::Child(child);
+        #[cfg(not(unix))]
+        let end = LocalEnd::Wait(Box::new(move || {
+            let mut child = child;
+            TerminalEnd::ProcessEnded(child.wait_for_exit())
+        }));
         let launch = LocalLaunch {
             master,
             reader,
             writer,
             killer,
-            wait: Box::new(move || TerminalEnd::ProcessEnded(child.wait_for_exit())),
+            end,
             pid,
             command: argv,
             cwd,
@@ -366,18 +377,17 @@ impl Surface {
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
     ) {
         let surface = Arc::downgrade(surface);
-        let responses = Arc::downgrade(responses);
-        responses
-            .upgrade()
-            .expect("control responses are live while installing their handler")
-            .set_deferred_cell_pixel_handler(Arc::new(move |request_id, expected, resolution| {
+        let weak_responses = Arc::downgrade(responses);
+        responses.set_deferred_cell_pixel_handler(Arc::new(
+            move |request_id, expected, resolution| {
                 if matches!(
                     &resolution,
                     crate::terminal_host_runtime::DeferredCellPixelResolution::Disconnected
                 ) {
                     return;
                 }
-                let (Some(surface), Some(responses)) = (surface.upgrade(), responses.upgrade())
+                let (Some(surface), Some(responses)) =
+                    (surface.upgrade(), weak_responses.upgrade())
                 else {
                     return;
                 };
@@ -402,7 +412,8 @@ impl Surface {
                         &responses, request_id, expected, resolution,
                     );
                 }
-            }));
+            },
+        ));
     }
 
     #[cfg(any(unix, windows))]
@@ -427,7 +438,7 @@ impl Surface {
         };
         let Some(pty) = self.as_pty() else { return };
         let owns_response = {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             matches!(
                 &*runtime,
                 PtyRuntime::Hosted(host)
@@ -441,15 +452,15 @@ impl Surface {
         if frame.kind != MessageKind::CellPixelSizeAck
             || frame.payload.as_slice() != expected_payload
         {
-            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                 host.disconnect();
             }
             return;
         }
 
-        let mut geometry = pty.geometry.lock().unwrap();
+        let mut geometry = pty.geometry.lock().recover_poison();
         let still_owns_response = {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             matches!(
                 &*runtime,
                 PtyRuntime::Hosted(host)
@@ -463,7 +474,8 @@ impl Surface {
         let committed = pty.commit_geometry(&mut geometry, next, false);
         drop(geometry);
         match committed {
-            Ok(changed) => {
+            Ok(commit) => {
+                let changed = pty.publish_geometry_commit(commit);
                 if let Some(mux) = pty.mux.upgrade() {
                     if changed {
                         mux.emit_terminal_output(pty.event_surface_id);
@@ -472,7 +484,7 @@ impl Surface {
                 }
             }
             Err(_) => {
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                     host.disconnect();
                 }
             }
@@ -488,14 +500,14 @@ impl Surface {
     ) {
         let mut scroll_changed = None;
         let generation = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             let normalized = term.vt_write_with_normalized(replay);
             let output = match normalized {
                 Cow::Borrowed(_) => replay.to_vec(),
                 Cow::Owned(normalized) => normalized,
             };
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             pty.broadcast_attach_output(&output);
             let after = terminal_scroll_position(&term);
             if before != after {

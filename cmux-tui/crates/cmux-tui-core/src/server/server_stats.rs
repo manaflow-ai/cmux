@@ -2,16 +2,25 @@
 //! and `server-blocking` (the plan's `server.threads` and
 //! `server.blocking`, p02-threads-203): the thread registry, work lanes and
 //! blocking site table of `cmux_threads`, each read from one snapshot and
-//! rendered after every lock is released.
+//! rendered after every lock is released. And the forwarder of the
+//! `server-diagnostic-site` events (p02-threads-233).
 
-use cmux_threads::blocking::{self, BlockingMode, BlockingSnapshot};
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Weak};
+
+use cmux_threads::blocking::{self, BlockingMode, BlockingSnapshot, FirstSite};
 use cmux_threads::process_role::{self, DarwinBackground, TaskRole};
 use cmux_threads::work::{Lane, LaneStats};
 use cmux_threads::{LiveQos, ThreadInfo};
+use std::collections::HashMap;
 
+use super::client_registry::ConnectionFacts;
 use super::request_spans::{RequestMethod, lock_op_name};
 use super::{MAX_SERVER_CONNECTIONS, Mux};
-use crate::diagnostics::{LockTableSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot};
+use crate::MuxEvent;
+use crate::diagnostics::{
+    DiagnosticSite, LockTableSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot,
+};
 
 /// The optional section that reports resource projection spans.
 const RESOURCE_PROJECTION: &str = "resource_projection";
@@ -37,6 +46,9 @@ const IPC: &str = "ipc";
 /// wait by method (`ipc_methods`, request_spans.rs). It is not `ipc`: that
 /// section counts the IPC layer itself (streams, frames, parses, syscalls).
 const IPC_METHODS: &str = "ipc_methods";
+/// The optional section that counts watched scopes busy past 250 ms, with
+/// their span and duration (request_watchdog.rs, cmux-tui-util `hang_watch`).
+const HANGS: &str = "hangs";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -62,6 +74,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
         ipc_methods: wants(IPC_METHODS)
             .then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
+        hangs: wants(HANGS).then(|| mux.request_watchdog.hangs()),
     }
 }
 
@@ -178,10 +191,40 @@ struct ThreadRow {
     /// Whether the kernel's value is the desired QoS; `None` when it could
     /// not be read.
     matches: Option<bool>,
+    /// The connection a connection thread (reader or request thread) works
+    /// for; `None` for every other thread.
+    connection: Option<ConnectionRow>,
+}
+
+/// The connection a thread works for (`QosSlot::work_for` with its client
+/// id): the facts its client class comes from, and the class, so the QoS
+/// audit judges the person's connection threads apart from automation's
+/// (p02-threads RUN-4). The facts are `null` once the connection is gone.
+#[derive(Clone, Debug, serde::Serialize)]
+struct ConnectionRow {
+    client: u64,
+    transport: Option<&'static str>,
+    remote_device: Option<bool>,
+    origin: Option<&'static str>,
+    peer_pid: Option<u32>,
+    class: Option<&'static str>,
+}
+
+impl ConnectionRow {
+    fn of(client: u64, facts: Option<&ConnectionFacts>) -> Self {
+        ConnectionRow {
+            client,
+            transport: facts.map(|facts| facts.transport),
+            remote_device: facts.map(|facts| facts.remote_device),
+            origin: facts.map(|facts| facts.origin),
+            peer_pid: facts.and_then(|facts| facts.peer_pid),
+            class: facts.map(|facts| facts.class),
+        }
+    }
 }
 
 impl ThreadRow {
-    fn of(info: ThreadInfo) -> Self {
+    fn of(info: ThreadInfo, connections: &HashMap<u64, ConnectionFacts>) -> Self {
         let (requested_qos, nice, matches) = match info.live {
             LiveQos::Class(qos) => (Some(qos.as_str().to_owned()), None, Some(qos == info.desired)),
             LiveQos::Unspecified => (Some("unspecified".to_owned()), None, Some(false)),
@@ -200,6 +243,9 @@ impl ThreadRow {
             priority: info.priority,
             refused_changes: info.refused_changes,
             matches,
+            connection: info
+                .owner
+                .map(|client| ConnectionRow::of(client, connections.get(&client))),
         }
     }
 }
@@ -251,9 +297,11 @@ fn threads_snapshot(
     role: Option<TaskRole>,
     darwin_bg: Option<DarwinBackground>,
     threads: Vec<ThreadInfo>,
+    connections: &HashMap<u64, ConnectionFacts>,
     lanes: [LaneStats; 3],
 ) -> ServerThreadsSnapshot {
-    let mut threads: Vec<ThreadRow> = threads.into_iter().map(ThreadRow::of).collect();
+    let mut threads: Vec<ThreadRow> =
+        threads.into_iter().map(|info| ThreadRow::of(info, connections)).collect();
     threads.sort_by(|a, b| a.name.cmp(&b.name).then(a.tid.cmp(&b.tid)));
     ServerThreadsSnapshot {
         schema: SERVER_THREADS_SCHEMA,
@@ -274,14 +322,20 @@ fn threads_snapshot(
 }
 
 /// `server-threads`: the registry snapshot (one lock held for its row
-/// reads, as Chromium's `ThreadIdNameManager`), the lanes' counters, the
-/// task role and PRIO_DARWIN_BG, rendered after both locks are released.
+/// reads, as Chromium's `ThreadIdNameManager`), the facts of the
+/// connections its threads work for (the client registry's lock, taken
+/// after the thread registry's is released), the lanes' counters, the task
+/// role and PRIO_DARWIN_BG, rendered after every lock is released.
 pub(super) fn server_threads(mux: &Mux) -> ServerThreadsSnapshot {
+    let threads = cmux_threads::snapshot();
+    let connections =
+        mux.control_clients.connection_facts(threads.iter().filter_map(|info| info.owner));
     threads_snapshot(
         uptime_ms(mux),
         process_role::current(),
         process_role::darwin_background(),
-        cmux_threads::snapshot(),
+        threads,
+        &connections,
         mux.work.stats(),
     )
 }
@@ -345,6 +399,51 @@ pub(super) fn server_blocking(mux: &Mux) -> ServerBlockingSnapshot {
     blocking_snapshot(uptime_ms(mux), blocking::mode(), blocking::snapshot())
 }
 
+/// A connection that echoes this in `set-client-info` gets the daemon's
+/// diagnostic sites on its `subscribe` stream: those seen so far first, then
+/// each new one (`server-diagnostic-site`, spec/events.md).
+pub(crate) const DIAGNOSTIC_SITES_CAPABILITY: &str = "diagnostic-sites-v1";
+
+/// The thread that turns first sightings into `server-diagnostic-site`
+/// events; it waits on the feed with no timeout, so it never wakes while no
+/// new site comes.
+const DIAGNOSTIC_SITES_THREAD: &str = "mux-diag-sites";
+
+/// Takes the process's first-sighting feed ([`blocking::take_first_sites`])
+/// and forwards it to `mux` on `mux-diag-sites`. Only the first call in a
+/// process starts it (the daemon owner's first mux, mux/construct.rs).
+pub(crate) fn forward_diagnostic_sites(mux: &Arc<Mux>) {
+    let Some(feed) = blocking::take_first_sites() else { return };
+    let mux = Arc::downgrade(mux);
+    let started = crate::supervised::spawn_at(
+        DIAGNOSTIC_SITES_THREAD,
+        cmux_threads::ThreadQos::Utility,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || forward_first_sites(&feed, &mux),
+    );
+    if let Err(error) = started {
+        eprintln!("cmux-tui: cannot start {DIAGNOSTIC_SITES_THREAD}: {error}");
+    }
+}
+
+/// Each first sighting from `feed` to `mux`, until either ends.
+fn forward_first_sites(feed: &Receiver<FirstSite>, mux: &Weak<Mux>) {
+    for first in feed {
+        let Some(mux) = mux.upgrade() else { return };
+        mux.note_diagnostic_site(DiagnosticSite::of(first));
+    }
+}
+
+impl Mux {
+    /// Keeps `site` and emits it once, the first time this daemon life sees it.
+    pub(crate) fn note_diagnostic_site(&self, site: DiagnosticSite) {
+        if let Some(site) = self.diagnostic_sites.note(site) {
+            self.emit(MuxEvent::DiagnosticSite(site));
+        }
+    }
+}
+
 fn uptime_ms(mux: &Mux) -> u64 {
     u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX)
 }
@@ -352,6 +451,10 @@ fn uptime_ms(mux: &Mux) -> u64 {
 #[cfg(test)]
 #[path = "server_threads_tests.rs"]
 mod threads_tests;
+
+#[cfg(test)]
+#[path = "diagnostic_sites_tests.rs"]
+mod diagnostic_sites_tests;
 
 #[cfg(test)]
 #[path = "server_stats_tests.rs"]

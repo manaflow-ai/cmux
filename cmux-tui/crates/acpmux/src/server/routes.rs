@@ -138,7 +138,7 @@ pub(super) async fn handle(
             let file = routes::file_from_json(&merged).map_err(|e| route_error(&e))?;
             let replace =
                 editing || params.get("replace").and_then(Value::as_bool).unwrap_or(false);
-            let route = tokio::task::spawn_blocking(move || {
+            let route = crate::daemon::spawn_blocking(move || {
                 routes::add(dir.as_deref(), &id, &file, replace)
             })
             .await

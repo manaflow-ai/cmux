@@ -1,0 +1,199 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "keyboard-parity",
+  "suite": "e2e",
+  "title": "Keyboard parity with Chrome: Cmd-K clears a terminal but opens the chat search elsewhere; Cmd-T, Cmd-W, Cmd-Shift-T, Esc, Cmd-1, Cmd-comma and Cmd-Shift-N do what a person expects",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-keyboard-parity-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal with keyboard focus at its prompt",
+    "converted from scripts/cmux-next/keyboard-parity-e2e.py (cited fix #19870), which stays; tests/oracle/corpus/e2e/_scripts-094.json links them"
+  ],
+  "requires": ["keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "type-mark",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["e", "c", "h", "o", "space", "p", "a", "r", "i", "t", "y", "m", "a", "r", "k", "return"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "typed text goes to the shell; it runs no action"},
+      "waitFor": {"pointer": "/terminals/list/0/last24Sha256", "predicate": "changed", "maxMs": 10000},
+      "note": "the script's marker line: the terminal shows text that Cmd-K must clear"
+    },
+    {
+      "id": "marked",
+      "op": "snapshot",
+      "args": {"facets": ["terminals", "focus"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "terminal-cmd-k",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+k"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/terminals/list/0/last24Sha256", "predicate": "changed", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"],
+      "note": "matrix cell terminal x Cmd-K: terminal.clear; the screen loses the marker and no palette opens"
+    },
+    {
+      "id": "terminal-cmd-t",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+t"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "matrix cell terminal x Cmd-T: a new tab with the New Tab page, focused"
+    },
+    {
+      "id": "new-tab-page",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "webviews"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "page-cmd-k",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+k"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": true, "maxMs": 5000},
+      "checkpoint": ["turn", "settled"],
+      "note": "matrix cell newtab x Cmd-K, the cited fix (#19870): outside a terminal Cmd-K runs agentPane.searchChats and the palette opens"
+    },
+    {
+      "id": "escape",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["escape"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "Escape closes the palette in its own key handler; the key router names no action"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000},
+      "note": "matrix row Esc: the palette closes and the keyboard returns to the New Tab page"
+    },
+    {
+      "id": "palette-closed",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close-page",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "note": "matrix row Cmd-W: the focused tab (the New Tab page) closes, with no question"
+    },
+    {
+      "id": "reopen-page",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+shift+t"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "matrix row Cmd-Shift-T: the tab closed just before comes back"
+    },
+    {
+      "id": "reopened",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "history"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "second-workspace",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+n"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "a second workspace on its New Tab page, so Cmd-1 moves the selection (the script's filler items)"
+    },
+    {
+      "id": "cmd-1",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+1"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/sidebar/selectedWorkspace", "predicate": "changed", "maxMs": 5000},
+      "note": "matrix row Cmd-1: selectWorkspaceByNumber selects the sidebar's first item"
+    },
+    {
+      "id": "cmd-comma",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+,"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/webviews/pages", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "matrix row Cmd-comma: Settings opens as a page tab and takes focus"
+    },
+    {
+      "id": "settings",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "tabs", "webviews"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "new-window",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+shift+n"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/count", "equals": 2, "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "matrix row Cmd-Shift-N: a new window"
+    },
+    {
+      "id": "window-ids",
+      "op": "cli",
+      "readOnly": true,
+      "args": {"argv": ["--json", "app", "call", "debug.focus"]},
+      "expect": {"outcome": "ok"},
+      "note": "debug.focus lists the window controllers in creation order (WindowManager.controllers), so windows/1/id is the window Cmd-Shift-N made, the id debug.key's window param takes (the script reads the same list)"
+    },
+    {
+      "id": "close-window",
+      "op": "key",
+      "target": {"window": "$step:window-ids#/stdout/windows/1/id"},
+      "args": {"keys": ["ctrl+cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/count", "equals": 1, "maxMs": 10000},
+      "note": "Close Window sent to the new window: debug.key makes it the key window for the dispatch, so closeWindow closes it, as the script closes the window it made; with no window debug.key would pick the launch window"
+    },
+    {
+      "id": "end",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "windows", "focus"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "terminals at terminal-cmd-k differ from marked in last24Sha256 and overlays.palette.open stays false: Cmd-K in a terminal clears it, never opens the chat search",
+    "focus.context at page-cmd-k has terminal false and overlays.palette.open true: Cmd-K outside a terminal opens the chat search (#19870)",
+    "focus at palette-closed equals focus at new-tab-page: Esc gives the keyboard back to the New Tab page",
+    "the tab reopen-page brought back is the New Tab page close-page closed, and history at reopened no longer lists it",
+    "focus at settings resolves to the Settings page tab",
+    "windows at end equal those at second-workspace's settled checkpoint; the window id window-ids read at windows/1 is not in windows at end and the one at windows/0 is: the window Cmd-Shift-N made is gone and the launch window stays",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the web page and agent chat composer focus targets of the matrix: the case is offline with no loopback web fixture in driver_app yet (fixture.web), and the composer column needs a started chat (debug.agent_pane)",
+    "Cmd-L, Cmd-F, Cmd-R, Cmd-[ and Cmd-] from every focus target: their effects (the address bar or New Tab field, a find bar in a page, history moves) need the web fixture or are read only through debug.key's last interception, which no facet records",
+    "Cmd-9 (the last item) and Cmd-I (a new agent chat) and the Settings and sidebar focus columns",
+    "the script's real keys through cua-driver: the case presses keys through debug.key, the app's own key path"
+  ]
+}

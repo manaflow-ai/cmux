@@ -8,10 +8,13 @@ public import Foundation
 /// thermal reasons. A core value next to ``EnergyPolicy``: the control method parses it and the
 /// composition root hands it to its energy monitor.
 public struct EnergySimulation: Sendable, Equatable {
+    /// Whether the Mac runs on battery; nil follows the Mac.
     public var onBattery: Bool?
     /// The battery's charge in percent, clamped to 0-100; reported only while on battery.
     public var batteryPercent: Int?
+    /// The thermal state; nil follows the Mac.
     public var thermal: ProcessInfo.ThermalState?
+    /// Whether Low Power Mode is on; nil follows the Mac.
     public var lowPowerMode: Bool?
     /// The Mac is going to sleep or asleep (``EnergyPolicy/suspended``).
     public var suspended: Bool?

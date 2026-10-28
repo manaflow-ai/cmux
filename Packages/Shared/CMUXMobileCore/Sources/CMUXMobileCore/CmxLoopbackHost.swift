@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 /// Single source of truth for "is this host loopback?" across the mobile
@@ -82,13 +77,7 @@ private extension CmxLoopbackHost {
     /// quad, fewer-than-four parts, octal, hex, and single 32-bit decimals),
     /// or `nil` when the host is not an IPv4 literal in any of those forms.
     func ipv4FirstOctet(_ host: String) -> UInt8? {
-        var address = in_addr()
-        guard inet_aton(host, &address) != 0 else {
-            return nil
-        }
-        // `s_addr` is in network byte order; the first octet is the
-        // highest-order byte of the big-endian value.
-        return UInt8(truncatingIfNeeded: UInt32(bigEndian: address.s_addr) >> 24)
+        CmxIPLiteral(resolverIPv4: host)?.bytes.first
     }
 
     /// `127.0.0.0/8` is loopback; `0.0.0.0/8` (the unspecified range) is
@@ -102,11 +91,7 @@ private extension CmxLoopbackHost {
     /// first: the zone scopes which interface dials, not which address.
     func ipv6Bytes(_ host: String) -> [UInt8]? {
         let literal = String(host.prefix { $0 != "%" })
-        var address = in6_addr()
-        guard inet_pton(AF_INET6, literal, &address) == 1 else {
-            return nil
-        }
-        return withUnsafeBytes(of: address) { Array($0) }
+        return CmxIPLiteral(literal, family: .ipv6)?.bytes
     }
 
     /// Whether the 16 IPv6 address bytes name the local machine (`::1`, `::`,

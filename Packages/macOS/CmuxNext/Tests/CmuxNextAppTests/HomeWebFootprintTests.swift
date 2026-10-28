@@ -8,7 +8,7 @@ import Testing
 /// next navigation takes (content/browser/renderer_host/spare_render_process_host_manager_impl.cc).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct HomeWebFootprintTests {
     /// D1: Chromium is the default and agent pages open there. Chromium, its spare window and the New Tab
-    /// preload, no WebKit object at all (no page host spare: Settings, History and Cloud open in Chromium).
+    /// preload, no WebKit object at all (Settings, History and Cloud preload nothing at launch, p13-webui-045).
     @Test func chromiumDefaultMakesNoWebKitObject() {
         let engines = HomeWebEngines(defaultEngine: .chromium, agentPages: .chromium)
         settleHome(engines)
@@ -19,21 +19,21 @@ import Testing
     }
 
     /// Chromium is the default and agent chat stays in WebKit (feature `agentChromium` off): WebKit runs only
-    /// for agent pages (the warm-up and the New Tab preload), never a page host spare no open can take.
+    /// for agent pages (the warm-up and the New Tab preload), never a Settings page no open asked for.
     @Test func chromiumDefaultWithWebKitAgentPagesWarmsOnlyAgentPages() {
         let engines = HomeWebEngines(defaultEngine: .chromium, agentPages: .webKit)
         settleHome(engines)
         #expect(engines.objects == [.chromiumProcess, .chromiumSpareWindow, .agentWarmup, .newTabPreload(.webKit)])
-        #expect(!engines.objects.contains(.pageHostSpare), "a WebKit spare for pages that open in Chromium")
     }
 
-    /// D2: WebKit is the default. No Chromium object; WebKit holds the agent warm-up, the New Tab preload and
-    /// the page host spare Settings opens from.
+    /// D2: WebKit is the default. No Chromium object; WebKit holds the agent warm-up and the New Tab preload.
+    /// Settings, History and Cloud preload only after an open of their kind (`PagePreloads`), never at launch.
     @Test func webKitDefaultStartsNoChromium() {
         let engines = HomeWebEngines(defaultEngine: .webKit, agentPages: .webKit)
         settleHome(engines)
         #expect(engines.objects(on: .chromium).isEmpty, "\(engines.objects)")
-        #expect(engines.objects == [.agentWarmup, .newTabPreload(.webKit), .pageHostSpare])
+        #expect(engines.objects == [.agentWarmup, .newTabPreload(.webKit)])
+        #expect(engines.ran.contains("startPagePreloads"), "the page preloads were not started")
     }
 
     /// A launch after a crash holds browser pages back: Chromium does not start, whatever the default.
@@ -61,7 +61,7 @@ import Testing
 
 /// Every engine call the later-tab warm-ups make, in post order.
 private let everyLaterTabCall = ["startChromiumWarmup", "armNewTabPreload", "warmAgentPages", "probeNewTabPreload", "warmNewTabPreload",
-                                 "followWindowsForPageHosts", "startAgentTabImport", "buildRightSidebarIcons"]
+                                 "startPagePreloads", "startAgentTabImport", "buildRightSidebarIcons"]
 
 /// The launch, settled: the posts, the first frame, the completion and a frame for every post.
 private func settleHome(_ engines: HomeWebEngines) {
@@ -89,13 +89,11 @@ private enum HomeWebObject: Hashable, CustomStringConvertible {
     case agentWarmup
     /// The New Tab page in the app's one preload slot, in the agent pages' engine.
     case newTabPreload(Engine)
-    /// The page host pool's spare, a WebKit view (`PageHostPool.claim` serves WebKit opens only).
-    case pageHostSpare
 
     var engine: Engine {
         switch self {
         case .chromiumProcess, .chromiumSpareWindow: .chromium
-        case .agentWarmup, .pageHostSpare: .webKit
+        case .agentWarmup: .webKit
         case let .newTabPreload(engine): engine
         }
     }
@@ -106,7 +104,6 @@ private enum HomeWebObject: Hashable, CustomStringConvertible {
         case .chromiumSpareWindow: "chromiumSpareWindow"
         case .agentWarmup: "agentWarmup"
         case let .newTabPreload(engine): "newTabPreload(\(engine))"
-        case .pageHostSpare: "pageHostSpare"
         }
     }
 }
@@ -127,8 +124,6 @@ private final class HomeWebEngines: LaterTabWarmupHost {
     }
 
     func objects(on engine: HomeWebObject.Engine) -> [HomeWebObject] { objects.filter { $0.engine == engine } }
-
-    var pooledPagesOpenInWebKit: Bool { defaultEngine == .webKit }
 
     /// `ChromiumHostLaunchStart`: Chromium starts at launch when it is the default, with its spare window.
     func startChromiumWarmup() {
@@ -154,10 +149,8 @@ private final class HomeWebEngines: LaterTabWarmupHost {
         objects.append(.newTabPreload(agentPages))
     }
 
-    func followWindowsForPageHosts() { ran.append("followWindowsForPageHosts") }
-
-    /// The pool builds its WebKit spare at the next quiet moment.
-    func preloadPageHost() { objects.append(.pageHostSpare) }
+    /// `PagePreloads.start()`: it makes no page until an open of Settings, History or Cloud names one.
+    func startPagePreloads() { ran.append("startPagePreloads") }
 
     func startAgentTabImport() { ran.append("startAgentTabImport") }
 

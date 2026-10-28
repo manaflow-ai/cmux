@@ -387,6 +387,8 @@ impl UnixPeerProcessExit {
 
     #[cfg(target_os = "linux")]
     fn open_pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
+        // SAFETY: pidfd_open takes a pid and a flag word, no pointers, and returns a new descriptor
+        // or -1.
         let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
         if descriptor < 0 {
             return Err(io::Error::last_os_error());
@@ -397,6 +399,7 @@ impl UnixPeerProcessExit {
 
     #[cfg(target_vendor = "apple")]
     fn observe(pid: libc::pid_t) -> io::Result<Self> {
+        // SAFETY: kqueue takes no arguments and returns a new descriptor or -1.
         let descriptor = unsafe { libc::kqueue() };
         if descriptor < 0 {
             return Err(io::Error::last_os_error());
@@ -411,6 +414,8 @@ impl UnixPeerProcessExit {
             data: 0,
             udata: std::ptr::null_mut(),
         };
+        // SAFETY: `descriptor` owns the kqueue for the call, `change` is one live kevent and the
+        // change count is 1; the event list is null with count 0, so kevent writes nothing.
         let registered = unsafe {
             libc::kevent(
                 descriptor.as_raw_fd(),
@@ -455,9 +460,13 @@ impl UnixPeerProcessExit {
 
     #[cfg(target_vendor = "apple")]
     fn poll_exit(&self) -> io::Result<bool> {
+        // SAFETY: kevent is a plain C struct of integers and a raw pointer, so all-zero bytes are a
+        // valid value.
         let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
         let timeout = libc::timespec { tv_sec: 0, tv_nsec: 0 };
         loop {
+            // SAFETY: `self.descriptor` owns the kqueue for the call; kevent writes at most one
+            // event into `event`, a live kevent, and reads the live zero `timeout`.
             let ready = unsafe {
                 libc::kevent(
                     self.descriptor.as_raw_fd(),
@@ -497,6 +506,8 @@ fn poll_pidfd(descriptor: &OwnedFd) -> io::Result<bool> {
     let mut descriptor =
         libc::pollfd { fd: descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
     loop {
+        // SAFETY: `descriptor` is one live pollfd and the count passed is 1, so poll touches only
+        // it.
         let ready = unsafe { libc::poll(&raw mut descriptor, 1, 0) };
         if ready > 0 {
             if descriptor.revents & libc::POLLNVAL != 0 {
@@ -522,6 +533,8 @@ impl LinuxProcProcessExit {
     fn observe(pid: libc::pid_t) -> io::Result<(Self, bool)> {
         let path = std::ffi::CString::new(format!("/proc/{pid}"))
             .expect("a decimal process id cannot contain NUL");
+        // SAFETY: `path` is a NUL-terminated CString that lives across the call; open does not keep
+        // the pointer.
         let directory = unsafe {
             libc::open(
                 path.as_ptr(),
@@ -553,6 +566,8 @@ fn read_linux_proc_stat(directory: &OwnedFd) -> io::Result<LinuxProcStat> {
     use std::io::Read as _;
 
     const MAX_PROC_STAT_BYTES: u64 = 16 * 1024;
+    // SAFETY: `directory` owns the /proc directory descriptor for the call and the name is a static
+    // C string literal; openat keeps neither.
     let descriptor = unsafe {
         libc::openat(
             directory.as_raw_fd(),

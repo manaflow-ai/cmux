@@ -103,5 +103,15 @@ struct MobileReleaseGateUIProbeTests {
         }
         #expect(probe.latencies().isEmpty)
     }
+
+    @Test func thePresentationDeadlineAsksForTolerance() async {
+        let clock = WakeRecordingClock(.firesAtOnce)
+        let probe = MobileReleaseGateUIProbe(timeoutClock: clock)
+        probe.record(.workspaceListVisible)
+        await #expect(throws: MobileReleaseGateUIProbe.Failure.timedOut) {
+            try await probe.exercise(workspaceID: "absent", surfaceID: "terminal")
+        }
+        #expect(await clock.nextWakes(1) == [.init(wait: .seconds(60), tolerance: .seconds(1))])
+    }
 }
 #endif

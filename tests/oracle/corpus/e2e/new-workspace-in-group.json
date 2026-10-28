@@ -1,0 +1,207 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "new-workspace-in-group",
+  "suite": "e2e",
+  "title": "A new workspace opened while a grouped workspace is shown joins that group from every entry point that names no place, under newPlacement top and bottom; New Workspace at Bottom still leaves the group",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-new-workspace-in-group-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config (workspaces.newPlacement unset: top)",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one terminal workspace, no workspace group",
+    "converted from scripts/cmux-next/new-workspace-in-group-e2e.py (cx-caoh, #19018), which stays; tests/oracle/corpus/e2e/_scripts-094.json links them"
+  ],
+  "requires": ["actions", "keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "anchor",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "workspace.newAtBottom"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "note": "the anchor: a terminal workspace (created/0, its public ws_ id)"
+    },
+    {
+      "id": "group-anchor",
+      "op": "action.run",
+      "target": {"workspace": "$step:anchor#/created/0"},
+      "args": {"action": "workspace.moveToNewGroup", "params": {"name": "in group e2e"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspace_groups", "predicate": {"op": "lengthEquals", "value": 1}, "maxMs": 10000},
+      "note": "the anchor alone in a group of its own"
+    },
+    {
+      "id": "show-anchor",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "goToWorkspace", "params": {"workspace": "$step:anchor#/created/0"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 5000},
+      "note": "the window shows the grouped anchor, as the palette's Go to Workspace does"
+    },
+    {
+      "id": "grouped",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "sidebar"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "cmd-n-top",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+n"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "settleMaxMs": 10000,
+      "note": "script row 'Cmd-N, newPlacement top': the new workspace is first in the anchor's group"
+    },
+    {
+      "id": "reshow-1",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "goToWorkspace", "params": {"workspace": "$step:anchor#/created/0"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "script-new-top",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "newTab", "entrypoint": "cli"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "note": "script row 'cmux workspace new (no window, no focus)': a CLI run with no place joins the shown group too"
+    },
+    {
+      "id": "like-this-top",
+      "op": "action.run",
+      "target": {"workspace": "$step:anchor#/created/0"},
+      "args": {"action": "workspace.newLikeThis"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "note": "script row 'New Workspace Like This': right below the anchor, in its group"
+    },
+    {
+      "id": "link-top",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "browser.link.openInNewWorkspace", "params": {"url": "about:blank"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "settleMaxMs": 10000,
+      "note": "script row 'a link opened in a new workspace'"
+    },
+    {
+      "id": "top-done",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "sidebar"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "placement-bottom",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["settings", "set", "workspaces.newPlacement", "bottom"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a settings write answers with the applied value, not an action receipt; the settings facet change is its result"},
+      "waitFor": {"pointer": "/settings/effectiveSha256", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "reshow-2",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "goToWorkspace", "params": {"workspace": "$step:anchor#/created/0"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 5000,
+      "note": "the anchor may still be shown after the link run; the settle bounds the switch either way"
+    },
+    {
+      "id": "cmd-n-bottom",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+n"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "settleMaxMs": 10000,
+      "note": "script row 'Cmd-N, newPlacement bottom': last in the group, not last in the sidebar"
+    },
+    {
+      "id": "placement-after-current",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["settings", "set", "workspaces.newPlacement", "afterCurrent"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a settings write answers with the applied value, not an action receipt; the settings facet change is its result"},
+      "waitFor": {"pointer": "/settings/effectiveSha256", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "terminal-opens-workspace",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["settings", "set", "newTerminal.opensWorkspace", "true"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a settings write answers with the applied value, not an action receipt; the settings facet change is its result"},
+      "waitFor": {"pointer": "/settings/effectiveSha256", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "reshow-3",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "goToWorkspace", "params": {"workspace": "$step:anchor#/created/0"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "terminal-key-after-current",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["ctrl+`"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "settleMaxMs": 10000,
+      "note": "script row 'New Terminal Tab (Ctrl-`) with newTerminal.opensWorkspace, newPlacement afterCurrent': a person's key (the setting applies to user runs only) opens a workspace right after the anchor, in its group"
+    },
+    {
+      "id": "reshow-4",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "goToWorkspace", "params": {"workspace": "$step:anchor#/created/0"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "explicit-bottom",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "workspace.newAtBottom"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 20000},
+      "settleMaxMs": 5000,
+      "note": "script row 'New Workspace at Bottom (an explicit place)': listed outside the group"
+    },
+    {
+      "id": "end",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "sidebar"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "every workspace cmd-n-top, script-new-top, like-this-top and link-top made has the anchor's group in topology and is listed inside that group's section in sidebar at top-done",
+    "the workspace cmd-n-bottom made has the anchor's group and is the group's last row at end",
+    "the workspace terminal-key-after-current made has the anchor's group and is the row right after the anchor at end",
+    "the workspace explicit-bottom made (its created/0) has no group and is the sidebar's last row at end",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the sidebar's + button (debug.mouse on debug.sidebar_rows new_button): a pointer step is not a case-v1 op",
+    "agent.openSessionWorkspace: it looks up an agent session the bench launch does not have",
+    "the full entry point x placement matrix: the case runs each entry point under one placement (Cmd-N under top and bottom, Ctrl-` under afterCurrent, the script, Like This and link runs under top)"
+  ]
+}

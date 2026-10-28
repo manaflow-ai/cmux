@@ -1,36 +1,46 @@
 public import CmuxNextWakeups
 public import Foundation
-import Security
+public import Security
 
-/// Checks a pack item with `SecStaticCodeCheckValidity`: strict validation,
-/// every architecture, nested code (a helper app's executable, the
-/// framework's libraries), against the requirement
+/// Checks a pack item's code signature on disk: strict validation, every
+/// architecture, nested code (a helper app's executable, the framework's
+/// libraries), against the requirement
 /// `anchor apple generic and certificate leaf[subject.OU] = "<team>"`
 /// (a Developer ID certificate of that team).
 ///
 /// The check reads and hashes every file of the item and waits on the
 /// Security daemons, so it runs on `work`'s system lane, never on the
 /// caller's thread (Chrome posts such work with `base::MayBlock()`,
-/// base/task/task_traits.h).
+/// base/task/task_traits.h). The check itself is injected: the App passes its
+/// kept-per-version check (CmuxNextCompat's `StaticCodeValidityCache`, over the
+/// checked static code validity seam), so the load after an install does not
+/// hash the same pack again.
 public struct SecCodeChromiumRuntimeSignatureChecker: ChromiumRuntimeSignatureChecking {
-    private let work: BackgroundWork
+    /// Whether the code at a URL is valid under the flags and satisfies the requirement text. It blocks.
+    public typealias Validity = @Sendable (URL, SecCSFlags, String) -> Bool
 
-    /// Creates a checker that validates on `work`'s system lane (the app's one ``BackgroundWork``).
-    public init(work: BackgroundWork) {
+    private let work: BackgroundWork
+    private let isValid: Validity
+
+    /// Creates a checker that runs `isValid` on `work`'s system lane (the app's one ``BackgroundWork``).
+    public init(work: BackgroundWork, isValid: @escaping Validity) {
         self.work = work
+        self.isValid = isValid
     }
 
     public func check(_ item: URL, teamID: String,
                       priority: ChromiumRuntimeInstaller.Priority) async throws(ChromiumRuntimeInstallError) {
-        let failure: ChromiumRuntimeInstallError?
+        let requirement = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        let valid: Bool
         do {
-            failure = try await work.run(Self.lanePriority(priority), mayBlock: .system) { Self.validate(item, teamID: teamID) }
+            valid = try await work.run(Self.lanePriority(priority), mayBlock: .system) { [isValid] in isValid(item, flags, requirement) }
         } catch {
             // The only error `run` throws for a non-throwing body: the item never ran (the caller was cancelled
             // or quit dropped it), so nothing vouched for it, and it is no signature failure either.
             throw .cancelled
         }
-        if let failure { throw failure }
+        guard valid else { throw .signature(item.lastPathComponent) }
     }
 
     /// The lane priority of an install job's check. A background prefetch is work nobody waits for, as Chrome's
@@ -41,23 +51,5 @@ public struct SecCodeChromiumRuntimeSignatureChecker: ChromiumRuntimeSignatureCh
         case .background: .bestEffort
         case .user: .userVisible
         }
-    }
-
-    /// The Security framework calls, on the lane: nil when `item` is validly signed by `teamID`, else why not.
-    private static func validate(_ item: URL, teamID: String) -> ChromiumRuntimeInstallError? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(item as CFURL, [], &code) == errSecSuccess, let code else {
-            return .signature(item.lastPathComponent)
-        }
-        var requirement: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
-            return .signature("requirement for \(teamID)")
-        }
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
-        guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
-            return .signature(item.lastPathComponent)
-        }
-        return nil
     }
 }

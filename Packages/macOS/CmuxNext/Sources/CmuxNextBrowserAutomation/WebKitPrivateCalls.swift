@@ -38,12 +38,11 @@ public struct WebKitPrivateCalls: Sendable {
     public func awaitCallback(register: (@escaping @Sendable () -> Void) -> Void) async -> Bool {
         let done = OneShot<Bool>()
         register { done.resolve(true) }
-        // The bound is a deadline on the injected clock, cancelled once the wait ends.
-        let deadline = DemandTimer(owner: "browser.webkit-private-callback", clock: clock)
-        deadline.schedule(after: callbackBound) { done.resolve(false) }
-        defer { deadline.cancel() }
-        // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
-        return await done.wait(cancelled: false)
+        // The bound is a Deadline race on the injected clock: when it wins, the wait is cancelled (false).
+        return await Deadline(callbackBound, clock: clock).value("browser.webkit-private-callback") {
+            // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
+            await done.wait(cancelled: false)
+        } ?? false
     }
 
     /// Resumes once WebKit has sent the view's activity state (visible,

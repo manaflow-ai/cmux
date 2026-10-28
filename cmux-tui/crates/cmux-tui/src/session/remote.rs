@@ -2,16 +2,16 @@
 //! mirrored surface terminals (VT replay + live stream).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::sizing_policy::TerminalSizingState;
 use cmux_tui_core::{
@@ -1336,9 +1336,10 @@ impl InteractiveWriter {
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
-        std::thread::Builder::new()
-            .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
+        let qos = cmux_tui_core::echo_thread::ECHO_PATH_QOS;
+        let worker = move || interactive_writer_worker(worker_shared, writer);
+        // supervise-allow: owned by InteractiveWriter (its shared state and abort); a panic ends this session's writes, which then fail.
+        cmux_threads::spawn("remote-input-writer", qos, worker)?;
         Ok(Self { shared, abort })
     }
 
@@ -2163,7 +2164,11 @@ fn local_hostname() -> Option<String> {
         use std::ffi::CStr;
 
         let mut buffer = [0 as libc::c_char; 256];
+        // SAFETY: gethostname writes at most `buffer.len() - 1` bytes into `buffer`, a live local,
+        // so its last byte stays 0.
         if unsafe { libc::gethostname(buffer.as_mut_ptr(), buffer.len() - 1) } == 0 {
+            // SAFETY: `buffer` was zeroed and gethostname left its last byte 0, so it holds a NUL-
+            // terminated string that outlives the borrow.
             let hostname =
                 unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
             if !hostname.is_empty() {
@@ -2180,7 +2185,7 @@ impl Drop for RemoteSession {
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
-        let _ = fs::create_dir_all(dir);
+        let _ = cmux_blocking::fs::create_dir_all(dir);
         let logs = self.frame_logs.lock().unwrap();
         let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
         for entry in &logs.entries {
@@ -2188,9 +2193,9 @@ impl Drop for RemoteSession {
         }
         for surface in self.surfaces.lock().unwrap().values() {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
-            let _ = fs::write(path, dump_mirror(surface));
+            let _ = cmux_blocking::fs::write(path, dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
-            if let Ok(file) = fs::File::create(frames) {
+            if let Ok(file) = cmux_blocking::fs::create(frames) {
                 let mut writer = io::BufWriter::new(file);
                 for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
                     let _ = writeln!(writer, "{line}");

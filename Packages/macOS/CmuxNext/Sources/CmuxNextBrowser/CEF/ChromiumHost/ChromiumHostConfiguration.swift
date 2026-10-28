@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import Foundation
+import CmuxNextCompat
 
 /// How cmux starts its Chromium host app: the executable and its arguments
 /// (`ChromiumHost/src/browser_host_main.mm` reads them).
@@ -26,14 +27,13 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
     ///     engine's, which Chromium's process singleton holds.
     ///   - bundleIdentifier: The app's, for the switch set (mock keychain in development bundles).
     ///   - environment: For the switch set's development overrides.
-    ///   - fileManager: Checks that the host app exists.
     public static func bundled(in layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,
-                               environment: [String: String], fileManager: FileManager = .default) -> ChromiumHostConfiguration? {
+                               environment: [String: String]) -> ChromiumHostConfiguration? {
         let helper = layout.helperApp.deletingPathExtension().lastPathComponent
         guard helper.hasSuffix(" Helper") else { return nil }
         let name = String(helper.dropLast(" Helper".count)) + " Chromium Host"
         let executable = layout.mainBundle.appending(path: "Contents/MacOS/\(name)")
-        guard fileManager.isExecutableFile(atPath: executable.path) else { return nil }
+        guard FileManager.checked.isExecutableFile(atPath: executable.path) else { return nil }
         return ChromiumHostConfiguration(
             executable: executable,
             arguments: arguments(layout: layout, rootCache: rootCache, bundleIdentifier: bundleIdentifier, environment: environment))
@@ -77,6 +77,17 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
     /// fatal messages): where a host that ended says why.
     static func logFile(rootCache: URL) -> URL {
         rootCache.appending(path: "chromium-host.log")
+    }
+
+    /// The data folder of this app's host: `<Application Support>/<bundle id>/ChromiumHost`.
+    public static func rootCache(applicationSupport: URL, bundleIdentifier: String) -> URL {
+        applicationSupport.appending(path: bundleIdentifier).appending(path: "ChromiumHost")
+    }
+
+    /// The Crashpad database of a host whose data folder is `rootCache`: browser_host_main.mm points
+    /// Chromium's dumps (the host's and its helpers') at `<root cache>/Crashpad` (p01-process task 226).
+    public static func crashDatabase(rootCache: URL) -> URL {
+        rootCache.appending(path: "Crashpad", directoryHint: .isDirectory)
     }
 
     /// The `--log-file` this configuration passes, or nil.

@@ -15,9 +15,10 @@ struct SidebarMinimalModeTests {
     private static let quiet = ResourceID(rawValue: "ws-quiet")
     private static let group = GroupID("grp-new")
 
-    /// A sidebar under its own settings: a quiet workspace, and a New Group holding one that
-    /// reports two status entries (a block: one entry would sit on the name's line).
-    private static func sidebar() -> (SidebarView, DesignSettings, quiet: WorkspaceID, reported: WorkspaceID) {
+    /// A sidebar under its own settings, shown in a window (a hidden sidebar draws nothing): a quiet
+    /// workspace, and a New Group holding one that reports two status entries (a block: one entry
+    /// would sit on the name's line).
+    private static func sidebar() -> (SidebarView, DesignSettings, quiet: WorkspaceID, reported: WorkspaceID, window: NSWindow) {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
             WorkspaceSnapshot(id: 1, key: nil, resourceID: quiet, name: "notes"),
@@ -40,9 +41,15 @@ struct SidebarMinimalModeTests {
         // The status block is opt-in since Lawrence 2026-10-21: on here, so minimal mode has one to drop.
         design.sidebarSections.workspaceRow.base.shown.insert(.agentStatus)
         let sidebar = SidebarView(model: SidebarModel(sections: sections), design: design)
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered,
+                              defer: true)
+        window.isReleasedWhenClosed = false
+        _ = WindowVisibilitySource.of(window, read: { _ in .visible })
+        window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         sidebar.layoutSubtreeIfNeeded()
-        return (sidebar, design, notes.id, build.id)
+        return (sidebar, design, notes.id, build.id, window)
     }
 
     private struct Heights: Equatable {
@@ -68,7 +75,8 @@ struct SidebarMinimalModeTests {
     }
 
     @Test func minimalModeMakesTheListVisiblyCompact() async throws {
-        let (sidebar, design, quiet, reported) = Self.sidebar()
+        let (sidebar, design, quiet, reported, window) = Self.sidebar()
+        defer { window.close() }
         let ids = (quiet: quiet, reported: reported)
         let line = SidebarLayoutMetrics.standard.rowHeight
         // Off: the status entry draws under build's name.

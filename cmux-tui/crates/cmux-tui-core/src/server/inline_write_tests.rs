@@ -4,14 +4,14 @@
 //! nothing is written inline while an item waits or the writer is writing.
 //! Test names start with `message_writer` (the task's `RUST(message_writer)`).
 
-use super::super::{BoundedOutbound, QueuedSink, SinkControl, write_line_outbound_item};
-use super::{InlineSocket, WriterItem};
+use super::super::{BoundedOutbound, QueuedSink, SinkControl, write_counted_turn};
+use super::InlineSocket;
 use crate::diagnostics::IpcStats;
 use crate::server::MessageWriter;
 use cmux_ipc::lane_writer::BULK_FRAME_MAX;
 use cmux_ipc::{Aux, FrameHeader, FrameKind, HEADER_LEN, StreamLane};
 use serde_json::json;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
@@ -67,13 +67,13 @@ fn spawn_writer(
     let (outbound, counted) = (outbound.clone(), turns.clone());
     let mut socket = server.try_clone().unwrap();
     let thread = std::thread::spawn(move || {
-        while let Some((next, _turn)) = outbound.recv_turn() {
+        let ipc = IpcStats::default();
+        let mut batch = Vec::new();
+        while let Some(mut turn) = outbound.recv_turn(&mut batch) {
             counted.fetch_add(1, Ordering::Relaxed);
-            let written = match next {
-                WriterItem::Rest(bytes) => socket.write_all(&bytes),
-                WriterItem::Item(item) => write_line_outbound_item(&mut socket, item),
-            };
-            written.unwrap();
+            let rest = turn.rest.take();
+            write_counted_turn(&mut socket, &ipc, rest.as_deref(), &batch).unwrap();
+            batch.clear();
         }
     });
     (thread, turns)
@@ -171,11 +171,12 @@ fn message_writer_nothing_is_written_inline_while_an_item_waits_or_the_writer_wr
     writer.send_control(&json!({"id": 2, "ok": true})).unwrap();
     nothing_on_the_wire();
 
-    // The writer's turn holds the first item; while it lives the queue is
-    // not idle even once it is empty.
-    let (first, turn) = outbound.recv_turn().unwrap();
-    assert!(matches!(first, WriterItem::Item(_)));
-    assert!(outbound.try_pop().is_some());
+    // The writer's turn holds the queued items (one batch, p05-ipc-088);
+    // while it lives the queue is not idle even once it is empty.
+    let mut batch = Vec::new();
+    let turn = outbound.recv_turn(&mut batch).unwrap();
+    assert!(turn.rest.is_none() && !batch.is_empty());
+    while outbound.try_pop().is_some() {}
     writer.send_control(&json!({"id": 3, "ok": true})).unwrap();
     nothing_on_the_wire();
     drop(turn);
@@ -206,5 +207,5 @@ fn message_writer_abort_drops_the_rest_of_a_partial_message() {
     }
     assert!(outbound.state.lock().unwrap().writer.rest.is_some());
     outbound.abort();
-    assert!(outbound.recv_turn().is_none(), "an aborted queue still wrote a rest");
+    assert!(outbound.recv_turn(&mut Vec::new()).is_none(), "an aborted queue still wrote a rest");
 }

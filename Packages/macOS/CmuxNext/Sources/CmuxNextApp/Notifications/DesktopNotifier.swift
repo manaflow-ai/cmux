@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 import UserNotifications
 
@@ -64,6 +65,16 @@ final class DesktopNotifier: NSObject {
     private var askedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
     private static let postedLimit = 32
+    /// Where the center's callbacks (any thread) reach the main thread: a banner's click or
+    /// button is a person's answer (visible class), an authorization reply nobody waits on
+    /// (background).
+    private nonisolated let work: MainWorkScheduler
+
+    /// - Parameter work: The app's one main-thread scheduler.
+    init(work: MainWorkScheduler) {
+        self.work = work
+        super.init()
+    }
 
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
@@ -163,8 +174,10 @@ final class DesktopNotifier: NSObject {
         // Asked once; a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
         if !askedAuthorization, !Self.isGUIJob {
             askedAuthorization = true
-            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
-                Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self, work] granted, _ in
+                work.postFromAnyThread(.background, owner: "notifications.authorization") { [weak self] in
+                    self?.authorization = granted ? "authorized" : "denied"
+                }
             }
         }
         return center
@@ -196,8 +209,8 @@ final class DesktopNotifier: NSObject {
         guard !Self.isGUIJob, configuredCenter() != nil else {
             throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
         }
-        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] granted in
-            Task { @MainActor in
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self, work] granted in
+            work.postFromAnyThread(.background, owner: "notifications.authorization") { [weak self] in
                 self?.askedAuthorization = true
                 self?.authorization = granted ? "authorized" : "denied"
             }
@@ -248,7 +261,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
-        Task { @MainActor [weak self] in
+        work.postFromAnyThread(.visible, owner: "notifications.banner-response") { [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
             if let approved { self?.approve(id: id, surface: surface, allow: approved) }

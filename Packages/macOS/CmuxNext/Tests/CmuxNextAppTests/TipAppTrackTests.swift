@@ -75,11 +75,11 @@ import Testing
         let defaults = UserDefaults(suiteName: "TipAppTrackTests.\(UUID().uuidString)")!
         let tip = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed),
                                  policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false,
-                                 work: BackgroundWork(label: "test.updater"))
+                                 work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         #expect(tip.disabledReason == nil)
         let local = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.stableFeed),
                                    policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false,
-                                   work: BackgroundWork(label: "test.updater"))
+                                   work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         #expect(local.disabledReason == .developmentBuild)
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// Draws a `StatusMark` as an alpha mask (opaque where the mark is), the one
@@ -10,9 +11,9 @@ public import CmuxNextDesignTokens
 enum StatusMarkArt {
     /// The mark in a square of `pixels`, as an alpha-only image.
     static func mask(_ mark: StatusMark, pixels: Int) -> CGImage? {
-        guard pixels > 0, let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
-                                                  space: CGColorSpaceCreateDeviceGray(),
-                                                  bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+        guard pixels > 0, let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels,
+                                                                    space: CGColorSpaceCreateDeviceGray(),
+                                                                    bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
         context.setShouldAntialias(true)
         draw(mark, in: context, rect: CGRect(x: 0, y: 0, width: pixels, height: pixels))
         return context.makeImage()
@@ -59,10 +60,10 @@ enum StatusMarkArt {
         let w = rect.width
         switch container {
         case .circle:
-            return CGPath(ellipseIn: rect.insetBy(dx: w * 0.04, dy: w * 0.04), transform: nil)
+            return CGPath.ellipse(in: rect.insetBy(dx: w * 0.04, dy: w * 0.04))
         case .roundedSquare:
             let r = rect.insetBy(dx: w * 0.06, dy: w * 0.06)
-            return CGPath(roundedRect: r, cornerWidth: w * 0.22, cornerHeight: w * 0.22, transform: nil)
+            return CGPath.roundedRect(r, cornerWidth: w * 0.22, cornerHeight: w * 0.22)
         case .triangle:
             let path = CGMutablePath()
             path.addLines(between: [point(rect, 0.5, 0.92), point(rect, 0.06, 0.12), point(rect, 0.94, 0.12)])
@@ -152,7 +153,7 @@ enum StatusMarkArt {
             context.addLine(to: point(box, 0.93, 0.34))
             context.strokePath()
         case .check:
-            context.addPath(StatusGlyphGeometry.checkPath(in: box.insetBy(dx: w * 0.08, dy: w * 0.14)))
+            context.addPath(StatusGlyphGeometry.checkPath(in: box.insetBy(dx: w * 0.08, dy: w * 0.14)).cgPath)
             context.strokePath()
         case .cross:
             context.move(to: point(box, 0.18, 0.18))
@@ -162,7 +163,7 @@ enum StatusMarkArt {
             context.strokePath()
         case .hand:
             let palm = CGRect(x: box.minX + w * 0.2, y: box.minY + w * 0.04, width: w * 0.6, height: w * 0.52)
-            context.addPath(CGPath(roundedRect: palm, cornerWidth: w * 0.2, cornerHeight: w * 0.2, transform: nil))
+            context.addPath(CGPath.roundedRect(palm, cornerWidth: w * 0.2, cornerHeight: w * 0.2))
             context.fillPath()
             let finger = w * 0.13
             context.setLineWidth(finger)
@@ -184,7 +185,7 @@ enum StatusMarkArt {
             context.fillPath()
         case .bubble, .bubbleQuestion:
             let body = CGRect(x: box.minX, y: box.minY + w * 0.22, width: w, height: w * 0.74)
-            context.addPath(CGPath(roundedRect: body, cornerWidth: w * 0.26, cornerHeight: w * 0.26, transform: nil))
+            context.addPath(CGPath.roundedRect(body, cornerWidth: w * 0.26, cornerHeight: w * 0.26))
             context.addLines(between: [point(box, 0.22, 0.3), point(box, 0.14, 0.0), point(box, 0.5, 0.3)])
             context.fillPath()
             if figure == .bubbleQuestion {
@@ -242,7 +243,8 @@ enum StatusMarkArt {
         // the mask, which read soft (Leo 2026-10-13).
         let size = CGSize(width: (image.size.width * fit).rounded(), height: (image.size.height * fit).rounded())
         var proposed = CGRect(origin: .zero, size: size)
-        guard let cg = image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
+        // SAFETY: the call reads and may update the local `proposed`, live for the call.
+        guard let cg = unsafe image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
         // The ink, not the symbol's box, is centered vertically: a symbol's box carries baseline
         // room that left the check a quarter point low. Across, the box keeps the symbol's own side
         // bearings. Whole-pixel offsets keep it crisp.
@@ -257,15 +259,10 @@ enum StatusMarkArt {
     /// The box of `image`'s pixels more than half covered, bottom-left origin (CG drawing space).
     private static func inkBounds(_ image: CGImage) -> CGRect? {
         let width = image.width, height = image.height
-        var alpha = [UInt8](repeating: 0, count: width * height)
-        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
-            else { return false }
+        guard let alpha = DrawnPixels(width: width, height: height, bytesPerPixel: 1, space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue, draw: { context in
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return nil }
+        })?.bytes else { return nil }
         var minX = width, minRow = height, maxX = -1, maxRow = -1
         for (index, value) in alpha.enumerated() where value > 127 {
             let x = index % width, row = index / width

@@ -4,6 +4,7 @@
 use super::*;
 use crate::claude_stdio::{Outbound, Translator};
 use crate::rpc::Message;
+use crate::supervised::{self, Fatal, ShutdownBehavior, Supervisor};
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -16,13 +17,9 @@ use tokio::sync::mpsc;
 /// start the harness, answer on stdout, then serve controllers until the
 /// harness ended and its exit was logged.
 pub fn main() -> Result<()> {
-    // The host must not die when a controller or the bootstrap parent goes
-    // away mid-write.
-    // SAFETY: setting a signal disposition has no memory-safety preconditions.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
-        libc::signal(libc::SIGHUP, libc::SIG_IGN);
-    }
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::AgentHost));
+    // Signal dispositions and the panic log (host_process).
+    host_process::start();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(run())
 }
@@ -41,24 +38,15 @@ async fn run() -> Result<()> {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
                 .await?;
-            detach_stdio();
-            started.serve(spec).await
+            host_process::detach_stdio();
+            // The host's own work (its harness's pipes, its socket): a panic in it ends the
+            // host, and its daemon sees the host gone.
+            started.serve(spec, &supervised::embedded()).await
         }
         Err(e) => {
             let message = format!("{e:#}");
             let _ = write_frame(&mut stdout, &BootstrapReply::SpawnFailed { message }).await;
             Err(e)
-        }
-    }
-}
-
-/// Point stdin and stdout at /dev/null so the bootstrap pipes close.
-fn detach_stdio() {
-    if let Ok(null) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null") {
-        // SAFETY: dup2 onto the standard descriptors of this process.
-        unsafe {
-            libc::dup2(null.as_raw_fd(), 0);
-            libc::dup2(null.as_raw_fd(), 1);
         }
     }
 }
@@ -96,22 +84,26 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         .process_group(0)
         .kill_on_drop(false);
     // Bind before the harness starts, so a failure leaves nothing running.
-    let _ = std::fs::remove_file(&spec.socket);
+    let _ = tokio::fs::remove_file(&spec.socket).await;
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
     cleanup.paths.push(spec.socket.clone());
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
+        tokio::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600)).await?;
     }
-    let mut child = cmd.spawn().map_err(|e| {
-        // Both a missing folder and a missing program fail as ENOENT: say which.
-        if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
-            anyhow!("the folder {} does not exist", spec.cwd.display())
-        } else {
-            anyhow!(e).context(format!("spawn harness process {}", spec.program))
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            // Both a missing folder and a missing program fail as ENOENT: say which.
+            if e.kind() == std::io::ErrorKind::NotFound
+                && !tokio::fs::try_exists(&spec.cwd).await.unwrap_or(false)
+            {
+                bail!("the folder {} does not exist", spec.cwd.display());
+            }
+            return Err(anyhow!(e).context(format!("spawn harness process {}", spec.program)));
         }
-    })?;
+    };
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -146,23 +138,21 @@ struct StartCleanup {
 impl Drop for StartCleanup {
     fn drop(&mut self) {
         for path in &self.paths {
-            let _ = std::fs::remove_file(path);
+            let _ = cmux_blocking::fs::remove_file(path);
         }
     }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .with_context(|| format!("create {}", path.display()))?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(path)
+    })
+    .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let _ = std::fs::remove_file(path);
+        let _ = cmux_blocking::fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)
@@ -280,18 +270,18 @@ pub(super) const HELLO_STALL_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_STALL_DIR";
 fn claim_hello_stall() -> bool {
     #[cfg(debug_assertions)]
     if let Some(dir) = std::env::var_os(HELLO_STALL_DIR_ENV)
-        && let Ok(entries) = std::fs::read_dir(dir)
+        && let Ok(entries) = cmux_blocking::fs::read_dir(dir)
     {
         return entries.flatten().any(|e| {
             e.file_name().to_string_lossy().starts_with("stall-")
-                && std::fs::remove_file(e.path()).is_ok()
+                && cmux_blocking::fs::remove_file(e.path()).is_ok()
         });
     }
     false
 }
 
 impl Started {
-    async fn serve(self, spec: SpawnSpec) -> Result<()> {
+    async fn serve(self, spec: SpawnSpec, supervisor: &Supervisor) -> Result<()> {
         let Started { record, listener, mut child, _live } = self;
         let (events_tx, mut events) = mpsc::channel::<Event>(1024);
         let stdout = child.stdout.take().context("harness stdout")?;
@@ -301,7 +291,7 @@ impl Started {
 
         // stdin writer: a full pipe never blocks the event loop.
         let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
-        tokio::spawn(async move {
+        supervised::task(supervisor, "host.stdin", Fatal, ShutdownBehavior::Skip, async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
                 if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
@@ -314,35 +304,47 @@ impl Started {
         let (pace_tx, mut pace_rx) = mpsc::channel::<()>(1);
         {
             let tx = events_tx.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
-                while pace_rx.recv().await.is_some() {
-                    let next = lines.next_line().await.ok().flatten();
-                    let done = next.is_none();
-                    if tx.send(Event::Stdout(next)).await.is_err() || done {
-                        break;
+            supervised::task(
+                supervisor,
+                "host.stdout",
+                Fatal,
+                ShutdownBehavior::Skip,
+                async move {
+                    let mut lines = BufReader::new(stdout).lines();
+                    while pace_rx.recv().await.is_some() {
+                        let next = lines.next_line().await.ok().flatten();
+                        let done = next.is_none();
+                        if tx.send(Event::Stdout(next)).await.is_err() || done {
+                            break;
+                        }
                     }
-                }
-            });
+                },
+            );
         }
         {
             let tx = events_tx.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                loop {
-                    let next = lines.next_line().await.ok().flatten();
-                    let done = next.is_none();
-                    if tx.send(Event::Stderr(next)).await.is_err() || done {
-                        break;
+            supervised::task(
+                supervisor,
+                "host.stderr",
+                Fatal,
+                ShutdownBehavior::Skip,
+                async move {
+                    let mut lines = BufReader::new(stderr).lines();
+                    loop {
+                        let next = lines.next_line().await.ok().flatten();
+                        let done = next.is_none();
+                        if tx.send(Event::Stderr(next)).await.is_err() || done {
+                            break;
+                        }
                     }
-                }
-            });
+                },
+            );
         }
         let leader_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
-            tokio::spawn(async move {
+            supervised::task(supervisor, "host.exit", Fatal, ShutdownBehavior::Skip, async move {
                 // End what the agent left running while the exited leader is
                 // still a zombie: its group id cannot be reused yet, so the
                 // kill reaches only this harness's group. Then reap it.
@@ -363,7 +365,7 @@ impl Started {
         }
         {
             let tx = events_tx.clone();
-            tokio::spawn(async move {
+            supervised::task(supervisor, "host.term", Fatal, ShutdownBehavior::Skip, async move {
                 let Ok(mut term) =
                     tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 else {
@@ -378,13 +380,19 @@ impl Started {
         let _record_watch = watch_record(&spec, &record.start_nonce, events_tx.clone());
         {
             let tx = events_tx.clone();
-            tokio::spawn(async move {
-                while let Ok((stream, _)) = listener.accept().await {
-                    if tx.send(Event::Accepted(stream)).await.is_err() {
-                        break;
+            supervised::task(
+                supervisor,
+                "host.accept",
+                Fatal,
+                ShutdownBehavior::Skip,
+                async move {
+                    while let Ok((stream, _)) = listener.accept().await {
+                        if tx.send(Event::Accepted(stream)).await.is_err() {
+                            break;
+                        }
                     }
-                }
-            });
+                },
+            );
         }
 
         let translator = spec.translator.as_ref().map(|t| {
@@ -443,7 +451,7 @@ impl Started {
             let tx = events_tx.clone();
             let wait = pooled_owner_wait();
             // task-owner: one bounded wait; the runtime ends it with the host.
-            tokio::spawn(async move {
+            supervised::spawn_scoped(async move {
                 tokio::time::sleep(wait).await;
                 let _ = tx.send(Event::OwnerWaitOver).await;
             });
@@ -524,7 +532,7 @@ impl Started {
                     // Unbounded: the retained entries already bound it, and a
                     // slow owner must not be dropped (it would never return).
                     let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
-                    tokio::spawn(async move {
+                    supervised::spawn_scoped(async move {
                         while let Some(frame) = rx.recv().await {
                             if write_frame(&mut wr, &frame).await.is_err() {
                                 break;
@@ -532,7 +540,7 @@ impl Started {
                         }
                     });
                     let events = events_tx.clone();
-                    tokio::spawn(async move {
+                    supervised::spawn_scoped(async move {
                         loop {
                             let frame =
                                 read_frame::<_, ControllerFrame>(&mut rd).await.ok().flatten();
@@ -575,7 +583,7 @@ impl Started {
                 let generation = drain_gen;
                 // task-owner: one bounded quiet period; a later line makes
                 // its generation stale, the runtime ends it with the host.
-                tokio::spawn(async move {
+                supervised::spawn_scoped(async move {
                     tokio::time::sleep(DRAIN_BUDGET).await;
                     let _ = tx.send(Event::DrainOver(generation)).await;
                 });
@@ -921,7 +929,7 @@ impl State {
                     let alive = self.leader_alive.clone();
                     // A bounded kill deadline, not synchronization: the exit
                     // entry is the signal that the harness ended.
-                    tokio::spawn(async move {
+                    supervised::spawn_scoped(async move {
                         tokio::time::sleep(grace).await;
                         if alive.load(std::sync::atomic::Ordering::SeqCst) {
                             // SAFETY: the leader is unreaped, so the group is ours.
@@ -990,7 +998,8 @@ fn wait_exit_unreaped(pid: i32) -> bool {
 /// there (not promoted into the hosts directory).
 fn still_pooled(spec: &SpawnSpec) -> bool {
     spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
-        && record_path(&spec.hosts_dir, &spec.session_id).exists()
+        && cmux_blocking::fs::exists(record_path(&spec.hosts_dir, &spec.session_id))
+            .unwrap_or(false)
 }
 
 /// Whether a daemon can still find this host: its record (this incarnation's,
@@ -1045,27 +1054,5 @@ fn watch_record(
 }
 
 #[cfg(test)]
-mod tests {
-    /// A pooled host ends at the end of its wait only when no controller
-    /// ever said `Hello`; a session's host never ends this way.
-    #[test]
-    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
-        assert!(super::pooled_without_owner(true, None));
-        assert!(!super::pooled_without_owner(true, Some(1)));
-        assert!(!super::pooled_without_owner(false, None));
-    }
-
-    /// The leader is waited for without being reaped: while it is a zombie
-    /// its process group id cannot be reused, so ending the group then can
-    /// never signal another process group.
-    #[test]
-    fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
-        let pid = child.id() as i32;
-        assert!(super::wait_exit_unreaped(pid), "the wait failed");
-        // SAFETY: signal 0 to this test's own child only checks existence.
-        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
-        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
-    }
-}
+#[path = "host_tests.rs"]
+mod tests;

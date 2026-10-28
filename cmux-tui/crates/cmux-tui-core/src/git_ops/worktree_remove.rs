@@ -26,6 +26,7 @@ use super::user_run::{UserGit, deadline};
 use super::worktree::BRANCH_PREFIX;
 use super::{MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -50,7 +51,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-    let key = key(request);
+    let key = key(request)?;
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
     target.exclusive(OPERATION, || {
@@ -68,7 +69,7 @@ pub(super) fn dispatch(
             }
         };
         let result = remove(&target.repository, &attempt);
-        if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
+        if !result.as_ref().is_err_and(|error| error.details.field("reason") == "timed_out") {
             journal.finish();
         }
         let branch_deleted = result?;
@@ -78,7 +79,7 @@ pub(super) fn dispatch(
             "branch_deleted": branch_deleted,
         });
         if let Some(branch) = &attempt.branch {
-            value["branch"] = json!(branch);
+            value.insert("branch", json!(branch));
         }
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })

@@ -3,11 +3,12 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { MockMobilePairingProvider } from "./mockProvider";
 import { MobilePairingPage } from "./MobilePairingPage";
-import { MobilePairingStore } from "./store";
+import { MOBILE_PAIRING_PAGE, MobilePairingStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -15,7 +16,10 @@ export function mountMobilePairingPage(
   root: HTMLElement,
   client: PageClient | null = defaultClient(),
 ): MobilePairingStore {
+  const state = openPageState(client, MOBILE_PAIRING_PAGE);
   const store = new MobilePairingStore(client);
+  // The host owns the pairing status and the switch, and the page has no field: it keeps its scroll.
+  state.keep(() => null);
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("mobilePairing.page.title");

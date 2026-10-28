@@ -228,7 +228,7 @@ impl ProgramStatusRecords {
             if current.is_empty() {
                 return None;
             }
-            current = current.rfind('/').map_or("", |slash| &current[..slash]);
+            current = current.rsplit_once('/').map_or("", |(parent, _)| parent);
         }
     }
 
@@ -297,6 +297,14 @@ impl ProgramStatusRecords {
             self.shown_published = shown;
             shown
         })
+    }
+
+    /// Whether a take of the change, the shown status or the alerts would
+    /// find something, taking nothing.
+    pub(crate) fn has_pending(&self, running: bool) -> bool {
+        self.revision != self.published
+            || self.shown(running) != self.shown_published
+            || !self.alerts.is_empty()
     }
 
     /// True once per visible change, marking it published.

@@ -221,6 +221,87 @@ void DevToolsResultsCarryTheMintedMessageId() {
   CHECK(opened.browser_id == kAdded && opened.a == 20 && opened.b == 1);
 }
 
+// WINDOW_REQUEST_RESULT (task 031) names the source and the anchor whose
+// window gets the new tab by cmux's ids; the window id in `request` is
+// Chromium's on both sides.
+void AWindowRequestResultNamesItsAnchorByTheMintedId() {
+  Fixture f;
+  CHECK(f.ids.Bind(kAdded, 6) == Outcome::kBound);
+  const Event result = f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 77, 6, CMUX_SHIM_WINDOW_INSERT));
+  CHECK(result.browser_id == kAdded && result.request == 77 && result.a == kAdded);
+  CHECK(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 0, 0, 0, CMUX_SHIM_WINDOW_OFF_THE_RECORD)).a == 0);
+}
+
+int32_t Tab(int64_t b) {
+  return static_cast<int32_t>(static_cast<uint64_t>(b) >> 32);
+}
+
+// An INSERT's result carries the id the host minted for its tab, from the
+// host's range; the tab's AFTER_CREATED in the anchor's window names it by
+// that id, and ops on the id reach Chromium's tab.
+void AnInsertsTabIsNamedByTheIdItsResultCarried() {
+  Fixture f;
+  CHECK(f.ids.Bind(kAdded, 6) == Outcome::kBound);
+  const int64_t flags = CMUX_SHIM_WINDOW_INSERT | (CMUX_SHIM_NEW_TAB_POPUP << 8) | (int64_t{1} << 31);
+  const Event result = f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 77, 6, flags));
+  const int32_t minted = Tab(result.b);
+  CHECK(minted == mint::kFirstHostBrowserID);
+  CHECK((result.b & 0xffffffff) == flags);
+  CHECK(f.ids.pending_window_request_tabs() == 1);
+  const Event created = f.Through(Of(CMUX_SHIM_AFTER_CREATED, 12, 0, 77, (int64_t{6} << 32) | 5));
+  CHECK(created.browser_id == minted);
+  CHECK(Opener(created.b) == kAdded);
+  CHECK(f.ids.Browser(minted) == 12 && f.ids.ClientOf(12) == minted);
+  CHECK(f.ids.pending_window_request_tabs() == 0);
+  CHECK(f.Through(Of(CMUX_SHIM_TITLE, 12)).browser_id == minted);
+  CHECK(f.Through(Of(CMUX_SHIM_BEFORE_CLOSE, 12)).browser_id == minted);
+  CHECK(f.ids.Browser(minted) == 0);
+}
+
+// Only an INSERT mints; a tab is matched by its window, oldest first, and by
+// its opener while it is in no window yet; another tab keeps Chromium's id.
+void OnlyAnInsertsTabTakesAMintedId() {
+  Fixture f;
+  CHECK(Tab(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 0, 0, CMUX_SHIM_WINDOW_OPEN_IN_NEW_TAB)).b) == 0);
+  CHECK(Tab(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 0, 6, CMUX_SHIM_WINDOW_INSERT)).b) == 0);  // no window
+  const int32_t first = Tab(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 77, 6, CMUX_SHIM_WINDOW_INSERT)).b);
+  const int32_t second = Tab(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 8, 78, 8, CMUX_SHIM_WINDOW_INSERT)).b);
+  const int32_t third = Tab(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 77, 6, CMUX_SHIM_WINDOW_INSERT)).b);
+  CHECK(first == mint::kFirstHostBrowserID && second == first + 1 && third == first + 2);
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 20, 0, 79)).browser_id == 20);  // a window with no insert
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 21, 0, 77)).browser_id == first);
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 22, 0, 0, int64_t{8} << 32)).browser_id == second);  // by opener
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 23, 0, 77)).browser_id == third);
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 24, 0, 77)).browser_id == 24);
+  CHECK(f.ids.pending_window_request_tabs() == 0);
+}
+
+// A tab cmux minted itself keeps that id even when an insert waits in its
+// window: tab_add binds it inside the call, before the held AFTER_CREATED.
+void ATabAddedInsideACallKeepsItsOwnId() {
+  Fixture f;
+  const int32_t minted = Tab(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 77, 6, CMUX_SHIM_WINDOW_INSERT)).b);
+  f.sent.clear();
+  f.ids.BeginCall();
+  CHECK(f.ids.FromShim(Of(CMUX_SHIM_AFTER_CREATED, 30, 0, 77)));
+  CHECK(f.ids.Bind(kAdded, 30) == Outcome::kBound);
+  f.ids.EndCall();
+  CHECK(f.sent.size() == 1 && f.sent[0].browser_id == kAdded);
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 31, 0, 77)).browser_id == minted);
+}
+
+// An insert whose tab never came waits until kMaxPending newer ones push it out.
+void WaitingInsertsAreBounded() {
+  Fixture f;
+  const size_t bound = cmux_host::WindowRequestTabIds::kMaxPending;
+  for (size_t n = 0; n <= bound; ++n) {
+    f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, static_cast<int>(100 + n), 6, CMUX_SHIM_WINDOW_INSERT));
+  }
+  CHECK(f.ids.pending_window_request_tabs() == bound);
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 40, 0, 100)).browser_id == 40);  // the oldest left
+  CHECK(f.Through(Of(CMUX_SHIM_AFTER_CREATED, 41, 0, 101)).browser_id == mint::kFirstHostBrowserID + 1);
+}
+
 // BEFORE_CLOSE carries the minted id; then the id names no browser, so a late
 // op is dropped, and Chromium's id is its own again.
 void BeforeCloseForgetsTheBrowser() {
@@ -245,6 +326,11 @@ int main() {
   APopupNamesItsOpenerByTheMintedId();
   AChromiumIdInTheMintedRangeEndsTheHost();
   DevToolsResultsCarryTheMintedMessageId();
+  AWindowRequestResultNamesItsAnchorByTheMintedId();
+  AnInsertsTabIsNamedByTheIdItsResultCarried();
+  OnlyAnInsertsTabTakesAMintedId();
+  ATabAddedInsideACallKeepsItsOwnId();
+  WaitingInsertsAreBounded();
   BeforeCloseForgetsTheBrowser();
   if (failures != 0) {
     std::fprintf(stderr, "host_client_ids_test: %d failure(s)\n", failures);

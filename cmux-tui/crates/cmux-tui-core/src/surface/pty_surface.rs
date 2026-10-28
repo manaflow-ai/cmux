@@ -2,6 +2,7 @@
 //! transactions and terminal colors for `PtySurface`.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl PtySurface {
     pub(super) fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
@@ -43,7 +44,7 @@ impl PtySurface {
         let scrollbar = term.scrollbar()?;
         let bottom = scrollbar.total.saturating_sub(scrollbar.len);
         let screen = term.active_screen();
-        let mut viewport = self.viewport.lock().unwrap();
+        let mut viewport = self.viewport.lock().recover_poison();
         let had_anchor = viewport.anchor(screen).is_some();
         let resolved = viewport
             .anchor(screen)
@@ -72,7 +73,7 @@ impl PtySurface {
         let bottom = scrollbar.total.saturating_sub(scrollbar.len);
         let target = offset.min(bottom);
         let screen = term.active_screen();
-        let mut viewport = self.viewport.lock().unwrap();
+        let mut viewport = self.viewport.lock().recover_poison();
         let anchor = viewport.anchor_mut(screen);
         if target == bottom {
             *anchor = None;
@@ -124,7 +125,7 @@ impl PtySurface {
     pub(super) fn broadcast_attach_output_flow(&self, bytes: &[u8], flow: u64) -> bool {
         cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
-        let mut taps = self.taps.lock().unwrap();
+        let mut taps = self.taps.lock().recover_poison();
         let Some(chunk) = taps.output_chunk(bytes) else { return false };
         let frame = AttachFrame::with_flow(chunk, flow);
         taps.retain(|tap| tap.try_send(frame.clone()));
@@ -149,7 +150,7 @@ impl PtySurface {
     /// Viewers without pending-sequence support reconnect from a fresh
     /// snapshot rather than receive a replay that ends inside a sequence.
     pub(super) fn cancel_taps_without_pending_support(&self) {
-        self.taps.lock().unwrap().retain(|tap| {
+        self.taps.lock().recover_poison().retain(|tap| {
             let keep = tap.lifecycle.resumes_pending_sequence();
             if !keep {
                 tap.lifecycle.cancel();
@@ -160,13 +161,16 @@ impl PtySurface {
 
     /// Send `frame` to replay viewers only; snapshot viewers are untouched.
     pub(super) fn broadcast_attach_frame_to_replay_taps(&self, frame: AttachFrame) {
-        self.taps.lock().unwrap().retain(|tap| tap.is_snapshot() || tap.try_send(frame.clone()));
+        self.taps
+            .lock()
+            .recover_poison()
+            .retain(|tap| tap.is_snapshot() || tap.try_send(frame.clone()));
     }
 
     /// Disconnect replay viewers (they reattach from fresh state); snapshot
     /// viewers stay and resync by snapshot.
     pub(super) fn cancel_replay_taps(&self) {
-        self.taps.lock().unwrap().retain(|tap| {
+        self.taps.lock().recover_poison().retain(|tap| {
             let snapshot = tap.is_snapshot();
             if !snapshot {
                 tap.lifecycle.cancel();
@@ -179,7 +183,7 @@ impl PtySurface {
     /// generation and send every snapshot viewer a snapshot.
     pub(super) fn resync_snapshot_taps(&self) {
         self.snapshot_position.bump_generation();
-        for tap in self.taps.lock().unwrap().iter() {
+        for tap in self.taps.lock().recover_poison().iter() {
             tap.resync_snapshot();
         }
     }
@@ -189,7 +193,7 @@ impl PtySurface {
             cmux_flow_trace::hop("daemon.output.attach", frame.flow(), self.flow_terminal_id());
         }
         self.snapshot_position.observe_frame(&frame);
-        let mut taps = self.taps.lock().unwrap();
+        let mut taps = self.taps.lock().recover_poison();
         taps.retain(|tap| tap.try_send(frame.clone()));
         let sent_output = matches!(frame, AttachFrame::OutputWithColors { .. }) && !taps.is_empty();
         drop(taps);
@@ -203,7 +207,7 @@ impl PtySurface {
     /// this replay would leave mirrors on a different Kitty scene.
     pub(super) fn resynchronize_attach_taps_locked(&self, term: &mut Terminal) {
         {
-            let mut taps = self.taps.lock().unwrap();
+            let mut taps = self.taps.lock().recover_poison();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             if !taps.iter().any(|tap| !tap.is_snapshot()) {
                 drop(taps);
@@ -223,7 +227,7 @@ impl PtySurface {
         let colors = Box::new(self.terminal_colors_locked(term, defaults));
         self.attach_colors_pending.store(false, Ordering::Release);
         self.attach_colors_force_pending.store(false, Ordering::Release);
-        *self.last_attach_colors.lock().unwrap() =
+        *self.last_attach_colors.lock().recover_poison() =
             Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
         if !replay.pending_sequence.is_empty() {
             self.cancel_taps_without_pending_support();
@@ -252,7 +256,7 @@ impl PtySurface {
         }
         let force = self.attach_colors_force_pending.swap(false, Ordering::AcqRel);
         {
-            let mut taps = self.taps.lock().unwrap();
+            let mut taps = self.taps.lock().recover_poison();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             if taps.is_empty() {
                 return false;
@@ -260,7 +264,7 @@ impl PtySurface {
         }
 
         let live_colors = TerminalColors::from_pty_output(term, defaults);
-        let mut last = self.last_attach_colors.lock().unwrap();
+        let mut last = self.last_attach_colors.lock().recover_poison();
         if !force && last.as_deref() == Some(&live_colors) {
             return false;
         }
@@ -283,7 +287,7 @@ impl PtySurface {
         &self,
         update: impl FnOnce(&mut Terminal) -> R,
     ) -> R {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().recover_poison();
         let result = update(&mut term);
         self.stream_progress.notify();
         result
@@ -295,7 +299,7 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     pub(super) fn publish_final_frame(&self) {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().recover_poison();
         let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
     }
@@ -303,7 +307,7 @@ impl PtySurface {
     /// Preserve the last hosted frame, then end every live attachment while
     /// retaining the exited surface as a stable, snapshot-renderable tab.
     pub(super) fn finish_hosted_exit(&self) {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().recover_poison();
         // Attach takes the same terminal lock. The caller that changes `dead`
         // owns finalization; a prior host-loss owner must keep its state and
         // reject an incomplete replay.
@@ -312,8 +316,8 @@ impl PtySurface {
         }
         let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_frame_locked(&mut term, generation, true);
-        self.taps.lock().unwrap().clear();
-        self.render.lock().unwrap().taps.clear();
+        self.taps.lock().recover_poison().clear();
+        self.render.lock().recover_poison().taps.clear();
         // Publish Exited only after the final frame is built and both stream
         // sets are closed. An attacher that acquires `term` next can then
         // observe a live terminal or a complete, inert final snapshot.
@@ -331,7 +335,7 @@ impl PtySurface {
         let exit_reset = crate::prompt_mode_reset::exit_reset(term);
         let reset = term.vt_write_with_normalized(&exit_reset);
         self.broadcast_attach_output(&reset);
-        self.mouse_encoders.lock().unwrap().sync_from_terminal(term);
+        self.mouse_encoders.lock().recover_poison().sync_from_terminal(term);
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.stream_progress.notify();
         generation
@@ -373,7 +377,7 @@ impl PtySurface {
         producer_driven: bool,
     ) -> ghostty_vt::Result<bool> {
         let built = {
-            let mut render = self.render.lock().unwrap();
+            let mut render = self.render.lock().recover_poison();
             if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
             {
                 false
@@ -415,11 +419,11 @@ impl PtySurface {
         #[cfg(test)]
         self.run_geometry_test_hook(PtyGeometryTestStep::ResizeStarted);
         let (cols, rows) = (cols.max(1), rows.max(1));
-        let mut geometry = self.geometry.lock().unwrap();
+        let mut geometry = self.geometry.lock().recover_poison();
         let next = PtyGeometry { cols, rows, ..*geometry };
         #[cfg(any(unix, windows))]
         {
-            let runtime = self.runtime.lock().unwrap();
+            let runtime = self.runtime.lock().recover_poison();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 // Do not speculatively reflow the mirror. The host orders
                 // either a compact smart-renderer marker or a legacy
@@ -432,7 +436,9 @@ impl PtySurface {
                 return Ok(false);
             }
         }
-        self.commit_geometry(&mut geometry, next, true)
+        // A caller here may hold `Mux::state`: the event-bus side of a
+        // viewport move is left to the PTY reader (see `GeometryCommit`).
+        Ok(self.commit_geometry(&mut geometry, next, true)?.changed)
     }
 
     pub(super) fn set_cell_pixel_size(
@@ -453,14 +459,14 @@ impl PtySurface {
         self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelStarted);
         let requested = (width_px.max(1), height_px.max(1));
         {
-            let geometry = self.geometry.lock().unwrap();
+            let geometry = self.geometry.lock().recover_poison();
             if (geometry.cell_width, geometry.cell_height) == requested {
                 return Ok(false);
             }
         }
         #[cfg(any(unix, windows))]
         {
-            let runtime = self.runtime.lock().unwrap();
+            let runtime = self.runtime.lock().recover_poison();
             match &*runtime {
                 PtyRuntime::Hosted(host) => {
                     let accepted = match deadline {
@@ -476,10 +482,10 @@ impl PtySurface {
                     // The host publishes Resized+Colors before its targeted
                     // acknowledgement. The reader therefore installs the
                     // canonical parser and metrics before this wait returns.
-                    let geometry = self.geometry.lock().unwrap();
+                    let geometry = self.geometry.lock().recover_poison();
                     if (geometry.cell_width, geometry.cell_height) != requested {
                         drop(geometry);
-                        if let PtyRuntime::Hosted(host) = &*self.runtime.lock().unwrap() {
+                        if let PtyRuntime::Hosted(host) = &*self.runtime.lock().recover_poison() {
                             host.disconnect();
                         }
                         anyhow::bail!(
@@ -493,9 +499,23 @@ impl PtySurface {
                 PtyRuntime::Local { .. } => {}
             }
         }
-        let mut geometry = self.geometry.lock().unwrap();
+        let mut geometry = self.geometry.lock().recover_poison();
         let next = PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry };
-        self.commit_geometry(&mut geometry, next, false)
+        // As in `resize`, the caller may hold `Mux::state`.
+        Ok(self.commit_geometry(&mut geometry, next, false)?.changed)
+    }
+
+    /// Announce on the event bus the viewport move a geometry commit made.
+    /// Only for a caller that holds neither the geometry lock nor
+    /// `Mux::state` (mux events take it). Render taps already got the move,
+    /// ordered before the frame. Returns whether the geometry changed.
+    pub(super) fn publish_geometry_commit(&self, commit: GeometryCommit) -> bool {
+        if let Some((offset, at_bottom)) = commit.scroll
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.emit_terminal_scroll(self.event_surface_id, offset, at_bottom);
+        }
+        commit.changed
     }
 
     /// Commit the PTY ioctl or hosted mirror metrics, Ghostty geometry, and
@@ -505,7 +525,7 @@ impl PtySurface {
         geometry: &mut PtyGeometry,
         next: PtyGeometry,
         refresh_attach_colors: bool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<GeometryCommit> {
         self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, false)
     }
 
@@ -515,7 +535,7 @@ impl PtySurface {
         geometry: &mut PtyGeometry,
         next: PtyGeometry,
         refresh_attach_colors: bool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<GeometryCommit> {
         // The authoritative host has already resized its PTY. Avoid taking
         // the attachment lock while applying its ordered mirror transition:
         // a control caller can be holding that lock while it waits for the
@@ -529,9 +549,9 @@ impl PtySurface {
         next: PtyGeometry,
         refresh_attach_colors: bool,
         hosted_mirror: bool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<GeometryCommit> {
         if *geometry == next {
-            return Ok(false);
+            return Ok(GeometryCommit::default());
         }
         let grid_changed = (geometry.cols, geometry.rows) != (next.cols, next.rows);
         let previous = *geometry;
@@ -550,20 +570,23 @@ impl PtySurface {
         if let Some(output) = local_output.as_mut() {
             output.drain(self)?;
         }
-        let mut term = self.term.lock().unwrap();
-        let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
+        let mut term = self.term.lock().recover_poison();
+        // Reflow can move the viewport: the live bottom's offset follows the
+        // row count, and a scrolled-back viewport keeps its rows.
+        let position_before = terminal_scroll_position(&term);
+        let runtime = (!hosted_mirror).then(|| self.runtime.lock().recover_poison());
         let master = match runtime.as_deref() {
             Some(PtyRuntime::Local { master, .. }) => master.as_deref(),
             #[cfg(any(unix, windows))]
             Some(PtyRuntime::Hosted(_)) => None,
             #[cfg(any(unix, windows))]
-            Some(PtyRuntime::ExitedHosted) => return Ok(false),
+            Some(PtyRuntime::ExitedHosted) => return Ok(GeometryCommit::default()),
             None => None,
         };
         // Replay viewers need a replay of the new grid; snapshot viewers get
         // a snapshot from their worker and never block or cancel a resize.
         let mut has_attach_taps = {
-            let mut taps = self.taps.lock().unwrap();
+            let mut taps = self.taps.lock().recover_poison();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             taps.iter().any(|tap| !tap.is_snapshot())
         };
@@ -653,8 +676,24 @@ impl PtySurface {
         } else {
             PtyGeometryTestStep::CellPixelCommitBoundary
         });
+        // A moved viewport is announced to render attaches before the frame
+        // with the reflowed rows (spec/render.md "Stream Ordering").
+        let position_after = terminal_scroll_position(&term);
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut scroll = (position_after != position_before).then(|| {
+            broadcast_render_scroll_locked(self, position_after);
+            position_after
+        });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
+        // A direct PTY's reader publishes the bus event, in order with the
+        // output events it publishes: this caller may hold `Mux::state`.
+        #[cfg(unix)]
+        if let Some(output) = local_output.as_mut()
+            && let Some(position) = scroll.take()
+        {
+            output.queue_scroll_changed(generation, position);
+        }
         if let Some(replay) = replay {
             let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let colors = Box::new(self.terminal_colors_locked(&term, defaults));
@@ -662,7 +701,7 @@ impl PtySurface {
                 let live_colors = TerminalColors::from_pty_output(&term, defaults);
                 self.attach_colors_pending.store(false, Ordering::Release);
                 self.attach_colors_force_pending.store(false, Ordering::Release);
-                *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+                *self.last_attach_colors.lock().recover_poison() = Some(Box::new(live_colors));
             }
             if !replay.pending_sequence.is_empty() {
                 self.cancel_taps_without_pending_support();
@@ -690,6 +729,24 @@ impl PtySurface {
         // revision before releasing the parser lock so screen snapshots have
         // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
-        Ok(true)
+        Ok(GeometryCommit { changed: true, scroll })
     }
+}
+
+/// What one [`PtySurface::commit_geometry_for_runtime`] changed.
+///
+/// Render taps always get a viewport move under the terminal lock, before the
+/// resized frame. The event-bus `scroll-changed` cannot be sent there, because
+/// a resize caller may hold `Mux::state`. A direct PTY queues it on its reader,
+/// which publishes it in order with output events. Otherwise it is returned in
+/// `scroll`, and a caller that holds no mux lock (the hosted reader, the
+/// deferred cell-pixel acknowledgement) passes it to
+/// [`PtySurface::publish_geometry_commit`].
+#[derive(Clone, Copy, Debug, Default)]
+#[must_use]
+pub(super) struct GeometryCommit {
+    pub(super) changed: bool,
+    /// The viewport position the resize moved to, if it moved and the bus
+    /// event was not queued on a direct PTY's reader.
+    pub(super) scroll: Option<(u64, bool)>,
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 import Observation
 
 // memory: fixed keys are the import cards' apps: the browsers of `ImportBrowser` and the five
@@ -8,7 +9,7 @@ import Observation
 /// data:` only), from Launch Services only (no file of the app is read).
 ///
 /// The page's host lists only read ``url(_:)``: building them (opening Settings, Add Agent from the registry)
-/// never renders an icon. ``load(_:)`` renders the missing ones off the main thread, once per app, when a scan
+/// never renders an icon. ``load(_:work:mainWork:)`` renders the missing ones on the system lane, once per app, when a scan
 /// lands; each one landing is an observable change, so an open Settings page re-sends its list with the icon.
 /// Before, the first Settings opening rendered every icon on the main thread in the action's turn (Launch
 /// Services' synchronous mach round trips and a PNG encode per app: 56 ms on the macOS 27 STRESS sweep).
@@ -21,7 +22,7 @@ final class ImportAppIconCache {
     /// Rendered icons by bundle id; an app with no icon maps to nil.
     private(set) var urls: [String: String?] = [:]
     @ObservationIgnored private var loading: Set<String> = []
-    /// Renders one app's icon off the main thread (tests pass a stand-in).
+    /// Renders one app's icon on a system lane (tests pass a stand-in).
     @ObservationIgnored private let render: @Sendable (String) -> String?
 
     init(render: @escaping @Sendable (String) -> String? = ImportAppIconCache.renderLive) {
@@ -33,19 +34,20 @@ final class ImportAppIconCache {
         urls[bundleID] ?? nil
     }
 
-    /// Renders the icons of `bundleIDs` not rendered or rendering yet, off the main thread; each lands in
-    /// ``urls`` when it is done.
-    func load(_ bundleIDs: some Sequence<String>) {
+    /// Renders the icons of `bundleIDs` not rendered or rendering yet on the system lane of `work` at
+    /// `.bestEffort` (Launch Services waits on its daemon; nobody waits for an icon); each lands in ``urls``
+    /// as background main work when it is done (Chrome's PostTaskAndReply). One render per app, at most
+    /// once per launch; one quit dropped lands nothing.
+    func load(_ bundleIDs: some Sequence<String>, work: BackgroundWork, mainWork: MainWorkScheduler) {
         let missing = Set(bundleIDs).subtracting(urls.keys).subtracting(loading)
         guard !missing.isEmpty else { return }
         loading.formUnion(missing)
         let render = render
-        // task-owner: one render per app, at most once per launch; results land on the main actor.
-        Task.detached(priority: .utility) { [weak self] in
-            for bundleID in missing.sorted() {
-                let url = render(bundleID)
-                await self?.land(bundleID, url)
-            }
+        for bundleID in missing.sorted() {
+            work.run(.bestEffort, mayBlock: .system) { render(bundleID) }
+                .reply(on: mainWork, class: .background, owner: "import.appIcon") { [weak self] url in
+                    self?.land(bundleID, url)
+                }
         }
     }
 

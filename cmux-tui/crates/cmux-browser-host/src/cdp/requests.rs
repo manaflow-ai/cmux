@@ -45,12 +45,18 @@ pub(super) fn start_worker(
     cors: Arc<Mutex<Cors>>,
 ) -> Result<mpsc::Sender<PausedRequest>, DriverError> {
     let (tx, rx) = mpsc::channel::<PausedRequest>();
+    // supervise-allow: the driver's request worker, ending when its sender drops; a panic answering one paused request leaves that request paused, and the worker answers the next.
     std::thread::Builder::new()
         .name("cmux-browser-host-cdp-requests".into())
         .spawn(move || {
             for paused in rx {
-                let (method, params) = decide(&filter, &cors, &paused);
-                let _ = conn.call(Some(&paused.session), method, params, INTERNAL_TIMEOUT);
+                let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let (method, params) = decide(&filter, &cors, &paused);
+                    let _ = conn.call(Some(&paused.session), method, params, INTERNAL_TIMEOUT);
+                }));
+                if answered.is_err() {
+                    eprintln!("cmux-browser-host: answering a paused request panicked");
+                }
             }
         })
         .map_err(|e| DriverError::closed(format!("could not start the request worker: {e}")))?;

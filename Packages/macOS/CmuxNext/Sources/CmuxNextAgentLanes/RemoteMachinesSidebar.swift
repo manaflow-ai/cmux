@@ -3,7 +3,7 @@ public import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextIcons
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import CmuxNextSidebar
 import Foundation
 public import Observation
@@ -96,16 +96,26 @@ public final class RemoteMachinesSidebar {
     /// The machines whose Older row is open, and what each has read; a fold of the group closes it.
     public internal(set) var olderShown: Set<String> = []
     public internal(set) var older: [String: Older] = [:]
+    /// One read off main whose answer lands in one task on main, kept by id so a dropped read's answer does nothing.
+    private struct Read {
+        let id: UInt64
+        let task: Task<Void, Never>
+    }
+
     /// The Older page read in flight per machine (one at a time), cancelled by `stop()`.
-    @ObservationIgnored private var olderReads: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var olderReads: [String: Read] = [:]
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
     @ObservationIgnored private var peers: [AcpmuxPeerList.Peer]?
-    @ObservationIgnored private var laneWatch: Task<Void, Never>?
+    /// Follows the lanes from `bind` until `stop()`.
+    @ObservationIgnored private var laneWatch: ServiceObservation<Void>?
     /// The next rebuild after a lane change: one per `refreshInterval` however many changes come.
-    @ObservationIgnored private let refresh = DemandTimer(owner: "sidebar.remoteMachines")
+    @ObservationIgnored private var refresh: MainDeadline?
+    /// Where the reads' answers land, from `bind`.
+    @ObservationIgnored private var mainWork: MainWorkScheduler?
     /// The peer list read in flight.
-    @ObservationIgnored private var peerRead: Task<Void, Never>?
+    @ObservationIgnored private var peerRead: Read?
+    @ObservationIgnored private var nextRead: UInt64 = 0
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
@@ -115,26 +125,48 @@ public final class RemoteMachinesSidebar {
     /// rebuild `refreshInterval` later, and each rebuild asks for the peer list. A peer that drops
     /// or comes back changes lanes too (acpmux marks every row of a dropped peer stale, and a
     /// reconnect sends its list), so its header follows. It ends with `stop()`.
-    public func bind(host: Host) {
+    ///
+    /// - Parameters:
+    ///   - host: What the App reaches.
+    ///   - deadlines: The app's one deadline scheduler: the rebuild deadline, and the reads' answers on its
+    ///     main-thread scheduler.
+    public func bind(host: Host, deadlines: MainDeadlineScheduler) {
         self.host = host
         guard laneWatch == nil else { return }
-        let lanes = lanes, refresh = refresh
-        // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
-        laneWatch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
-                refresh.scheduleOnMainIfIdle(after: Self.refreshInterval) { [weak self] in self?.rebuild() }
-            }
+        mainWork = deadlines.work
+        // `visible`: the rebuild changes the rows the sidebar shows.
+        let refresh = refresh ?? MainDeadline(owner: "RemoteMachinesSidebar.refresh", workClass: .visible, scheduler: deadlines)
+        self.refresh = refresh
+        let lanes = lanes
+        // A service observation (it writes the groups, shown or not) whose apply only arms the one-shot
+        // `refresh`; `background`: the arm is all it does, the rebuild runs in `refresh`'s class.
+        laneWatch = ServiceObservation(.background, owner: "RemoteMachinesSidebar.lanes", on: deadlines.work) {
+            _ = lanes.lanes
+            _ = SidebarTunables.laneFixture.value
+        } apply: { [weak self] _ in
+            self?.scheduleRebuild()
         }
         rebuild()
     }
 
     public func stop() {
         laneWatch?.cancel()
-        refresh.cancel()
-        peerRead?.cancel()
+        refresh?.cancel()
+        peerRead?.task.cancel()
         (laneWatch, peerRead) = (nil, nil)
-        olderReads.values.forEach { $0.cancel() }
+        olderReads.values.forEach { $0.task.cancel() }
         olderReads = [:]
+    }
+
+    /// Arms one rebuild `refreshInterval` from now, unless one is pending.
+    private func scheduleRebuild() {
+        refresh?.scheduleIfIdle(after: Self.refreshInterval) { [weak self] in self?.rebuild() }
+    }
+
+    /// A new read's id.
+    private func readID() -> UInt64 {
+        nextRead &+= 1
+        return nextRead
     }
 
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
@@ -162,7 +194,7 @@ public final class RemoteMachinesSidebar {
                 expanded.insert(peer)
             } else {
                 // A read in flight would land its page on the fresh state of the next unfold.
-                olderReads.removeValue(forKey: peer)?.cancel()
+                olderReads.removeValue(forKey: peer)?.task.cancel()
                 (pages[peer], older[peer]) = (nil, nil)
                 olderShown.remove(peer)
             }
@@ -208,23 +240,34 @@ public final class RemoteMachinesSidebar {
     /// One bounded page of `peer`'s closed chats after `cursor`, appended; one read per machine at
     /// a time. A failed read leaves what was read, so the next click tries again.
     private func readOlder(_ peer: String, cursor: String?) {
-        guard olderReads[peer] == nil, let read = host?.older else { return }
-        // task-owner: this instance; one page read, bounded by the host's 2 s deadline, cancelled by `stop()`
-        olderReads[peer] = Task { [weak self] in
+        guard olderReads[peer] == nil, let read = host?.older, let mainWork else { return }
+        let id = readID()
+        // task-owner: this instance; one page read off main, bounded by the host's 2 s deadline, cancelled by
+        // `stop()`. The page is the answer to the person's click: one userBlocking task.
+        let task = Task { @concurrent [weak self] in
             let page = await read(peer, cursor)
-            guard let self, !Task.isCancelled else { return }
-            olderReads[peer] = nil
-            guard olderShown.contains(peer) else { return }
-            guard let page else {
-                // A first page that failed closes the row again, so the next click reads it anew.
-                if older[peer]?.read != true { olderShown.remove(peer) }
-                return
+            guard !Task.isCancelled else { return }
+            await mainWork.apply(.userBlocking, owner: "RemoteMachinesSidebar.older") { [weak self] () -> Void in
+                self?.olderRead(peer, page, id: id)
             }
-            var next = older[peer] ?? Older()
-            next.chats += page.chats.filter { chat in !next.chats.contains { $0.id == chat.id } }
-            (next.next, next.read) = (page.next, true)
-            older[peer] = next
         }
+        olderReads[peer] = Read(id: id, task: task)
+    }
+
+    /// Read `id`'s page of `peer`'s closed chats arrived (nil: the read failed). A read `stop()` or a fold dropped does nothing.
+    private func olderRead(_ peer: String, _ page: AcpmuxSessionPage.Page?, id: UInt64) {
+        guard olderReads[peer]?.id == id else { return }
+        olderReads[peer] = nil
+        guard olderShown.contains(peer) else { return }
+        guard let page else {
+            // A first page that failed closes the row again, so the next click reads it anew.
+            if older[peer]?.read != true { olderShown.remove(peer) }
+            return
+        }
+        var next = older[peer] ?? Older()
+        next.chats += page.chats.filter { chat in !next.chats.contains { $0.id == chat.id } }
+        (next.next, next.read) = (page.next, true)
+        older[peer] = next
     }
 
     /// Three machines for captures: two reachable with chats in each state, one offline.
@@ -251,18 +294,28 @@ public final class RemoteMachinesSidebar {
     /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer),
     /// unless a read is in flight; a changed answer arms `refresh`.
     private func askForPeers() {
-        guard peerRead == nil, let read = host?.peers else { return }
-        // task-owner: this instance; one read, bounded by its 2 s deadline, cancelled by `stop()`
-        peerRead = Task { [weak self] in
+        guard peerRead == nil, let read = host?.peers, let mainWork else { return }
+        let id = readID()
+        // task-owner: this instance; one read off main, bounded by its 2 s deadline, cancelled by `stop()`.
+        // `visible`: the answer changes the headers on screen; nobody's input waits on it.
+        let task = Task { @concurrent [weak self] in
             let next = await read()
-            guard let self, !Task.isCancelled else { return }
-            peerRead = nil
-            if next != peers {
-                peers = next
-                // Through the same gate as a lane change: still one rebuild per refreshInterval.
-                refresh.scheduleOnMainIfIdle(after: Self.refreshInterval) { [weak self] in self?.rebuild() }
+            guard !Task.isCancelled else { return }
+            await mainWork.apply(.visible, owner: "RemoteMachinesSidebar.peers") { [weak self] () -> Void in
+                self?.peersRead(next, id: id)
             }
         }
+        peerRead = Read(id: id, task: task)
+    }
+
+    /// Read `id`'s peer list arrived; a read `stop()` dropped does nothing.
+    private func peersRead(_ next: [AcpmuxPeerList.Peer]?, id: UInt64) {
+        guard peerRead?.id == id else { return }
+        peerRead = nil
+        guard next != peers else { return }
+        peers = next
+        // Through the same gate as a lane change: still one rebuild per refreshInterval.
+        scheduleRebuild()
     }
 
     // MARK: - Model

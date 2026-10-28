@@ -100,7 +100,7 @@ impl Parser<'_> {
 
     fn take(&mut self, token: &str) -> bool {
         self.skip_space();
-        if self.bytes[self.index..].starts_with(token.as_bytes()) {
+        if self.bytes.get(self.index..).is_some_and(|rest| rest.starts_with(token.as_bytes())) {
             self.index += token.len();
             true
         } else {
@@ -188,7 +188,8 @@ impl Parser<'_> {
         while self.peek(0).is_some_and(is_word_byte) {
             self.index += 1;
         }
-        (self.index > start).then(|| String::from_utf8_lossy(&self.bytes[start..self.index]).into())
+        let word = self.bytes.get(start..self.index).filter(|word| !word.is_empty())?;
+        Some(String::from_utf8_lossy(word).into())
     }
 
     fn value(&mut self) -> Option<()> {

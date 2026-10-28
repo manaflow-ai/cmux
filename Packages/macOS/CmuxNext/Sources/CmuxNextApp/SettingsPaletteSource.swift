@@ -19,6 +19,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private let themeColors: @MainActor () -> [ThemeRGB]
     /// Every Ghostty theme and its swatch strip, for theme settings (R98).
     private let themes: ThemeCatalog?
+    /// The rows and choices this Mac leaves out now (``SettingsAvailability``), read at each listing.
+    private let availability: @MainActor () -> SettingsAvailability
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
     /// Values committed whose write has not landed, by setting id: the rows show them at once
     /// (nil: the default). Each write's token, so only the latest write of a row clears it.
@@ -27,18 +29,22 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     /// The palette's page reload (`observeChanges`).
     private var onChange: (@MainActor () -> Void)?
 
-    init(settings: SettingsController, themes: ThemeCatalog? = nil, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
+    init(settings: SettingsController, themes: ThemeCatalog? = nil,
+         availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() },
+         themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
         self.themes = themes
+        self.availability = availability
         self.themeColors = themeColors
     }
 
     var rows: [PaletteSettingRow] {
         let root = settings.snapshot.root
         let colors = themeColors()
-        return SettingsSchema.all.filter(\.isPaletteExposed).map { descriptor in
+        let offered = availability()
+        return SettingsSchema.all.filter { $0.isPaletteExposed && offered.isShown($0) }.map { descriptor in
             let current = pending[descriptor.id].map { $0.value ?? descriptor.defaultValue } ?? descriptor.effectiveValue(in: root)
-            return row(descriptor, current: current, colors: colors)
+            return row(descriptor, current: current, colors: colors, availability: offered)
         }
     }
 
@@ -95,7 +101,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init))
     }
 
-    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
+    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB],
+                     availability: SettingsAvailability) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
@@ -103,7 +110,9 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            descriptor.paletteOptions(current: current, themeColors: colors)
+            descriptor.paletteOptions(current: current, themeColors: colors).filter { option in
+                option.value?.stringValue.map { availability.isShown(choice: $0, of: descriptor, current: current) } ?? true
+            }
         }
         let currentOption = options.first(where: \.isCurrent)
         let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""

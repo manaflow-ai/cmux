@@ -38,6 +38,17 @@ Phases (each prints PERF-RENDERERS lines):
   settled  --settle seconds after the last tab: renderers (all, and those that hold a tab: the
            spare renderer and extension renderers hold none), tabs per renderer, footprint
 
+--memory-cap-mb MB (p07-memory task 111) starts Chromium with that cap as
+cmux-shared-renderer-memory-limit (Chrome's kProcessPerSiteMainFrameTotalMemoryLimit, 2 GiB, which the app's
+budget passes otherwise) through the bench switch list, and adds a phase before the open phase:
+  grown    a tab of a site the open phase does not use holds a heap of the cap + --grow-margin-mb, so its
+           renderer's footprint is past the cap (render_process_host_impl.cc HasEnoughMemoryForAnotherMainFrame:
+           footprint plus 1.5 times the footprint per main frame must stay under it); after --settle-grown seconds
+           a second tab of that site opens. It runs while the browser holds only these tabs, far below the
+           renderer limit, where the second tab must get another renderer; in the same one the run fails. At or
+           over the limit Chrome reuses the renderer whatever its footprint, so the rule is not tested and the run
+           fails as inconclusive. Both tabs then close, and the open phase starts as it would without the cap.
+
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
 mapping is not active: not a Debug or bench dev build), and exits 1 when any tab was not timed.
 
@@ -48,9 +59,21 @@ scripts/perf-lab/perf_stats.py's (linear interpolation). --out FILE.json is the 
 BenchApp.record (browser_engine_bench_report.py, `renderer_sharing.*`, story renderer-sharing)
 and the report as DIR/bench-renderer-sharing.json.
 
+--engine webkit benches WebKit browser tabs instead (p07-memory-088): the bench turns the
+webKitSameSiteProcesses feature on (--no-webkit-sharing leaves it off) and opens openBrowser.webkit
+tabs on siteN.<--webkit-host-suffix> (default localhost, which macOS resolves to loopback; WebKit
+takes no host-resolver-rules). WebKit shares no process below the limit, so the check is exact:
+each tab starts its own WebContent process while fewer than the limit run or no process holds its
+site yet, and joins one of its site after that (webkit_expected_processes); a process never holds
+two sites. The limit is --renderer-limit (passed to the app as CMUX_NEXT_BENCH_WEBKIT_RENDERER_LIMIT,
+Debug and bench builds of development bundles), else the app's budget (chromium_renderer_limit).
+No result-v1 files: the renderer-sharing story's series are Chromium's.
+
 Usage (a fleet GUI mini, never a laptop; a tagged DEV build, Debug or bench config):
   bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30] [--agent-cdp]
-      [--renderer-limit N] [--out FILE.json | --out DIR]
+      [--renderer-limit N] [--memory-cap-mb MB [--grow-margin-mb 64] [--settle-grown 10]] [--out FILE.json | --out DIR]
+  bench_renderer_sharing.py --app BUNDLE --engine webkit [--tabs 60] [--sites 10] [--renderer-limit N]
+      [--no-webkit-sharing] [--webkit-host-suffix localhost]
 """
 from __future__ import annotations
 
@@ -66,6 +89,7 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (App, sample, end_bundle, note_child_launch)
@@ -86,8 +110,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         host = (self.headers.get("Host") or "site0.test").split(":")[0]
         site = re.sub(r"\D", "", host.split(".")[0]) or "0"
-        tab = re.sub(r"\D", "", self.path) or "0"
-        body = PAGE.format(site=site, tab=tab, article=ARTICLE * 20, heap=self.heap_mb).encode()
+        url = urlsplit(self.path)
+        tab = re.sub(r"\D", "", url.path) or "0"
+        body = PAGE.format(site=site, tab=tab, article=ARTICLE * 20, heap=page_heap_mb(url.query, self.heap_mb)).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -96,6 +121,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *_args):
         pass
+
+
+def page_heap_mb(query: str, default: int) -> int:
+    """The page's heap: `?heap=MB` (the grown phase's page past the cap), else the run's --heap-mb."""
+    value = (parse_qs(query).get("heap") or [""])[0]
+    return int(value) if value.isdigit() else default
 
 
 def serve() -> int:
@@ -119,14 +150,14 @@ def wait_title(sock: str, tab: str, expected: str, seconds: float) -> float | No
     return None
 
 
-def renderer_map(sock: str) -> dict:
-    """{renderer pid: [tab ids]} from the app's `resources` report (the hover cards' numbers)."""
+def renderer_map(sock: str, tab_kind: str = "chromium") -> dict:
+    """{renderer pid: [tab ids]} of the `tab_kind` tabs from the app's `resources` report (the hover cards' numbers)."""
     report = bp.rpc(sock, "resources", {"interval_ms": 100}, timeout=20)
     if report.get("error"):
         return {"error": report["error"]}
     owners: dict[int, list[str]] = {}
     for tab in report.get("tabs") or []:
-        if tab.get("kind") != "chromium":
+        if tab.get("kind") != tab_kind:
             continue
         for process in tab.get("processes") or []:
             if process.get("role") in (None, "renderer"):
@@ -150,6 +181,13 @@ SAME_SITE_MAIN_FRAME_THRESHOLD = 2
 # The fork API with cmux-process-reuse-per-renderer-devtools (CEFForkFeatures.rendererPathsForkAPI).
 RENDERER_PATHS_FORK_API = 29
 AGENT_SESSION = "rsharing-agent"
+# What each engine's tabs are: the action that opens one, the `resources` tab kind and the sampled process kind.
+ENGINES = {
+    "chromium": {"action": "openBrowser.chromium", "tab_kind": "chromium", "process_kind": "cef-renderer"},
+    "webkit": {"action": "openBrowser.webkit", "tab_kind": "webkit", "process_kind": "webkit-webcontent"},
+}
+# The app feature that lets same-site WebKit tabs share a process above the limit (WebKitProcessReuse).
+WEBKIT_FEATURE = "webKitSameSiteProcesses"
 
 
 def host_socket(rows, bundle: str) -> str | None:
@@ -271,6 +309,97 @@ def site_sharing(owners: dict, site_of: dict, agent_tab: str | None, limit: int,
     }
 
 
+# The fork's main-frame cap switch (CEFSharedRendererMemoryCaps.mainFrameSwitch), in bytes.
+MEMORY_CAP_SWITCH = "cmux-shared-renderer-memory-limit"
+
+
+def memory_cap_switch(cap_mb: int) -> str:
+    """The bench switch that sets the fork's main-frame cap to `cap_mb` MiB."""
+    return f"{MEMORY_CAP_SWITCH}={cap_mb << 20}"
+
+
+def grown_check(owners: dict, grown_tab: str, next_tab: str, renderers: int, limit: int) -> dict:
+    """The grown phase: `grown_tab`'s renderer is past the cap, so `next_tab` (its site) must be in another
+    renderer (render_process_host_impl.cc HasEnoughMemoryForAnotherMainFrame). Chrome reuses a same-site
+    renderer at the limit whatever its footprint (IsProcessLimitReached, GetExistingProcessHost), so the rule
+    holds only below it."""
+    renderer_of = {tab: renderer for renderer, tabs in owners.items() for tab in tabs}
+    grown, after = renderer_of.get(grown_tab), renderer_of.get(next_tab)
+    below_limit = renderers < limit
+    violations = []
+    if grown is None or after is None:
+        violations.append(f"the grown phase's tabs have no renderer (grown {grown}, next {after})")
+    elif not below_limit:
+        violations.append(f"the grown phase is inconclusive: {renderers} renderers are at or over the limit of {limit}, "
+                          "where Chrome reuses a same-site renderer whatever its footprint")
+    elif grown == after:
+        violations.append(f"the next tab of the site joined renderer {grown}, which is past the memory cap, "
+                          f"below the limit of {limit}")
+    return {"grown_renderer": grown, "next_renderer": after, "same_renderer": grown is not None and grown == after,
+            "renderers": renderers, "renderer_limit": limit, "below_limit": below_limit, "violations": violations}
+
+
+def webkit_expected_processes(site_order, limit: int, sharing: bool = True) -> int:
+    """The WebKit tab processes WebKitProcessReuse leaves after tabs of the sites in `site_order` open one after another:
+    a tab starts its own process while fewer than `limit` run or no process holds its site yet, else it joins one of
+    its site. Without sharing, one per tab."""
+    if not sharing:
+        return len(site_order)
+    processes, seen = 0, set()
+    for site in site_order:
+        if processes < limit or site not in seen:
+            processes += 1
+        seen.add(site)
+    return processes
+
+
+def webkit_sharing(owners: dict, opened, limit: int, sharing: bool) -> dict:
+    """WebKit's per-process sites, checked exactly (WebKit shares nothing on its own): the bench tabs' processes are
+    webkit_expected_processes of the open order, and no process holds two sites. `opened` is the report's opened rows
+    ({tab, site}) in open order. The keys are site_sharing's, so the report and its lines read the same."""
+    site_of = {row["tab"]: row["site"] for row in opened}
+    per_renderer: dict = {}
+    for renderer, tabs in owners.items():
+        counts: dict = {}
+        for tab in tabs:
+            if tab in site_of:
+                counts[site_of[tab]] = counts.get(site_of[tab], 0) + 1
+        if counts:
+            per_renderer[renderer] = counts
+    mixed = sum(1 for counts in per_renderer.values() if len(counts) > 1)
+    expected = webkit_expected_processes([row["site"] for row in opened], limit, sharing)
+    violations = []
+    if mixed:
+        violations.append(f"{mixed} WebKit processes hold tabs of two sites")
+    if len(per_renderer) != expected:
+        violations.append(f"{len(per_renderer)} WebKit tab processes, expected {expected} "
+                          f"({'same-site sharing from' if sharing else 'no sharing, limit'} {limit})")
+    return {
+        "tab_renderers": len(per_renderer),
+        "renderers": len(per_renderer),
+        "renderer_limit": limit,
+        "below_limit": len(per_renderer) < limit,
+        "shared_layout_renderers": expected,
+        "max_same_site_main_frames": max((max(counts.values()) for counts in per_renderer.values()), default=0),
+        "shared_renderers": sum(1 for counts in per_renderer.values() if sum(counts.values()) > 1),
+        "mixed_site_renderers": mixed,
+        "unshared_sites": [],
+        "agent_renderer_tabs": None,
+        "violations": violations,
+    }
+
+
+def webkit_limit(memory_report, chrome_limit: int, forced: int | None) -> int:
+    """The limit WebKitProcessReuse runs with: --renderer-limit (the app takes it too), else the app's budget
+    (SubsystemBudget.chromiumRendererLimit), else Chrome's own."""
+    if forced:
+        return forced
+    budget = ((memory_report.raw.get("budget") or {}) if memory_report else {}).get("chromium_renderer_limit")
+    if isinstance(budget, (int, float)) and not isinstance(budget, bool) and budget > 0:
+        return int(budget)
+    return chrome_limit
+
+
 def fork_api(cef) -> int | None:
     """The running fork's API, which `debug.cef` names under `windows.fork_api`."""
     value = (cef.get("windows") or {}).get("fork_api") if isinstance(cef, dict) else None
@@ -320,7 +449,18 @@ def parse(argv=None):
     parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated (Debug builds only)")
     parser.add_argument("--agent-cdp", action=argparse.BooleanOptionalAction, default=False,
                         help="keep an agent's CDP session on the first tab (sharing with DevTools attached)")
-    parser.add_argument("--renderer-limit", type=int, help="check the sharing rules below this renderer count")
+    parser.add_argument("--renderer-limit", type=int, help="check the sharing rules below this renderer count "
+                                                           "(--engine webkit: also the app's limit)")
+    parser.add_argument("--engine", choices=sorted(ENGINES), default="chromium", help="the browser engine of the tabs")
+    parser.add_argument("--webkit-sharing", action=argparse.BooleanOptionalAction, default=True,
+                        help=f"--engine webkit: turn {WEBKIT_FEATURE} on (off: one process per tab)")
+    parser.add_argument("--webkit-host-suffix", default="localhost",
+                        help="--engine webkit: the sites are siteN.<suffix>, which must resolve to this Mac")
+    parser.add_argument("--memory-cap-mb", type=int, help="the shared-renderer memory cap Chromium starts with, and "
+                                                          "the grown phase that checks it (Chromium only)")
+    parser.add_argument("--grow-margin-mb", type=int, default=64, help="the grown page's heap above the cap")
+    parser.add_argument("--settle-grown", type=float, default=10,
+                        help="seconds after the grown page before the next tab of its site (its footprint is read)")
     parser.add_argument("--out", help="the report file (.json), or the lab runner's folder for the result-v1 files "
                                       "and bench-renderer-sharing.json")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -328,8 +468,14 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
+    if args.engine == "webkit" and args.agent_cdp:
+        parser.error("--agent-cdp drives a Chromium tab; it does not apply to --engine webkit")
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    if args.memory_cap_mb is not None and args.memory_cap_mb <= 0:
+        parser.error("--memory-cap-mb must be positive")
+    if args.engine == "webkit" and args.memory_cap_mb is not None:
+        parser.error("--memory-cap-mb checks Chromium's shared-renderer cap; it does not apply to --engine webkit")
     return args
 
 
@@ -341,6 +487,30 @@ def new_tab_summary(times):
             "timed": len(times)}
 
 
+def grown_phase(app, sock: str, pid: int, bundle: str, port: int, args, limit: int) -> dict:
+    """Opens a tab of a site the open phase does not use whose heap is past --memory-cap-mb, waits --settle-grown,
+    opens a second tab of that site and checks where it went (``grown_check``), then closes both tabs."""
+    site, tabs = args.sites, []
+    try:
+        for index, heap in ((args.tabs, args.memory_cap_mb + args.grow_margin_mb), (args.tabs + 1, None)):
+            url = f"http://site{site}.test:{port}/{index}" + (f"?heap={heap}" if heap else "")
+            response = app.action("openBrowser.chromium", focus=True, url=url)
+            created = [item for item in response.get("created", []) if str(item).startswith("tab_")]
+            tabs.extend(created[:1])
+            if response.get("error") or not created or not wait_title(sock, created[0], f"site {site} tab {index}", args.load_timeout):
+                return {"violations": [f"the grown phase's tab {url} did not open or show its title (is this a Debug or "
+                                       f"bench dev build, so the .test mapping applies?): {response.get('error') or response}"]}
+            if heap:
+                time.sleep(args.settle_grown)  # test script: the grown page's heap is touched and its footprint read
+        renderers = [row for row in bm.sample(pid, bundle, "grown", 1)["processes"] if row["kind"] == "cef-renderer"]
+        return grown_check(renderer_map(sock).get("owners") or {}, tabs[0], tabs[1], len(renderers), limit)
+    finally:
+        for tab in tabs:
+            closed = app.run("tab.close", target=tab)
+            if closed.get("error"):
+                print(f"   close {tab}: {closed['error']}", file=sys.stderr)
+
+
 def main(argv=None):
     args = parse(argv)
     report_path, results_dir = results.out_paths(args.out, "bench-renderer-sharing.json")
@@ -348,8 +518,10 @@ def main(argv=None):
         raise SystemExit("bench-renderer-sharing: macOS only (run it on a fleet GUI mini)")
     memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
     # The stand-in heaps are touched memory: at most a quarter of this Mac's.
-    if args.tabs * args.heap_mb > memory_gb * 1024 / 4:
-        raise SystemExit(f"bench-renderer-sharing: {args.tabs} tabs x {args.heap_mb} MB is more than a quarter of {memory_gb:.0f} GB")
+    grown_heap_mb = args.memory_cap_mb + args.grow_margin_mb if args.memory_cap_mb else 0
+    if args.tabs * args.heap_mb + grown_heap_mb > memory_gb * 1024 / 4:
+        raise SystemExit(f"bench-renderer-sharing: {args.tabs} tabs x {args.heap_mb} MB and a grown page of {grown_heap_mb} MB "
+                         f"is more than a quarter of {memory_gb:.0f} GB")
     stopping = {"signal": False}
 
     def terminate(_signum, _frame):
@@ -367,14 +539,21 @@ def main(argv=None):
     bp.wipe_state(bundle)
     # The mapping goes through the bench list, which a bench build reads too; any other switch is
     # for diagnosis and only a Debug build takes it.
-    extra = {"CMUX_NEXT_BENCH_CEF_SWITCHES": rules}
+    bench_switches = [rules] + ([memory_cap_switch(args.memory_cap_mb)] if args.memory_cap_mb else [])
+    extra = {"CMUX_NEXT_BENCH_CEF_SWITCHES": "\n".join(bench_switches)}
+    webkit = args.engine == "webkit"
+    if webkit and args.renderer_limit:
+        extra["CMUX_NEXT_BENCH_WEBKIT_RENDERER_LIMIT"] = str(args.renderer_limit)
+    engine = ENGINES[args.engine]
+    host_suffix = args.webkit_host_suffix if webkit else "test"
     if switches[1:]:
         extra["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(switches[1:])
     # The fleet worker finds every process of the step by this marker, also those the app starts.
     if os.environ.get("CI_JOB_DIR"):
         extra["CI_JOB_DIR"] = os.environ["CI_JOB_DIR"]
     bench = BenchApp(bundle, out=results_dir, env=extra, config=config, window=(40, 40, 1400, 900),
-                     build_config=args.build_config, perf_session=args.session)
+                     build_config=args.build_config, perf_session=args.session,
+                     local_features={WEBKIT_FEATURE: args.webkit_sharing} if webkit else None)
     bm.note_child_launch()  # the app is this script's child (bench_memory.webkit_is_apps)
     try:
         bench.launch()
@@ -386,26 +565,39 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, terminate)
     pid, sock = bench.process.pid, bench.socket
     limit = chrome_soft_limit(memory_gb)
-    report = {"app": bundle, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),
-              "chrome_soft_limit": limit, "switches": switches, "opened": [], "new_tab_ms": [], "agent": None}
+    report = {"app": bundle, "engine": args.engine, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb,
+              "memory_gb": round(memory_gb, 1), "chrome_soft_limit": limit, "switches": switches,
+              "bench_switches": bench_switches, "opened": [], "new_tab_ms": [], "agent": None}
     agent = None
     status = 0
     try:
         app = bm.App(bundle, sock)
-        print(f"PERF-RENDERERS-MACHINE memory_gb={memory_gb:.1f} chrome_soft_limit={limit} tabs={args.tabs} sites={args.sites}", flush=True)
-        cef = bp.rpc(sock, "debug.cef") or {}
-        if cef.get("unavailable") or cef.get("fallback"):
-            raise SystemExit(f"bench-renderer-sharing: Chromium is not available: {json.dumps(cef)[:400]}")
-        report["fork_api"] = fork_api(cef)
-        report["process_reuse_per_renderer_devtools"] = reuse_switch(cef)
-        print(f"PERF-RENDERERS-FORK fork_api={report['fork_api']} "
-              f"process_reuse_per_renderer_devtools={report['process_reuse_per_renderer_devtools']}", flush=True)
+        print(f"PERF-RENDERERS-MACHINE engine={args.engine} memory_gb={memory_gb:.1f} chrome_soft_limit={limit} "
+              f"tabs={args.tabs} sites={args.sites}", flush=True)
+        if not webkit:
+            cef = bp.rpc(sock, "debug.cef") or {}
+            if cef.get("unavailable") or cef.get("fallback"):
+                raise SystemExit(f"bench-renderer-sharing: Chromium is not available: {json.dumps(cef)[:400]}")
+            report["fork_api"] = fork_api(cef)
+            report["process_reuse_per_renderer_devtools"] = reuse_switch(cef)
+            print(f"PERF-RENDERERS-FORK fork_api={report['fork_api']} "
+                  f"process_reuse_per_renderer_devtools={report['process_reuse_per_renderer_devtools']}", flush=True)
+            checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
+        if args.memory_cap_mb:
+            # Before the open phase, whose tabs bring the renderer count to the limit, where the cap is not tested.
+            report["grown"] = grown = grown_phase(app, sock, pid, bundle, port, args, checked_limit)
+            print(f"PERF-RENDERERS-GROWN memory_cap_mb={args.memory_cap_mb} grown_heap_mb={grown_heap_mb} "
+                  f"same_renderer={grown.get('same_renderer')} renderers={grown.get('renderers')} "
+                  f"below_limit={grown.get('below_limit')}", flush=True)
+            for violation in grown["violations"]:
+                print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
+                status = 1
         missed = 0
         for index in range(args.tabs):
             site = index % args.sites
-            url = f"http://site{site}.test:{port}/{index}"
+            url = f"http://site{site}.{host_suffix}:{port}/{index}"
             started = time.monotonic()
-            response = app.action("openBrowser.chromium", focus=True, url=url)
+            response = app.action(engine["action"], focus=True, url=url)
             created = [item for item in response.get("created", []) if str(item).startswith("tab_")]
             if response.get("error") or not created:
                 print(f"   open {url}: {response.get('error') or response}", file=sys.stderr)
@@ -425,22 +617,26 @@ def main(argv=None):
                     print(f"PERF-RENDERERS-AGENT tab={tab} session={agent['session']}", flush=True)
             if (index == 0 and missed) or missed >= 3:
                 raise SystemExit(f"bench-renderer-sharing: tab {index} did not open or show its title within {args.load_timeout} s "
-                                 "(is this a Debug or bench dev build, so the .test mapping applies?)")
+                                 + (f"(does siteN.{host_suffix} resolve to this Mac?)" if webkit
+                                    else "(is this a Debug or bench dev build, so the .test mapping applies?)"))
             if index % 10 == 9:
                 print(f"PERF-RENDERERS-OPEN tabs={index + 1} last_new_tab_ms={report['new_tab_ms'][-1] if report['new_tab_ms'] else None}", flush=True)
         time.sleep(args.settle)  # test script: let the pages and their renderers settle
         sample = bm.sample(pid, bundle, "settled", 1)
-        mapping = renderer_map(sock)
-        renderers = [row for row in sample["processes"] if row["kind"] == "cef-renderer"]
+        mapping = renderer_map(sock, engine["tab_kind"])
+        renderers = [row for row in sample["processes"] if row["kind"] == engine["process_kind"]]
         owners = mapping.get("owners") or {}
         sharing = [len(owners.get(row["pid"], [])) for row in renderers]
         times = [t for t in report["new_tab_ms"] if t is not None]
         kinds = sample["kinds"]
         shared = ((mapping.get("report") or {}).get("shared") or {}).get("processes") or []
         site_of = {row["tab"]: row["site"] for row in report["opened"]}
-        checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
-        sites = site_sharing(owners, site_of, agent["tab"] if agent else None, checked_limit, len(renderers),
-                             require_sharing=bool(agent))
+        if webkit:
+            checked_limit = webkit_limit(bm.MemoryReport.read(app), limit, args.renderer_limit)
+            sites = webkit_sharing(owners, report["opened"], checked_limit, args.webkit_sharing)
+        else:
+            sites = site_sharing(owners, site_of, agent["tab"] if agent else None, checked_limit, len(renderers),
+                                 require_sharing=bool(agent))
         if agent and report["process_reuse_per_renderer_devtools"] is not True:
             sites["violations"].insert(0, "the app did not pass cmux-process-reuse-per-renderer-devtools "
                                           f"(fork API {report['fork_api']}; it needs {RENDERER_PATHS_FORK_API} and the shim's "
@@ -481,7 +677,7 @@ def main(argv=None):
         if len(times) < args.tabs:
             print(f"bench-renderer-sharing: only {len(times)} of {args.tabs} tabs were timed", file=sys.stderr)
             status = 1
-        if results_dir:  # a finished run; a tab that never opened is a missed one
+        if results_dir and not webkit:  # a finished run; a tab that never opened is a missed one
             attempts = report["new_tab_ms"] + [None] * (args.tabs - len(report["new_tab_ms"]))
             report["results_v1"] = results.record_all(bench, results.renderer_sharing_series(
                 attempts, result["renderers"], result["tab_renderers"], sample, session=args.session))

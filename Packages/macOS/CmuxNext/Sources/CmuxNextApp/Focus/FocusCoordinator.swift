@@ -76,6 +76,9 @@ final class FocusCoordinator {
     var overlayChanges: OverlayChangeFeed?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
+    /// Told of each focus or selection change the person made by mouse, keyboard or palette (not the CLI, a script or
+    /// the app), with the input it answers: the window's keyboard claim ends there (`CreationInputCoordinator`).
+    var personIntent: ((NSEvent?) -> Void)?
 
     func send(_ event: FocusEvent) {
         // An action run that may not change this client's view (a CLI,
@@ -87,6 +90,7 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
+        if let personIntent, event.isPersonsOwn, event.changesView { personIntent(inputDispatch?.event) }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)
@@ -242,6 +246,22 @@ final class FocusCoordinator {
         CommitBoundary().after { _ in body(ProcessInfo.processInfo.systemUptime + refresh) }
     }
 
+    /// The window's saved record names `pane` as the focused pane of `workspace` (relaunch,
+    /// `WindowState.adopt`). For a workspace the window does not show yet it is remembered for when it
+    /// shows (`restoredPane`). For the workspace it already shows (the launch window showed its panes
+    /// before it adopted the record) the saved pane takes the focus now, as when the record comes first,
+    /// unless a person chose since the window opened (every user intent bumps `generation`); a view that
+    /// took the keyboard by itself (Home's message box, AppKit's first key view) is no choice. Before,
+    /// that restore was dropped and Home kept the keyboard (QA chrome-parity-v2-2-2 bug 1). Sent as a
+    /// programmatic `focusPane`, the pinned reducer's own rule: no intent, the responder re-applied.
+    func restore(_ pane: String, workspace: String) {
+        let state = currentState()
+        guard state.topology.workspace == workspace else { return send(.restoredPane(pane, workspace: workspace)) }
+        guard state.generation == 0, state.topology.panes.contains(where: { $0.id == pane }),
+              state.pane != pane || state.target != .content else { return }
+        send(.focusPane(pane, source: .programmatic))
+    }
+
     /// Starts a user intent that lands later (split, new tab). Pass the
     /// returned generation to `expect`.
     func beginIntent() -> UInt64 {
@@ -323,6 +343,17 @@ extension CrashKeySlots.PaneKind {
         case .page: self = .page
         case .emptyPane: self = .empty
         case .sidebar, .sidebarField, .textField, .overlay, .none: return nil
+        }
+    }
+}
+
+extension FocusEvent {
+    /// A focus or selection change the person made by mouse, keyboard or palette: not the CLI, a script, the app or the daemon.
+    var isPersonsOwn: Bool {
+        switch self {
+        case .focusPane(_, _, let source), .selectTab(_, _, _, let source), .focusTarget(_, let source), .responder(_, let source):
+            source == .mouse || source == .keyboard || source == .palette
+        default: false
         }
     }
 }

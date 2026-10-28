@@ -8,10 +8,14 @@ publish.workspace = true
 description = "The shared command-palette ranker (match tiers, typos, aliases, pins, learned picks, frecency) and its C ABI"
 
 [dependencies]
+cmux-ffi-guard = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 unicode-normalization = { workspace = true }
 unicode-general-category = "1.1"
+
+[dev-dependencies]
+cmux-ffi-guard = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

@@ -8,7 +8,8 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     private let appURL: URL
     /// The app's icon, read off the main thread by the App (cmux's own when it has none yet).
     private let appIcon: NSImage
-    private lazy var hover = ChromeHover(self)
+    // wakeup-allow: bounded only while the permission card shows over System Settings with cmux in the background
+    private lazy var hover = ChromeHover(self, tracking: .activeAlways)
 
     init(appURL: URL, icon: NSImage?) {
         self.appURL = appURL
@@ -61,6 +62,8 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { hover.state.pressed = true }
     override func mouseUp(with event: NSEvent) { hover.state.pressed = false }
 
+    // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
+    // local-monitor-allow: the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
@@ -73,6 +76,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
         context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 
+    // visibility-walk-allow: ChromeHover.refresh(animated: false) stores the hover layer's fill color only; the tile lives in the permission card's own panel, which no visibility node holds
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

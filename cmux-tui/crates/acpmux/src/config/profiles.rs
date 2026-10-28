@@ -407,6 +407,7 @@ fn read_profile_file(path: &Path, source: ProfileSource) -> Result<String, Diagn
             None,
         ));
     }
+    // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     let owner_ok = meta.uid() == uid || (source == ProfileSource::Managed && meta.uid() == 0);
     if !owner_ok || meta.mode() & 0o022 != 0 {

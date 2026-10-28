@@ -13,6 +13,10 @@ import ObjectiveC
 /// Chromium already runs. The page window still becomes key; nothing else
 /// changes. `NSApp.mainWindow` also stays the cmux window, which the
 /// sheet and dialog fallbacks expect.
+///
+/// In process only (``BrowserBackend/inProcess``): the runtime installs it after an in-process
+/// boot. With the Chromium Host the page is a view of the cmux window (`ChromiumHostPageView`), so
+/// no page window can take main, and `CefNSWindow` is not even a class of this process.
 nonisolated enum ChromiumPageWindowMain {
     /// Overrides `canBecomeMainWindow` on `pageClass` (and its subclasses)
     /// to answer no. Safe to call again.

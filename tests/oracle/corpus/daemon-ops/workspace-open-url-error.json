@@ -59,19 +59,23 @@
       "args": {
         "method": "workspace.open_url",
         "params": {
-          "url": ""
+          "url": "about:blank"
         },
         "idempotencyKey": "workspace-open-url-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "field": "url",
+          "reason": "the URL must be an http or https URL with a host, at most 8192 bytes"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "url breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "only an http or https URL with a host opens (resource_router/open_url.rs rule 1)"
     }
   ],
   "invariants": [

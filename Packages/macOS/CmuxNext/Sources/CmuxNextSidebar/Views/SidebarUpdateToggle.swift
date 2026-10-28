@@ -90,7 +90,7 @@ final class SidebarUpdateToggle: NSView {
     private(set) var hasLaidOutSwitch = false
     /// A state change animates: the switch has been laid out and is visible in a window. Before
     /// its first layout the track has no frame, so a slide would start from the row's corner.
-    var canSlide: Bool { look == .switchControl && hasLaidOutSwitch && window != nil && !isHiddenOrHasHiddenAncestor }
+    var canSlide: Bool { look == .switchControl && hasLaidOutSwitch && window != nil && !isHiddenOrHasHiddenAncestor } // visibility-walk-allow: read once per state change to pick a slide or a jump; a hidden switch jumps
 
     /// The switch follows a new state: the knob slides and the track fills on the sidebar's
     /// selection spring (`Motion.sidebar`); with animation off it lands in one frame. Layout and
@@ -103,6 +103,7 @@ final class SidebarUpdateToggle: NSView {
                 box.backgroundColor = colors.track.cgColor
                 if !showsKeyFocus { box.borderColor = colors.edge.cgColor }
                 knob.backgroundColor = colors.knob.cgColor
+                knob.shadowOpacity = Self.knobShadowOpacity(colors.knob)
             }
         }
     }
@@ -135,6 +136,7 @@ final class SidebarUpdateToggle: NSView {
             box.cornerRadius = track.height / 2
             knob.frame = Self.knobFrame(in: trackFrame, isOn: isOn)
             knob.cornerRadius = knob.frame.height / 2
+            knob.cast(shadowPath: ShadowOutline(size: knob.bounds.size, cornerRadius: knob.cornerRadius))
             knob.isHidden = false
             mark.isHidden = true
             let x = trackFrame.maxX + Metrics.space2
@@ -161,6 +163,12 @@ final class SidebarUpdateToggle: NSView {
         return CGRect(x: x, y: track.minY + inset, width: side, height: side)
     }
 
+    /// The knob's lift (the tooltip's elevation) cast from its outline, as strongly as its fill cast it:
+    /// a muted knob, faintly.
+    static func knobShadowOpacity(_ knob: NSColor) -> Float {
+        ShadowOutline.opacity(PopupStyle.elevation1.alpha, under: knob.cgColor)
+    }
+
     /// The switch's track and knob colors (theme-scoped: call inside `performWithTheme`): the
     /// theme's accent pair when on, a quiet fill with a hairline and a muted knob when off.
     static func switchColors(isOn: Bool) -> (track: NSColor, knob: NSColor, edge: NSColor) {
@@ -184,7 +192,7 @@ final class SidebarUpdateToggle: NSView {
                 knob.backgroundColor = colors.knob.cgColor
                 // A small lift so the knob reads as a part that slides (the tooltip's elevation).
                 knob.shadowColor = Palette.shadow.cgColor
-                knob.shadowOpacity = Float(PopupStyle.elevation1.alpha)
+                knob.shadowOpacity = Self.knobShadowOpacity(colors.knob)
                 knob.shadowRadius = PopupStyle.elevation1.layerRadius
                 knob.shadowOffset = PopupStyle.elevation1.layerOffset(flipped: isFlipped)
                 mark.isHidden = true
@@ -199,7 +207,7 @@ final class SidebarUpdateToggle: NSView {
         }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
@@ -218,7 +226,7 @@ final class SidebarUpdateToggle: NSView {
     }
 
     override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor } // visibility-walk-allow: AppKit's key-view loop asks it (Full Keyboard Access), an accessibility read
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         keyRepaint.track()

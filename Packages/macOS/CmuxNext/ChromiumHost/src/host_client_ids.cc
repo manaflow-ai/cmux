@@ -12,6 +12,8 @@ bool IsChromiumID(int64_t id) {
   return id > 0 && id <= INT32_MAX;
 }
 
+static_assert(WindowRequestTabIds::kInsert == CMUX_SHIM_WINDOW_INSERT);
+
 }  // namespace
 
 int ClientIds::Browser(int32_t client_id) const {
@@ -94,6 +96,13 @@ ClientIds::Event ClientIds::ToClient(const Event& chromium) {
       Link(minted, chromium.browser_id);
     }
   }
+  if (chromium.kind == CMUX_SHIM_AFTER_CREATED && chromium.request == 0 && IsChromiumID(chromium.browser_id) &&
+      !client_of_.count(chromium.browser_id)) {
+    // A tab Chromium opened for a window request the host decided: the id its result carried.
+    const int opener = static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(chromium.b) >> 32));
+    const int32_t minted = window_request_tabs_.Take(static_cast<int>(chromium.a), opener);
+    if (minted != 0) Link(minted, chromium.browser_id);
+  }
   Event out = chromium;
   out.browser_id = ClientOf(chromium.browser_id);
   switch (chromium.kind) {
@@ -106,8 +115,11 @@ ClientIds::Event ClientIds::ToClient(const Event& chromium) {
       }
       break;
     }
+    case CMUX_SHIM_WINDOW_REQUEST_RESULT:  // request = the anchor's window, which gets the new tab
+      out.b = window_request_tabs_.Result(chromium.request, chromium.browser_id, chromium.b);
+      [[fallthrough]];
     case CMUX_SHIM_DEVTOOLS_OPENED:
-    case CMUX_SHIM_DEVTOOLS_CLOSED:
+    case CMUX_SHIM_DEVTOOLS_CLOSED:  // a = the anchor (WINDOW_REQUEST_RESULT), the DevTools browser
       if (IsChromiumID(chromium.a)) out.a = ClientOf(static_cast<int>(chromium.a));
       break;
     case CMUX_SHIM_DEVTOOLS_RESULT: {

@@ -167,7 +167,7 @@ pub(in crate::cli) fn find_terminal<'a>(
     target: &str,
 ) -> Result<&'a Value, SendFailure> {
     let terminals = snapshot["terminals"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let caller = std::env::var("CMUX_TUI_TERMINAL_ID").ok();
+    let caller = super::super::caller_env::var("CMUX_TUI_TERMINAL_ID");
     let target = match (target, caller.as_deref()) {
         ("current", Some(caller)) => caller,
         _ => target.strip_prefix("name:").unwrap_or(target),
@@ -350,7 +350,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     };
     let sent_ms = super::now_ms();
     write(&typed)?;
-    std::thread::sleep(request.enter_delay);
+    cmux_blocking::thread::sleep(request.enter_delay);
     write(&engine.encode(b"\r"))?;
     let sent_at = Instant::now();
     let mut receipt = json!({
@@ -407,7 +407,7 @@ fn wait<B: Daemon + ?Sized>(
         if verdict != Verdict::Pending || now >= deadline {
             return Ok((verdict, shown));
         }
-        std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
+        cmux_blocking::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
     }
 }
 

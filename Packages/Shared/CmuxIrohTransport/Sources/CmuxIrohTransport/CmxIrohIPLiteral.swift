@@ -11,7 +11,7 @@ struct CmxIrohIPLiteral: Equatable, Sendable {
     /// Parses `text` strictly as `family`: dotted quads or standard IPv6 text,
     /// never `127.1`, a hex quad or a `%scope` suffix.
     init?(_ text: String, family: CmxIrohLANSocketAddress.Family) {
-        var parsed = [UInt8](repeating: 0, count: Self.byteCount(family))
+        var parsed = [UInt8](repeating: 0, count: family == .ipv4 ? 4 : 16) // byteCount(family)
         // SAFETY: inet_pton writes sizeof(struct in_addr) (4) bytes for AF_INET and
         // sizeof(struct in6_addr) (16) for AF_INET6, exactly parsed.count. It reads
         // the NUL-terminated copy of `text` Swift passes, which lives for this call.

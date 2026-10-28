@@ -921,6 +921,8 @@ async fn acp_steps(
     // then read the rest of its stderr: the pipe closes when it exits.
     #[cfg(unix)]
     if let Some(pid) = pid {
+        // SAFETY: killpg takes no pointers; `pid` leads the harness's own group
+        // (agent::harness_command sets process_group(0)) and is not reaped yet.
         unsafe {
             libc::killpg(pid as libc::pid_t, libc::SIGKILL);
         }

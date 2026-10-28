@@ -283,6 +283,11 @@ public abstract class GeneratedCmuxClient {
         return BindConversationTabSessionResult.fromWire(result);
     }
 
+    public final BridgeHelloResult bridgeHello(BridgeHelloRequest request) throws CmuxException {
+        Object result = execute(Commands.BRIDGE_HELLO, request.toWire());
+        return BridgeHelloResult.fromWire(result);
+    }
+
     public final EmptyResult browserActivate(BrowserActivateRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_ACTIVATE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -371,6 +376,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult cancelRequest(CancelRequestRequest request) throws CmuxException {
         Object result = execute(Commands.CANCEL_REQUEST, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final CancelStreamResult cancelStream(CancelStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_STREAM, request.toWire());
+        return CancelStreamResult.fromWire(result);
     }
 
     public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
@@ -1072,6 +1082,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object memoryReport() throws CmuxException {
+        Object result = execute(Commands.MEMORY_REPORT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
@@ -1580,6 +1595,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult setSplitRatio(SetSplitRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SPLIT_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final SetStreamPriorityResult setStreamPriority(SetStreamPriorityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_STREAM_PRIORITY, request.toWire());
+        return SetStreamPriorityResult.fromWire(result);
     }
 
     public final Object setTabPinned(SetTabPinnedRequest request) throws CmuxException {

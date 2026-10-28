@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// One tile: the thumbnail (a photo or film symbol until it renders), the name
 /// under it, and a movie's length in a corner badge. Loads its picture
@@ -65,8 +66,10 @@ final class FileGridCell: NSCollectionViewItem {
         badge.isHidden = true
     }
 
-    /// Shows `item`, starting its thumbnail (and length) load.
-    func configure(_ item: FileGridItem, appearance: FileGridAppearance, cache: ThumbnailCache, scale: CGFloat) {
+    /// Shows `item`, starting its thumbnail (and length) load: the cache renders off main, and each result lands on
+    /// the tile as one visible task on `work` (Chrome's PostTaskAndReplyWithResult, base/task/thread_pool.h).
+    func configure(_ item: FileGridItem, appearance: FileGridAppearance, cache: ThumbnailCache, work: MainWorkScheduler,
+                   scale: CGFloat) {
         appearanceValues = appearance
         name.stringValue = item.name
         name.textColor = appearance.text
@@ -79,17 +82,29 @@ final class FileGridCell: NSCollectionViewItem {
         picture.image = Self.icon(for: item)
         badge.isHidden = true
         let side = appearance.tileSide
-        load = Task { @MainActor [weak self] in
-            if let image = await cache.thumbnail(for: item, side: side, scale: scale) {
-                guard let self, !Task.isCancelled, self.item == item else { return }
-                self.picture.image = NSImage(cgImage: image, size: .zero)
+        let isVideo = item.kind == .video
+        // task-owner: stored in load; prepareForReuse and the next item cancel it
+        load = Task { @concurrent [weak self] in
+            if let image = await cache.thumbnail(for: item, side: side, scale: scale), !Task.isCancelled {
+                work.postFromAnyThread(.visible, owner: "FileGrid.thumbnail") { [weak self] in self?.show(image, of: item) }
             }
-            guard item.kind == .video, let seconds = await cache.duration(for: item) else { return }
-            guard let self, !Task.isCancelled, self.item == item else { return }
-            self.badge.stringValue = FileGridDurationText().string(for: seconds)
-            self.badge.isHidden = false
-            self.view.needsLayout = true
+            guard isVideo, let seconds = await cache.duration(for: item), !Task.isCancelled, self != nil else { return }
+            work.postFromAnyThread(.visible, owner: "FileGrid.length") { [weak self] in self?.showLength(seconds, of: item) }
         }
+    }
+
+    /// The rendered thumbnail of `item`, when the tile still shows it.
+    private func show(_ image: CGImage, of item: FileGridItem) {
+        guard self.item == item else { return }
+        picture.image = NSImage(cgImage: image, size: .zero)
+    }
+
+    /// A movie's length in the corner badge, when the tile still shows it.
+    private func showLength(_ seconds: TimeInterval, of item: FileGridItem) {
+        guard self.item == item else { return }
+        badge.stringValue = FileGridDurationText().string(for: seconds)
+        badge.isHidden = false
+        view.needsLayout = true
     }
 
     private func applySelection() {

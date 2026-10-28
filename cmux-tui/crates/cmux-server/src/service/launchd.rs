@@ -74,7 +74,8 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
 }
 
 pub fn state(s: &Services<'_>) -> ServiceState {
-    let installed = s.unit_path().is_ok_and(|p| p.is_file());
+    let installed =
+        s.unit_path().is_ok_and(|p| cmux_blocking::fs::metadata(p).is_ok_and(|m| m.is_file()));
     let is_loaded = loaded(s);
     ServiceState { installed, active: Some(is_loaded), enabled: Some(installed) }
 }

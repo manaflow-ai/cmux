@@ -136,6 +136,30 @@ import Testing
         #expect(calls == [.missed, .posted], "a cancelled subscription was called")
     }
 
+    /// p06-scheduler-161: a capture vote makes a hidden node render (an agent's screenshot of a hidden
+    /// workspace draws its views), so a subscriber that missed a signal hears it in the vote's turn and
+    /// hears each later one while the vote holds; page visibility stays hidden.
+    @Test func aCapturedHiddenSubscriberIsCurrentForTheCapture() {
+        let system = System()
+        let design = Self.design(system)
+        defer { withExtendedLifetime(design) {} }
+        let signals = design.signals
+        let node = VisibilityNode(root: "workspace", own: .hidden)
+        var calls: [EventCall] = []
+        let watch = signals.subscribe([.reduceMotion], node: node, delivery: .whenVisible, owner: "captured") { calls.append($0) }
+        system.set { $0.reduceMotion.toggle() }
+        #expect(calls.isEmpty)
+        let vote = node.captureVote(reason: "agent.screenshot", stayHidden: true)
+        #expect(node.effective == .hidden && node.wantsFrames)
+        #expect(calls == [.missed], "the capture drew a view that missed a signal")
+        system.set { $0.reduceMotion.toggle() }
+        #expect(calls == [.missed, .posted], "a signal to a captured view waited for a show")
+        vote.release()
+        system.set { $0.reduceMotion.toggle() }
+        #expect(calls == [.missed, .posted], "a released node did view work")
+        withExtendedLifetime(watch) {}
+    }
+
     @Test func aReleasedSubscriptionIsNotCalled() {
         let system = System()
         let design = Self.design(system)

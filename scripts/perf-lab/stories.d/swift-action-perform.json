@@ -1,0 +1,18 @@
+{
+  "id": "swift-action-perform",
+  "tier": "builder",
+  "description": "ActionPerformBench: ns per ActionRegistry.perform of a no-op action with no turn observer (the Release registry), one sample per round of 100,000 performs.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-action-perform", "--filter", "ActionPerformBench", "--env", "CMUX_ACTION_PERFORM_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.action_perform\\.perform_ns", "unit": "ns", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionPerformBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-oracle",
+  "component": "Actions>Perform",
+  "hot_paths": ["action-perform"]
+}

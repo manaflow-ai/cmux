@@ -31,7 +31,7 @@ landed and what is left.
 | acpmux daemon idle (2000 chats, the app's watch stream) | `acpmux/tests/daemon_idle.rs` | every cmux-tui test run (CI guard) |
 | cmux-tui daemon and terminal hosts idle | `cmux-tui/tests/idle_wakeups.rs` | CI guard (since 2026-09-30) |
 | Chat index cost per transcript write | `cmux-chat-index/tests/incremental_merge.rs` | CI guard |
-| RAM of one agent's MCP server | `cmux-tui/tests/mcp_footprint.rs` (10 MB budget) | CI guard (macOS) |
+| RAM of one agent's MCP server | `cmux-tui/tests/mcp_footprint.rs` (the `mcpCatalogHost` relay: 2 MB budget; tools/list equal to an in-process server) | CI guard (macOS) |
 | A live Mac, read-only | `proc_pid_rusage` (CPU time, package-idle + interrupt wakeups, phys_footprint) per process kind over 15-20 s | the developer Mac, no builds |
 
 ## 3. Live Mac snapshot (2026-10-20 09:20 UTC, read-only)

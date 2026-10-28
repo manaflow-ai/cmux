@@ -99,7 +99,7 @@ struct ChatOpenTraceRingTests {
         let model = AgentPaneModel(host: NoHost())
         model.chatOpen = ChatOpenStages(interval)
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(),
                                               gestures: .testing()))
         #expect(view.page.chatOpen?.intentID == interval.intentID, "the page is made with the open")
         // Not visible: the cover leaves in this turn, with no fade.
@@ -117,7 +117,7 @@ struct ChatOpenTraceRingTests {
         let log = RecordLog()
         let interval = CreateTabInterval(kind: .chat, signposter: log.signposter().0)
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(), gestures: .testing()))
         #expect(log.stages.isEmpty)
         view.join(ChatOpenStages(interval))

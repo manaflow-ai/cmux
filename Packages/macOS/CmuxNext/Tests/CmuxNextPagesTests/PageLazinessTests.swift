@@ -11,8 +11,8 @@ import WebKit
 /// No cmux page renderer before the page first shows (p07-memory-048, feature `pageRendererAtFirstShow`).
 /// A page the host opens with ``WebUIHost/startsPagesAtFirstShow`` makes no engine call (no load, no
 /// script, so no WebKit WebContent process) and asks for no Chromium page until it is in a window its
-/// visibility node says is visible, with no hidden ancestor; the spare Settings host is made only
-/// after a pooled page was made visible (Chrome's `kPreloadOnMakeVisible`).
+/// visibility node says is visible, with no hidden ancestor. A preload for the preload slot is the
+/// one page that starts hidden (Chrome's `kPreloadOnMakeVisible` preload).
 @MainActor @Suite(.serialized)
 struct PageLazinessTests {
     private let root: URL
@@ -27,7 +27,7 @@ struct PageLazinessTests {
     /// A window ordered in whose visibility node reads `state` (AppKit reports the off-screen test
     /// window covered); `refresh()` on the returned source reads it again.
     private func makeWindow(_ state: @escaping @MainActor () -> Visibility = { .visible }) -> (NSWindow, WindowVisibilitySource) {
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        let window = PagePreloadPageTests.shownWindow()
         return (window, WindowVisibilitySource.of(window, read: { _ in state() }))
     }
 
@@ -42,13 +42,14 @@ struct PageLazinessTests {
 
     /// A few main-actor turns: the page's own first tasks (its ui-scale observation) run.
     private func settle() async {
-        for _ in 0..<5 { await PageHostPool.nextTurn() }
+        let work = MainWorkScheduler(budget: MainFrameBudget())
+        for _ in 0..<5 { await work.apply(.background, owner: "PageLazinessTests.settle") { () -> Void in } }
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = true) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
+                  deadlines: LifecycleDeadlineRig.never, startsPagesAtFirstShow: lazy)
     }
 
     @Test func aWebKitPageStartsNoDocumentBeforeItsFirstShow() async throws {
@@ -272,35 +273,16 @@ struct PageLazinessTests {
         #expect(view.webView.url == descriptor.url())
     }
 
-    /// The launch's `noteLikely()` makes no Settings spare until a pooled page was made visible:
-    /// with a build deadline that fires at once, no spare exists after it.
-    @Test func theSettingsSpareWaitsForAPooledPageToShow() async throws {
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
-        defer { window.close() }
-        let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator,
-                                policy: PageHostPool.Policy(preloadOnMakeVisible: true), clock: PageTestClock.immediate,
-                                activity: { 0 }, isTrackingMenu: { false })
-        defer { pool.dropSpare() }
-        pool.follow(window)
-        pool.noteLikely()
-        await settle()
-        #expect(!pool.shouldBuild, "the launch made a spare page nobody opened")
-        #expect(pool.hostCount == 0 && pool.spareHost == nil && !pool.isBuilding)
-        #expect(pool.claim(.settings, routes: [], window: window) == nil, "no spare to claim yet")
-        #expect(pool.shouldBuild, "a shown Settings page arms the next spare")
-    }
-
-    /// With the feature off the launch's `noteLikely()` arms the spare, as before.
-    @Test func withoutTheFeatureTheLaunchArmsTheSpare() {
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
-        defer { window.close() }
-        let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
-        defer { pool.dropSpare() }
-        pool.follow(window)
-        pool.noteLikely()
-        #expect(pool.shouldBuild)
+    /// A preload (``PageOpenRequest/parked``) loads as it opens even on a lazy host: it waits hidden in
+    /// the preload slot's parking and is never shown before its claim. The slot preloads a page only
+    /// after one of its kind opened (`PagePreloads`), Chrome's `kPreloadOnMakeVisible`.
+    @Test func aParkedPreloadStartsAsItOpensOnALazyHost() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = makeHost(nil)
+        let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], parked: true)))
+        defer { host.close(view) }
+        #expect(!view.awaitsFirstShow)
+        #expect(view.webView.url == descriptor.url())
     }
 }
 

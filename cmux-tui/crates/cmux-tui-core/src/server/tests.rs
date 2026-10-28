@@ -549,6 +549,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
 }
 
 mod client_sizing;
+mod connection_scheduler_input_lane;
 mod deferred_commands;
 mod detach_and_browser;
 mod event_shape_tests;
@@ -564,6 +565,7 @@ mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod thread_qos;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;

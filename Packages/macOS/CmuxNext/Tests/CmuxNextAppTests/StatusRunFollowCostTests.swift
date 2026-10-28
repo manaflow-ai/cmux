@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -36,25 +38,86 @@ import Testing
         store.session.apply(try #require(SessionStreamItem.decode(Data(line.utf8))), in: store)
     }
 
-    private static func settle() async {
-        for _ in 0..<100 { await Task.yield() }
-    }
-
     @Test(arguments: [50, 500])
-    func oneStatusChangeVisitsOneWorkspace(sessionSize: Int) async throws {
+    func oneStatusChangeVisitsOneWorkspace(sessionSize: Int) throws {
         let store = try Self.store(sessionSize)
-        let service = NotificationCenterService()
-        let task = service.followStatusRuns(store)
-        defer { task.cancel() }
-        // The first pass reads every workspace's status once (it learns the runs that are busy now);
-        // it is done when every workspace was seen.
-        for _ in 0..<20_000 where service.statusRunVisits < sessionSize { await Task.yield() }
-        await Self.settle()
+        let frames = NotificationFrames()
+        let service = frames.service()
+        let follower = service.followStatusRuns(store)
+        // The first pass reads every workspace's status once, before it returns (it learns the
+        // runs that are busy now).
+        #expect(service.statusRunVisits == sessionSize, "the first pass saw \(service.statusRunVisits) of \(sessionSize)")
+        frames.frame()
         let before = service.statusRunVisits
         try Self.setStatus(7, text: "building", in: store)
-        await Self.settle()
+        #expect(service.statusRunVisits == before, "a status change is read on the next frame, not in its own turn")
+        frames.frame()
         let visited = service.statusRunVisits - before
         #expect(visited >= 1, "the follower did not see the change")
         #expect(visited <= 1, "one status change visited \(visited) workspaces in a \(sessionSize)-workspace session")
+        withExtendedLifetime(follower) {}
     }
+
+    /// The statuses come from `cmux status` (automation): a pending key of the person's holds the
+    /// follower's flush for one frame.
+    @Test func aPendingKeyHoldsTheFollowerForOneFrame() throws {
+        let store = try Self.store(3)
+        let input = StatusFollowInput()
+        let frames = NotificationFrames(input: input)
+        let service = frames.service()
+        let follower = service.followStatusRuns(store)
+        frames.frame()
+        let before = service.statusRunVisits
+        try Self.setStatus(2, text: "building", in: store)
+        input.pending = true
+        frames.frame()
+        #expect(service.statusRunVisits == before, "the automation flush ran with a key pending")
+        input.pending = false
+        frames.frame()
+        #expect(service.statusRunVisits == before + 1)
+        withExtendedLifetime(follower) {}
+    }
+
+    /// The token owns every per-workspace watch: cancelling it, or releasing it while the service
+    /// lives on, stops them all (a stopped follower must post no finished-run notice).
+    @Test(arguments: [false, true])
+    func aStoppedFollowerReadsNoWorkspaceStatus(release: Bool) throws {
+        let store = try Self.store(3)
+        let frames = NotificationFrames()
+        let service = frames.service()
+        var follower: StatusRunFollower? = service.followStatusRuns(store)
+        #expect(follower?.watchedCount == 3)
+        frames.frame()
+        let before = service.statusRunVisits
+        if release { follower = nil } else { follower?.cancel() }
+        for index in 1...3 { try Self.setStatus(index, text: "building", in: store) }
+        frames.frame()
+        frames.frame()
+        #expect(service.statusRunVisits == before, "a stopped follower still read \(service.statusRunVisits - before) statuses")
+        withExtendedLifetime(follower) {}
+    }
+
+    /// Each follower keeps its own store's watches: following a second store does not drop the
+    /// first store's workspaces as leavers.
+    @Test func twoStoresKeepTheirOwnWatches() throws {
+        let first = try Self.store(3)
+        let second = try Self.store(2)
+        let frames = NotificationFrames()
+        let service = frames.service()
+        let firstFollower = service.followStatusRuns(first)
+        let secondFollower = service.followStatusRuns(second)
+        #expect(firstFollower.watchedCount == 3 && secondFollower.watchedCount == 2)
+        frames.frame()
+        let before = service.statusRunVisits
+        try Self.setStatus(2, text: "building", in: first)
+        frames.frame()
+        #expect(service.statusRunVisits == before + 1, "the first store's change was not seen")
+        withExtendedLifetime((firstFollower, secondFollower)) {}
+    }
+}
+
+@MainActor
+private final class StatusFollowInput: InputPendingSource {
+    var pending = false
+    func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
 }

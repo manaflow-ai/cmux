@@ -4,6 +4,7 @@ import CmuxNextFileGrid
 import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextScreenshots
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -34,7 +35,7 @@ final class ScreenshotsPageTab: BrowserTab {
     @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, model: ScreenshotsModel, cache: ThumbnailCache,
-         workspace: any ScreenshotsWorkspace, files: any FileOperating) {
+         workspace: any ScreenshotsWorkspace, files: any FileOperating, mainWork: MainWorkScheduler) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -42,7 +43,7 @@ final class ScreenshotsPageTab: BrowserTab {
         state.phase = .finished
         self.state = state
         self.model = model
-        view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files)
+        view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files, mainWork: mainWork)
     }
 
     func load(_ url: URL) {

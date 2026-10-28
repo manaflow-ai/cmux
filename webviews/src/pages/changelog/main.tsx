@@ -3,6 +3,7 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { holdFirstPaint } from "../shared/paintGate";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
@@ -10,7 +11,7 @@ import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { routeChipHost } from "./ChangePullRequest";
 import { MockChangelogProvider } from "./mockProvider";
-import { ChangelogStore, parseDesign, parseSpan } from "./store";
+import { CHANGELOG_PAGE, ChangelogStore, parseDesign, parseSpan } from "./store";
 import { mountUpdateSurface, parseSurface } from "./surface";
 import "../shared/pageBase.css";
 // The enlarged picture is a ui/Dialog, and a pull request's hover card a ui/Tooltip card with an
@@ -19,7 +20,10 @@ import "../../ui/ui.css";
 import "./styles.css";
 
 export function mountChangelogPage(root: HTMLElement, client: PageClient | null = defaultClient()): ChangelogStore {
+  // Before the route is read: a restored document shows the span it had moved on to.
+  const state = openPageState(client, CHANGELOG_PAGE);
   const store = new ChangelogStore(client);
+  state.keep(() => store.pageInputs());
   routeChipHost(client);
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;

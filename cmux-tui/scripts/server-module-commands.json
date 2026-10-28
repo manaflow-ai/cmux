@@ -82,6 +82,15 @@
     },
     "client_hello": {
       "literals": {
+        "bridge-hello": {
+          "fields": {
+            "features": {
+              "type": "Vec<String>",
+              "presence": "required"
+            }
+          },
+          "handler": "observe"
+        },
         "client-hello": {
           "fields": {
             "role": {
@@ -98,6 +107,10 @@
             },
             "proof": {
               "type": "String",
+              "presence": "optional"
+            },
+            "features": {
+              "type": "Option<HelloFeatures>",
               "presence": "optional"
             }
           },

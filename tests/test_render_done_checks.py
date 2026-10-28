@@ -233,12 +233,24 @@ class FrameClients(FixtureTree):
         """)
         code, out = self.run_main("--frameclients")
         self.assertEqual(code, 1)
-        self.assertIn("query: rg -n 'FrameClient\\(owner:'", out)
+        self.assertIn("query: rg -n '\\bFrameClient\\(owner:'", out)
         self.assertIn(": 3 (threshold 0)", out)
         for owner in ("release.branch", "tabs.unmarked", "app.release"):
             self.assertIn(owner, out)
         for owner in ("debug.frames", "debug.nested", "tabs.autoscroll", "tabs.hold"):
             self.assertNotIn(owner, out)
+
+    def test_a_doc_comment_and_a_factory_name_are_not_sites(self):
+        self.src("CmuxNextWakeups/Batch.swift", """
+            /// batch (`FrameClient(owner:budgeted:on:onFrame:)`) runs as
+            func makeFrameClient(owner: String) -> FrameClient { fatalError() }
+            let link = ghost.makeFrameClient(owner: "drag") { _ in true }
+            let made = FrameClient(owner: owner) { _ in true }
+        """)
+        code, out = self.run_main("--frameclients")
+        self.assertEqual(code, 1)
+        self.assertIn(": 1 (threshold 0)", out)
+        self.assertIn("let made = FrameClient(owner: owner)", out)
 
     def test_no_unmarked_site_exits_0(self):
         self.src("A.swift", "#if DEBUG\nlet p = FrameClient(owner: \"p\") { _ in true }\n#endif\n")

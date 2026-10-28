@@ -1,0 +1,30 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
+import Darwin
+import Foundation
+
+/// A started host: its pid and the wire the supervisor hands out.
+nonisolated struct ChromiumHostSpawn: Sendable {
+    var pid: pid_t
+    var attachment: ChromiumHostAttachment
+    /// Its Chromium log (`--log-file`), whose end its crash record keeps; nil when it logs to none.
+    var logFile: URL?
+    /// The version its Chromium framework's Info.plist names (``ChromiumHostLaunchPlan/cefVersion``).
+    var cefVersion: String?
+}
+
+/// Starts and ends the supervisor's hosts; a seam so tests start a stand-in.
+nonisolated protocol ChromiumHostSpawning: Sendable {
+    /// Starts a host off the main thread and returns its pid and wire.
+    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn
+    /// Watches `pid` off the main thread (``ChromiumHostLaunching/exit(of:)``: it stays a zombie, not reaped) and runs
+    /// `ended` with its exit on the main thread, posted in a stated class, with the last lines of `log`
+    /// (``ChromiumHostCrashRecord/logTail(of:)``) when the exit is not clean. The lines are read off the main thread
+    /// before the end is posted: the next host starts only after the end, and its Chromium writes the same log.
+    func watchExit(of pid: pid_t, log: URL?, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit, [String]) -> Void)
+    /// Reaps an ended `pid`.
+    func reap(_ pid: pid_t)
+    /// SIGKILL to `pid`, a host this spawner started and nobody reaped yet.
+    func kill(_ pid: pid_t)
+}
+#endif

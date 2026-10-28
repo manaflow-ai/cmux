@@ -28,11 +28,12 @@ extension PageWebView {
 
     /// Keeps the frame the page last showed. The page lifecycle calls it in the turn the page hides,
     /// before the engine is told the page is hidden (a hidden page draws no frame to picture) and before
-    /// any freeze. Chromium copies its surface with no DevTools agent and encodes it on its thread pool.
+    /// any freeze. Chromium copies its surface with no DevTools agent and encodes it on its thread pool;
+    /// its answer is base64 text, which `encoder` decodes to the PNG at once off the main thread.
     /// WebKit hands over its last frame (`afterScreenUpdates` off: the page is leaving the screen), which
     /// `encoder` encodes at once off the main thread. Makes no call into the page.
     ///
-    /// - Parameter encoder: Encodes a WebKit frame (a Chromium copy comes encoded).
+    /// - Parameter encoder: Encodes a WebKit frame and unpacks a Chromium copy.
     func keepHideSnapshot(encoder: PageSnapshotEncoder) {
         let size = snapshotPixelSize
         // A Chromium page on its way has no engine view and drew nothing.
@@ -41,7 +42,7 @@ extension PageWebView {
         let capture = hideState.beginCapture()
         if let session = chromiumSession {
             session.page.copySurface(maxPixelSize: size) { [weak self] copy in
-                self?.hideState.captured(capture, encoded: copy)
+                self?.hideState.captured(capture, copy: copy, encoder: encoder)
             }
             return
         }
@@ -88,9 +89,10 @@ package final class PageHideState {
         case empty
         /// Asked of the engine at the hide, not answered yet.
         case capturing
-        /// WebKit's frame, being encoded off the main thread (``PageSnapshotEncoder``).
+        /// WebKit's frame being encoded, or Chromium's copy being unpacked from base64, off the main
+        /// thread (``PageSnapshotEncoder``).
         case encoding
-        /// Encoded: what a hidden or discarded page keeps (Chromium's copy comes encoded).
+        /// Encoded: what a hidden or discarded page keeps.
         case encoded(PageEncodedSnapshot)
     }
 
@@ -139,7 +141,17 @@ package final class PageHideState {
         encoder.encode(frame) { [weak self] snapshot in self?.encodeDidFinish(capture, snapshot) }
     }
 
-    /// Chromium answered `capture` with its encoded copy (nil: none).
+    /// Chromium answered `capture` with its surface copy (nil: none). `encoder` unpacks its base64 now, off
+    /// the main thread (a full window is megabytes of text); the state keeps only the PNG.
+    package func captured(_ capture: Generation, copy: PageSurfaceCopy?, encoder: PageSnapshotEncoder) {
+        guard isAwaited(capture) else { return }
+        picture = copy == nil ? .empty : .encoding
+        answerFrameWaiters(nil)
+        guard let copy else { return }
+        encoder.unpack(copy) { [weak self] snapshot in self?.encodeDidFinish(capture, snapshot) }
+    }
+
+    /// `capture` came back already encoded (nil: none).
     package func captured(_ capture: Generation, encoded: PageEncodedSnapshot?) {
         guard isAwaited(capture) else { return }
         picture = encoded.map(Picture.encoded) ?? .empty
@@ -210,6 +222,7 @@ package nonisolated struct PageSnapshotEncoder: Sendable {
 
     private let start: @MainActor @Sendable (CGImage, @escaping Done) -> Void
     private let startDecode: @MainActor @Sendable (PageEncodedSnapshot, @escaping Decoded) -> Void
+    private let startUnpack: @MainActor @Sendable (PageSurfaceCopy, @escaping Done) -> Void
 
     /// The app's encoder.
     ///
@@ -231,14 +244,22 @@ package nonisolated struct PageSnapshotEncoder: Sendable {
             work.run(.bestEffort, mayBlock: .cpu) { blockingImageDecode(snapshot.data) }
                 .reply(on: mainWork, class: .background, owner: "webui.snapshot.decode") { done($0) }
         }
+        startUnpack = { copy, done in
+            // task-owner: BackgroundWork's `.cpu` lane runs the base64 decode at .bestEffort; quit skips it (a page
+            // hidden at quit needs no picture) and its reply, a posted main task, then never runs.
+            work.run(.bestEffort, mayBlock: .cpu) { copy.encoded() }
+                .reply(on: mainWork, class: .background, owner: "webui.snapshot.unpack") { done($0) }
+        }
     }
 
-    /// An encoder that runs `start`, and `decode` for a discarded page's cover (tests). The default
-    /// decode gives no picture.
+    /// An encoder that runs `start`, `decode` for a discarded page's cover and `unpack` for a Chromium copy
+    /// (tests). The default decode gives no picture; the default unpack decodes in the caller's turn.
     package init(start: @escaping @MainActor @Sendable (CGImage, @escaping Done) -> Void,
-                 decode: @escaping @MainActor @Sendable (PageEncodedSnapshot, @escaping Decoded) -> Void = { _, done in done(nil) }) {
+                 decode: @escaping @MainActor @Sendable (PageEncodedSnapshot, @escaping Decoded) -> Void = { _, done in done(nil) },
+                 unpack: @escaping @MainActor @Sendable (PageSurfaceCopy, @escaping Done) -> Void = { copy, done in done(copy.encoded()) }) {
         self.start = start
         startDecode = decode
+        startUnpack = unpack
     }
 
     /// Encodes `image`; `done` gets the result on the main actor.
@@ -251,6 +272,12 @@ package nonisolated struct PageSnapshotEncoder: Sendable {
     @MainActor
     package func decode(_ snapshot: PageEncodedSnapshot, done: @escaping Decoded) {
         startDecode(snapshot, done)
+    }
+
+    /// Unpacks a Chromium surface copy from base64 to its PNG; `done` gets it on the main actor.
+    @MainActor
+    package func unpack(_ copy: PageSurfaceCopy, done: @escaping Done) {
+        startUnpack(copy, done)
     }
 
     /// `image` as PNG, alpha kept (a page is transparent over its pane's backdrop), encoded in memory

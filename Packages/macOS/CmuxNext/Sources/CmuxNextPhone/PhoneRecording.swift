@@ -50,7 +50,27 @@ public struct PhoneRecording: Sendable, Hashable, Codable, Identifiable {
         poster = try values.decodeIfPresent(String.self, forKey: .poster)
         events = try values.decode([PhoneRecordingEvent].self, forKey: .events)
         notes = try values.decode(String.self, forKey: .notes)
+        // decode-trap-allow: a dictionary lookup (nil when absent), not an index into input bytes
         folder = (CodingUserInfoKey.phoneRecordingFolder.flatMap { decoder.userInfo[$0] } as? URL) ?? URL(fileURLWithPath: "/")
+        // A manifest is a file on disk: a time or point no recording can have is refused here, at the boundary,
+        // so the feedback summary's whole-number conversions (PhoneFeedbackClip) only ever see values that fit.
+        guard Self.isPlausible(duration), events.allSatisfy(Self.isPlausibleEvent) else {
+            throw DecodingError.dataCorruptedError(forKey: .events, in: values,
+                                                   debugDescription: "a time or point past \(Self.maxMagnitude)")
+        }
+    }
+
+    /// The largest time (seconds) or coordinate (points) a manifest may hold: far past any recording or screen,
+    /// and small enough that `Int((value * 10).rounded())` is exact.
+    static let maxMagnitude = 1e9
+
+    /// False for NaN and the infinities too (`abs` of either is never `<=` a finite bound).
+    static func isPlausible(_ value: Double) -> Bool {
+        abs(value) <= maxMagnitude
+    }
+
+    private static func isPlausibleEvent(_ event: PhoneRecordingEvent) -> Bool {
+        isPlausible(event.at) && [event.point, event.to].allSatisfy { $0?.isPlausible ?? true }
     }
 }
 

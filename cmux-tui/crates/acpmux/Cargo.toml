@@ -16,6 +16,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+# The agent tool relay (src/mcp_relay.rs): std and serde_json only, under 1 MB.
+[[bin]]
+name = "acpmux-mcp-relay"
+path = "src/mcp_relay_main.rs"
+
 [lints.rust]
 # The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
@@ -23,6 +28,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
 [features]
 # The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
 cmux-stability = ["cmux-blocking/cmux-stability"]
+# Crash injectors for the fleet's crash matrix (`_acpmux/debug_panic`,
+# src/debug_crash_inject.rs): code behind cfg(any(debug_assertions,
+# feature = "bench")), so release builds never have it. Off by default.
+bench = []
 
 [dependencies]
 cmux-blocking.workspace = true
@@ -42,8 +51,13 @@ anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
+# The daemon's blocking-pool items and sync threads are hang-watched (p09-observability-074).
+cmux-hang-watch.workspace = true
 # The launchd process-roles table (units::LaunchdJob) for the daemon's agent plist.
 cmux-server-core.workspace = true
+# Background priority of pooled agents and of the idle daemon (hub/pool, daemon_lifecycle.rs);
+# already in the graph through cmux-features' sources.
+cmux-tui-platform.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"

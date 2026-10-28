@@ -774,7 +774,7 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 | 043 | Settings broadcasts → AppearanceSignals | M | 021, 025 | Q4 |
 | 044 | Ghostty configRevision (PL-ghostty) | S | 025 | Q4 |
 | 045 | Sidebar doc and favicon broadcasts → direct (a590) | S | — | Q4 |
-| 046 | Child-page geometry registry (PL-motion-cef; skip if F1 removed it) | M | — | Q4 |
+| 046 | Child-page geometry registry (PL-motion-cef; skip if F1 removed it) [partial] | M | — | Q4 |
 | 047 | Hidden windows stop visibleOnly frame clients | S | 022 | — |
 | 048 | CEF pump on the board, attribution only, never deferred while focused | S | 009 | — |
 | 049 | Launch: classify the AppServices/AppDelegate starts | M | 007, 026 | — |
@@ -1476,6 +1476,13 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   dirty-set registry. Skip if F1 layer hosting has already deleted the child windows.
 - Acceptance: 2 fewer names; moving 1 of 10 hosts → 1 post.
 - Test phase: fleet CEF host tests; pane-perf.sh.
+- Status: partial (cp/p06-scheduler-046). The per-window `ChildPageGeometryRegistry` replaced
+  `browserChildWindowPagesNeedUpdate` (by then the `BrowserPageUpdates` notification): one registry per window, kept
+  on the window as `WindowEvents` is, reached through `NSWindow.updateBrowserPageGeometry(force:)`; moving 1 of 10
+  hosts gives 1 post. `geometryDidChange` stays: the fork's
+  `CmuxParentViewTracker` observes it, so p11-codebase-051 needs a fork call first. No dirty set: every request
+  visits every page of the window, since a pane move does not reach the views in it and the layout does not name
+  the panes it moved.
 
 **p06-scheduler-047: Hidden windows stop non-essential frame clients.**
 - Files: `CmuxNextWakeups/FrameClient.swift`, `FrameScheduler.swift`,
@@ -1986,3 +1993,23 @@ fixer checked the claim in the code at 772cdfc45ac.
 | Original 111 (Compat observers) | Merged into FG340. |
 | Original 135 and 136 (Q10, Q11) | Merged into the FG sweeps with R-wait and R-index; 051 is kept. |
 | Original 151 | Replaced by 230 (STRESS already exists). |
+
+## 10. Deep review of the landed range (task 161)
+
+Range: the p06-scheduler commits on perf/chrome-parity at bd61faade91. The repo workflow
+`.claude/workflows/cmux-next-deep-review.js` reads and lands only feat-cmux-next, so its lenses
+(correctness, root cause, concurrency, guards, completeness, platform) were applied by hand, with
+the six lenses of task 161. Each row is a fix with its regression test, or the evidence that
+refutes it.
+
+| Lens | Disposition |
+|---|---|
+| Lost updates on show: deferred view work and `whenVisible` events skipped a capture | Fixed in 161. `deferUntilVisible`, `NotificationFanOut` (WindowEvents, AppEvents) and `AppearanceSignals` read `isVisible`, while view observations, frame clients and node queues follow `wantsFrames`. A stay-hidden capture vote (an agent's screenshot or screencast of a hidden tab, screen share) drew views whose recolor, bar reload or missed event had not run. They now follow `wantsFrames`, so the work runs in the vote's turn, as Chromium paints a captured hidden WebContents (`WebContents::IncrementCapturerCount`). Tests: `VisibilityCaptureVoteTests.aVotedHiddenNodeRunsItsDeferredViewWork`, `WindowEventsTests.aCapturedHiddenSubscriberHearsPostsWhileTheVoteHolds`, `AppearanceSignalsTests.aCapturedHiddenSubscriberIsCurrentForTheCapture`. |
+| Side effects lost while hidden | Refuted. The 29 `VisibleObservation` adopters apply only to views and view models. The one deferred engine write, `WebKitTab.progressDidChange`, feeds only the progress bar (`BrowserTabStateMachine` keeps the maximum, and load start, finish and failure arrive as their own events). |
+| Daemon admission bound | Refuted. The 14 `signaled_mutex_class` tests pass (admit gap at most 4 ms, 32 automation threads against 1 frontend on the three locks, the stress run has no deadlock). The rank boost is taken before the admission on all three locks (`SignaledMutex::lock`, the state lock, `RegistryConnection::get_at` and `pin`), so a reserved automation caller that a frontend waits behind runs raised. A caller that holds a rank never waits on the gate. |
+| QoS inversion | Refuted. `LockBoost` raises before the wait and holds until release; a `WorkQos` entered under a boost changes nothing. `cmux-tui-platform` qos (9) and `cmux-threads` qos (7) tests pass. |
+| Waiter timeouts | Refuted. Every `KeyedWaiters` wait has a `.flexible` deadline on the one wake-up queue (rule 6), resumes once and is dropped on cancel. `StoreWaiters` `.loaded` is touched inside the snapshot apply and settled by the publish that ends `withOverlayLifted`; `.connection` settles in its `didSet`. |
+| macOS 14 tracking path | Refuted in code: one `withObservationTracking` path on every macOS, no `#available` branch in the observation types, and the cancel signal drops an armed tracking the same way on 14. The Tart 14 and 15 function run belongs to task 160 (not run). |
+| Class choice (no person change behind automation) | Refuted for the landed range: `ActionOrigin.user` is person, every other origin automation; a completion outside a run is a direct gesture (`ActionCompletion`). Open, not a defect of the range: page-relay requests (Home composer, agent pane) stay automation until task 231 lands. |
+| Cause never used for authorization | Refuted. Rust: `EventCause` is read by the event bus, emit, diagnostics, request QoS and the threads that carry it; `origin_gate`, `app_trust` and the remote relay read the origin, and an envelope's origin claim and `priority` only narrow the cause. Swift: `ObservationCause` is read by scheduling code only; `PageRelayChannel` decides the user claim from the relay context and the gesture, not the cause. |
+| Outside p06 (routed to p02-threads) | On Linux debug at bd61faade91, 10 cmux-tui-core tests fail because the blocking checks panic on sqlite and condvar calls on `surface-N-reader`, `mux-control-dispatch` and `mux-line-out`: `event_cause_of_an_osc_title_is_program`, 2 `connection_qos` tests and 7 `origin_gate` `mutation_actor::legacy` tests. The panics are in `surface/directory.rs`, `cmd_server.rs`, `cmd_frontend.rs` and `bounded_outbound.rs`, not in p06 code. |

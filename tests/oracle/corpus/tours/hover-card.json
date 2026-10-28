@@ -1,0 +1,335 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "hover-card",
+  "suite": "tours",
+  "title": "Tour: Hover cards",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "tours-hover-card-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
+  ],
+  "requires": [
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "setup-01-appearance-theme",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "appearance.theme",
+          "Soft Blue"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "the tour launches with this setting; case-v1 has no launch config"
+    },
+    {
+      "id": "01-launch",
+      "op": "snapshot",
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "02-session-cards-dark",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.hover_cards",
+          "{\"gallery\":\"sidebar\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "03-session-cards-light",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "appearance.theme",
+          "Soft Blue Light"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "04-session-cards-light-over-art",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "appearance.background",
+          "hokusai-great-wave"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "05-session-cards-dark-over-art",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "appearance.theme",
+          "Soft Blue"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "06-tab-cards-dark-over-art",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.hover_cards",
+          "{\"gallery\":\"tabs\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "07-tab-cards-light-over-art",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "appearance.theme",
+          "Soft Blue Light"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "08-tab-cards-light",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "unset",
+          "appearance.background"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "09-tab-cards-dark",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "appearance.theme",
+          "Soft Blue"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "10-close-the-gallery",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.hover_cards",
+          "{\"gallery\":\"none\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "11-new-workspace",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "workspace",
+          "new",
+          "--name",
+          "Make the hover cards look like Codex's"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "12-a-real-workspace-card-dark",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "action",
+          "run",
+          "workspace.showResources"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/overlays/hoverCard/target",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    }
+  ],
+  "invariants": [
+    "each step's settled snapshot is the model state of the tour's picture of that step",
+    "no step waits on a clock: each ends on its waitFor value or the settle barrier"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone"
+  ],
+  "untested": [
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+  ]
+}

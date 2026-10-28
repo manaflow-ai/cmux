@@ -162,8 +162,7 @@ final class TooltipPanel: NSPanel {
         surface.frame = NSRect(x: Self.margin, y: Self.margin, width: width, height: height)
         glass.frame = surface.bounds
         legibility.frame = surface.bounds
-        surface.layer?.shadowPath = CGPath(roundedRect: surface.bounds, cornerWidth: Self.radius, cornerHeight: Self.radius,
-                                           transform: nil)
+        surface.layer?.shadowPath = CGPath.roundedRect(surface.bounds, cornerWidth: Self.radius, cornerHeight: Self.radius)
         configureSurfaceShadow()
     }
 

@@ -173,18 +173,18 @@ extension ScreenContentView {
     // MARK: Visibility
 
     /// Records how far the strip can pan from where it shows before a pane enters or leaves the
-    /// viewport or the keep-alive band (`LayoutRootView.updateVisibility`, after each pass).
-    func recordVisibilitySpan() {
-        let shift = stripShift
-        let frames = paneFrames.compactMap { pane, frame -> CGRect? in
-            geometry.scrolls(pane: pane) ? displayedRect(frame.rect, pane: pane) : nil
-        }
-        visibilitySpan = (shift, PanVisibilitySpan(frames: frames, rects: [uncoveredRect, bounds.insetBy(dx: -bounds.width, dy: 0)]))
+    /// viewport or the keep-alive band (`LayoutRootView.updateVisibility`, after each pass), from the
+    /// strip panes' `sweeps`, the rects that pass read (``displayedSweeps()``).
+    func recordVisibilitySpan(_ sweeps: [PaneID: CGRect]) {
+        let frames = sweeps.compactMap { pane, sweep -> CGRect? in geometry.scrolls(pane: pane) ? sweep : nil }
+        visibilitySpan = (stripShift, PanVisibilitySpan(frames: frames, rects: [uncoveredRect, bounds.insetBy(dx: -bounds.width, dy: 0)]))
     }
 
-    /// Whether the strip panned within the recorded span: the visibility pass would report nothing.
+    /// Whether the strip panned within the recorded span: the visibility pass would report nothing. Never
+    /// while a spring moves frames, a camera or a render-server spring under the span: each pan event then
+    /// runs the pass.
     var panKeepsVisibility: Bool {
-        guard let visibilitySpan, stripContainer.fling == nil else { return false }
+        guard let visibilitySpan, stripContainer.fling == nil, renderTracks.panes.isEmpty, !hasMotion else { return false }
         return visibilitySpan.span.contains(stripShift - visibilitySpan.shift)
     }
 }

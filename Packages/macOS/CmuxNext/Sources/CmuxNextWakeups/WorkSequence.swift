@@ -36,6 +36,7 @@ extension BackgroundWork {
 /// let text = try await saves.run(.userBlocking) { try String(contentsOf: url) }  // after the save
 /// ```
 public final class WorkSequence: Sendable, CustomStringConvertible {
+    /// The sequence's name, in its items' records.
     public let label: String
     /// The lane every item runs on.
     public let lane: BlockingLane

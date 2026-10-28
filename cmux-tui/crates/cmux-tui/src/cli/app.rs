@@ -861,8 +861,8 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
         return Ok(path.clone());
     }
     let exe = std::env::current_exe().ok();
-    let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let identity = AppIdentity::detect(super::caller_env::var, exe.as_deref());
+    let home = super::caller_env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let Some(flag) = explicit_daemon_route(global) else {
         return identity
             .map(|identity| identity.control_socket(&home))
@@ -888,7 +888,7 @@ fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
     if global.session.is_some() {
         return Some("--session");
     }
-    let set = |key: &str| std::env::var(key).is_ok_and(|value| !value.trim().is_empty());
+    let set = |key: &str| super::caller_env::var(key).is_some_and(|value| !value.trim().is_empty());
     if set("CMUX_SOCKET_PATH") {
         return None;
     }
@@ -902,7 +902,7 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
         let canonical =
-            |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+            |path: &Path| cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
         // Two spellings of one socket (`/var` is `/private/var` on macOS).
         return own == daemon || canonical(&own) == canonical(daemon);
     }
@@ -996,7 +996,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
     if !takes_caller(method) {
         return (params, false);
     }
-    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
+    let Some(caller) = caller_from(super::caller_env::var) else { return (params, false) };
     if method == "browser.open_split" && caller.get("agent_session").is_none() {
         return (params, false);
     }

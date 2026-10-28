@@ -17,10 +17,17 @@ pub struct MuxBinding {
 impl MuxBinding {
     pub fn new(mux_socket: &Path, link_socket: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            mux_socket: std::fs::canonicalize(mux_socket)
+            mux_socket: cmux_blocking::fs::canonicalize(mux_socket)
                 .or_else(|_| std::path::absolute(mux_socket))?,
             link_socket: std::path::absolute(link_socket)?,
         })
+    }
+
+    /// Whether both sockets resolve to the same files as `other`'s.
+    fn same_destination(&self, other: &Self) -> std::io::Result<bool> {
+        use cmux_blocking::fs::canonicalize;
+        Ok(canonicalize(&self.mux_socket)? == canonicalize(&other.mux_socket)?
+            && canonicalize(&self.link_socket)? == canonicalize(&other.link_socket)?)
     }
 }
 
@@ -53,9 +60,14 @@ pub async fn verify_mux_binding(
         serde_json::from_value(response.result.ok_or_else(|| {
             AdminError::Protocol("running sidecar omitted its mux binding".into())
         })?)?;
-    if std::fs::canonicalize(&binding.mux_socket)? != std::fs::canonicalize(expected_mux)?
-        || std::fs::canonicalize(&binding.link_socket)? != std::fs::canonicalize(expected_link)?
-    {
+    let expected = MuxBinding {
+        mux_socket: expected_mux.to_path_buf(),
+        link_socket: expected_link.to_path_buf(),
+    };
+    let same = cmux_blocking::spawn_blocking(move || binding.same_destination(&expected))
+        .await
+        .map_err(std::io::Error::other)??;
+    if !same {
         return Err(AdminError::Protocol(
             "running sidecar serves a different mux destination".into(),
         ));

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import QuartzCore
@@ -191,6 +192,15 @@ final class SidebarLagBench {
         let sorted = values.sorted()
         guard !sorted.isEmpty else { return 0 }
         return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
+    }
+
+    /// Writes each frame's main-thread CPU and configured rows as result-v1 when CMUX_PERF_RESULT_DIR is set
+    /// (lab story swift-sidebar-lag).
+    static func record(_ scenario: Scenario, _ count: Int, _ frames: [Frame]) throws {
+        guard let results = try PerfResultWriter() else { return }
+        let name = "swift.sidebar_lag.\(scenario.rawValue).\(count)"
+        try results.record("\(name).cpu", unit: .ms, samples: frames.map(\.cpuMs))
+        try results.record("\(name).configures", unit: .count, samples: frames.map(\.configures))
     }
 
     static func summary(_ scenario: Scenario, _ count: Int, _ frames: [Frame]) -> String {

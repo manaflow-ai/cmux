@@ -84,7 +84,7 @@ nonisolated struct CloseSizing {
         guard case let .split(_, _, _, a, b) = node else { return nil }
         path.append(node)
         if let found = Self.node(in: a, panes: panes, path: &path) ?? Self.node(in: b, panes: panes, path: &path) { return found }
-        path.removeLast()
+        _ = path.popLast()
         return nil
     }
 }

@@ -86,19 +86,55 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public static let groupKind = "group"
 
     public init(rows: [SidebarDocRow], records: SidebarDocRecords, revision: UInt64) {
-        var sections: [LayoutSection] = []
-        var machines = SidebarDocMachineNodes()
-        var items: [SidebarDocWorkspaceRef: String] = [:]
-        var machineSections: [String: String] = [:]
-        var unplaced: [SidebarDocWorkspaceRef] = []
-        var placedList = false
-        var sectionIndex: [String: Int] = [:]
-        var bandGroups: [Group] = []
-        var machineOrder: [String] = []
-        var archivedItems: Set<String> = []
+        var builder = Builder(records: records, revision: revision)
+        for row in rows { builder.add(row) }
+        self.init(builder)
+    }
 
-        for row in rows {
-            if row.archived, let id = row.item { archivedItems.insert(id) }
+    /// The projection `built` holds once it took every row.
+    fileprivate init(_ built: Builder) {
+        var sections = built.sections
+        if !built.placedList {
+            sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
+        }
+        layout = SidebarLayoutDocument(revision: built.revision, sections: sections)
+        machines = built.machines.nodes()
+        items = built.items
+        machineSections = built.machineSections
+        machineOrder = built.machineOrder
+        unplaced = built.unplaced
+        bandGroups = built.bandGroups
+        archived = built.archived
+        hostGroups = Set(built.records.sections.values.filter(\.hostGroup).map(\.id))
+    }
+
+    /// A projection taken a row at a time, in the reducer's order, so a large document can be projected across frames
+    /// (`SidebarDocStore.showInChunks(on:)`); ``projection()`` is the same value ``init(rows:records:revision:)`` makes.
+    nonisolated struct Builder {
+        fileprivate let records: SidebarDocRecords
+        fileprivate let revision: UInt64
+        fileprivate var sections: [LayoutSection] = []
+        fileprivate var machines = SidebarDocMachineNodes()
+        fileprivate var items: [SidebarDocWorkspaceRef: String] = [:]
+        fileprivate var machineSections: [String: String] = [:]
+        fileprivate var unplaced: [SidebarDocWorkspaceRef] = []
+        fileprivate var placedList = false
+        fileprivate var sectionIndex: [String: Int] = [:]
+        fileprivate var bandGroups: [Group] = []
+        fileprivate var machineOrder: [String] = []
+        fileprivate var archived: Set<String> = []
+
+        init(records: SidebarDocRecords, revision: UInt64) {
+            self.records = records
+            self.revision = revision
+        }
+
+        /// The projection of the rows taken so far.
+        func projection() -> SidebarDocProjection { SidebarDocProjection(self) }
+
+        /// Takes the reducer's next row.
+        mutating func add(_ row: SidebarDocRow) {
+            if row.archived, let id = row.item { archived.insert(id) }
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
             let record = records.sections[row.section]
                 ?? SidebarDocSection(id: row.section, kind: .machine(session: row.ref?.sessionID ?? SidebarDocWire.Section.session(fromID: row.section)))
@@ -115,14 +151,14 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                     sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list,
                                                   arrangement: spacing, content: .workspaces))
                 }
-                Self.place(row, session: session, records: records, into: &machines, items: &items, unplaced: &unplaced)
-                continue
+                SidebarDocProjection.place(row, session: session, records: records, into: &machines, items: &items, unplaced: &unplaced)
+                return
             }
             if sectionIndex[record.id] == nil {
                 sectionIndex[record.id] = sections.count
-                sections.append(Self.section(record))
+                sections.append(SidebarDocProjection.section(record))
             }
-            guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
+            guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { return }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
             if case let .group(name, color, icon, collapsed) = item.body {
                 // A nested group (remote-groups-DESIGN.md R1) lists after its parent, with its own members.
@@ -135,21 +171,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                       let at = bandGroups.lastIndex(where: { $0.id == parent }) {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
             } else if row.depth == 0 {
-                sections[index].items.append(Self.layoutItem(item))
+                sections[index].items.append(SidebarDocProjection.layoutItem(item))
             }
         }
-        if !placedList {
-            sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
-        }
-        layout = SidebarLayoutDocument(revision: revision, sections: sections)
-        self.machines = machines.nodes()
-        self.items = items
-        self.machineSections = machineSections
-        self.machineOrder = machineOrder
-        self.unplaced = unplaced
-        self.bandGroups = bandGroups
-        archived = archivedItems
-        hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout SidebarDocMachineNodes,
@@ -257,20 +281,35 @@ extension SidebarDocStore {
     /// placed workspace of one of them that left the live set while its
     /// machine stayed connected closed there: the client sends `close` for
     /// it (the home daemon closes its own machine's workspaces itself).
-    public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
+    /// `then` gets `shown` once it shows `live`: now, or after the last chunk when the store shows in chunks
+    /// (`showInChunks(on:)`), where a show replaced by a newer one before it showed never calls it.
+    public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = [],
+                     then: (@MainActor (SidebarDocProjection?) -> Void)? = nil) {
+        if let showChunks, queueShow(SidebarDocShowChunks.Ask(live: live, connectedRemotes: connectedRemotes, then: then), on: showChunks) {
+            return
+        }
+        showProjection(projection(live: live), at: version, live: live, connectedRemotes: connectedRemotes)
+        then?(shown)
+    }
+
+    /// Shows `next`, the projection of the document at `version` over `live` (`show(live:connectedRemotes:then:)`).
+    func showProjection(_ next: SidebarDocProjection?, at version: UInt64, live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String>) {
         let previous = shown
-        let next = projection(live: live)
         shownVersion = version
         if next != shown { shown = next }
         if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
         let now = Set(live)
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
-        let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
+        // Placed as last shown, or in the confirmed document now: a chunked show skips the asks between two builds, so
+        // a workspace placed and closed meanwhile is in neither projection.
+        let closed = lastLive.subtracting(now).filter {
+            stillConnected.contains($0.sessionID) && (previous?.items[$0] != nil || records.item(for: $0) != nil)
+        }
         (lastLive, lastLiveOrder, lastConnectedRemotes) = (now, live, connectedRemotes)
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }
-        send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false)
+        send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false, byPerson: false)
     }
 
     /// The target that puts moved items where `index` (counted without

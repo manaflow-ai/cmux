@@ -24,9 +24,9 @@ pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Option<Option<Wor
         }));
     }
     // An unreadable .git file or disappearing folder must retain the previous record.
-    let dir = std::fs::canonicalize(cwd).ok()?;
+    let dir = cmux_blocking::fs::canonicalize(cwd).ok()?;
     for dir in dir.ancestors() {
-        match std::fs::symlink_metadata(dir.join(".git")) {
+        match cmux_blocking::fs::symlink_metadata(dir.join(".git")) {
             Ok(m) => return m.is_dir().then_some(None),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return None,
@@ -52,7 +52,8 @@ impl Hub {
             {
                 return Err(folder_missing(&meta));
             }
-            let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
+            let read =
+                crate::daemon::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
             if let Ok(Ok(Some(found))) = tokio::time::timeout(Duration::from_secs(2), read).await {
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = found;
                 self.save_meta(session);
@@ -95,7 +96,7 @@ impl Hub {
     async fn recorded_worktree_is_here(&self, cwd: &Path, origin: &WorktreeOrigin) -> bool {
         let expected = origin.clone();
         let cwd = cwd.to_owned();
-        tokio::task::spawn_blocking(move || {
+        crate::daemon::spawn_blocking(move || {
             matches!(
                 origin_of(&cwd, &GitState::read(&cwd)),
                 Some(Some(found))
@@ -126,7 +127,9 @@ fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
 }
 
 fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
-    if w.root.exists() || !w.common_dir.is_dir() {
+    if cmux_blocking::fs::metadata(&w.root).is_ok()
+        || !cmux_blocking::fs::metadata(&w.common_dir).is_ok_and(|m| m.is_dir())
+    {
         return Err("worktree root exists or repository is missing".into());
     }
     if w.branch.as_deref().is_some_and(|b| b.starts_with('-')) {

@@ -15,6 +15,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -231,6 +232,22 @@ class GapsTests(unittest.TestCase):
         self.assertEqual([(h["from"], h["to"], h["p50_ms"]) for h in hits],
                          [("main_start", "first_window_frame_committed", 190.0)])
 
+    def test_every_value_the_app_sends_is_a_value_mark(self):
+        """The value names the app sends (task 007's StartupCounterReader `*Name` constants, and the run loop's
+        page-ins of LaunchSlices) are VALUE_MARKS here and in bench-startup.py, so no count or CPU time lands on a
+        launch timeline as a time."""
+        sources = HERE.parent.parent / "Packages/macOS/CmuxNext/Sources"
+        counters = (sources / "CmuxNextLaunch/StartupCounterReader.swift").read_text()
+        slices = (sources / "CmuxNextSignposts/LaunchSlices+Mark.swift").read_text()
+        sent = set(re.findall(r'public static let \w+Name = "(launch\.[a-z_.]+)"', counters))
+        sent |= set(re.findall(r'public static let pageinsValueMark = "(launch\.[a-z_.]+)"', slices))
+        self.assertEqual(sent, {"launch.pageins_run_loop_start", "launch.pageins_first_frame", "launch.main_cpu_ms"})
+        spec = importlib.util.spec_from_file_location("bench_startup", HERE / "bench-startup.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        self.assertLessEqual(sent, sq.VALUE_MARKS)
+        self.assertLessEqual(sent, set(bench.VALUE_MARKS))
+
     def test_bad_input_is_an_input_error_not_a_hit(self):
         files = Files()
         for data in ({"t": "oops"}, {"t": {"warm": "x"}}, {"t": {"warm": [1, 2]}}, [1]):
@@ -335,6 +352,48 @@ class MainJobsTests(unittest.TestCase):
         code, _, err = run_cli(["mainjobs", path])
         self.assertEqual(code, 2)
         self.assertIn("no first_window_frame_committed, startup_complete mark", err)
+
+
+    def test_a_census_not_armed_or_without_its_hook_is_left_out(self):
+        job = [{"caller": "Home.start", "kind": "main_actor", "run_ms": 2, "enqueued_ms": 50}]
+        runs = sq.capture_runs([
+            census_run(main_job_census={"armed": False}),
+            census_run(main_job_census={"armed": True, "hook": "missing"}, main_jobs=[], main_turns=[]),
+            census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=job, main_turns=[])])
+        hits, warnings, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual((used, [h["caller"] for h in hits]), (1, ["Home.start"]))
+        self.assertIn("run 1: the main-job census was not armed (CMUX_NEXT_MAIN_JOB_CENSUS=1), left out", warnings)
+        self.assertIn("run 2: main-actor job hook missing, left out", warnings)
+
+    def test_a_full_census_ring_is_a_warning_not_a_refusal(self):
+        state = {"armed": True, "hook": "installed", "dropped_jobs": 12, "dropped_turns": 0}
+        runs = sq.capture_runs([census_run(main_job_census=state, main_jobs=[], main_turns=[])])
+        _, warnings, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual(used, 1)
+        self.assertEqual(warnings, ["run 1: the census ring was full: 12 jobs not recorded"])
+
+    def test_the_census_kinds_rank_as_enqueuers(self):
+        jobs = [{"caller": "LaunchWarmup.start()", "kind": "main_delivery", "priority": "utility", "run_ms": 1.5,
+                 "enqueued_ms": 40},
+                {"caller": "run_loop.wake", "kind": "run_loop_wake", "priority": None, "run_ms": 3, "enqueued_ms": 80}]
+        turns = [{"start_ms": 300, "duration_ms": 4, "task": None, "allowlisted": True, "site": "outside_run_loop",
+                  "jobs": 0, "job_ms": 0}]
+        runs = sq.capture_runs([census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=jobs,
+                                           main_turns=turns)])
+        hits, _, _ = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual([(h["kind"], h["caller"]) for h in hits],
+                         [("run_loop_wake", "run_loop.wake"), ("main_delivery", "LaunchWarmup.start()")])
+
+    def test_run_loop_block_posts_and_timer_fires_rank_by_their_enqueuer(self):
+        jobs = [{"caller": "Sidebar.reload()", "kind": "run_loop_block", "priority": "userInteractive", "run_ms": 0.1,
+                 "enqueued_ms": 10 + i} for i in range(5)]
+        jobs += [{"caller": "timer Feed.poll", "kind": "timer", "priority": "default", "run_ms": 2.5, "enqueued_ms": 90},
+                 {"caller": "timer Feed.poll", "kind": "main_actor", "priority": "default", "run_ms": 0.2, "enqueued_ms": 91}]
+        runs = sq.capture_runs([census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=jobs,
+                                           main_turns=[])])
+        hits, _, _ = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual([(h["kind"], h["caller"], h["p50_count"]) for h in hits],
+                         [("timer", "timer Feed.poll", 1), ("run_loop_block", "Sidebar.reload()", 5)])
 
 
 class GlobalJobsTests(unittest.TestCase):
@@ -473,6 +532,37 @@ class ArmsTests(unittest.TestCase):
         self.assertEqual([(h["owner"], h["runs"], h["p50_first_fire_ms"]) for h in doc["hits"]],
                          [("LaunchSettle", 2, 1150.0), ("FolderWatch", 1, None)])
 
+    def test_the_census_reply_is_read_as_the_app_sends_it(self):
+        # debug.startup.arms (task 085): one record per armed object, `count` arms before its first fire, the first
+        # fire also after completion, and the census summary.
+        arms = [{"kind": "timer", "owner": "ChromiumWarmup", "site": "CmuxNextChromiumWarmup/ChromiumWarmup.swift:88",
+                 "armed_ms": 412.3, "count": 3, "first_fire_ms": 3420.1},
+                {"kind": "main_deadline", "owner": "Sidebar.hover", "site": "CmuxNextSidebar/Hover.swift:12",
+                 "armed_ms": 650, "count": 1, "first_fire_ms": None},
+                {"kind": "watcher", "owner": "FolderChanges", "site": "CmuxNextDesign/BackdropCatalogStore.swift:67",
+                 "armed_ms": 701.5, "count": 1, "first_fire_ms": None},
+                {"kind": "timer", "owner": "Late.timer", "site": "Late.swift:4", "armed_ms": 950, "count": 1,
+                 "first_fire_ms": 960}]
+        state = {"armed": True, "closed": True, "dropped": 0, "capacity": 4096}
+        hits, warnings, used = sq.arms_hits(sq.capture_runs([census_run(arms=arms, arm_census=state)]),
+                                            "startup_complete")
+        self.assertEqual((used, warnings), (1, []))
+        self.assertEqual([(h["kind"], h["owner"], h["p50_first_fire_ms"], h["fired"], h["p50_arms_before_fire"])
+                          for h in hits],
+                         [("timer", "ChromiumWarmup", 3420.1, 1, 3), ("main_deadline", "Sidebar.hover", None, 0, 1),
+                          ("watcher", "FolderChanges", None, 0, 1)])
+        self.assertIn("3 arms before it", hits[0]["summary"])
+
+    def test_a_census_that_did_not_record_is_left_out(self):
+        runs = sq.capture_runs([census_run(arms=[], arm_census={"armed": False, "closed": False, "dropped": 0}),
+                                census_run(arms=[], arm_census={"armed": True, "closed": True, "dropped": 12}),
+                                census_run(arms=[])])
+        _, warnings, used = sq.arms_hits(runs, "startup_complete")
+        self.assertEqual(used, 2, "a full census still counts; a result with no summary is kept")
+        self.assertIn("run 1: the arm census was not armed", warnings[0])
+        self.assertIn("run 2: the census did not keep 12 arms past its capacity", warnings[1])
+        self.assertEqual(len(warnings), 2)
+
 
 class FleetGuardTests(unittest.TestCase):
     def test_a_mac_without_a_fleet_step_is_refused_before_anything_starts(self):
@@ -609,6 +699,30 @@ class CollectTests(unittest.TestCase):
             sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.startup")
         self.assertIn("CMUX_BENCH_HOOKS", err.getvalue())
 
+    def test_mainjobs_arms_the_census_and_merges_its_method_into_debug_startup(self):
+        census = {"main_job_census": {"armed": True, "hook": "installed"}, "main_jobs": [], "main_turns": []}
+
+        def reply(method):
+            if method == "debug.startup.main_jobs":
+                return {"ok": True, "result": census}
+            return {"ok": False, "error": {"code": "method_not_found"}}  # a build without task 008's method
+
+        bench = FakeBench(reply)
+        runs = sq.collect(bench, "/x/cmux DEV t1.app", 2, "warm", "startup_complete", 5, "debug.startup",
+                          extra_method=sq.MODE_METHOD["mainjobs"], extra_env=sq.MODE_ENV["mainjobs"])
+        self.assertEqual([r["result"] for r in runs], [census, census])
+        self.assertEqual({(env.get("CMUX_NEXT_MAIN_JOB_CENSUS"), env.get("CMUX_NEXT_NO_ACTIVATE"))
+                          for _, _, env in bench.launched}, {("1", "0")})
+        hits, _, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual((hits, used), ([], 2))
+
+    def test_the_census_method_is_required(self):
+        bench = FakeBench(lambda method: {"ok": False, "error": {"code": "method_not_found"}})
+        with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
+            sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.startup",
+                       extra_method="debug.startup.main_jobs")
+        self.assertIn("debug.startup.main_jobs", err.getvalue())
+
     def test_a_census_mode_arms_its_recorder_and_merges_its_method(self):
         # A build without debug.startup (task 008) still answers the census's own method.
         replies = {"debug.startup": {"ok": False, "error": {"code": "method_not_found"}},
@@ -621,6 +735,48 @@ class CollectTests(unittest.TestCase):
         self.assertEqual({env.get("CMUX_NEXT_GLOBAL_JOB_CENSUS") for _, _, env in bench.launched}, {"1"},
                          "the priming launch and the measured one")
         self.assertEqual({env.get("CMUX_NEXT_NO_ACTIVATE") for _, _, env in bench.launched}, {"0"})
+
+    def test_the_arms_mode_arms_its_census_and_merges_its_method(self):
+        census = {"arms": [], "arm_census": {"armed": True, "closed": True, "dropped": 0, "capacity": 4096}}
+        replies = {"debug.startup": {"ok": False, "error": {"code": "method_not_found"}},
+                   "debug.startup.arms": {"ok": True, "result": census}}
+        bench = FakeBench(lambda method: replies[method], daemon=False)
+        runs = sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, sq.method_of("arms"),
+                          extra_method=sq.MODE_METHOD["arms"], extra_env=sq.MODE_ENV["arms"])
+        self.assertEqual(runs[0]["result"], census)
+        self.assertEqual({env.get("CMUX_NEXT_ARM_CENSUS") for _, _, env in bench.launched}, {"1"},
+                         "the priming launch and the measured one")
+
+    def test_a_settle_window_runs_between_the_mark_and_the_census_read(self):
+        # The census writes first fires after completion: the read waits --settle-s past the mark, so a launch arm
+        # that first fires by +10 s is not reported as never firing.
+        events = []
+        census = {"arms": [], "arm_census": {"armed": True, "closed": True, "dropped": 0, "capacity": 4096}}
+
+        def reply(method):
+            events.append(("query", method))
+            return {"ok": True, "result": census} if method == "debug.startup.arms" else {"ok": False}
+
+        bench = FakeBench(reply)
+        sq.collect(bench, "/x/cmux DEV t1.app", 2, "warm", "startup_complete", 5, sq.method_of("arms"),
+                   extra_method=sq.MODE_METHOD["arms"], extra_env=sq.MODE_ENV["arms"], settle_s=10.0,
+                   sleep=lambda seconds: events.append(("settle", seconds)))
+        self.assertEqual(events, [("settle", 10.0), ("query", "debug.startup"), ("query", "debug.startup.arms")] * 2)
+
+    def test_arms_settles_ten_seconds_by_default_and_other_modes_do_not(self):
+        self.assertEqual(sq.settle_seconds(sq.parse(["arms", "--app", "/x/cmux DEV t.app"])), 10.0)
+        self.assertEqual(sq.settle_seconds(sq.parse(["arms", "--app", "/x/cmux DEV t.app", "--settle-s", "0"])), 0.0)
+        self.assertEqual(sq.settle_seconds(sq.parse(["globaljobs", "--app", "/x/cmux DEV t.app"])), 0.0)
+        self.assertEqual(sq.settle_seconds(sq.parse(["mainjobs", "--app", "/x/cmux DEV t.app", "--settle-s", "2.5"])), 2.5)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            sq.parse(["arms", "--app", "/x/cmux DEV t.app", "--settle-s", "-1"])
+
+    def test_no_settle_reads_at_the_mark(self):
+        slept = []
+        bench = FakeBench(lambda method: {"ok": True, "result": {"compiled_in": True, "sites": []}})
+        sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.blocking",
+                   sleep=slept.append)
+        self.assertEqual(slept, [])
 
     def test_a_missing_mark_names_until_mark(self):
         bench = FakeBench(lambda method: {"result": {}})

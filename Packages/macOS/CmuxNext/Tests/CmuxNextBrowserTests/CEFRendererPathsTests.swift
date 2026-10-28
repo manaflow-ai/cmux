@@ -147,6 +147,43 @@ import Testing
         #expect((tab.state.media != nil) == !cmuxPage, "media \(String(describing: tab.state.media))")
     }
 
+    /// p01-process-232: a cmux page's page host post reaches its tab's taker in the event's turn, split into the
+    /// relay's sender stamp and the page's text; a post with no stamp is dropped, and a browser tab, whose renderer
+    /// runs no page host relay, drops every one. Only a cmux page's tab names the page channel event.
+    @Test(arguments: [false, true]) func aPageHostPostReachesOnlyACmuxPageTab(cmuxPage: Bool) async throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab(cmuxPage: cmuxPage)
+        await rig.settle()
+        var taken: [String] = []
+        tab.agentRelay.onPageHostPost = { text, sender in taken.append(sender.absoluteString + " " + text) }
+        let text = #"{"name":"cmuxPage","seq":1,"body":{}}"#
+        for payload in ["cmux-page://agent/index.html\n" + text, text] {
+            tab.agentRelay.pageMessage(try #require(CEFPageMessage(channel: CEFDocumentScripts.pageHostChannel, payload: payload, mainFrame: true)))
+        }
+        #expect(taken == (cmuxPage ? ["cmux-page://agent/index.html " + text] : []))
+        #expect(tab.agentRelay.pageHostEvent == CEFDocumentScripts.pageHostEvent)
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+    }
+
+    /// Before fork API 29 the runtime installs no page channel: a cmux page posts on its DevTools binding.
+    @Test func aTabOnTheShippedForkHasNoPageHostEvent() throws {
+        let rig = try Rig(forkAPI: 24)
+        defer { rig.close() }
+        let tab = try rig.attachedTab(cmuxPage: true)
+        #expect(tab.agentRelay.pageHostEvent == nil)
+    }
+
+    /// The page host channel takes a page call's full size from the main frame only.
+    @Test func pageHostPostsAreCheckedAsUntrustedData() {
+        let channel = CEFDocumentScripts.pageHostChannel
+        #expect(CEFPageMessage(channel: channel, payload: "{}", mainFrame: false) == nil, "a child frame posted to the page host")
+        let call = String(repeating: "x", count: CEFPageMessage.maxPayloadBytes + 1)
+        #expect(CEFPageMessage(channel: channel, payload: call, mainFrame: true)?.channel == .pageHost, "a large page call was refused")
+        let huge = String(repeating: "x", count: CEFPageMessage.maxPageHostPayloadBytes + 1)
+        #expect(CEFPageMessage(channel: channel, payload: huge, mainFrame: true) == nil, "an oversized page call passed")
+    }
+
     /// The spare window's about:blank placeholder is never shown, so Chromium never learned it was hidden and ran
     /// its frames and timers at idle (visibilityState "visible", rAF ~98/s; fleet probe 4e065838, macOS 27). Its
     /// page is frozen through DevTools as soon as its browser exists, on every fork: the renderer-path freeze
@@ -219,6 +256,103 @@ import Testing
         await work.shutdown()
     }
 
+    // MARK: Surface copy (p13-webui-078)
+
+    /// From fork API 40 a tab's picture is the fork's surface copy, with no DevTools call: the request leaves in the
+    /// caller's turn (before a hide that follows it), sized to whole pixels, and the CMUX_SHIM_REPLY under its reply
+    /// id brings the PNG and its size; a reply with no size is no picture.
+    @Test func aTabOnForkAPI40CopiesItsSurfaceWithNoDevToolsCall() async throws {
+        let rig = try Rig(forkAPI: CEFForkFeatures.surfaceCopyForkAPI)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.settle()
+        #expect(tab.copiesSurface)
+        var copies: [CEFSurfaceCopy?] = []
+        tab.copySurface(maxPixelSize: CGSize(width: 640.7, height: 400)) { copies.append($0) }
+        let call = try #require(Spy.copies.first, "the copy did not leave in the caller's turn")
+        #expect(call == Spy.Copy(browser: 7, reply: call.reply, width: 640, height: 400, format: CEFSurfaceCopyFormat.png.rawValue))
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        rig.runtime.handle(.reply(browser: 7, id: call.reply, value: 640 | (Int64(400) << 32), json: png.base64EncodedString()))
+        await rig.until { !copies.isEmpty }
+        #expect(copies == [CEFSurfaceCopy(base64: png.base64EncodedString(), pixelSize: CGSize(width: 640, height: 400))],
+                "the copy is passed on in base64: the page host decodes it off the main thread")
+
+        tab.copySurface(maxPixelSize: CGSize(width: 10, height: 10)) { copies.append($0) }
+        let empty = try #require(Spy.copies.last)
+        rig.runtime.handle(.reply(browser: 7, id: empty.reply, value: 0, json: ""))
+        await rig.until { copies.count == 2 }
+        #expect(copies.last == .some(nil), "a reply with no size gave a picture")
+
+        // A size below one pixel is not sent; a start the shim refuses is no picture.
+        tab.copySurface(maxPixelSize: CGSize(width: 0.5, height: 100)) { copies.append($0) }
+        #expect(copies.count == 3 && copies.last == .some(nil) && Spy.copies.count == 2, "a size below one pixel was sent")
+        Spy.copyStart = 0
+        tab.copySurface(maxPixelSize: CGSize(width: 100, height: 100)) { copies.append($0) }
+        await rig.until { copies.count == 4 }
+        #expect(copies.last == .some(nil) && Spy.copies.count == 3)
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+        #expect(rig.runtime.surfaceCopies.count == 0, "an answered copy still waits")
+
+        // A copy still waiting when its browser closes gets no picture.
+        Spy.copyStart = 1
+        tab.copySurface(maxPixelSize: CGSize(width: 100, height: 100)) { copies.append($0) }
+        #expect(rig.runtime.surfaceCopies.count == 1)
+        rig.runtime.handle(.beforeClose(browser: 7))
+        #expect(copies.count == 5 && copies.last == .some(nil))
+        #expect(rig.runtime.surfaceCopies.count == 0)
+    }
+
+    /// A menu's Copy is a page script sent with the person's gesture and no waiter: `tabEvaluate` on fork API 29 (no
+    /// DevTools session), a `Runtime.evaluate` before it.
+    @Test(arguments: [Int32(24), 29]) func aPerformedScriptLeavesWithNoWaiter(forkAPI: Int32) async throws {
+        let rig = try Rig(forkAPI: forkAPI)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        if forkAPI < 29 { await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument") } }
+        await rig.settle()
+        Spy.devToolsCalls = []
+        #expect(tab.perform("document.execCommand('copy')", gesture: .agent))
+        if forkAPI >= 29 {
+            let call = try #require(Spy.evaluations.last)
+            #expect(call.world == "" && call.gesture == 1)
+            #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+            // Its answer finds no caller and changes nothing.
+            rig.runtime.handle(.evaluateResult(token: call.token, status: 1, value: "true"))
+        } else {
+            #expect(Spy.devToolsCalls == ["Runtime.evaluate"])
+        }
+    }
+
+    /// From fork API 40 a scripted hover is the fork's native mouse move (`SendMouseMoveEvent`, no button), with no
+    /// DevTools call; below it, or with the export missing, the tab says no and the caller uses DevTools input.
+    @Test(arguments: [CEFForkFeatures.mouseMoveForkAPI - 1, CEFForkFeatures.mouseMoveForkAPI])
+    func aTabMovesTheMouseNativelyFromForkAPI40(forkAPI: Int32) async throws {
+        let rig = try Rig(forkAPI: forkAPI)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.settle()
+        Spy.devToolsCalls = []
+        let native = forkAPI >= CEFForkFeatures.mouseMoveForkAPI
+        #expect(tab.sendMouseMove(x: 12.5, y: 30) == native)
+        #expect(Spy.mouseMoves == (native ? [Spy.Move(browser: 7, x: 12.5, y: 30, modifiers: 0)] : []))
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+        rig.runtime.handle(.beforeClose(browser: 7))
+        #expect(!tab.sendMouseMove(x: 1, y: 1), "a closed tab moved the mouse")
+    }
+
+    /// Below fork API 40 there is no surface copy: no picture at once, no shim call and no DevTools.
+    @Test func aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce() async throws {
+        let rig = try Rig(forkAPI: CEFForkFeatures.surfaceCopyForkAPI - 1)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.settle()
+        #expect(!tab.copiesSurface)
+        var answers: [CEFSurfaceCopy?] = []
+        tab.copySurface(maxPixelSize: CGSize(width: 100, height: 100)) { answers.append($0) }
+        #expect(answers == [nil])
+        #expect(Spy.copies.isEmpty && Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -286,6 +420,14 @@ private nonisolated enum Spy {
     nonisolated(unsafe) static var unanswered: [Int32] = []
     /// False: the shim predates fork API 29 and has none of its exports.
     nonisolated(unsafe) static var exportsRendererPaths = true
+    /// One `cmux_shim_tab_copy_surface` call: browser, reply id, max width, max height, format.
+    struct Copy: Equatable { let browser: Int32; let reply: Int32; let width: Int32; let height: Int32; let format: Int32 }
+    nonisolated(unsafe) static var copies: [Copy] = []
+    /// What `cmux_shim_tab_copy_surface` returns (1 started).
+    nonisolated(unsafe) static var copyStart: Int32 = 1
+    /// One `cmux_shim_tab_send_mouse_move` call: browser, x, y (view points), modifiers.
+    struct Move: Equatable { let browser: Int32; let x: Double; let y: Double; let modifiers: Int32 }
+    nonisolated(unsafe) static var mouseMoves: [Move] = []
     static let rendererPathSymbols: Set<String> = ["cmux_shim_add_document_script", "cmux_shim_add_page_channel", "cmux_shim_tab_evaluate",
                                                     "cmux_shim_tab_set_frozen", "cmux_shim_tab_send_click", "cmux_shim_tab_set_color_scheme"]
 
@@ -302,6 +444,9 @@ private nonisolated enum Spy {
         nextMessage = 1
         unanswered = []
         exportsRendererPaths = true
+        copies = []
+        copyStart = 1
+        mouseMoves = []
     }
 
     static func library() throws -> CEFShimLibrary {
@@ -329,6 +474,14 @@ private nonisolated enum Spy {
             Spy.scripts.append(Script(world: world.map { String(cString: $0) } ?? "", source: source.map { String(cString: $0) } ?? "", allFrames: all))
             return 1
         }
+        let copy: @convention(c) (Int32, Int32, Int32, Int32, Int32, Int32) -> Int32 = { browser, reply, width, height, format, _ in
+            Spy.copies.append(Copy(browser: browser, reply: reply, width: width, height: height, format: format))
+            return Spy.copyStart
+        }
+        let mouseMove: @convention(c) (Int32, Double, Double, Int32) -> Int32 = { browser, x, y, modifiers in
+            Spy.mouseMoves.append(Move(browser: browser, x: x, y: y, modifiers: modifiers))
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             if !Spy.exportsRendererPaths, Spy.rendererPathSymbols.contains(name) { return nil }
@@ -343,6 +496,8 @@ private nonisolated enum Spy {
             case "cmux_shim_tab_set_color_scheme": unsafeBitCast(scheme, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_add_page_channel": unsafeBitCast(channel, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_add_document_script": unsafeBitCast(script, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_tab_copy_surface": unsafeBitCast(copy, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_tab_send_mouse_move": unsafeBitCast(mouseMove, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

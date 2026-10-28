@@ -19,6 +19,7 @@
 //! the session.
 
 use super::*;
+use crate::daemon::hang_watch::{BLOCKING_ITEM, SyncThread};
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -92,7 +93,7 @@ impl Hub {
                 };
                 let watched = watched.clone();
                 let reader = hub.clone();
-                let Ok((read, told)) = tokio::task::spawn_blocking(move || {
+                let Ok((read, told)) = crate::daemon::spawn_blocking(move || {
                     let read = read_and_watch(&watched, cwds);
                     let told: Vec<_> = unseeded
                         .into_iter()
@@ -110,9 +111,14 @@ impl Hub {
             }
         });
         *self.git_watch.task.lock().unwrap_or_else(|p| p.into_inner()) = Some(task);
-        let thread = std::thread::Builder::new()
-            .name("acpmux-git-watch".into())
-            .spawn(move || run(&rx, &signal));
+        // It feeds the hub: a panic in it is fatal. It ends with its channel, when the hub
+        // drops the watcher, so shutdown does not wait for it.
+        let thread = self.supervisor.supervise_thread(
+            THREAD,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move |_stop| run(&rx, &signal),
+        );
         if let Err(e) = thread {
             tracing::warn!("git watch thread cannot start: {e}");
         }
@@ -228,8 +234,12 @@ fn is_head(path: &Path) -> bool {
     path.file_name().is_some_and(|name| name == "HEAD")
 }
 
+/// The watch thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-git-watch";
+
 /// Ends when the watcher is dropped (the channel closes), or when the task
-/// is gone (the runtime stopped or the hub dropped).
+/// is gone (the runtime stopped or the hub dropped). Each burst's handling,
+/// not its wait, is one hang-watch item.
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     signal: &tokio::sync::mpsc::UnboundedSender<()>,
@@ -241,7 +251,8 @@ fn run(
         Ok(event) if matches!(event.kind, notify::EventKind::Access(_)) => false,
         Ok(event) => event.need_rescan() || event.paths.iter().any(|p| is_head(p)),
     };
-    while let Ok(first) = rx.recv() {
+    let watched = SyncThread::register(THREAD, BLOCKING_ITEM);
+    while let Ok(first) = cmux_blocking::sync::recv(rx) {
         let started = Instant::now();
         let mut changed = matters(first);
         let mut closed = false;
@@ -250,7 +261,13 @@ fn run(
             if left.is_zero() {
                 break;
             }
-            match rx.recv_timeout(QUIET.min(left)) {
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let next = cmux_blocking::scoped_blocking_call(
+                "sync::recv_timeout",
+                cmux_blocking::BlockingKind::Recv,
+                || rx.recv_timeout(QUIET.min(left)),
+            );
+            match next {
                 Ok(event) => changed |= matters(event),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => {
@@ -259,6 +276,7 @@ fn run(
                 }
             }
         }
+        let _item = watched.item();
         // Only a signal: the read runs on the runtime, never here.
         if changed && signal.send(()).is_err() {
             return;

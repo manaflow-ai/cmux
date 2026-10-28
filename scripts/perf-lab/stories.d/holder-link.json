@@ -1,0 +1,19 @@
+{
+  "id": "holder-link",
+  "tier": "linux",
+  "description": "PTY holder link (cmux-holder's ignored link_bench tests, release, built at the commit): a typed marker's echo behind two flooding terminals (p50, p95, max per run), and four `yes` terminals' throughput and CPU through the holder against direct PTYs (cmux-tui/scripts/bench-rust-lab.py).",
+  "command": ["cmux-tui/scripts/bench-rust-lab.py", "--bench", "holder-link", "--runs", "3"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "holder\\.link\\.echo\\.(p50|p95|max)", "unit": "ms", "better": "lower"},
+    {"name": "holder\\.link\\.yes4\\.(holder|direct)", "unit": "bytes_per_s", "better": "higher"},
+    {"name": "holder\\.link\\.yes4\\.(holder|direct|daemon)_cpu", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["file:cmux-tui/crates/cmux-holder/tests/link_bench.rs"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Holder"
+}

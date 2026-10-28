@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 /// Sidebar section settings (plans/cmux-next/sidebar-sections.md 7) in the
 /// Appearance section's Sidebar group.
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

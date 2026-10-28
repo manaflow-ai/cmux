@@ -6,8 +6,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     let mut client = client;
     // Read UI preferences without probing or changing harness configuration.
     let path = crate::config::Config::path();
-    let cfg: crate::config::Config = if path.exists() {
-        serde_json::from_str(&std::fs::read_to_string(&path)?)?
+    let cfg: crate::config::Config = if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        serde_json::from_str(&tokio::fs::read_to_string(&path).await?)?
     } else {
         Default::default()
     };
@@ -29,7 +29,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     {
         let c = client.clone();
         let tx = tx.clone();
-        tokio::spawn(async move {
+        super::background::spawn(tx.clone(), async move {
             if let Ok(v) = c.request(method::MUX_HARNESSES, json!({})).await {
                 let names: Vec<String> = v
                     .get("harnesses")
@@ -143,7 +143,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                 if app.tick % 50 == 0 {
                     let c = client.clone();
                     let tx = tx.clone();
-                    tokio::spawn(async move {
+                    app.background(async move {
                         if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
                             let _ = tx.send(AppMsg::Status(v));
                         }

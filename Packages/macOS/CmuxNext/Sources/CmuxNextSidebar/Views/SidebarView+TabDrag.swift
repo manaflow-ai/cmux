@@ -37,7 +37,7 @@ extension SidebarViewComponents {
     ///   a new-workspace gap; before that the row under the pointer takes the tab.
     public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false,
                               slotDwell: CFTimeInterval = 0) -> SidebarTabDropHit? {
-        guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
+        guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil } // visibility-walk-allow: a tab drag's drop hit test at the pointer
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         let local = convert(windowPoint, from: nil)
         guard bounds.contains(local) else {
@@ -72,7 +72,7 @@ extension SidebarViewComponents {
     /// refused row (screen), and the localized reason. Draws the refused
     /// outline there (tab-dnd).
     public func tabDragRefusal(screenPoint: CGPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false) -> SidebarTabDropRefusalHit? {
-        guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
+        guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil } // visibility-walk-allow: a tab drag's refusal hit test at the pointer
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         guard bounds.contains(convert(windowPoint, from: nil)), let nearest = nearestListPoint(windowPoint),
               let (reason, rect) = list.externalDragRefusal(windowPoint: nearest, sourceMachine: sourceMachine, reordersTabRows: reordersTabRows) else {

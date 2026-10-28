@@ -66,4 +66,43 @@ import Testing
         #expect(votes.levels.count == 4, "no vote after the registration is cancelled")
         withExtendedLifetime((pressure, coordinator)) {}
     }
+
+    /// p07-memory-109: override observers hear each change of the override, also one that keeps the level
+    /// (which no level consumer and no vote hears), after the level it makes; a repeat is no change.
+    @Test func overrideObserversHearChangesThatKeepTheLevel() {
+        let clock = ManualClock()
+        let source = ManualMemoryPressureSource(initial: .critical)
+        let pressure = MemoryPressureEvents(source: source)
+        let coordinator = MemoryCoordinator(pressure: pressure, slicer: ManualSlicer(clock: clock), clock: clock)
+        let overrides = Overrides()
+        let observation = coordinator.observePressureOverride { [unowned coordinator] in
+            overrides.seen.append(Overrides.Seen(override: $0, level: coordinator.level))
+        }
+        let votes = Votes()
+        let voteObservation = coordinator.observePressureVote { votes.levels.append($0) }
+
+        coordinator.pressureOverride = .critical
+        coordinator.pressureOverride = .critical
+        coordinator.pressureOverride = nil
+        #expect(overrides.seen == [.init(override: .critical, level: .critical), .init(override: nil, level: .critical)],
+                "an override equal to the kernel's level, set and cleared, is heard once each")
+        #expect(votes.levels.isEmpty, "the level never moved")
+
+        coordinator.pressureOverride = .normal
+        #expect(overrides.seen.last == .init(override: .normal, level: .normal), "heard after the level it makes")
+
+        observation.cancel()
+        coordinator.pressureOverride = nil
+        #expect(overrides.seen.count == 3, "nothing heard after the registration is cancelled")
+        withExtendedLifetime((pressure, coordinator, voteObservation)) {}
+    }
+
+    @MainActor final class Overrides {
+        struct Seen: Equatable {
+            var override: MemoryPressureLevel?
+            var level: MemoryPressureLevel
+        }
+
+        var seen: [Seen] = []
+    }
 }

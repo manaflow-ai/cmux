@@ -1,0 +1,14 @@
+{
+  "file": "{}\n",
+  "forced": {},
+  "recommended": {
+    "ui.animations.cursor": false
+  },
+  "team": {
+    "name": "",
+    "defaults": {
+      "appearance.colorTransition.bezierY2": 0.5
+    },
+    "enforced": {}
+  }
+}

@@ -6,13 +6,14 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { parseLayout } from "./model";
 import { PAGE_COMMAND } from "./ops";
-import { CloudStore, parseView } from "./store";
+import { CLOUD_PAGE, CloudStore, parseView } from "./store";
 import "./styles.css";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { appPopupHost } from "../shared/pagePopupHost";
@@ -20,7 +21,10 @@ import { appPopupHost } from "../shared/pagePopupHost";
 export function mountCloudPage(root: HTMLElement, client: PageClient | null = defaultClient()): CloudStore {
   const params = new URLSearchParams(location.search);
   const layout = parseLayout(document.documentElement.dataset.cloudMachinesLayout ?? params.get("layout"));
+  // Before the view is read from the fragment: a restored document shows the view it had moved on to.
+  const state = openPageState(client, CLOUD_PAGE);
   const store = new CloudStore(client, { layout, view: parseView(location.hash) });
+  state.keep(() => store.pageInputs());
   // `#/get` opens the storefront; the host or a link may set it on an open page.
   window.addEventListener("hashchange", () => store.setView(parseView(location.hash)));
   // The fragment follows the view, so a later `#/get` link changes the hash and opens the storefront.

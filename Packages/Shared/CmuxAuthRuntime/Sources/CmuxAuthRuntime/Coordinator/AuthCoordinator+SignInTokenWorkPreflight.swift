@@ -40,7 +40,8 @@ extension AuthCoordinator {
             }
             let deadline = Task { [clock, log, timeouts] in
                 do {
-                    try await clock.sleep(for: timeouts.network, tolerance: nil)
+                    // wakeup-allow: deadline the preflight's one timeout; cancelled when the token work quiesces first
+                    try await clock.sleep(for: timeouts.network, tolerance: timeouts.network.authWakeLeeway)
                     try Task.checkCancellation()
                 } catch {
                     return

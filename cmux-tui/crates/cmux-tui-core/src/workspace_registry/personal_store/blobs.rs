@@ -159,7 +159,9 @@ impl BlobMediaType {
         match self {
             Self::Png => data.starts_with(b"\x89PNG\r\n\x1a\n"),
             Self::Jpeg => data.starts_with(b"\xff\xd8\xff"),
-            Self::Webp => data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP",
+            Self::Webp => {
+                data.starts_with(b"RIFF") && data.get(8..12).is_some_and(|tag| tag == b"WEBP")
+            }
             Self::Svg => false,
         }
     }
@@ -187,16 +189,19 @@ impl StoredBlob {
 
     /// The `put-blob` and `get-blob` result fields (`data` only for get).
     pub fn to_json(&self, with_data: bool) -> serde_json::Value {
-        let mut value = serde_json::json!({
-            "ref": self.reference(),
-            "icon": self.icon(),
-            "media_type": self.media_type.as_str(),
-            "size": self.data.len(),
-        });
+        let mut value = serde_json::Map::from_iter([
+            ("ref".to_string(), self.reference().into()),
+            ("icon".to_string(), self.icon().into()),
+            ("media_type".to_string(), self.media_type.as_str().into()),
+            ("size".to_string(), self.data.len().into()),
+        ]);
         if with_data {
-            value["data"] = base64::engine::general_purpose::STANDARD.encode(&self.data).into();
+            value.insert(
+                "data".into(),
+                base64::engine::general_purpose::STANDARD.encode(&self.data).into(),
+            );
         }
-        value
+        serde_json::Value::Object(value)
     }
 }
 

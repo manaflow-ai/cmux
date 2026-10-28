@@ -26,6 +26,7 @@ use super::journal::Journal;
 use super::mutation::{Target, active_hooks, key, output_extra, refused, run_failed};
 use super::user_run::{UserGit, UserRun, deadline};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -46,7 +47,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-    let key = key(request);
+    let key = key(request)?;
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
@@ -82,7 +83,7 @@ pub(super) fn dispatch(
             Err(error) => {
                 // A push stopped by the deadline may have reached the
                 // remote: its retry pushes the same commit.
-                if error.details["reason"] != "timed_out" {
+                if error.details.field("reason") != "timed_out" {
                     journal.finish();
                 }
                 Err(error)
@@ -198,7 +199,7 @@ fn push(
     if let Some((previous, _)) = summary.split_once("..")
         && let Some(previous) = repository.commit(previous)
     {
-        value["previous_remote_commit"] = json!(previous);
+        value.insert("previous_remote_commit", json!(previous));
     }
     Ok(value)
 }
@@ -351,7 +352,7 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
     };
     let mut extra = output_extra(&format!("{summary}\n{output}"));
     if !summary.is_empty() {
-        extra["ref_status"] = json!(summary);
+        extra.insert("ref_status", json!(summary));
     }
     refused(OPERATION, reason, message, extra)
 }
