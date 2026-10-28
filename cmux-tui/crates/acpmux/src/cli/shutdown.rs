@@ -22,10 +22,26 @@ use std::time::Duration;
 const HOST_GRACE: Duration = Duration::from_secs(3);
 
 pub(crate) async fn run(end_agents: bool, json_out: bool) -> Result<()> {
-    run_on(&*TokioClock::new(), end_agents, json_out).await
+    run_on(&*TokioClock::new(), end_agents, json_out, false).await
 }
 
-async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool) -> Result<()> {
+/// Stop and start the daemon while keeping hosted agents for handoff.
+pub(crate) async fn restart(json_out: bool) -> Result<()> {
+    run_on(&*TokioClock::new(), false, json_out, true).await?;
+    let client = crate::daemon::connect(true).await?;
+    let status = client.request(method::MUX_STATUS, json!({})).await?;
+    if json_out {
+        print_json(&json!({"restarted": true, "status": status}));
+    } else {
+        println!(
+            "restarted; daemon pid {}",
+            status.get("pid").and_then(serde_json::Value::as_u64).unwrap_or(0)
+        );
+    }
+    Ok(())
+}
+
+async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool, quiet: bool) -> Result<()> {
     let keep_agents = !end_agents;
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
@@ -67,6 +83,9 @@ async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool) -> Result<(
         ));
     }
     let ended = before.saturating_sub(kept.len()).max(after_exit);
+    if quiet {
+        return Ok(());
+    }
     if json_out {
         print_json(&json!({
             "stopped": true,

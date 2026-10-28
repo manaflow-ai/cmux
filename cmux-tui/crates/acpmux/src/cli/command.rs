@@ -33,6 +33,7 @@ pub enum Command {
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
     /// Give a session here a task, end one with its result in one call, list a chat's tasks.
@@ -153,6 +154,7 @@ pub enum Command {
         #[arg(long)]
         clear: bool,
     },
+    /// Show or set default harness settings for a family or alias.
     Defaults {
         family: Option<String>,
         /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
@@ -333,7 +335,7 @@ pub enum Command {
         #[arg(long)]
         rotate_token: bool,
     },
-    /// Remote daemons: add, ls, rm.
+    /// Remote daemons and machines: add, ls, status, place, setup, update, enroll, doctor, tickets and more.
     #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
@@ -493,6 +495,8 @@ pub enum Command {
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    #[command(hide = true)]
+    DaemonRestart,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -898,6 +902,8 @@ pub enum DaemonCmd {
         #[arg(long)]
         show_token: bool,
     },
+    /// Restart the daemon, preserving hosted sessions so they resume on startup.
+    Restart,
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
@@ -1110,6 +1116,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
+            DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
