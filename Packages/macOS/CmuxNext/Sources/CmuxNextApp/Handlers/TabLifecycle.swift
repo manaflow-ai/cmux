@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextControl
 import CmuxNextDaemon
+import struct CmuxNextFocus.PaneCloseAim
 import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxNextWorkspaceRepair
@@ -380,6 +381,17 @@ enum TabLifecycle {
         }
     }
 
+    /// A person's close of the last tab of `workspace`'s only pane: the workspace's close, from the press's turn, with
+    /// Close Workspace's flow and motion (its row leaves, the selection moves, the next workspace shows, the daemon's
+    /// close runs behind; a running program asks first), not a tab close, an empty pane and the empty-workspace repair
+    /// three daemon round trips later (Lawrence 2026-10-28, handoff/motion-cascade.md). Its row only: a multi-row
+    /// sidebar selection does not close with it.
+    private static func closeEmptiedWorkspace(_ ctx: AppActionContext, _ workspace: String, by press: PaneCloseAim.Press,
+                                              in window: WindowState?) {
+        TabCloseGuard.noteWorkspaceClosed(by: press, in: window)
+        _ = ctx.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: workspace))
+    }
+
     /// With an explicit tab target the tab may be in any workspace; without
     /// one, the focused pane's selected tab (session-local browser tabs too).
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
@@ -399,6 +411,9 @@ enum TabLifecycle {
             // nothing, and says so (PaneCloseAim, Leo 2026-10-21, Lawrence 2026-10-23); the refusal
             // HUD marks it `refusal` for the burst bench.
             let press = TabCloseGuard.press(ctx, invocation)
+            if invocation.origin == .user, TabCloseGuard.repeatsPastWorkspaceClose(press, in: ctx.services.windows.active?.state) {
+                return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
+            }
             if invocation.origin == .user, let focus = ctx.focusedContent?.focus, focus.aimsAtEmptiedPane(press) {
                 return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
             }
@@ -411,6 +426,10 @@ enum TabLifecycle {
                 let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
                 // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
                 if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
+                    if let workspace = TabCloseGuard.emptiedWorkspace(pane, closing: selected) {
+                        trace.closed(tabs: selected.map(\.rawValue), emptiesPane: true, input: input)
+                        return closeEmptiedWorkspace(ctx, workspace, by: press, in: pane.state)
+                    }
                     let empties = TabCloseGuard.empties(pane, closing: selected)
                     if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                     trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
@@ -423,6 +442,10 @@ enum TabLifecycle {
                 // Cmd-W in the Home Chief pane: nothing to close there, so no notice either.
                 case .ignore: return
                 }
+            }
+            if invocation.origin == .user, let workspace = TabCloseGuard.emptiedWorkspace(pane, closing: [id]) {
+                trace.closed(tabs: [id.rawValue], emptiesPane: true, input: input)
+                return closeEmptiedWorkspace(ctx, workspace, by: press, in: pane.state)
             }
             let empties = TabCloseGuard.empties(pane, closing: [id])
             if invocation.origin == .user {

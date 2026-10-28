@@ -106,6 +106,30 @@ enum TabCloseGuard {
         }
     }
 
+    /// The workspace a close of `closing` empties: `pane` is the only pane it shows and the close leaves it with no tab.
+    /// That close is the workspace's own (one intent, one animation: handoff/motion-cascade.md rules 1 and 2): it runs
+    /// as Close Workspace (Cmd-Shift-W), never as a tab close then a pane close then a workspace close. Nil otherwise.
+    static func emptiedWorkspace(_ pane: PaneController, closing: [StripTabID]) -> String? {
+        guard let content = pane.workspace, empties(pane, closing: closing),
+              content.layoutModel.screens.reduce(0, { $0 + $1.layout.panes.count }) == 1 else { return nil }
+        return content.workspace.id
+    }
+
+    /// Whether `press`, a person's Close Tab in `window`, repeats the held key that closed a workspace there: it closes
+    /// nothing. The window shows another workspace now, whose tabs the held key never aimed at (the rule of a repeat
+    /// aimed at an emptied pane, ``PaneCloseAim``, across the workspace boundary: handoff/motion-cascade.md rule 6). A
+    /// new key press starts over.
+    static func repeatsPastWorkspaceClose(_ press: PaneCloseAim.Press, in window: WindowState?) -> Bool {
+        guard press.isKey, let window else { return false }
+        if !press.isRepeat { window.closeKeyHeldPastWorkspace = false }
+        return press.isRepeat && window.closeKeyHeldPastWorkspace
+    }
+
+    /// `press` closed its workspace in `window`: its repeats close nothing while the key stays held.
+    static func noteWorkspaceClosed(by press: PaneCloseAim.Press, in window: WindowState?) {
+        if press.isKey { window?.closeKeyHeldPastWorkspace = true }
+    }
+
     /// Whether closing `closing` leaves `pane` with no tab (tabs whose close is still asking count as closed).
     static func empties(_ pane: PaneController, closing: [StripTabID]) -> Bool {
         let pages = pane.services.closedTabs?.undoToasts.pageClosing
