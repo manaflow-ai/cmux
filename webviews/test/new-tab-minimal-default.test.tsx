@@ -15,6 +15,7 @@ import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { SavedEnvironmentHost } from "../src/agent-session/acpmux/environments";
+import { openPicker, pickerLabels } from "../src/agent-session/acpmux/pickerOpeners";
 import {
   DEFAULT_NEW_TAB_TEMPLATE,
   PAGE_STYLES,
@@ -193,6 +194,19 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   try {
     expect(parts().headline).toBe("What should we work on?");
     expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("machine headline registers the stable Computer picker opener", async () => {
+  const snapshot = noChat([]);
+  snapshot.peers = ["devbox"];
+  snapshot.peerKinds = { devbox: "ssh" };
+  const root = await render("minimal", ["greeting"], undefined, { machineName: "studio", snapshot });
+  try {
+    expect(pickerLabels()).toContain("Computer");
+    expect(openPicker("Computer")).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }

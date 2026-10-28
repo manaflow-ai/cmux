@@ -296,7 +296,8 @@ export function NewTabScreen(props: Props) {
   // Saved SSH environments obey the same live-peer boundary as headline picks. Validate before
   // deriving any folder or send target, including the render before cleanup effects run.
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
-  const savedPeerRemoved = saved.picked?.kind === "ssh" && !(snapshot.peers ?? []).includes(saved.picked.host);
+  const savedPeer = saved.picked?.kind === "ssh" ? saved.picked.host : undefined;
+  const savedPeerRemoved = savedPeer !== undefined && !(snapshot.peers ?? []).includes(savedPeer);
   const environment = savedPeerRemoved ? undefined : saved.picked;
   // Suppress the removed machine's folder in this render, before effect cleanup runs.
   const none = pickedNoProject || peerRemoved || savedPeerRemoved;

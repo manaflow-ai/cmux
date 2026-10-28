@@ -59,7 +59,7 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
       <span className="nt-headline-machine-picker">
         <EnvironmentPicker
           label={t("composer.computer")}
-          menu={t("composer.computer")}
+          menu="Computer"
           value={selectedMachine.label}
           face={
             <>
