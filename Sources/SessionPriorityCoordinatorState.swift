@@ -14,6 +14,9 @@ import Foundation
 struct SessionPriorityCoordinatorState: Equatable {
     /// How long a restarted pane waits for its resumed Claude's `SessionStart`.
     static let sessionStartTimeoutMs: Int64 = 60_000
+    /// How long after its resumed Claude's start a restarted pane still counts as a Claude pane
+    /// while the agent index does not show it.
+    static let indexAfterSessionStartTimeoutMs: Int64 = 60_000
     /// How long a held pane waits before it is tried again.
     static let heldRetrySeconds = 30
 
@@ -32,9 +35,14 @@ struct SessionPriorityCoordinatorState: Equatable {
         /// ``SessionPriorityCoordinatorState/sessionStartTimeoutMs`` after the restart returned.
         var awaitingSessionStartUntilMs: Int64?
         /// Set when a restart replaced the pane's Claude, until a reconcile after its resumed
-        /// Claude's start finds it in the agent index, or its session ends. Meanwhile the pane
-        /// still counts as a Claude pane, so its workspace keeps its place in the plan.
+        /// Claude's start finds it in the agent index, or its session ends. Meanwhile, for at
+        /// most ``SessionPriorityCoordinatorState/indexAfterSessionStartTimeoutMs`` after that
+        /// start, the pane still counts as a Claude pane, so its workspace keeps its place in
+        /// the plan.
         var awaitsIndexAfterRestart = false
+        /// When the restarted Claude reported its start (the hook's own time). A `SessionEnd`
+        /// from before it is the replaced Claude's, which shares the session id.
+        var sessionStartedAtMs: Int64?
         /// A manual signal seen on the pane's screen during this session. It outlives the text.
         var stickyManual: SessionPriorityManualSignal?
         /// How the last restart attempt ended, e.g. `held.draft`. Never the resume command.
@@ -176,12 +184,15 @@ struct SessionPriorityCoordinatorState: Equatable {
 
     /// Whether a restart is moving the pane to a new Claude, which the agent index may not show
     /// yet: from the restart until its resumed Claude reports its start and then shows in the
-    /// index, or its session ends. Such a pane still counts as one of its workspace's Claude
-    /// panes.
-    func isRestarting(panelId: UUID) -> Bool {
+    /// index, its session ends, or ``indexAfterSessionStartTimeoutMs`` passes after that start
+    /// (a Claude that died unseen). Such a pane still counts as one of its workspace's Claude
+    /// panes; past the limit it counts only by its index entry.
+    func isRestarting(panelId: UUID, nowMs: Int64) -> Bool {
         guard let record = records[panelId] else { return false }
-        return record.awaitingSessionStartUntilMs != nil
-            || (record.awaitsIndexAfterRestart && record.sessionId != nil)
+        if record.awaitingSessionStartUntilMs != nil { return true }
+        guard record.awaitsIndexAfterRestart, record.sessionId != nil else { return false }
+        guard let started = record.sessionStartedAtMs else { return true }
+        return nowMs < started + Self.indexAfterSessionStartTimeoutMs
     }
 
     /// Whether the pane may be restarted for `target`: not when its last restart was for this
@@ -263,12 +274,14 @@ struct SessionPriorityCoordinatorState: Equatable {
         records[panelId] = record
     }
 
-    /// The pane's Claude reported its start. Returns whether that ended the wait of a restart.
+    /// The pane's Claude reported its start at `occurredAtMs` (the hook's time; `nil` when
+    /// unknown). Returns whether that ended the wait of a restart.
     @discardableResult
-    mutating func noteSessionStarted(panelId: UUID, sessionId: String) -> Bool {
+    mutating func noteSessionStarted(panelId: UUID, sessionId: String, occurredAtMs: Int64? = nil) -> Bool {
         guard let record = records[panelId], record.awaitingSessionStartUntilMs != nil,
               record.sessionId == sessionId else { return false }
         records[panelId]?.awaitingSessionStartUntilMs = nil
+        records[panelId]?.sessionStartedAtMs = occurredAtMs
         return true
     }
 
@@ -285,10 +298,14 @@ struct SessionPriorityCoordinatorState: Equatable {
         return false
     }
 
-    /// The pane's Claude session ended, and with it any background work it reported. A pane being
-    /// restarted keeps its record: that is the replaced Claude. Otherwise the record goes, with its
-    /// manual signal; only the last attempt stays.
-    mutating func noteSessionEnded(panelId: UUID) {
+    /// The pane's Claude session ended at `occurredAtMs` (the hook's time; `nil` when unknown),
+    /// and with it any background work it reported. An end from before the restarted Claude's
+    /// start, or one while a restart waits for that start, is the replaced Claude's: the record
+    /// stays. Otherwise the record goes, with its manual signal; only the last attempt stays.
+    mutating func noteSessionEnded(panelId: UUID, occurredAtMs: Int64? = nil) {
+        if let occurredAtMs, let started = records[panelId]?.sessionStartedAtMs, occurredAtMs < started {
+            return
+        }
         backgroundWorkPanelIds.remove(panelId)
         guard let record = records[panelId], record.awaitingSessionStartUntilMs == nil else { return }
         records[panelId] = record.lastAttempt.map { PaneRecord(lastAttempt: $0) }

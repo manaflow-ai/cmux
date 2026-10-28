@@ -109,14 +109,18 @@ final class SessionPriorityCoordinator {
             requestReconcile()
         case .sessionStarted:
             guard let sessionId = draft.sessionId,
-                  state.noteSessionStarted(panelId: panelId, sessionId: sessionId) else { return }
-            cancelTimer(panelId: panelId)
+                  state.noteSessionStarted(panelId: panelId, sessionId: sessionId, occurredAtMs: draft.occurredAtMs)
+            else { return }
             log("sessionPriority panel=\(panelId.uuidString.prefix(5)) sessionStarted")
-            // The pass refreshes the agent index first, so it reads the launch this recorded.
+            // The pass refreshes the agent index first, so it reads the launch this recorded. If
+            // the index still lacks the pane when its wait ends, a pass then drops it from the plan.
+            let waitEndsInMs = draft.occurredAtMs + SessionPriorityCoordinatorState.indexAfterSessionStartTimeoutMs
+                - Self.nowMs()
+            armTimer(panelId: panelId, after: .milliseconds(max(waitEndsInMs, 0) + 500))
             requestReconcile()
         case .sessionEnded:
             let hadRecord = state.records[panelId] != nil
-            state.noteSessionEnded(panelId: panelId)
+            state.noteSessionEnded(panelId: panelId, occurredAtMs: draft.occurredAtMs)
             guard hadRecord else { return }
             requestReconcile()
         default:

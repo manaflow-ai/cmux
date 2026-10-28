@@ -27,7 +27,7 @@ extension SessionPriorityCoordinator {
         workspace.orderedPanelIds.compactMap { panelId in
             let snapshot = workspace.sessionPriorityClaudeSnapshot(panelId: panelId)
             let restarting = Workspace.isSessionPriorityApplyInFlight(panelId: panelId)
-                || state.isRestarting(panelId: panelId)
+                || state.isRestarting(panelId: panelId, nowMs: Self.nowMs())
             guard snapshot != nil || restarting else { return nil }
             return ClaudePane(panelId: panelId, snapshot: snapshot)
         }
