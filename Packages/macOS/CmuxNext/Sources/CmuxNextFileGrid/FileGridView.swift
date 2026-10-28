@@ -4,6 +4,9 @@ public import AppKit
 /// and lengths for movies, newest first as given. Drag tiles out to any app
 /// (the file, and for one picture its bytes too), drop files or pictures in
 /// (``onDrop``), Space for Quick Look, a context menu and Finder's keys.
+/// Selection follows Finder (``FileGridSelection``): click, Cmd-click to
+/// add or remove a tile, Shift-click for a run, Cmd-A, Esc; every command
+/// runs on the whole selection.
 ///
 /// The view holds no file state of its own: the owner passes the items
 /// (``show(_:)``) from its listing, and every file command goes to
@@ -20,12 +23,14 @@ public import AppKit
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
     private let scrollView = NSScrollView()
-    private let collectionView = FileGridCollectionView()
+    let collectionView = FileGridCollectionView()
     private let layoutValues = NSCollectionViewFlowLayout()
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")
     private var dataSource: NSCollectionViewDiffableDataSource<Int, String>?
     private var itemsByID: [String: FileGridItem] = [:]
     private var order: [String] = []
+    /// The file a Shift-click extends from (kept by id, so a relisting does not move it).
+    private var anchorID: String?
     private let writer = FileGridPasteboard()
 
     /// Colors and tile size; a change redraws the visible tiles.
@@ -99,9 +104,22 @@ public final class FileGridView: NSView {
     /// - Parameter path: the file path.
     public func reveal(path: String) {
         guard let index = order.firstIndex(of: path) else { return }
-        let indexPath = IndexPath(item: index, section: 0)
-        collectionView.deselectAll(nil)
-        collectionView.selectItems(at: [indexPath], scrollPosition: .nearestHorizontalEdge)
+        applySelection(FileGridSelection().clicking(index, .select))
+        collectionView.scrollToItems(at: [IndexPath(item: index, section: 0)], scrollPosition: .nearestHorizontalEdge)
+    }
+
+    /// The selection by position, with the anchor.
+    var selection: FileGridSelection {
+        FileGridSelection(indices: Set(collectionView.selectionIndexPaths.map(\.item)),
+                          anchor: anchorID.flatMap { order.firstIndex(of: $0) })
+    }
+
+    /// Shows `next`: highlights its tiles, remembers its anchor, and follows it in Quick Look.
+    func applySelection(_ next: FileGridSelection) {
+        anchorID = next.anchor.flatMap { order.indices.contains($0) ? order[$0] : nil }
+        let paths = Set(next.indices.filter { order.indices.contains($0) }.map { IndexPath(item: $0, section: 0) })
+        if collectionView.selectionIndexPaths != paths { collectionView.selectionIndexPaths = paths }
+        collectionView.refreshQuickLook()
     }
 
     /// Makes the grid the window's first responder (its tab got focus).
@@ -142,6 +160,8 @@ public final class FileGridView: NSView {
         collectionView.menuForSelection = { [weak self] in self?.makeMenu() }
         collectionView.previewURLs = { [weak self] in self?.selectedItems.map(\.url) ?? [] }
         collectionView.onDropHighlight = { [weak self] on in self?.setDropHighlight(on) }
+        collectionView.currentSelection = { [weak self] in self?.selection ?? FileGridSelection() }
+        collectionView.applySelection = { [weak self] next in self?.applySelection(next) }
         dataSource = NSCollectionViewDiffableDataSource<Int, String>(collectionView: collectionView) { [weak self] collectionView, indexPath, id in
             let cell = collectionView.makeItem(withIdentifier: FileGridCell.identifier, for: indexPath)
             if let self, let cell = cell as? FileGridCell, let item = self.itemsByID[id] {
@@ -212,7 +232,10 @@ public final class FileGridView: NSView {
 }
 
 extension FileGridView: NSCollectionViewDelegate {
+    /// AppKit's own selection changes (arrow keys, rubber band): a lone tile becomes the anchor.
     public func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        let selected = collectionView.selectionIndexPaths
+        if selected.count == 1, let only = selected.first, order.indices.contains(only.item) { anchorID = order[only.item] }
         self.collectionView.refreshQuickLook()
     }
 
@@ -222,6 +245,11 @@ extension FileGridView: NSCollectionViewDelegate {
 
     public func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
         true
+    }
+
+    public func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
+                               willBeginAt screenPoint: NSPoint, forItemsAt indexPaths: Set<IndexPath>) {
+        self.collectionView.dragBegan = true
     }
 
     public func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> (any NSPasteboardWriting)? {

@@ -38,11 +38,11 @@ nonisolated extension CloudStrings {
     }
 
     static var gitHubMissing: String {
-        String(localized: "cloud.github.missing", defaultValue: "The GitHub CLI isn't installed on this machine.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.github.missing", defaultValue: "The GitHub CLI isn't installed on this machine. Install gh on it, then run `cmux cloud setup-github --target machine:<id>` again.", table: "Cloud", bundle: .module)
     }
 
     static var gitHubFailed: String {
-        String(localized: "cloud.github.failed", defaultValue: "GitHub sign-in didn't start on this machine.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.github.failed", defaultValue: "GitHub sign-in didn't start on this machine. Run `cmux cloud setup-github --target machine:<id>` again.", table: "Cloud", bundle: .module)
     }
 
     static var gitHubIdentityFailed: String {

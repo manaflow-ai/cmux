@@ -106,6 +106,19 @@ import Testing
             ctx.draw(image, in: CGRect(x: col * (w + gap), y: (1 - row) * (h + gap), width: w, height: h))
         }
         try AAGroupHeaderDensityGalleryTests.write(try #require(ctx.makeImage()), to: out.appending(path: "all.png"))
+        for dark in [true, false] {
+            for density in SidebarDensity.allCases {
+                for minimal in [SidebarMinimalMode.off, .both] {
+                    let image = try Self.renderTrailingColumn(density: density, minimal: minimal, dark: dark)
+                    let name = "trailing-\(dark ? "dark" : "light")-\(density.rawValue)-minimal-\(minimal.rawValue).png"
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
+                }
+            }
+        }
+        for dark in [true, false] {
+            let image = try Self.renderStatusColors(dark: dark)
+            try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "status-\(dark ? "dark" : "light").png"))
+        }
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = root
@@ -113,5 +126,81 @@ import Testing
         try tar.run()
         tar.waitUntilExit()
         #expect(tar.terminationStatus == 0)
+    }
+
+    /// Lawrence msg 11914 and 11959: "trailing dots and spinners must line up horizontally across sections".
+    /// The `SidebarTrailingColumnTests` fixture (Home unread, a selected band item that needs you, the band's
+    /// pinned loading group header, selected, unread, busy and nested rows, open and loading headers at
+    /// several depths; the unread row hovered) at every density, Minimal Mode off and on, dark and light,
+    /// with a 1 px guide line down the trailing column (the open group header chevron's center x).
+    /// `renderGallery` writes them as `trailing-<appearance>-<density>-minimal-<mode>.png`.
+    static func renderTrailingColumn(density: SidebarDensity, minimal: SidebarMinimalMode, dark: Bool) throws -> CGImage {
+        var image: CGImage?
+        try SidebarGroupRailAlignmentTests.with(density, minimal) {
+            let h = SidebarTrailingColumnTests.KindHarness(width: 300)
+            defer { h.window.close() }
+            h.window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            let root = try #require(h.window.contentView)
+            root.wantsLayer = true
+            root.appearance = h.window.appearance
+            let theme = dark ? "Soft Blue" : "Soft Blue Light"
+            let input = try AANestedGroupsGalleryTests.input(theme)
+            _ = ThemeScope.app.store.apply(input)
+            let scope = ThemeScope(level: .room)
+            scope.setOverride(ThemeSpec(theme), input: input, animated: false)
+            scope.root(root)
+            root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+            h.list.setHovered(.workspace(SidebarTrailingColumnTests.unread))
+            for view in AANestedGroupsGalleryTests.all(root) {
+                view.needsLayout = true
+                view.layoutSubtreeIfNeeded()
+                view.layer?.removeAllAnimations()
+                view.needsDisplay = true
+                view.displayIfNeeded()
+            }
+            CATransaction.flush()
+            let column = root.convert(NSPoint(x: try SidebarTrailingColumnTests.columnX(h), y: 0), from: h.list).x
+            let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+            root.cacheDisplay(in: root.bounds, to: rep)
+            let shot = try #require(rep.cgImage)
+            let scale = CGFloat(shot.width) / root.bounds.width
+            let ctx = try #require(CGContext(data: nil, width: shot.width, height: shot.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.draw(shot, in: CGRect(x: 0, y: 0, width: shot.width, height: shot.height))
+            // One device pixel wide, centered on the column x.
+            ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 0.85))
+            ctx.fill(CGRect(x: (column * scale).rounded(.down), y: 0, width: 1, height: CGFloat(shot.height)))
+            image = ctx.makeImage()
+        }
+        return try #require(image)
+    }
+
+    /// Lawrence msg 11983: "make sure sidebar has blue, orange/yellow for needs attention, and red for errors".
+    /// The `SidebarStatusColorTests` fixture (Home unread, band items waiting and failed, rows unread, needing
+    /// permission and failed, open and collapsed group headers rolling up their members) at the default density.
+    static func renderStatusColors(dark: Bool) throws -> CGImage {
+        let h = SidebarStatusColorTests.Harness(dark: dark)
+        defer { h.window.close() }
+        let root = try #require(h.window.contentView)
+        root.wantsLayer = true
+        root.appearance = h.window.appearance
+        let theme = dark ? "Soft Blue" : "Soft Blue Light"
+        let input = try AANestedGroupsGalleryTests.input(theme)
+        _ = ThemeScope.app.store.apply(input)
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec(theme), input: input, animated: false)
+        scope.root(root)
+        root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+        for view in AANestedGroupsGalleryTests.all(root) {
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+            view.layer?.removeAllAnimations()
+            view.needsDisplay = true
+            view.displayIfNeeded()
+        }
+        CATransaction.flush()
+        let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: rep)
+        return try #require(rep.cgImage)
     }
 }

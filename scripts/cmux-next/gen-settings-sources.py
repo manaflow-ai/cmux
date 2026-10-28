@@ -190,6 +190,20 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/auto-archive.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AutoArchive.generated.swift",
+        "type": "AutoArchiveSettingsSchema",
+        "lists": {"autoArchive": ("descriptors", "AutoArchiveSettings")},
+        "enums": {"workspaces.autoArchive.style": "AutoArchiveStyle"},
+    },
+    {
+        "source": "schemas/settings/source/workspace-hibernation.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
+        "type": "WorkspaceHibernationSettingsSchema",
+        "lists": {"hibernation": ("descriptors", "WorkspaceHibernationSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",

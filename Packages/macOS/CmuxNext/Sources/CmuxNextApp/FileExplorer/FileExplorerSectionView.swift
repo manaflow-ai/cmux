@@ -74,12 +74,10 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            following?.cancel()
-        }
+        observation?.cancel()
+        following?.cancel()
     }
 
     /// Roots the tree at the focused terminal's folder each time the section shows (home before
@@ -149,7 +147,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     }
 
     @objc private func doubleClicked() {
-        guard table.clickedRow >= 0 else { return }
+        guard table.clickedRowIfValid != nil else { return }
         perform("fileExplorerOpenSelection")
     }
 

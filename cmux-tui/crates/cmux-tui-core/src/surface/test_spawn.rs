@@ -162,6 +162,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),

@@ -20,8 +20,7 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  MIN_GUTTER,
-  RAIL_LEFT,
+  railPlacement,
   replyPreview,
   ROW_WIDTH,
   THREAD_PADDING_TOP,
@@ -101,11 +100,8 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
-  const shown =
-    turns.length >= MAP_MIN_PROMPTS &&
-    scrolls &&
-    height > 4 * MAP_MARGIN &&
-    transcriptColumn(width).inset >= MIN_GUTTER;
+  const placement = railPlacement(transcriptColumn(width).inset);
+  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
@@ -243,12 +239,12 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap">
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       <nav
         ref={rail}
         className="acpmux-minimap__rail acpmux-scrollmap"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: MAP_MARGIN, width: ROW_WIDTH, height }}
+        style={{ left: placement.left, top: MAP_MARGIN, width: ROW_WIDTH, height }}
         data-hovering={pointerY !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
@@ -331,12 +327,15 @@ export function ScrollMap({
         <PreviewCard
           ref={card}
           id={cardId}
-          x={RAIL_LEFT + ROW_WIDTH}
+          x={placement.left + ROW_WIDTH}
+          railLeft={placement.left}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
+          metadata={cardTurn?.metadata}
+          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }

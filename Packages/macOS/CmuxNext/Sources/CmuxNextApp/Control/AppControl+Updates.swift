@@ -3,7 +3,7 @@ import CmuxNextSettings
 import CmuxNextUpdater
 import CmuxNextWebUpdates
 import Foundation
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBridge
 import CmuxNextPages
@@ -178,7 +178,7 @@ extension AppControl {
         #endif
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The web views under `view` (an open popover's page is in its own window).
     private static func webViewCount(in view: NSView) -> Int {
         view.subviews.reduce(view is WKWebView ? 1 : 0) { $0 + webViewCount(in: $1) }

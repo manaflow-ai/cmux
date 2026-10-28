@@ -44,6 +44,9 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// hostd serves `browser` and says `browser-stream-v1` (`CMUX_MOBILE_BROWSER_HOSTS=1`).
     /// Off, phones hide New Browser Tab for this Mac.
     public var browserHosts = false
+    /// This build streams the phone tabs' simulators (SimulatorKit loads): hostd
+    /// serves `surface` and says `surface-stream-v1` (`CMUX_MOBILE_SURFACE_HOSTS=1`).
+    public var surfaceHosts = false
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -112,6 +115,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if let chiefSession, !chiefSession.isEmpty { environment["CMUX_MOBILE_CHIEF_SESSION"] = chiefSession }
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
+        if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
         return environment
     }
 
@@ -123,6 +127,13 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The control line that tells hostd where the app's acpmux listens.
     public static func acpmuxLine(url: URL, token: String) -> Data {
         line(["type": "acpmux", "url": url.absoluteString, "token": token])
+    }
+
+    /// The control line that hands hostd each paired phone's own acpmux credential, by phone
+    /// device id (`phone_credentials`): that phone's acpmux channel presents it, so its
+    /// Full-access setting can cover it. Carries secrets: stdin only, never logged.
+    public static func phoneCredentialsLine(_ credentials: [String: String]) -> Data {
+        anyLine(["type": "phone_credentials", "credentials": credentials])
     }
 
     /// The control line that tells hostd which phones this Mac approved, and
@@ -163,6 +174,22 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The browser host of `tab` exited.
     public static func browserGoneLine(tab: String) -> Data {
         line(["type": "browser_gone", "tab": tab])
+    }
+
+    /// The answer to `need_surface` `request`: the surface source listens on
+    /// `127.0.0.1:port` and admits the `sf/1` hello that carries `secret` (never logged).
+    public static func surfaceLine(request: UInt64, port: UInt16, secret: String) -> Data {
+        anyLine(["type": "surface", "request": request, "addr": "127.0.0.1:\(port)", "secret": secret])
+    }
+
+    /// No surface source for `request`.
+    public static func surfaceFailedLine(request: UInt64, reason: String) -> Data {
+        anyLine(["type": "surface_failed", "request": request, "reason": reason])
+    }
+
+    /// The surface source of `tab` ended.
+    public static func surfaceGoneLine(tab: String) -> Data {
+        line(["type": "surface_gone", "tab": tab])
     }
 
     static func anyLine(_ object: [String: Any]) -> Data {

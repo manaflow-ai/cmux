@@ -93,6 +93,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             needsLayout = true
         }
     }
+    /// A fullscreen page has the whole window (`WindowRootView+MainPane`): the content host
+    /// fills it, and the chrome around it hides.
+    var presentsPage = false {
+        didSet { if presentsPage != oldValue { applyPagePresentation() } }
+    }
+    /// The content host's pins to the window's edges while `presentsPage`.
+    lazy var pagePresentationPins: [NSLayoutConstraint] = [
+        contentHost.leadingAnchor.constraint(equalTo: leadingAnchor), contentHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+        contentHost.topAnchor.constraint(equalTo: topAnchor), contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ]
+    /// The chrome views `presentsPage` hid.
+    var pagePresentationHidden: [NSView] = []
     /// The right sidebar's on-screen width (0 while hidden): the main pane
     /// is inset by it (`applyMainPane`).
     var rightPanelWidth: CGFloat = 0 {
@@ -194,10 +206,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     /// Minimal: no strip, and the sidebar header is as tall as the tab
     /// strip, so the list starts level with the panes' content.
-    private func applyTokens() {
+    func applyTokens() {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
-        titlebar.isHidden = minimal
+        titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true
     }

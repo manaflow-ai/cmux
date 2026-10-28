@@ -41,11 +41,10 @@ use super::{Outcome, Refusal};
 
 const TASK: &str = "browser_import";
 
-/// The registry of browsers the app imports from (ids and product names),
-/// the same file the app reads.
-const REGISTRY: &str = include_str!(
-    "../../../../../../Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
-);
+/// The (registry id, product name) of every browser the app imports from,
+/// from the registry the app reads (build.rs). Nothing else of the registry
+/// is in the client.
+const BROWSERS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/browser_names.rs"));
 
 /// The command that shows the person the app's picker of found browsers.
 const PICKER: &str = "cmux action run bookmark.importFromBrowser";
@@ -462,18 +461,10 @@ fn registry_id(browser: &str) -> String {
         text.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_ascii_lowercase()
     };
     let wanted = key(browser);
-    let registry: Value = serde_json::from_str(REGISTRY).unwrap_or(Value::Null);
-    registry["browsers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|row| {
-            [&row["id"], &row["name"]]
-                .iter()
-                .any(|name| name.as_str().is_some_and(|name| key(name) == wanted))
-        })
-        .and_then(|row| row["id"].as_str())
-        .unwrap_or(browser)
+    BROWSERS
+        .iter()
+        .find(|(id, name)| key(id) == wanted || key(name) == wanted)
+        .map_or(browser, |(id, _)| *id)
         .to_owned()
 }
 
@@ -593,4 +584,18 @@ fn app_problem(error: &Value) -> Value {
         _ => format!("cmux refused ({code}): {}", why(error)),
     };
     json!({"kind": "app", "text": text, "command": Value::Null, "url": Value::Null})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BROWSERS, registry_id};
+
+    #[test]
+    fn registry_id_reads_ids_and_product_names() {
+        assert!(BROWSERS.contains(&("chrome", "Google Chrome")), "{BROWSERS:?}");
+        for given in ["chrome", "Google Chrome", "google-chrome", "GOOGLE CHROME"] {
+            assert_eq!(registry_id(given), "chrome", "{given}");
+        }
+        assert_eq!(registry_id("No Such Browser"), "No Such Browser");
+    }
 }

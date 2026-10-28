@@ -262,3 +262,150 @@ async fn a_failover_to_another_store_starts_fresh_with_the_transcript() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The chat's `_acpmux/info` `contextBreakdown`, polled until `want(breakdown)` or 5 s.
+async fn info_breakdown(c: &mut TestClient, id: &str, want: impl Fn(&Value) -> bool) -> Value {
+    let mut got = Value::Null;
+    for _ in 0..100 {
+        let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        got = info["contextBreakdown"].clone();
+        if want(&got) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    got
+}
+
+/// A hub whose `primary` Claude answers /context and falls over to `direct` (which does not)
+/// once `root/die` exists: by dying, or with `late` by a usage limit, leaving a process that
+/// answers /context for it after the failover and then creates `root/late`.
+async fn context_failover_setup(root: &std::path::Path, late: bool) -> (Arc<Hub>, TestClient) {
+    let claude_store = root.join("claude");
+    std::fs::create_dir_all(&claude_store).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let profile = |primary: bool| {
+        let path = |name: &str| root.join(name).to_string_lossy().into_owned();
+        let mut env = BTreeMap::from([("FAKE_CLAUDE_STORE".to_owned(), path("claude"))]);
+        if primary {
+            env.insert("FAKE_CLAUDE_CONTEXT".into(), "1".into());
+            env.insert("FAKE_CLAUDE_LIMITS".into(), "1".into());
+            env.insert("FAKE_CLAUDE_DIE_IF".into(), path("die"));
+            if late {
+                env.insert("FAKE_CLAUDE_LATE_CONTEXT".into(), path("late"));
+            }
+        }
+        HarnessProfile {
+            kind: acpmux::config::HarnessKind::ClaudeStdio,
+            argv: vec!["python3".into(), fake_claude.into()],
+            env,
+            description: None,
+            fallback: primary.then(|| "direct".to_owned()),
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    };
+    let agents = BTreeMap::from([
+        ("primary".to_owned(), profile(true)),
+        ("direct".to_owned(), profile(false)),
+    ]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("primary".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+        .await
+        .unwrap();
+    (hub, c)
+}
+
+/// A chat on `primary` whose first turn left its /context breakdown; the next prompt fails over.
+async fn chat_with_a_breakdown(c: &mut TestClient) -> String {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let before = info_breakdown(c, &id, |b| !b.is_null()).await;
+    assert!(!before.is_null(), "the primary's turn leaves its /context breakdown");
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(!info["usageLimits"].is_null(), "the primary's turn leaves its usage limits: {info}");
+    id
+}
+
+/// A failover moves the chat onto another harness: the last harness's /context breakdown is
+/// not the fallback's, so the chat stops showing it.
+#[tokio::test]
+async fn a_failover_drops_the_last_harnesss_context_breakdown() {
+    let root = std::env::temp_dir().join(format!("acpmux-failover-ctx-{}", uuid::Uuid::now_v7()));
+    let (hub, mut c) = context_failover_setup(&root, false).await;
+    let id = chat_with_a_breakdown(&mut c).await;
+    // The primary's launcher dies on the next prompt; the turn goes on, on `direct`.
+    std::fs::write(root.join("die"), "").unwrap();
+    let again = json!({"sessionId": id, "prompt": [{"type": "text", "text": "again"}]});
+    let r = c.request(method::SESSION_PROMPT, again).await;
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["harness"], "direct", "{r:?}");
+    let after = info_breakdown(&mut c, &id, Value::is_null).await;
+    assert!(after.is_null(), "the primary's breakdown outlived the failover: {after}");
+    assert!(session.meta().context_breakdown.is_none(), "the saved meta keeps the old breakdown");
+    // Nor do the primary account's usage limits stay.
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(info["usageLimits"].is_null(), "the primary's limits outlived the failover: {info}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The replaced harness's /context answer that comes after the failover (it was still on its
+/// way) is not the fallback's either: the chat keeps none.
+#[tokio::test]
+async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
+    let root = std::env::temp_dir().join(format!("acpmux-failover-late-{}", uuid::Uuid::now_v7()));
+    let (hub, mut c) = context_failover_setup(&root, true).await;
+    let id = chat_with_a_breakdown(&mut c).await;
+    std::fs::write(root.join("die"), "").unwrap();
+    let again = json!({"sessionId": id, "prompt": [{"type": "text", "text": "again"}]});
+    let r = c.request(method::SESSION_PROMPT, again).await;
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["harness"], "direct", "{r:?}");
+    // The old process writes its answer after the failover, then a probe line: once the probe is
+    // logged, the reader has read the answer before it.
+    let events = |hub: &Arc<Hub>| hub.events(&id, 0, 10_000).unwrap();
+    let mut probed = false;
+    for _ in 0..100 {
+        probed = events(&hub).iter().any(|e| e.kind.contains("late_probe"));
+        if probed {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(probed, "the replaced process's late lines never reached its reader");
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(info["contextBreakdown"].is_null(), "the late answer came back: {info}");
+    assert!(info["usageLimits"].is_null(), "the late limits came back: {info}");
+    assert!(session.meta().context_breakdown.is_none());
+    // Nor is it in the log after the failover, where a pane's replay would take it up.
+    let log = events(&hub);
+    let failover = log.iter().find(|e| e.kind == "failover").map(|e| e.seq).unwrap();
+    let late: Vec<_> = log
+        .iter()
+        .filter(|e| e.seq > failover)
+        .filter(|e| {
+            let meta = e.msg.pointer("/params/update/_meta/acpmux");
+            meta.is_some_and(|m| {
+                m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some()
+            })
+        })
+        .collect();
+    assert!(late.is_empty(), "a breakdown or limits were logged after the failover: {late:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

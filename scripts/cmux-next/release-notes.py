@@ -17,6 +17,14 @@ matter (lines before the first blank line):
 
     title: Updates you barely notice
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
+    clip: https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/ID/HASH.webp | SHA256
+                                                  (optional; written by media/whats-new-clips.py)
+
+A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
+release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
+and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build (its
+highlights and its What's New digest), so an update that already listed the item shows it again with
+its clip (the page keeps one copy). A malformed clip line is left out with a report.
 
 The rest is the body (Markdown). A build with no new highlight file uses its
 user-facing summary for the What's New digest. Each commit is
@@ -55,33 +63,71 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
                    "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps",
-                   "cmux-git", "cmux-tui-core"}
+                   "cmux-git", "cmux-tui-core", "release-notes", "appcast"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
-    r"canary|fleet|review findings|move-only|ci|testbox|bisect|fixture|snapshot tests?|tree key|r2|ffi pin|budget|"
+    r"canary|fleet|review findings|move-only|ci|testbox|bisect|fixtures?|snapshot tests?|tree key|r2|ffi pin|budget|"
     r"isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief|"
     r"e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|"
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics|review fixes|byte limit)\b", re.I)
-# Product names whose casing is not code.
-BRANDS = re.compile(r"\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
-# Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
+    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
+    r"fits the validator|validates? release headings|release[- ]notary|notes check)\b", re.I | re.A)
+# Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
+BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
+# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
+# ASCII classes, as JavaScript reads them in readableChange.ts.
+CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}", re.A)
+# Work no user sees by its shape (readableChange.ts TOOL_NAME, PR_NUMBER, SQUASH_REPAIR): a tool name
+# of three or more hyphenated parts, a pull request number, a repair after a squash.
+TOOL_NAME = re.compile(r"(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)", re.I | re.A)
+PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
+SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
+# Files no user runs: CI workflows, tests, docs, plans, release notes and their checker, galleries,
+# and the scripts that only measure, lint, guard or check the code. A commit that touches only these
+# is internal whatever its subject says (nightly 4037632091801 read "Fixed: validate release headings
+# within their day", #25533: notesCheck.ts and its test). The list is short on purpose: other scripts,
+# scripts/ci/ included, can build or stage what ships (the CEF embed, the remote browser host, the
+# agent pane bundle), and a change the list misses only stays news.
+TOOLING_PATHS = re.compile(
+    r"^(?:\.github/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
+    r"|scripts/(?:measure|fuzz|gallery-matrix|git-hooks)/|scripts/(?:ci|cmux-next)/tests/|scripts/cmux-next/media/)"
+    # Contributor documents by name: other Markdown can ship (THIRD_PARTY_LICENSES.md opens from About).
+    r"|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README(?:\.[\w-]+)?|STYLE|PLAN|TODO)\.md$"
+    r"|^(?:CLA|CODE_OF_CONDUCT|CONTRIBUTING|DESIGN|ORCHESTRATION-NOTES|PROJECTS|REPORT|REVIEW|SECURITY|[\w-]+\.report)\.md$"
+    r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$"
+    r"|^(?:webviews/)?scripts/(?:cmux-next/)?(?:check[-_]|lint[-_]|guardrails|bench[-_]|perf-(?:gate|cron)|prepush-gate"
+    r"|arch[-_]|codebase-health|every-action|install-git-hooks|release-notes\.py|check-release-notes)[^/]*$")
+
+
+def tooling_only(paths):
+    """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
+    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
+
+
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
 LABEL = re.compile(r"^(?P<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?P<scope>[^)]*)\))?!?:\s+(?P<rest>\S.*)$")
 # Work streams that measure or check the app (perf-split, perf-gate, motion-record, strip-scroll-check).
 INTERNAL_AREA_SHAPE = re.compile(r"^(?:perf-[\w-]+|[\w-]+-(?:check|record|gate|bench|probe)|motion-record|review|gate|base-red)$", re.I)
 PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
-# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", anywhere in the subject, and a
-# bead reference cut off at the end.
+# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", anywhere in the
+# subject, and a bead reference cut off at the end.
 # Also "(a283)", "(u3320)", "(a121, a211)": the Chief's agent and prompt ids, never for users.
-REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
+REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
                   r"|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)", re.I)
+
+# A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …".
+LEADING_BRAND = re.compile(r"^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b")
+
+
+def capitalized(text):
+    """The text with a capital first letter, unless it starts with a lowercase brand."""
+    return text if LEADING_BRAND.match(text) else text[:1].upper() + text[1:]
+
 
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
@@ -109,14 +155,15 @@ def summary_entry(subject):
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)
     text = REFS.sub("", text).strip(" .")
-    if not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text)):
+    if (not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text))
+            or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
         return None
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
         group = "new"
     elif group == "changed" and re.match(r"^(fix|fixes|repair|stop|keep)\b", text, re.I):
         group = "fixed"
     # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
-    return group, text[:1].upper() + text[1:]
+    return group, capitalized(text)
 
 
 CLAUSE = re.compile(r",|;| —| - | \(| so | because | while ")
@@ -144,7 +191,7 @@ def title_tail(full, title):
     tail = full[len(title):].lstrip(" ,;:—-").strip()
     if tail.startswith("(") and tail.endswith(")"):
         tail = tail[1:-1]
-    return tail[:1].upper() + tail[1:]
+    return capitalized(tail)
 
 
 def summarize_changes(subjects, limit=SUMMARY_LIMIT):
@@ -171,8 +218,8 @@ def summary_text(lines):
 
 
 def commit_subjects(since, head):
-    span = rev_range(since, head)
-    return [line for line in git("log", "--no-merges", "--format=%s", span).splitlines() if line.strip()][:MAX_CHANGES]
+    """The span's subjects for the summary, newest first: a tooling-only commit is left out."""
+    return [subject for subject, _, paths in span_commits(since, head) if not tooling_only(paths)]
 
 
 def git(*args):
@@ -198,7 +245,52 @@ def parse_highlight(path, text):
     if meta.get("action"):
         action_id, _, title = meta["action"].partition("|")
         item["action"] = {"id": action_id.strip(), "title": (title.strip() or "Try it")}
+    clip = CLIP.fullmatch(meta.get("clip", ""))
+    if clip:
+        item["media"] = [{"url": clip["url"], "sha256": clip["sha256"], "kind": "image", "alt": meta["title"]}]
+    elif "clip" in meta:
+        # Left out, never a failed build: CI's whats-new-clips.py check holds the line to its shape.
+        print(f"{path}: 'clip:' is not '{CLIP_PREFIX}ID/NAME.webp | SHA256'; left out", file=sys.stderr)
     return item
+
+
+# A clip (whats-new-clips.py publish): an animated WebP on pr-media's whats-new/ folder and its hash, which the
+# app checks before it shows it, as for --pr-media pictures.
+CLIP_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/"
+CLIP = re.compile(r"(?P<url>" + re.escape(CLIP_PREFIX) + r"[a-z0-9][a-z0-9-]*/[0-9a-f]{12}\.webp)\s*\|\s*(?P<sha256>[0-9a-f]{64})")
+CLIPS = "release-notes/next/clips"
+CLIP_REANNOUNCE_DAYS = 7
+
+
+def clip_caption(highlight, head):
+    """The clip's caption (its spec's), else the highlight's title, as the clip's alt."""
+    try:
+        spec = json.loads(git("show", f"{head}:{CLIPS}/{highlight['id']}.json"))
+    except (subprocess.CalledProcessError, ValueError):
+        return
+    caption = spec.get("caption") if isinstance(spec, dict) else None
+    if isinstance(caption, str) and caption.strip():
+        highlight["media"][0]["alt"] = caption.strip()
+
+
+def reannounced(since, head, added):
+    """Highlights added before the span, of the last CLIP_REANNOUNCE_DAYS, whose clip line the span set."""
+    if not since:
+        return []
+    head_time = int(git("show", "-s", "--format=%ct", head).strip())
+    out = []
+    for path in git("diff", "--name-only", "--diff-filter=M", since, head, "--", HIGHLIGHTS).split():
+        if not path.endswith(".md") or path in added:
+            continue
+        before = parse_highlight(path, git("show", f"{since}:{path}"))
+        after = parse_highlight(path, git("show", f"{head}:{path}"))
+        clip = lambda h: [(m["url"], m["sha256"]) for m in h["media"]]
+        if not after["media"] or clip(before) == clip(after):  # a new title alone re-announces nothing
+            continue
+        born = git("log", "--diff-filter=A", "--format=%ct", "-1", head, "--", path).strip()
+        if born and head_time - int(born) <= CLIP_REANNOUNCE_DAYS * 86400:
+            out.append(path)
+    return out
 
 
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
@@ -280,23 +372,24 @@ def find_pr_media(highlight, path, head):
         return
 
 
-def change_item(subject, author):
+def change_item(subject, author, paths=()):
     """One structured change (UPDATE-CARD "What's changed"): the subject's
-    title without its "(#1234)" suffix, the commit author, the PR number."""
-    item = {"title": subject.strip(), "author": author.strip() or None}
+    title without its "(#1234)" suffix, the commit author, the PR number, and
+    "internal": true when every file it touches is CI or tooling (tooling_only)."""
+    item = {"title": subject.strip(), "author": author.strip() or None, "internal": tooling_only(paths) or None}
     match = PR_SUFFIX.match(subject)
     if match and match["title"].strip():
         item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
     return {k: v for k, v in item.items() if v is not None}
 
 
-def whats_new_digest(args):
+def whats_new_digest(args, also=()):
     """The What's New nightly digest of the same highlights (scripts/whats-new/digest.py),
     or None when it is empty or does not validate: the notes still publish."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     try:
         import digest, validate
-        document = digest.build(args.short, args.date, args.head, args.since)
+        document = digest.build(args.short, args.date, args.head, args.since, also=also)
     except (ImportError, ValueError, subprocess.CalledProcessError) as error:
         print(f"whats-new digest skipped: {error}", file=sys.stderr)
         return None
@@ -333,11 +426,13 @@ def summary_whats_new_digest(args, lines):
     document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
                 "headline": {"en": "Fixes and improvements"}, "entries": []}
     categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
+    titles = set()
     for index, line in enumerate(lines):
         # A line with no clause short enough stays out of the digest; the page shows it whole
         # from the summary lines.
         title = short_title(line.get("title", ""), validate.LIMITS["title"])
-        if not title or line.get("group") not in categories:
+        # Two long lines can share a first clause; the digest shows each title once.
+        if not title or line.get("group") not in categories or title.lower() in titles:
             continue
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
@@ -349,6 +444,7 @@ def summary_whats_new_digest(args, lines):
             print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
             continue
         document["entries"].append(entry)
+        titles.add(title.lower())
     if not document["entries"]:
         return None
     document["headline"] = {"en": document["entries"][0]["title"]["en"]}
@@ -357,6 +453,35 @@ def summary_whats_new_digest(args, lines):
         print("whats-new summary skipped:\n" + "\n".join(problems), file=sys.stderr)
         return None
     return document
+
+
+REPO = "manaflow-ai/cmux"
+# The generic entry, all but its docs link (the span's commits). `check` knows it by every field,
+# so a real highlight that happens to share its id is never taken for it.
+GENERIC_ENTRY = {"id": "fixes-and-improvements", "category": "improved", "title": {"en": "Fixes and improvements"},
+                 "summary": {"en": "This build brings fixes and improvements. The link lists every change in it."},
+                 "platforms": ["macos"], "audience": "all"}
+
+
+def generic_whats_new_digest(args):
+    """The digest of a build with nothing user-facing to say: one "Fixes and improvements" entry
+    whose link lists the span's commits. claude-sr2, 2026-10-27: a build with no What's New entry
+    publishes with this instead of failing publish-nightly (9 of 79 attempts threw away a notarized
+    build); `check` warns about it."""
+    link = (f"https://github.com/{REPO}/compare/{args.since}...{args.head}" if args.since
+            else f"https://github.com/{REPO}/commits/{args.head}")
+    return {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
+            "headline": {"en": "Fixes and improvements"}, "entries": [{**GENERIC_ENTRY, "docs": link}]}
+
+
+def is_generic(entries):
+    """Whether `entries` is exactly the generic entry generic_whats_new_digest writes."""
+    if len(entries) != 1:
+        return False
+    entry = dict(entries[0])
+    docs = entry.pop("docs", "")
+    return entry == GENERIC_ENTRY and isinstance(docs, str) and (
+        docs.startswith(f"https://github.com/{REPO}/compare/") or docs.startswith(f"https://github.com/{REPO}/commits/"))
 
 
 def write_community_summary(digest, args):
@@ -372,9 +497,32 @@ def write_community_summary(digest, args):
 
 def commits_with_authors(since, head, limit=MAX_CHANGES):
     """(subject, author) of each non-merge commit in the span, newest first, at most `limit` (None: all)."""
+    return [(subject, author) for subject, author, _ in span_commits(since, head, limit)]
+
+
+def span_commits(since, head, limit=MAX_CHANGES):
+    """(subject, author, paths) of each non-merge commit in the span, newest first, at most `limit`
+    (None: all). `paths` are the files the commit touches (none for an empty commit). NUL-separated
+    and keyed by hash, so no subject or file name can shift a path onto another commit."""
     span = rev_range(since, head)
-    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
-    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:limit]
+    commits = []
+    for record in git("log", "--no-merges", "-z", "--format=%H%x1f%an%x1f%s", span).split("\0"):
+        sha, _, rest = record.strip("\n").partition("\x1f")
+        author, _, subject = rest.partition("\x1f")
+        if sha:
+            commits.append((sha, subject, author))
+    paths, current = {sha: [] for sha, _, _ in commits}, None
+    # "-z --name-only": each commit's marked hash, then "\n" and its files, every field ended by NUL.
+    # The marker (\x01) keeps a file named like a hash from passing for a commit.
+    # --no-renames: a moved file counts at both ends, so a move into tests/ is not tooling alone.
+    for field in git("log", "--no-merges", "--no-renames", "-z", "--name-only", "--format=%x01%H%x01", span).split("\0"):
+        name = field[1:] if field.startswith("\n") else field
+        marked = name[1:-1] if len(name) == 42 and name[0] == name[-1] == "\x01" else None
+        if marked in paths:
+            current = marked
+        elif name and current:
+            paths[current].append(name)
+    return [(subject, author, paths[sha]) for sha, subject, author in commits if subject.strip()][:limit]
 
 
 def pr_lines(items, repo, limit=PR_LIMIT):
@@ -409,27 +557,42 @@ def prs(args):
 
 def build(args):
     span = rev_range(args.since, args.head)
-    commits = commits_with_authors(args.since, args.head)
-    changes = [subject for subject, _ in commits]
-    items = [change_item(subject, author) for subject, author in commits]
+    commits = span_commits(args.since, args.head)
+    changes = [subject for subject, _, _ in commits]
+    items = [change_item(subject, author, paths) for subject, author, paths in commits]
+    # The summary (and the What's New digest made from it) never names a tooling-only commit.
+    user_changes = [subject for subject, _, paths in commits if not tooling_only(paths)]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
-    for path in sorted(set(p for p in added if p.endswith(".md"))):
+    added = set(p for p in added if p.endswith(".md"))
+    again = reannounced(args.since, args.head, added)
+    for path in sorted(added | set(again)):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
-        if args.pr_media:
+        if highlight["media"]:
+            clip_caption(highlight, args.head)
+        elif args.pr_media:
             add_pr_media(highlight, path, args.head, deadline)
         highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
-             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
-    digest = whats_new_digest(args)
+             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes)}
+    digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
+    generic = digest is None and not highlights
+    if generic:
+        # Nothing user-facing in the span. A span whose highlight files all failed validation
+        # keeps no digest, so `check` still fails it.
+        digest = generic_whats_new_digest(args)
     if digest is not None:
         notes["whatsNew"] = digest
-        write_community_summary(digest, args)
+        if not generic:
+            write_community_summary(digest, args)
+    # When the build was made, to the second: the Updated card names the build by it ("Nightly · Oct 26,
+    # 7:38 PM" in the person's time zone; Leo 2026-10-26: "it just says updated to nightly").
+    notes["builtAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, f"{args.build}.json")
     with open(path, "w", encoding="utf-8") as out:
@@ -557,9 +720,11 @@ def verify(args):
 
 
 def check(args):
-    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times";
-    a vague "What's new in this build" card must fail the release, not ship): the build's notes
-    carry at least one What's New entry, and the whole digest validates."""
+    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times"):
+    the whole digest validates, so a malformed entry fails the release. A build with nothing
+    user-facing carries the generic "Fixes and improvements" entry (generic_whats_new_digest) and
+    passes with a warning (claude-sr2, 2026-10-27). Notes with no entry at all, which `build` now
+    leaves only when every highlight file failed validation, still fail."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     import validate
 
@@ -567,14 +732,24 @@ def check(args):
     digest = notes.get("whatsNew") or {}
     entries = digest.get("entries") or []
     if not entries:
-        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: the update card would say only "
-              "\"What's new in this build\". Land a user-facing commit (feat/fix with a plain-English subject) or "
-              "add release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).", file=sys.stderr)
+        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: its highlight files did not "
+              "validate (the build log names each dropped one). Fix them (see release-notes/next/WRITING.md).",
+              file=sys.stderr)
         return 1
     problems = validate.validate_document(f"{digest.get('version')}.json", digest)
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
+    if is_generic(entries):
+        message = (f"No What's New entries for {notes.get('shortVersion')}: publishing the generic \"Fixes and "
+                   f"improvements\" entry ({entries[0]['docs']}). Land a user-facing commit or add "
+                   "release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).")
+        print(f"::warning title=Generic What's New entry::{message}")
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as out:
+                out.write(f"### Generic What's New entry\n\n{message}\n")
+        return 0
     print(f"ok: {len(entries)} What's New entries: " + "; ".join(e["title"]["en"] for e in entries[:3]))
     return 0
 

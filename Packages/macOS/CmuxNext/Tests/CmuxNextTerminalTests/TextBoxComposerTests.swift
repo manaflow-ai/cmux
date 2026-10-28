@@ -92,6 +92,24 @@ struct TextBoxComposerTests {
         #expect(harness.textBox.textView.string.isEmpty)
     }
 
+    /// Issue 24912: Undo after a submit replayed typing against the cleared text and threw NSRangeException.
+    @Test func undoAfterASubmitHasNothingStaleToReplay() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        harness.textBox.show(focus: true)
+        let view = harness.textBox.textView
+        let text = String(repeating: "x", count: 74)
+        view.insertText(text, replacementRange: NSRange(location: 0, length: 0))
+        view.didChangeText()
+        #expect(harness.textBox.submit())
+        #expect(view.string.isEmpty)
+        view.insertText("a", replacementRange: NSRange(location: 0, length: 0))
+        harness.textBox.insert(paths: ["/tmp/a b"])
+        let manager = try #require(view.undoManager)
+        while manager.canUndo { manager.undo() }
+        #expect(manager.canUndo == false)
+    }
+
     @Test func shiftReturnAddsALineAndSendsNothing() throws {
         let harness = try Self.harness()
         defer { harness.close() }
@@ -162,6 +180,36 @@ struct TextBoxComposerTests {
         harness.textBox.textView.string = "it's broken"
         #expect(harness.textBox.submit())
         #expect(harness.sink.sent == [.paste("claude --dangerously-skip-permissions -- 'it'\\''s broken'"), .returnKey])
+    }
+
+    /// Issue 24912, the behavior a person expects: type a draft, Return sends it (the controller
+    /// clears the editor), then Edit > Undo (the window's `undo:`, as the menu item sends it)
+    /// brings the draft back, with no exception; a second Undo takes back the typing. Each step
+    /// is its own undo group, as each key event is in the app.
+    @Test func undoAfterASubmitBringsTheDraftBack() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        harness.textBox.show(focus: true)
+        let view = harness.textBox.textView
+        let manager = try #require(view.undoManager)
+        manager.groupsByEvent = false
+        defer { manager.removeAllActions(); manager.groupsByEvent = true }
+        func step(_ body: () -> Void) {
+            manager.beginUndoGrouping()
+            body()
+            manager.endUndoGrouping()
+        }
+        let draft = String(repeating: "x", count: 74)
+        step { view.insertText(draft, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        step { #expect(harness.textBox.submit()) }
+        #expect(view.string.isEmpty)
+        #expect(harness.sink.sent == [.paste(draft), .returnKey])
+
+        #expect(harness.window.tryToPerform(Selector(("undo:")), with: nil), "Undo found no target")
+        #expect(view.string == draft, "Undo after the submit did not bring the draft back")
+        #expect(harness.textBox.model.text == draft, "the model did not follow the undo")
+        #expect(harness.window.tryToPerform(Selector(("undo:")), with: nil))
+        #expect(view.string.isEmpty, "the second Undo did not take back the typing")
     }
 
     @Test func attachedFilesGoInAsShellQuotedPaths() {

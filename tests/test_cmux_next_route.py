@@ -9,6 +9,7 @@ through the regenerated graph.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 import sys
@@ -36,16 +37,64 @@ PR_17470 = [
 ]
 
 
+def call_arguments(text: str, index: int) -> str:
+    """The top-level arguments of the call open at INDEX (just inside its parenthesis), up to the parenthesis
+    that closes it. String literals ("...", \"\"\"...\"\"\", raw #"..."#) are kept whole at the top level;
+    comments (//, nested /* */) and everything inside a nested call, array or closure become spaces, so
+    `path:` matches only the target's own argument."""
+    out: list[str] = []
+    depth = 0
+    closers = {"(": ")", "[": "]", "{": "}"}
+    while index < len(text):
+        if text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = len(text) if newline < 0 else newline
+            continue
+        if text.startswith("/*", index):
+            nesting, index = 1, index + 2
+            while index < len(text) and nesting:
+                if text.startswith("/*", index):
+                    nesting, index = nesting + 1, index + 2
+                elif text.startswith("*/", index):
+                    nesting, index = nesting - 1, index + 2
+                else:
+                    index += 1
+            out.append(" ")
+            continue
+        literal = re.match(r'(#*)("""|")', text[index:])
+        if literal:
+            hashes, quote = literal.groups()
+            close = quote + hashes
+            cursor = index + len(literal.group(0))
+            while cursor < len(text) and not text.startswith(close, cursor):
+                cursor += 2 if (text[cursor] == "\\" and not hashes) else 1
+            cursor = min(len(text), cursor + len(close))
+            out.append(text[index:cursor] if depth == 0 else " ")
+            index = cursor
+            continue
+        char = text[index]
+        if char in closers:
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                return "".join(out)
+            depth -= 1
+        elif depth == 0:
+            out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def manifest_target_paths() -> set[str]:
     """The path of each target Package.swift declares: its own `path:` when it sets one
     (CmuxNextTestExitTrace lives in Tests/Support), else Tests/<name> for a test target and
     Sources/<name> otherwise."""
     manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
-    starts = list(re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest))
     paths = set()
-    for index, start in enumerate(starts):
-        end = starts[index + 1].start() if index + 1 < len(starts) else len(manifest)
-        own = re.search(r'\bpath:\s*"([^"]+)"', manifest[start.end():end])
+    for start in re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest):
+        # Only the target's own top-level `path:` argument: the last target in the list must not read one further
+        # down (the package dependencies' `.package(path:)` follow it since #24978), nor one in a nested call.
+        own = re.search(r'\bpath:\s*"([^"]+)"', call_arguments(manifest, start.end()))
         kind, name = start.groups()
         default = f"{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
         paths.add(f"{PACKAGE}/{own.group(1) if own else default}")
@@ -125,6 +174,29 @@ class GraphCoversThePackage(unittest.TestCase):
                 self.assertLessEqual(set(target["packages"]), set(GRAPH["packages"]))
 
 
+class ManifestReader(unittest.TestCase):
+    def path_of(self, manifest: str) -> str | None:
+        start = re.search(r'\.target\(\s*name:\s*"T"', manifest)
+        own = re.search(r'\bpath:\s*"([^"]+)"', call_arguments(manifest, start.end()))
+        return own.group(1) if own else None
+
+    def test_a_path_after_the_call_is_not_the_target_s(self):
+        self.assertIsNone(self.path_of('.target(name: "T", dependencies: ["A"])\n] + [x]\n.package(path: "../Other")'))
+
+    def test_the_target_s_own_path_is_read(self):
+        self.assertEqual(self.path_of('.target(name: "T", path: "Tests/Support/T")'), "Tests/Support/T")
+
+    def test_a_nested_path_argument_is_not_the_target_s(self):
+        self.assertEqual(self.path_of('.target(name: "T", resources: [helper(path: "Nested")], path: "Actual")'), "Actual")
+        self.assertIsNone(self.path_of('.target(name: "T", resources: [.copy(path: "Nested")])'))
+
+    def test_parentheses_in_strings_and_comments_do_not_end_the_call(self):
+        manifest = ('.target(name: "T", /* ) /* nested ) */ ) */ swiftSettings: [.define("A)")],\n'
+                    '  // a comment )\n  exclude: [#"raw ) \\"#, """\n  ) multi\n  """], path: "Real")\n'
+                    '.package(path: "../Other")')
+        self.assertEqual(self.path_of(manifest), "Real")
+
+
 class GraphGenerator(unittest.TestCase):
     def test_a_literal_too_long_for_a_path_is_not_a_read(self):
         """macOS stat fails with ENAMETOOLONG on a base64 certificate in a test (run 37411671734)."""
@@ -149,7 +221,53 @@ class GraphGenerator(unittest.TestCase):
                 self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
 
 
+class MacReleaseInputs(unittest.TestCase):
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the fleet SwiftPM compile check does not."""
+
+    def test_package_sources_stay_on_the_compile_check(self):
+        for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
+                        # The Xcode app target is not in this compile (the scheme compile builds it).
+                        ["App/main.swift"], ["cmux.xcodeproj/project.pbxproj"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "false")
+
+    def test_inputs_only_xcodebuild_sees_need_the_mac(self):
+        for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
+                        ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Media.xcassets/Contents.json"],
+                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"],
+                        ["scripts/cmux-next/lib/fleet-only.sh"], ["scripts/cmux-next/stale-pcm-retry-needed.sh"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "true")
+
+    def test_every_tier_includes_it(self):
+        self.assertEqual(outputs(route(ROOT, "push", [], set()))["mac_release"], "true")
+        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], {"full-ci"}))["mac_release"], "true")
+
+
 class PullRequestTiers(unittest.TestCase):
+    def test_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudAPIClientRunTests)\.")
+
+    def test_changed_swift_source_prioritizes_its_matching_suite(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextApp/CloudStartSessionAsks.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudStartSessionAsksTests)\.")
+
+    def test_nested_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextPopups/WebAuth/WebAuthCallback.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(WebAuthCallbackTests)\.")
+
+    def test_isolated_suites_are_left_to_their_dedicated_steps(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], "")
+
+    def test_cloud_bring_back_stays_prioritized_for_new_cases(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudBringBackTests)\.")
+
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests")
@@ -364,6 +482,86 @@ class EveryTier(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
+
+
+MAC_TIERS = ("full", "native", "scheme", "generated", "swift", "daemon", "mac_release", "swift_canary")
+
+
+def mac_tiers(result: dict[str, str]) -> list[str]:
+    return [key for key in MAC_TIERS if result.get(key) == "true"]
+
+
+class LinuxLaneTests(unittest.TestCase):
+    """A tests/test_*.py whose registry lane is linux-guard, and that no Mac tier reads, needs no Mac tier."""
+
+    @classmethod
+    def setUpClass(cls):
+        import cmux_next_route as route_module
+        cls.route = route_module
+        graph = route_module.load_graph(ROOT)
+        tests = [name for name, target in graph["targets"].items() if target["kind"] == "test"]
+        cls.read = staticmethod(lambda path: any(route_module.matches(path, r) for name in tests
+                                                 for r in graph["targets"][name].get("reads", [])))
+        cls.tree_inputs = route_module.tree_input_paths(ROOT)
+        cls.linux = route_module.linux_guard_tests(ROOT)
+        # A linux-guard test the CI-only patterns do not already cover: the new fast path is what skips it.
+        cls.sample = next(path for path in sorted(cls.linux)
+                          if not route_module.ci_only(path) and not route_module.web_fast(path)
+                          and not route_module.consumed(path, cls.tree_inputs, cls.read))
+
+    def test_the_allowlist_comes_from_the_registry(self):
+        from test_execution_registry import load_registry
+        entries = load_registry(ROOT / "tests/test-execution.toml")
+        expected = {e["path"] for e in entries if e.get("lane") == "linux-guard" and str(e["path"]).startswith("tests/test_")}
+        self.assertEqual(set(self.linux), expected)
+        self.assertGreater(len(self.linux), 100)
+
+    def test_a_linux_guard_test_alone_skips_the_mac_tiers(self):
+        result = tiers([self.sample])
+        self.assertEqual(mac_tiers(result), [], self.sample)
+        self.assertEqual(tiers([self.sample, "tests/test-execution.toml"])["native"], "false")
+
+    def test_a_test_moved_off_linux_guard_routes_to_mac_again(self):
+        from test_execution_registry import load_registry
+        entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
+                   for e in load_registry(ROOT / "tests/test-execution.toml")]
+        with mock.patch("test_execution_registry.load_registry", return_value=entries):
+            self.assertIn("native", mac_tiers(tiers([self.sample])))
+
+    def test_an_unreadable_registry_allowlists_nothing(self):
+        with mock.patch("test_execution_registry.load_registry", side_effect=ValueError("bad registry")):
+            self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
+            self.assertIn("native", mac_tiers(tiers([self.sample])))
+            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
+
+    def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
+        with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
+            self.assertIn("swift", mac_tiers(tiers([self.sample])))
+
+    def test_no_allowlisted_test_is_a_mac_input(self):
+        """Over the real registry: every linux-guard test the fast path lets skip is read by no Mac tier."""
+        for path in sorted(self.linux):
+            with self.subTest(path=path):
+                if self.route.consumed(path, self.tree_inputs, self.read):
+                    self.assertNotEqual(mac_tiers(tiers([path])), [], path)
+                    continue
+                self.assertNotIn(path, self.route.FULL_INPUTS + self.route.DAEMON_PATHS)
+                for pattern in (self.route.SWIFT_JOB_INPUTS + self.route.GENERATED_INPUTS
+                                + self.route.BUNDLE_INPUTS + self.route.MAC_RELEASE_INPUTS + tuple(self.tree_inputs)):
+                    self.assertFalse(self.route.matches(path, pattern) or fnmatch.fnmatch(path, pattern),
+                                     f"{path} matches Mac input {pattern}")
+                self.assertEqual(mac_tiers(tiers([path])), [], path)
+
+    def test_an_unknown_path_still_routes_to_mac(self):
+        for path in ("newdir/tool.py", "tests/helper_not_registered.py", "tests/test_not_in_registry_xyz.py"):
+            with self.subTest(path=path):
+                self.assertIn("native", mac_tiers(tiers([path])))
+
+    def test_a_linux_guard_test_with_another_file_still_compiles(self):
+        for other in ("scripts/cmux-next/new-step.sh", "Resources/new.json",
+                      f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
+            with self.subTest(other=other):
+                self.assertIn("native", mac_tiers(tiers([self.sample, other])))
 
 
 class PushAttribution(unittest.TestCase):

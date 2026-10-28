@@ -91,6 +91,20 @@ interface ClaudeState {
   activeGenerations: Array<number | undefined>;
 }
 
+function compactCommand(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function claudeToolActivity(name: string, input: unknown): { name: string; detail?: string; description?: string } {
+  const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const command = typeof record.command === "string" ? compactCommand(record.command) : undefined;
+  const detail = command || truncate(JSON.stringify(input ?? {}));
+  const description = typeof record.description === "string" && record.description.trim().length > 0
+    ? record.description.trim()
+    : undefined;
+  return { name, detail, description };
+}
+
 export const claudeAdapter: Adapter = {
   capabilities: {
     triggers: ["/"],
@@ -727,11 +741,11 @@ function handleLine(sess: SessionCtx, line: string) {
     case "assistant": {
       for (const block of ev.message?.content ?? []) {
         if (block.type === "tool_use") {
+          const activity = claudeToolActivity(block.name, block.input);
           sess.emit({
             kind: "tool-start",
             toolId: block.id,
-            name: block.name,
-            detail: truncate(JSON.stringify(block.input ?? {})),
+            ...activity,
           });
         }
       }

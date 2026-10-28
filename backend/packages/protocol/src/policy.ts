@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { IntegrationProvider, RepoPattern } from "./integrations.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Team policy (spec/enterprise.md section 4): one typed record per team,
@@ -15,10 +16,10 @@ const policyValue = <S extends Schema.Top>(value: S) => Schema.Struct({ value, m
 const Int = Schema.Number.check(Schema.isInt())
 const intBetween = (min: number, max: number) => Int.check(Schema.isGreaterThanOrEqualTo(min), Schema.isLessThanOrEqualTo(max))
 const AppId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
-const Version = Schema.String.check(Schema.isPattern(/^[0-9]+(\.[0-9]+){0,3}$/))
+const Version = Schema.String.check(isPattern(/^[0-9]+(\.[0-9]+){0,3}$/))
 
 /** A cmux.json key path, as the settings catalog names it (`ui.animationSpeed`). */
-const SettingPath = Schema.String.check(Schema.isPattern(/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/), Schema.isMaxLength(200))
+const SettingPath = Schema.String.check(isPattern(/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/), Schema.isMaxLength(200))
 const DeviceSetting = Schema.Struct({ value: Schema.Unknown, mode: PolicyMode })
 
 /** Product maximums: a team may only shorten these retention periods (D19). */
@@ -46,6 +47,8 @@ export const policyKeySchemas = {
   "github.requireOrgAdmin": Schema.Boolean,
   /** Extra limit on repositories: a list (empty = no extra limit), or "none" to deny every repository. */
   "github.repoAllowList": Schema.Union([Schema.Literal("none"), Schema.Array(RepoPattern).check(Schema.isMaxLength(500))]),
+  /** Installation tokens from POST /v1/integrations/github/token may carry `workflows: write` (edit .github/workflows). */
+  "github.allowWorkflows": Schema.Boolean,
   "integrations.allowedProviders": Schema.Union([Schema.Literal("all"), Schema.Array(IntegrationProvider)]),
   "mcp.server": Schema.Literals(["user_choice", "disabled"]),
   "mcp.remoteTransport": Schema.Boolean,
@@ -97,6 +100,7 @@ export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policy
   "github.repoScope": "linking_user_repos",
   "github.requireOrgAdmin": false,
   "github.repoAllowList": [],
+  "github.allowWorkflows": false,
   "integrations.allowedProviders": "all",
   "mcp.server": "user_choice",
   "mcp.remoteTransport": false,

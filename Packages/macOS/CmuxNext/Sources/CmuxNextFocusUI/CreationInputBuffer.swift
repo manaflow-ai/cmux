@@ -6,7 +6,9 @@ public final class CreationInputBuffer {
     /// A ticket names its buffer too: a buffer flushed early never takes a later buffer's ticket of the same number.
     public struct Ticket: Hashable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
 
-    private var events: [NSEvent] = []
+    /// The held keys in typing order, each with the creation it was typed for: the newest one
+    /// pending when it was typed (the pane the person saw get the focus), nil for none.
+    private var events: [(event: NSEvent, creation: Int?)] = []
     private var pending: [Int: UInt64] = [:]
     private var awaited: Set<UInt64> = []
     /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
@@ -27,6 +29,8 @@ public final class CreationInputBuffer {
     /// A creation of this hold still waits for its reply: until then its keys never expire.
     public var hasPendingCreation: Bool { !pending.isEmpty }
     public var isEmpty: Bool { events.isEmpty }
+    /// How many creations this hold opened: a key run again that opened another one changes it.
+    public var openedCount: Int { nextID }
 
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
@@ -40,19 +44,24 @@ public final class CreationInputBuffer {
     }
 
     /// The person closed the creation of `tab` before it existed: it waits for nothing more, and
-    /// the keys held for it are dropped with it (never given to another tab) unless another
-    /// creation of this hold still waits for them. False when no pending creation shows `tab`.
+    /// the keys typed for it are dropped with it (never given to another tab). Keys typed for
+    /// another creation of this hold keep waiting for it, in order. False when no pending creation
+    /// shows `tab`.
     public func cancel(tab: String) -> Bool {
-        let ids = tabs.filter { $0.value == tab }.map(\.key)
+        let ids = Set(tabs.filter { $0.value == tab }.map(\.key))
         guard !ids.isEmpty else { return false }
         for id in ids {
             tabs[id] = nil
             earlyTabs[id] = nil
             pending[id] = nil
         }
+        events.removeAll { $0.creation.map(ids.contains) ?? false }
         if pending.isEmpty, awaited.isEmpty { events.removeAll() }
         return true
     }
+
+    /// Whether a creation of this hold still waits for its reply and shows `tab`.
+    public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
 
     /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
     public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
@@ -70,13 +79,19 @@ public final class CreationInputBuffer {
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
-    public func capture(_ event: NSEvent) { events.append(event) }
+    /// Holds `event`, typed for the newest pending creation.
+    public func capture(_ event: NSEvent) { events.append((event, pending.keys.max())) }
 
-    public func prepend(_ earlier: ArraySlice<NSEvent>) { events.insert(contentsOf: earlier, at: 0) }
+    /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest
+    /// pending creation) before the keys held now, typed for that creation.
+    public func prepend(_ earlier: ArraySlice<NSEvent>) {
+        let creation = pending.keys.max()
+        events.insert(contentsOf: earlier.map { ($0, creation) }, at: 0)
+    }
 
     public func take() -> [NSEvent] {
         defer { events.removeAll() }
-        return events
+        return events.map(\.event)
     }
 
     /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then

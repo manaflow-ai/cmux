@@ -103,7 +103,7 @@ final class BrowserNativeInputs {
     /// One script round trip: the web process handles its messages in order, so the key or text
     /// is handled before the call answers.
     private func roundTrip(_ page: WebKitTab) async {
-        _ = try? await page.evaluate("0", world: .page)
+        _ = try? await page.evaluate("0", world: .page, gesture: .cmux)
     }
 
     private static func flags(_ modifiers: Set<BrowserPageInput.Modifier>) -> NSEvent.ModifierFlags {

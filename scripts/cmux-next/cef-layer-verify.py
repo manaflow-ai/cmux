@@ -12,6 +12,17 @@ window and skip that. The python process needs the host's event-posting permissi
               in mode on (below 26 the app never hosts, so an "on" number would be an "off" number)
   hosted      debug.cef tracker.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new pane
               loaded (no tab switch first: the request made at window creation must host it by itself)
+  hosted.fork the fork really moved the page's pixels, not only the app's view: debug.layers counts the CALayerHost
+              layers (Chromium's GPU output) per shown page; on: >= 1 inside the context the pane hosts
+              (`hosted_context_layer_hosts`; the pane's own tree always has the app's host, so it proves nothing) and 0
+              in the page window's. The context count is >= 1 only once Chromium drew there, so a page window with 0
+              before the first GPU frame or on the IOSurface fallback does not pass. off: 0 in the pane and >= 1 in the
+              page window
+  show.again  a shown page that hides and shows again (switch to a new workspace and back) shows its last frame at
+              once: the red bar is above the blue one in a screencapture of the page rect taken right after the switch
+              back, or in the app's window image (best effort: the capture follows the action's reply by a socket round
+              trip, so a frame Chromium draws faster than that can pass). Not covered: whether the fork's deferred hide
+              runs after the switch's commit (needs a fork counter)
   pixels      the page's red top bar shows above its blue bottom bar (the hosted layer is the right way up), in the
               app's own window image (`pixels.window`) and in a screencapture of the page rect (`pixels.screen`);
               either can be blank on a host without Screen Recording for that process
@@ -26,7 +37,7 @@ window and skip that. The python process needs the host's event-posting permissi
   drag        an HID drag inside the page fires the page's pointer events (mousedown, moves, mouseup)
   context     an HID right click opens Chromium's context menu (the page sees a contextmenu event)
 
---checks hosted runs only `valid` and `hosted` (cef-layer-ab.py's check of each mode). --tunables build sets the
+--checks hosted runs only `valid`, `hosted`, `hosted.fork` and `show.again` (cef-layer-ab.py's check of each mode). --tunables build sets the
 tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
 of a scratch file, and records that path.
 
@@ -48,7 +59,7 @@ parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
                          "(any GUI slot; proves the page window takes AppKit's events, not the WindowServer's routing)")
-parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the valid and hosted rows")
+parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the valid, hosted, hosted.fork and show.again rows")
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
                     help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
 opts = parser.parse_args()
@@ -301,6 +312,57 @@ def check_valid_and_hosted():
         {"hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"), "fork_api": fork_api})
 
 
+def check_fork_hosted():
+    """hosted.fork: the CALayerHost layers of each shown Chromium page are where the mode puts them."""
+    def pages():
+        rows = [b for w in (rpc("debug.layers") or {}).get("windows") or [] for b in w.get("browsers") or []
+                if "page_window_layer_hosts" in b]
+        if not rows:
+            return None
+        if opts.mode == "on":
+            good = all((b.get("hosted_context_layer_hosts") or 0) >= 1 and b.get("page_window_layer_hosts") == 0 for b in rows)
+        else:
+            good = all(b.get("hosted_layer_hosts") == 0 and (b.get("page_window_layer_hosts") or 0) >= 1 for b in rows)
+        return (good, rows) if good else None
+    # Chromium's first GPU frame makes its CALayerHost: give it a moment, then report what is there.
+    found = wait(pages, 5)
+    rows = found[1] if found else [b for w in (rpc("debug.layers") or {}).get("windows") or [] for b in w.get("browsers") or []
+                                   if "page_window_layer_hosts" in b]
+    FACTS["layer_hosts"] = [{k: b.get(k) for k in ("pane", "hosted_layer_hosts", "hosted_context_layer_hosts",
+                                                  "page_window_layer_hosts")} for b in rows]
+    row("hosted.fork", bool(found), {"pages": FACTS["layer_hosts"],
+                                     "note": None if rows else "no shown Chromium page in debug.layers (a build without the counts?)"})
+
+
+def bars_ok(red, blue):
+    return bool(red) and bool(blue) and max(red) < min(blue)
+
+
+def check_show_again():
+    """show.again: hide the page (a new workspace) and show it again; its last frame must show at once."""
+    created = action("workspace.newAtBottom")
+    if not wait(lambda: page_rect() is None, 5, 0.05):
+        row("show.again", False, {"note": "the page still shows after workspace.newAtBottom", "reply": json.dumps(created)[:200]})
+        return
+    time.sleep(0.5)  # test harness: the hidden page window's deferred hide and Widget::Hide run
+    back = action("workspace.selectFirst")
+    # Right after the reply: the screen first (what the display shows), then the app's own window image.
+    screen = capture_bars("show-again-screen")
+    shot = os.path.join(opts.out, f"verify-{opts.mode}-show-again-window.png")
+    rpc("debug.window_snapshot", {"path": shot, "webviews": False}, timeout=60)
+    try:
+        window = snapshot_bars(shot)
+    except (OSError, struct.error, IndexError):
+        window = None
+    observed = {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None,
+                        "blue_rows": [min(b[1]), max(b[1])] if b[1] else None} if b else None)
+                for name, b in (("screen", screen), ("window", window))}
+    ok = bool(screen and bars_ok(screen[0], screen[1])) or bool(window and bars_ok(window[0], window[1]))
+    row("show.again", ok, observed | {"reply": json.dumps(back)[:120]})
+    # The new workspace stays (closing one asks to confirm); the probe's workspace is shown again for the rows after.
+    wait(lambda: page_rect() is not None, 5, 0.05)
+
+
 def main():
     global SOCKET
     if os.path.exists(SOCKET):
@@ -344,6 +406,8 @@ def main():
             return
         # Right after the first page of the new pane loaded, before anything shows a tab again.
         check_valid_and_hosted()
+        check_fork_hosted()
+        check_show_again()
         if opts.checks == "hosted":
             return
         time.sleep(1.5)  # test harness: first frames settle

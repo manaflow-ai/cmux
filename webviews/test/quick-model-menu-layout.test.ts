@@ -1,0 +1,286 @@
+// Real Chromium exercises the shipped picker through its single gallery fixture.
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+
+await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>>;
+  let browser: Browser;
+  beforeAll(async () => {
+    const root = path.resolve(import.meta.dir, "..");
+    vite = await createServer({
+      root,
+      configFile: path.join(root, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "new-tab.quick-model-menu", { browser });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  async function open(variant: string, width = 640, height = 560) {
+    const page = await browser.newPage({ viewport: { width, height } });
+    const { port } = vite.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("new-tab.quick-model-menu", { variant, width, height })}`);
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    return page;
+  }
+
+  const bounds = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
+
+  test("More models grows with the viewport and shares one body scroll", async () => {
+    const heights: number[] = [];
+    for (const height of [400, 1000]) {
+      const page = await open("opencode-more-models", 640, height);
+      try {
+        const menu = await bounds(page, ".acpmux-quick-menu");
+        heights.push(menu.height);
+        expect(menu.y + menu.height).toBeLessThanOrEqual(height);
+        expect(await page.locator(".acpmux-quick-more-list").evaluate((node) => getComputedStyle(node).overflowY)).toBe(
+          "visible",
+        );
+        await page.locator(".acpmux-quick-body").evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        await page.getByRole("menuitemradio", { name: /Sample Model 40/ }).waitFor();
+      } finally {
+        await page.close();
+      }
+    }
+    expect(heights[1]!).toBeGreaterThan(480);
+    expect(heights[1]!).toBeGreaterThan(heights[0]! + 200);
+  });
+
+  test("search and model rows share height and padding without a second list inset", async () => {
+    for (const variant of ["claude-many-harnesses", "chat-flipped"]) {
+      const page = await open(variant);
+      try {
+        const geometry = await page.evaluate(() => {
+          const search = document.querySelector<HTMLElement>(".acpmux-quick-search")!;
+          const item = document.querySelector<HTMLElement>(".acpmux-quick-item")!;
+          const body = document.querySelector<HTMLElement>(".acpmux-quick-body")!;
+          return {
+            searchHeight: search.getBoundingClientRect().height,
+            itemHeight: item.getBoundingClientRect().height,
+            searchInset: getComputedStyle(search).paddingLeft,
+            itemInset: getComputedStyle(item).paddingLeft,
+            bodyInset: getComputedStyle(body).paddingLeft,
+          };
+        });
+        expect(geometry.searchHeight).toBe(geometry.itemHeight);
+        expect(geometry.searchInset).toBe(geometry.itemInset);
+        expect(geometry.bodyInset).toBe("0px");
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  test("downward Claude menu ends immediately after Fast even with ten distinct harnesses", async () => {
+    const page = await open("claude-many-harnesses");
+    try {
+      const menu = await bounds(page, ".acpmux-quick-menu");
+      const fast = await bounds(page, ".acpmux-quick-fast");
+      const chip = await bounds(page, "button[data-menu=model]");
+      expect(menu.y).toBeGreaterThan(chip.y);
+      expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
+      expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
+      expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("harness controls keep their position while each direction follows visible content", async () => {
+    for (const variant of ["claude-many-harnesses", "combined", "chat-flipped"]) {
+      const page = await open(variant);
+      try {
+        const rail = await bounds(page, ".acpmux-quick-rail");
+        const menu = await bounds(page, ".acpmux-quick-menu");
+        await page.getByRole("button", { name: "Codex", exact: true }).click();
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
+        );
+        const nextRail = await bounds(page, ".acpmux-quick-rail");
+        const nextMenu = await bounds(page, ".acpmux-quick-menu");
+        expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
+        expect(Math.abs(nextMenu.x - menu.x)).toBeLessThan(1);
+        expect(nextMenu.width).toBe(menu.width);
+        expect(nextMenu.height).toBeLessThan(menu.height);
+        expect(await page.locator(".acpmux-quick-list").innerText()).toContain("GPT-6");
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  test("a midpoint menu keeps its opening side as tall content becomes short", async () => {
+    const page = await open("newtab-midpoint");
+    try {
+      const menu = page.locator(".acpmux-quick-menu");
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-quick-menu")?.getAttribute("data-side") === "top",
+      );
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
+      );
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect(await menu.getAttribute("data-side")).toBe("top");
+      expect(Math.abs((await bounds(page, ".acpmux-quick-rail")).x - rail.x)).toBeLessThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("keyboard-selected harnesses stay visible in an overflowing strip", async () => {
+    const page = await open("claude-many-harnesses", 320);
+    try {
+      await page.keyboard.press("ArrowLeft");
+      const selected = page.locator(".acpmux-quick-rail-tab[aria-pressed=true]");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Goose",
+      );
+      const button = (await selected.boundingBox())!;
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      expect(button.x).toBeGreaterThanOrEqual(rail.x);
+      expect(button.x + button.width).toBeLessThanOrEqual(rail.x + rail.width);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("reopening a scrolled menu restores its first-row inset without a top fade", async () => {
+    const page = await open("claude-many-harnesses", 320, 290);
+    try {
+      await page.locator(".acpmux-quick-body").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-scrolled"));
+      await page.keyboard.press("Escape");
+      await page.locator(".acpmux-quick-menu").waitFor({ state: "hidden" });
+      await page.locator("button[data-menu=model]").click();
+      await page.locator(".acpmux-quick-menu").waitFor();
+      expect(await page.locator(".acpmux-quick-body").getAttribute("data-scrolled")).toBeNull();
+      expect(await page.locator(".acpmux-quick-body").evaluate((node) => node.scrollTop)).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("launch configurations are named harness entries, with no Profile submenu", async () => {
+    const page = await open("claude");
+    try {
+      expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
+      await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the picker uses readable rows and a left harness rail", async () => {
+    const page = await open("claude");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      const body = await bounds(page, ".acpmux-quick-body");
+      const row = (await page.locator(".acpmux-quick-list .acpmux-quick-item").first().boundingBox())!;
+      expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
+      expect(row.height).toBeGreaterThanOrEqual(36);
+      const search = await bounds(page, ".acpmux-quick-search");
+      expect(search.height).toBe(row.height);
+      expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("every harness placement leaves the model rows visible", async () => {
+    for (const variant of ["harness-left", "harness-top", "harness-compact"]) {
+      const page = await open(variant, 420, 560);
+      try {
+        const body = await bounds(page, ".acpmux-quick-body");
+        const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
+        expect(body.height).toBeGreaterThanOrEqual(first.height);
+        expect(first.y).toBeGreaterThanOrEqual(body.y);
+        expect(first.y + first.height).toBeLessThanOrEqual(body.y + body.height);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  test("a long account name keeps the Account control readable in a narrow pane", async () => {
+    for (const width of [320, 420]) {
+      const page = await open("claude", width);
+      try {
+        const label = page.getByRole("menuitem", { name: /^Account/ }).locator(".acpmux-menu-label");
+        expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await page.getByRole("menuitem", { name: /^Account/ }).hover();
+        await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  test("searching from a launch entry selects the visible model, not that launch entry", async () => {
+    const page = await open("claude");
+    try {
+      await page.keyboard.press("ArrowLeft");
+      await page.waitForFunction(
+        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
+      );
+      await page.locator(".acpmux-quick-search input").fill("Sonnet");
+      await page.keyboard.press("Enter");
+      expect(await page.locator("[data-selection]").getAttribute("data-selection")).toBe("claude/Sonnet 5.5");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("Fast switch toggles with the keyboard and stays inside a narrow short window", async () => {
+    const page = await open("claude-many-harnesses", 320, 290);
+    try {
+      const menu = await bounds(page, ".acpmux-quick-menu");
+      expect(menu.x).toBeGreaterThanOrEqual(0);
+      expect(menu.y).toBeGreaterThanOrEqual(0);
+      expect(menu.x + menu.width).toBeLessThanOrEqual(320);
+      expect(menu.y + menu.height).toBeLessThanOrEqual(290);
+      const body = page.locator(".acpmux-quick-body");
+      expect(await body.getAttribute("data-scrolled")).toBeNull();
+      const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
+      const inset = await bounds(page, ".acpmux-quick-body");
+      expect(first.y - inset.y).toBe(0);
+      await body.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-scrolled"));
+      const fast = page.getByRole("menuitemcheckbox", { name: "Fast mode", exact: true });
+      await fast.focus();
+      await page.keyboard.press("Space");
+      expect(await fast.getAttribute("aria-checked")).toBe("true");
+      await page.keyboard.press("Space");
+      expect(await fast.getAttribute("aria-checked")).toBe("false");
+      const track = await bounds(page, ".acpmux-quick-fast-toggle");
+      expect(track.width).toBeGreaterThan(track.height);
+    } finally {
+      await page.close();
+    }
+  });
+});

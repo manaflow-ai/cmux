@@ -62,6 +62,13 @@ describe("diffs draw at the regular weight with calm tints", () => {
     }
   });
 
+  test("intra-line diff highlights compute to the emphasis weight", async () => {
+    for (const [name, css] of Object.entries(await surfaces())) {
+      const { weight } = renderRows(css);
+      expect(`${name} [data-diff-span]: ${weight("[data-diff-span]")}`).toBe(`${name} [data-diff-span]: 600`);
+    }
+  });
+
   test("both surfaces tint a changed row the same low amount, the changed word a step above", async () => {
     const all = Object.values(await surfaces());
     const rows = all.map((css) =>
@@ -84,7 +91,9 @@ describe("Diff Colors stays ordered under the calmer tints", () => {
     const { applyDiffViewerAppearance, setDiffChangeColors } = await import("../src/appearance");
     const style = dom.window.document.documentElement.style;
     applyDiffViewerAppearance({
-      themes: { dark: { background: "#000000", foreground: "#ffffff", palette: { "2": "#50e050" } } },
+      themes: {
+        dark: { background: "#000000", foreground: "#ffffff", palette: { "2": "#50e050" } },
+      },
     });
     const green = () => style.getPropertyValue("--cmux-diff-addition-fg-dark");
     setDiffChangeColors("theme");
@@ -124,7 +133,9 @@ describe("Muted is clearly quieter than Theme", () => {
     const { applyDiffViewerAppearance, setDiffChangeColors } = await import("../src/appearance");
     const { codeViewUnsafeCSS } = await import("../src/pierre-options");
     applyDiffViewerAppearance({
-      themes: { dark: { background: "#000000", foreground: "#ffffff", palette: { "2": "#50e050" } } },
+      themes: {
+        dark: { background: "#000000", foreground: "#ffffff", palette: { "2": "#50e050" } },
+      },
     });
     const css = codeViewUnsafeCSS();
     setDiffChangeColors("theme");
@@ -142,9 +153,15 @@ describe("Muted is clearly quieter than Theme", () => {
     const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
     const { diffUnsafeCSS } = await import("../src/agent-session/acpmux/diffTheme");
     applyHostEvent({ kind: "diffColors", value: "theme" });
-    const theme = { row: drawnTintPercent(diffUnsafeCSS, ROW), word: drawnTintPercent(diffUnsafeCSS, WORD) };
+    const theme = {
+      row: drawnTintPercent(diffUnsafeCSS, ROW),
+      word: drawnTintPercent(diffUnsafeCSS, WORD),
+    };
     applyHostEvent({ kind: "diffColors", value: "muted" });
-    const muted = { row: drawnTintPercent(diffUnsafeCSS, ROW), word: drawnTintPercent(diffUnsafeCSS, WORD) };
+    const muted = {
+      row: drawnTintPercent(diffUnsafeCSS, ROW),
+      word: drawnTintPercent(diffUnsafeCSS, WORD),
+    };
     applyHostEvent({ kind: "diffColors", value: "theme" });
     expect(theme).toEqual({ row: 14, word: 22 });
     expect(muted.row).toBeLessThanOrEqual(theme.row - MARGIN);

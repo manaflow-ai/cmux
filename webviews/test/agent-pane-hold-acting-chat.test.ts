@@ -6,6 +6,8 @@
 // chat opening, and a grouped permission answer from the drawn chat must not leave an error on it.
 // #20930 review: a Use tools toggle (Sources +) during that hold goes to the chat on screen, and a
 // reply that comes back after the pane switched away and back does not overwrite the chat's tools.
+// #24272 review: an MCP server's Reconnect (the Inspector's Connectors) during that hold goes to the
+// chat on screen, whose server it names, not the chat opening.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -248,6 +250,23 @@ test("a Use tools reply that lands after a switch away and back leaves the chat'
     await toggling;
     const tools = (client as unknown as { summary?: { tools?: { id: string }[] } }).summary?.tools;
     expect(tools?.map((tool) => tool.id) ?? []).not.toContain(STALE_TOOL.id);
+  } finally {
+    client.close();
+  }
+});
+
+test("an MCP Reconnect during a switch's hold goes to the chat on screen, not the chat opening", async () => {
+  const socket = new HoldingSocket();
+  const client = await connect(socket);
+  try {
+    const switching = client.select(SESSION_B);
+    await socket.attachingB;
+    // The pane still draws chat A: the person presses Reconnect on one of its failed servers.
+    await client.reconnectMcp("github");
+    const asks = socket.sent.filter((message) => message.method === "_acpmux/mcp/reconnect");
+    expect(asks.map((message) => message.params?.sessionId)).toEqual([SESSION_A]);
+    socket.releaseB();
+    await switching;
   } finally {
     client.close();
   }

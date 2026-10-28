@@ -216,7 +216,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   const hunkHover = useRef<HunkHoverHandle | null>(null);
   const revertSource = useMemo(() => diffRevertSource(diffPageClient(), (config as DiffPageConfig).ops), [config]);
   // The floating Stage all / Revert all bar covers the diff's end, so the diff gets room under it.
-  const bulkBarRoom = revertSource != null && revertScopeOf(resolvedSessionSource ?? activeSessionSource) != null;
+  // No room kept when Settings turns Stage all and Revert all off (diff.showBulkActions): the bar
+  // then only appears for a moment, with Undo or a notice.
+  const bulkBarRoom =
+    state.options.showBulkActions &&
+    revertSource != null &&
+    revertScopeOf(resolvedSessionSource ?? activeSessionSource) != null;
   // Open the file from the diff (D4): the header's name and menu, and a Cmd-click on a line.
   const openFile = useDiffFileOpen((config as DiffPageConfig).ops, () =>
     dispatch({ type: "set-copy-feedback", message: label("openFileFailed") }),
@@ -995,7 +1000,7 @@ export function App({ config, initialStatus }: ConfigProps) {
             />
           ) : null}
           {/* Outside the files gate: Undo and a failure stay after a revert empties the diff. */}
-          <DiffBulkBar revert={revert} label={label} />
+          <DiffBulkBar revert={revert} label={label} showActions={state.options.showBulkActions} />
         </main>
         <LoadingLayer label={label} status={state.status} />
       </section>

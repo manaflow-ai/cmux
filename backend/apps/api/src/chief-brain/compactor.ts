@@ -244,9 +244,10 @@ export class Compactor {
   private start(l: number, i: number): void {
     const key = `${l}:${i}`;
     this.running.add(key);
+    const generation = this.host.memory.generation
     Promise.resolve()
       .then(() => buildNode(this.host.deps(), l, i))
-      .then((text) => this.host.memory.complete(l, i, text))
+      .then((text) => this.host.memory.complete(l, i, text, generation))
       .then(
         () => {
           this.failing.delete(key);

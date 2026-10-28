@@ -255,6 +255,59 @@ impl Drop for LinkHandle {
 }
 
 impl LinkHandle {
+    /// A remote surface's video stream: `browser` or `surface`.
+    async fn open_remote_surface(
+        &self,
+        service: &'static str,
+        args_json: String,
+        observer: Arc<dyn BrowserObserver>,
+    ) -> Result<Arc<BrowserStream>, CmuxMobileError> {
+        let args: serde_json::Value = serde_json::from_str(&args_json)
+            .map_err(|e| CmuxMobileError::InvalidArgument { message: format!("args_json: {e}") })?;
+        if !args.is_object() {
+            return Err(CmuxMobileError::InvalidArgument {
+                message: "args_json must be a JSON object".into(),
+            });
+        }
+        let mut args = args;
+        let link = self.link.clone();
+        let media = self.media.clone();
+        on_runtime(async move {
+            // With a media lane the page's video rides it (`video: "track"`:
+            // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
+            // ignores the field and streams on the channel, which the viewer
+            // reads either way.
+            let lane = match link.media() {
+                Some(cmux_mobile_link::media::MediaLane::In(lane)) if args.get("video").is_none() => {
+                    Some(lane)
+                }
+                _ => None,
+            };
+            // This tab's frames carry `video_tag` (media/tag.rs): the lane
+            // switches tabs without telling the phone when, and a refused
+            // `open` never switches it, so each viewer keeps its own frames
+            // beside the others instead of taking them from the tab before.
+            let tag = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().unwrap_or_default());
+            if lane.is_some() {
+                args["video"] = serde_json::Value::from("track");
+                args["video_tag"] = serde_json::Value::from(tag);
+            }
+            let channel = link.open(service, args).await?;
+            let track = match lane {
+                Some(lane) => {
+                    let frames = lane.subscribe_shared().await;
+                    Some(browser::Track { lane, frames, tag })
+                }
+                None => None,
+            };
+            let (sender, receiver) = channel.split();
+            // A shown browser tab wants the WebRTC media session (if this
+            // link has one); it lets go when hidden or closed.
+            Ok(browser::start(Arc::new(sender), receiver, observer, track, media))
+        })
+        .await
+    }
+
     async fn open(
         &self,
         service: String,
@@ -322,50 +375,18 @@ impl LinkHandle {
         args_json: String,
         observer: Arc<dyn BrowserObserver>,
     ) -> Result<Arc<BrowserStream>, CmuxMobileError> {
-        let args: serde_json::Value = serde_json::from_str(&args_json)
-            .map_err(|e| CmuxMobileError::InvalidArgument { message: format!("args_json: {e}") })?;
-        if !args.is_object() {
-            return Err(CmuxMobileError::InvalidArgument {
-                message: "args_json must be a JSON object".into(),
-            });
-        }
-        let mut args = args;
-        let link = self.link.clone();
-        let media = self.media.clone();
-        on_runtime(async move {
-            // With a media lane the page's video rides it (`video: "track"`:
-            // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
-            // ignores the field and streams on the channel, which the viewer
-            // reads either way.
-            let lane = match link.media() {
-                Some(cmux_mobile_link::media::MediaLane::In(lane)) if args.get("video").is_none() => {
-                    Some(lane)
-                }
-                _ => None,
-            };
-            // This tab's frames carry `video_tag` (media/tag.rs): the lane
-            // switches tabs without telling the phone when, and a refused
-            // `open` never switches it, so each viewer keeps its own frames
-            // beside the others instead of taking them from the tab before.
-            let tag = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().unwrap_or_default());
-            if lane.is_some() {
-                args["video"] = serde_json::Value::from("track");
-                args["video_tag"] = serde_json::Value::from(tag);
-            }
-            let channel = link.open("browser", args).await?;
-            let track = match lane {
-                Some(lane) => {
-                    let frames = lane.subscribe_shared().await;
-                    Some(browser::Track { lane, frames, tag })
-                }
-                None => None,
-            };
-            let (sender, receiver) = channel.split();
-            // A shown browser tab wants the WebRTC media session (if this
-            // link has one); it lets go when hidden or closed.
-            Ok(browser::start(Arc::new(sender), receiver, observer, track, media))
-        })
-        .await
+        self.open_remote_surface("browser", args_json, observer).await
+    }
+
+    /// Open a streamed Mac simulator surface (a phone tab: `surface` service,
+    /// args JSON `{"tab"}`). The stream is a browser tab's (the same viewer,
+    /// media lane and lane ownership); only the Mac's source differs.
+    pub async fn open_surface(
+        &self,
+        args_json: String,
+        observer: Arc<dyn BrowserObserver>,
+    ) -> Result<Arc<BrowserStream>, CmuxMobileError> {
+        self.open_remote_surface("surface", args_json, observer).await
     }
 
     /// The shown workspace has browser tabs: open the WebRTC media session

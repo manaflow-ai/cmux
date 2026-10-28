@@ -22,6 +22,11 @@
  *   edge carrier; it holds no secret.
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
+ * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
+ *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
+ *   memory and task limits, and the user's systemd manager outlives a runaway session.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
  *   snapshot.
@@ -62,8 +67,11 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
+import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -112,7 +120,8 @@ const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
 export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
-const STORE_PATH = `${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+// The gh shim (github-auth.ts) comes first so plain `gh` gets a repo-scoped token.
+const STORE_PATH = `${GITHUB_SHIM_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 
 export type BakeOptions = {
   tag: string;
@@ -198,8 +207,9 @@ function npmGlobals(json: string): Map<string, string> {
   return new Map(Object.entries(parsed.dependencies ?? {}).map(([name, dep]) => [name, dep.version ?? ""]));
 }
 
-function storeProfileScript(): string {
-  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\nexport PATH\n`;
+/** The login profile's PATH: the gh shim (github-auth.ts), then the store, ahead of the rest. */
+export function storeProfileScript(): string {
+  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
 function coderouterProfileScript(): string {
@@ -395,6 +405,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
+  // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
+  for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */
@@ -446,7 +459,9 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "[ \"$(env -i HOME=/root TERM=bogus-term sh -c '. /etc/profile.d/cmux-shell.sh; echo $TERM $COLORTERM')\" = 'xterm-256color truecolor' ]",
     "echo shell-env-ok",
   ].join(" && "));
-  await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
+  await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
 /** The metadata service for root only (metadata-guard.ts), loaded now so the parked snapshot carries it. */
@@ -538,6 +553,14 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
+/** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
+async function installMachineHealth(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  for (const file of machineHealthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  const out = await L.step(vm, "machine-health", machineHealthBakeCommand(), 120_000);
+  ctx.result.machineHealth = JSON.parse(out.slice(out.lastIndexOf('{"schema"')));
+}
+
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
@@ -624,6 +647,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
 
 /** Bakes one snapshot. Never throws: failures land in result.error; the builder is always deleted. */
@@ -660,6 +684,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
     if (options.devTree) await installDevTree(ctx);
+    await installMachineHealth(ctx);
     await installHostConfig(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);

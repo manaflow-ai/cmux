@@ -154,3 +154,97 @@ input frame stays under budget. The input frame does only the state change that 
 - Rust and Go providers: carry `opid` on `call`, echo it on every `ev` the call causes, and
   apply each opid once per caller (decision 31; `OpidLedger` is the TS reference).
 - A side-effect-free `cmux.markdown.read` host op, so a followed link's file can be prefetched.
+
+## Native actions: the budget contract (PL-instant, 2026-10-24)
+
+Lawrence (2026-10-23): "every single action the user can take and resulting animations and actions etc
+are <10ms, for literally everything. we need to systemically make the codebase such that this is easy
+to do." The webview rules above (local-first state, operation ids, reconciliation, rollback) hold for
+every native action too. This section is how the native app makes them the default.
+
+### The budget
+
+Every `ActionRegistry` run, from every entrypoint (key, menu, palette, context menu, toolbar and tab-bar
+clicks, drag and drop, sidebar, Home, Settings, CLI, socket, MCP), reaches the end of the Core Animation
+commit after it in under 10 ms (p95; p99 and max are reported too), with 0 dropped frames at 120 Hz, in
+the light session and in STRESS (`scripts/cmux-next/perf-stress-session.py`), on macOS 26 and 27. The
+time is `action.commit` (`CmuxNextSignposts`): the registry starting the run to the end of the commit
+(`CommitBoundary`). Work deferred to a later turn commits later and is not inside that time: the rules
+below keep the visible change inside it.
+
+### 1. The handler returns its change (`ActionEffect`)
+
+A handler is `registry.bindEffect(id, effect: { invocation in ... })` and returns an `ActionEffect`:
+
+| Effect | When | What the registry does |
+|---|---|---|
+| `.done` | the whole change happened on this turn (a selection, a focus move, a view toggle) | nothing |
+| `daemon.intentEffect(label, intent) { body }` | a daemon change the store can show first (an `Intent`) | the intent is in the store before the handler returns; after the handler's turn the registry sends `body`; the reply settles the intent, a failure takes it out of the store exactly and shows "<action> did not apply: <reason>" in the refusal HUD |
+| `daemon.commandEffect(label, rollback:) { body }` / `.applied(ActionConfirmation(...))` | the change is shown outside the store (a sidebar row, a view) | sends after the turn; on failure runs `rollback` and shows the notice |
+| `.waiting(reason, work)` / `daemon.waitingEffect` | nothing can show before the reply (`ActionWait`: `daemonEcho` is debt, `network`, `externalProcess`) | sends after the turn, counts the run (`ActionRegistry.waitingRuns`, by action and reason) |
+| `.refused(reason)` | the action cannot act on this invocation | `refuse(reason)` |
+
+The handler never awaits and never starts the remote work itself: the registry starts it after the
+handler returned, inside the run's `ActionRunScope` and the App's machine routing, tracks it for a caller
+that waits for the effect (`capturingWork`, the control socket's `action.run`), and reports a failure
+once: to a capturing caller, else to `remoteFailureObserver`. One mutation path for every entrypoint.
+
+Untyped binds (`invoke:`, `run:`, `handler:`, a trailing closure) stay for old code; their waits are
+invisible in the type. `ActionRegistry.effectBoundCount` / `legacyBoundCount` count both kinds.
+
+### 2. The pre-push ratchet refuses new waiting code
+
+`scripts/cmux-next/guardrails.py` rule `action-wait` refuses, in lines a push adds under `Sources/`: an
+untyped bind (`.bind(... invoke:` / `run:` / `handler:` or `.bind(...) { x in`), a `.waiting(.` effect and
+`waitingEffect(`. Escape: `// action-wait-allow: <why nothing can show before the reply>`. Base debt is a
+count per file (editing an old bind adds none), fail open, part of the < 1 s guardrails pass. Known gap:
+a bind whose `invoke:` label is on the line after `.bind(` is not seen (one-line rule); review catches it.
+
+### 3. The always-on monitor (`ActionBudgetMonitor`)
+
+`SignpostActionRunTiming(monitor:)` reads `CLOCK_UPTIME_RAW` at the run's start and at the end of its
+commit, begins and ends the run's board span (atomics), and writes one fixed-size slot (`ActionRunSlot`: the action's interned index, entrypoint, outcome,
+times; no string, no reference) into a ring preallocated at launch, on the main actor. No allocation, no
+lock, no I/O, no formatting on the action's path; the action is interned when it is bound. Measured by
+`ActionBudgetMonitorBench` (Release, ns per run and per batch; numbers in perf-lead.md section 5).
+
+Everything else runs after the commit and off the main actor:
+- Every 128 runs (half the ring) the monitor hands the filled half to `ActionBudgetReporter` as one batch;
+  `ActionBudgetLedger` folds it into a latency histogram per report id and entrypoint (fixed bucket edges
+  2, 4, 6, 8, 10, 12, 16, 24, 33, 50, 100, 250 ms, then over). The opt-in nightly report fields:
+  `action_budget_ms`, `action_latency_bucket_edges_ms`, `action_runs_total`, `action_runs_excluded`
+  (missed commits, nested run loops: not the run's work), `action_runs_dropped` (the reporter fell
+  behind; never blocks, never grows), `action_over_budget_total`, `action_latency[]` = `{id, entrypoint,
+  count, buckets, max_ms}`. Ids are catalog ids only: cmux.json commands report as `custom`, any other
+  id outside the catalog as `extension` (`ActionReportNaming`; their ids carry user text).
+- Each run is published on the main-thread task board (`MainTaskBoard.beginSpan`, PL-main's scheduler) from
+  its start to its commit with the 10 ms budget: the watchdog (the one sampler) samples a run that passes it
+  and writes an `over_budget` record named by the action id. An over-budget run goes to the reporter at once;
+  a Debug build writes one line to the app log (category `action.budget`) with the action, entrypoint, times
+  and that record's stack.
+- `debug.action_budget` (DEV): the counters, the waiting-effect counts and the newest runs.
+- Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY, closed by default): the newest 16 runs with
+  their times, over-budget runs in the danger color. Closed, it holds no reader: zero cost.
+
+### 4. Main-thread rules for an action's synchronous part
+
+No synchronous daemon read, no disk I/O, no lock that waits, no O(session) rebuild (all workspaces, all
+tabs, all rows) on the input's turn. Read from the store's mirror and the indexes (`StoreIndex`); move
+I/O to an actor or the daemon; rebuild only what the change touched.
+
+### 5. Every action is benched, derived
+
+`scripts/cmux-next/every-action-sweep.py` (owner: PL-instant) runs every id of the live catalog
+(`action.list`) through its real entrypoint in the light session and STRESS on the fleet, timed by the
+same signposts. A new action needs no list entry; one the sweep cannot set up shows as a skipped row with
+its reason, and the fixture belongs in the sweep's precondition table in the same push.
+
+### Adding an action that is fast by design
+
+1. Catalog descriptor (`CmuxNextActions/Catalog`), strings in every locale.
+2. `registry.bindEffect(id, effect:)`: change what the person sees, return the rest as an effect. A daemon
+   change is an `Intent` (add a case to `Intent` and `IntentOverlay` if none fits: apply, undo, and a red
+   test in `CmuxNextDaemonTests` that it shows in the turn, survives an older snapshot and rolls back).
+3. Nothing in the handler awaits, reads a file, takes a lock or walks the whole session.
+4. Run the sweep for the id on the fleet (`--only id`), light and STRESS, and look at the HUD while you
+   dogfood.

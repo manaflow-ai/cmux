@@ -412,6 +412,10 @@ class Gate:
             report["frames_probe"] = self.frames[1]
         if self.frames[0]:
             return True
+        skipped = report.setdefault("frames_skipped", [])
+        if scenario not in skipped:
+            skipped.append(scenario)
+            skipped.sort()
         what = f"the window draws no frames (debug.frames {self.frames[1].get('frames')} in 1 s: an occluded or unlit console)"
         if self.opts.frames == "required":
             check(False, what, scenario)
@@ -1042,7 +1046,10 @@ def cols(value):
 
 
 def summary(out):
-    lines = ["### cmux-next perf gate (I8)", "", f"{'PASS' if not failures else 'FAIL'}: {len(report['checks'])} checks, "
+    verdict = "FAIL" if failures else "PASS"
+    if report.get("frames_skipped"):
+        verdict += f" (frames skipped: {', '.join(report['frames_skipped'])})"
+    lines = ["### cmux-next perf gate (I8)", "", f"{verdict}: {len(report['checks'])} checks, "
              f"{len(failures)} failed, {len(warnings)} warnings", ""]
     lines += [f"- FAIL {f}" for f in failures] + [f"- warning {w}" for w in warnings]
     lines += ["", f"Report: `{out}`"]

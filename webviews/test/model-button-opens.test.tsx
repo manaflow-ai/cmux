@@ -200,7 +200,7 @@ test("the model button opens its menu in a long running chat, and the menu stays
   expect(modelButton().textContent).toContain("Opus 5.5");
   await click(modelButton());
   expect(modelButton().getAttribute("aria-expanded")).toBe("true");
-  expect(menu()?.textContent).toContain("Model · this session");
+  expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
   // Still open a frame later: nothing closes it behind the press.
   await nextFrame();
   expect(modelButton().getAttribute("aria-expanded")).toBe("true");

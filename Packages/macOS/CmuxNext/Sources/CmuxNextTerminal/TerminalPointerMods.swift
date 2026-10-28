@@ -12,6 +12,11 @@ import AppKit
 /// finds the link under the pointer. A press on that link goes with Shift too, so the link opens
 /// through the app and the program gets no click; its drags and release follow the press.
 /// Anywhere else, and with any other key held, the click stays the program's.
+///
+/// Ghostty matches links for Command alone, so Shift-Command (the browser the link setting does not
+/// pick) and Option-Command (a browser profile) matched none. A move with one of them, and a press on
+/// a link with its drags and release, go as Command alone, or as Command with the Shift override
+/// while the program has the mouse; the open reads the real keys from the event.
 nonisolated struct TerminalPointerMods: Equatable {
     /// What the pointer does.
     enum Phase: Equatable {
@@ -35,9 +40,15 @@ nonisolated struct TerminalPointerMods: Equatable {
         flags.intersection([.command, .shift, .control, .option, .function]) == .command
     }
 
-    /// Whether this event goes as a link gesture: with Shift added to its keys.
-    func linkGesture(_ flags: NSEvent.ModifierFlags, phase: Phase) -> Bool {
-        guard captured, Self.commandOnly(flags) else { return phase == .followingPress && linkPress }
+    /// Command with Shift or Option, without Control or Fn: a link click that picks where it opens.
+    static func commandChord(_ flags: NSEvent.ModifierFlags) -> Bool {
+        let keys = flags.intersection([.command, .shift, .control, .option, .function])
+        return keys.contains(.command) && keys != .command && keys.isSubset(of: [.command, .shift, .option])
+    }
+
+    /// Whether this event goes as a link gesture of a Command chord (Shift- or Option-Command).
+    func chordGesture(_ flags: NSEvent.ModifierFlags, phase: Phase) -> Bool {
+        guard Self.commandChord(flags) else { return phase == .followingPress && linkPress && !captured }
         switch phase {
         case .move: return true
         case .press: return overLink
@@ -45,8 +56,24 @@ nonisolated struct TerminalPointerMods: Equatable {
         }
     }
 
-    /// `flags` with Shift added when ``linkGesture(_:phase:)`` holds.
+    /// Whether this event goes as a link gesture: with Shift added to its keys.
+    func linkGesture(_ flags: NSEvent.ModifierFlags, phase: Phase) -> Bool {
+        guard captured, Self.commandOnly(flags) else { return phase == .followingPress && linkPress && captured }
+        switch phase {
+        case .move: return true
+        case .press: return overLink
+        case .followingPress: return linkPress
+        }
+    }
+
+    /// `flags` with Shift added when ``linkGesture(_:phase:)`` holds, as Command alone when
+    /// ``chordGesture(_:phase:)`` does.
     func flags(_ flags: NSEvent.ModifierFlags, phase: Phase) -> NSEvent.ModifierFlags {
-        linkGesture(flags, phase: phase) ? flags.union(.shift) : flags
+        let chord: NSEvent.ModifierFlags = captured ? [.command, .shift] : .command
+        // A chord first: with Option kept, Ghostty would match no link even with the Shift override.
+        if Self.commandChord(flags), chordGesture(flags, phase: phase) { return chord }
+        if linkGesture(flags, phase: phase) { return flags.union(.shift) }
+        if chordGesture(flags, phase: phase) { return chord }
+        return flags
     }
 }

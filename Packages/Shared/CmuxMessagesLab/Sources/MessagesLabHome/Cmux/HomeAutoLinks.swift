@@ -3,7 +3,9 @@ import Foundation
 /// cmux: what Home links in an agent's text when the agent wrote no link (Lawrence 2026-10-19,
 /// "links for everything possible, including paths"): an absolute path (`/Users/…`, `~/…`, under
 /// a local root) as a path link (`URL.isHomePathLink`), a cmux id (`ws_…`, `pane_…`, `tab_…`,
-/// 32 hex digits) and a `cmux://` link as its app link (`URL.isCmuxAppLink`). Everything still
+/// 32 hex digits) and a `cmux://` link as its app link (`URL.isCmuxAppLink`), and a bare
+/// `http(s)://` URL as itself (Lawrence 2026-10-23: a Chief's `**https://github.com/login/device**`
+/// was bold text no click opened; only a URL alone on its line became a card). Everything still
 /// goes through `MarkdownLinkPolicy`, so `javascript:`, `data:` and the like never link. Bare
 /// GitHub numbers are not linked: the text names no repository (the Chief's prompt links them).
 extension HomeMarkdown {
@@ -39,6 +41,8 @@ extension HomeMarkdown {
     /// file name; a cmux link or id as its id, cut after 8 characters (`ws_9166682e…`). Short
     /// and without spaces, so the link wraps as one unit.
     static func shortLabel(_ raw: String) -> String {
+        // A web URL shows as written: the person may need to read or type it (a sign-in page).
+        if raw.hasPrefix("https://") || raw.hasPrefix("http://") { return raw }
         if raw.hasPrefix("/") || raw.hasPrefix("~/") {
             let home = NSHomeDirectory()
             let path = raw.hasPrefix(home + "/") ? "~" + raw.dropFirst(home.count) : raw
@@ -65,21 +69,22 @@ extension HomeMarkdown {
         return MarkdownLinkPolicy.sanitize(s)
     }
 
-    /// A path under a local root, a cmux id, or a `cmux://` link, standing alone (not inside a
-    /// longer word, URL or path).
+    /// A path under a local root, a cmux id, a `cmux://` link or a web URL, standing alone (not
+    /// inside a longer word, URL or path).
     private static let autoLinkPattern: NSRegularExpression = {
         let part = #"[^\s/<>()\[\]"'`*|]"#
         let roots = "Users|tmp|private|Applications|Library|System|Volumes|opt|usr|var|etc"
         let path = #"(?:~/\#(part)+(?:/\#(part)*)*|/(?:\#(roots))/\#(part)+(?:/\#(part)*)*|/(?:\#(roots))/?(?=[\s.,:;!?)]|$))"#
         let id = #"(?:ws|pane|tab)_[0-9a-f]{32}(?![0-9A-Za-z_])"#
         let cmux = #"cmux(?:-[a-z0-9-]+)?://[^\s<>()\[\]"'`*|]+"#
+        let web = #"https?://[^\s<>()\[\]"'`*|]+"#
         // Crash program: a constant pattern, checked by the tests.
-        return try! NSRegularExpression(pattern: #"(?<![\w/:.~\-])(?:\#(path)|\#(id)|\#(cmux))"#)
+        return try! NSRegularExpression(pattern: #"(?<![\w/:.~\-])(?:\#(web)|\#(path)|\#(id)|\#(cmux))"#)
     }()
 }
 
 extension HomeMarkdown.Output {
-    /// Appends plain text, each bare path, cmux id and cmux link in it shown as its short
+    /// Appends plain text, each bare path, cmux id, cmux link and web URL in it shown as its short
     /// label and linked (``HomeMarkdown/autoLinks(in:)``).
     mutating func appendLinkingBare(_ s: String, _ styles: [String]) {
         let links = HomeMarkdown.autoLinks(in: s)

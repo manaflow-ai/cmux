@@ -1,9 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
 // Another agent's message to this chat as one line at the left among the tool rows (the sender's
-// mark, its name as a chip) over a glass card with the message, cut to six lines when longer (›
+// mark, its name as a chip) over a glass card with the message, cut to eight lines when longer (›
 // opens it whole), and a Claude Code task notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
+// In cmux's Minimal Mode (`sidebar.minimal`) a closed message is one line (Leo 2026-10-24: "one line
+// is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
+// chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
+// chip) are drawn here only, over the shipped line.
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -66,6 +71,77 @@ const report = [
   "",
   "Nothing needs you; I'll report when #2214 lands.",
 ].join("\n");
+
+// Leo's lane report reference (2026-10-24), reconstructed without the private screenshot: a GFM
+// table, links whose labels are URLs, and a full SHA that the quiet commit renderer shortens.
+const laneReport = [
+  "**cx3-s71-jank · lane report**",
+  "",
+  "| case | PR | result |",
+  "|---|---:|---|",
+  "| queue | [#24772](https://github.com/manaflow-ai/cmux/pull/24772) | green |",
+  "| transcript | [compare](https://cmux.com/compare/agent-message-style) | review |",
+  "",
+  "See [https://github.com/manaflow-ai/cmux/actions](https://github.com/manaflow-ai/cmux/actions) for the run.",
+  "Commit 4c656ea8f42e3d1b9a7c0e6f5d4c3b2a19081716 is the current head.",
+  "The queued report should keep the table readable and show the sender above the bubble.",
+].join("\n");
+
+// Minimal Mode's chat: a short report, a long one and one with links, each a line until opened.
+const MINIMAL = { "sidebar.minimal": true };
+const minimalTexts = [gridFix, report, openedText];
+const minimalChat = chat([
+  user("Split the grid fix into its own chat and report back", 9),
+  assistant("Started Grid fix and grid-lane; they will message this chat.", 8.5),
+  summary(8.5, { status: "completed" }),
+  user(gridFix, 7, { incoming: message("Grid fix", gridFix, undefined, "child-3"), untyped: true }),
+  user(report, 6, { incoming: message("grid-lane", report, undefined, "child-4"), untyped: true }),
+  user(openedText, 5, { incoming: message("Grid fix", openedText, undefined, "child-3"), untyped: true }),
+  assistant("Merged cmux/grid-fix into this branch.", 4.5),
+  summary(4.5, { status: "completed" }),
+]);
+const ALT_ID = "incoming-minimal-alt";
+/// Draws a gallery-only line over the shipped one: its stylesheet, then `mark` on each line (its
+/// preview span, the message's text and the sender's name).
+const alternate =
+  (css: string, mark: (preview: HTMLElement, text: string, name: string) => void): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+    ctx.document.getElementById(ALT_ID)?.remove();
+    const style = ctx.document.createElement("style");
+    style.id = ALT_ID;
+    style.textContent = css;
+    ctx.document.head.append(style);
+    ctx.document.querySelectorAll<HTMLElement>(".cv-received").forEach((line, index) => {
+      const preview = line.querySelector<HTMLElement>(".cv-received__preview");
+      const name = line.querySelector(".cv-received__name")?.textContent ?? "";
+      if (preview) mark(preview, minimalTexts[index] ?? "", name);
+    });
+  };
+/// B: the line fades out at its end instead of an ellipsis, and says how many lines follow.
+const fadeCount = alternate(
+  `.cv-received__preview { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.cv-received__toggle > .cv-rotor { display: none; }
+.cv-received__more-count { flex: none; color: var(--cv-text-dim); font-size: var(--text-control); opacity: 0.8; }`,
+  (preview, text) => {
+    const more = text.split("\n").filter((part) => part.trim()).length - 1;
+    if (more < 1) return;
+    const count = preview.ownerDocument.createElement("span");
+    count.className = "cv-received__more-count";
+    count.textContent = `+${more} lines`;
+    preview.after(count);
+  },
+);
+/// C: no chip and no mark; the sender's name in bold starts the line.
+const inlineName = alternate(
+  `.cv-received[data-minimal] .cv-received__name, .cv-received[data-minimal] .cv-received__icon { display: none; }
+.cv-received__preview > b { color: var(--cv-text); font-weight: 600; margin-right: 6px; }`,
+  (preview, _text, name) => {
+    const bold = preview.ownerDocument.createElement("b");
+    bold.textContent = name;
+    preview.prepend(bold);
+  },
+);
 
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
@@ -149,6 +225,30 @@ export default agentPaneEntry({
         { title: "tests" },
       ),
     },
+    avatar: {
+      note: "A message from a chat whose person uploaded an avatar (its chat menu's Set Avatar…): the sender line draws it in place of the harness mark (a synthetic picture).",
+      snapshot: chat([
+        user("Run the net tests and report which fail.", 9, {
+          incoming: {
+            kind: "message",
+            message: {
+              name: "claude-sr2/coordinator",
+              sessionId: "parent-1",
+              relation: "parent",
+              text: "Run the net tests and report which fail.",
+              raw: "Run the net tests and report which fail.",
+            },
+          },
+          untyped: true,
+        }),
+        assistant("Running them now.", 8.5),
+      ]),
+      native: { "agent.avatar": { src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        avatarsChanged(ctx.document, ["parent-1"]);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__icon img.cv-agent-avatar"));
+      },
+    },
     links: {
       note: "A message's card shows its PR, HQ and commit references as links.",
       snapshot: chat([
@@ -164,12 +264,21 @@ export default agentPaneEntry({
       ]),
     },
     long: {
-      note: "A long message's card shows its first six lines, the last fading out; › or a click on the card opens it whole.",
+      note: "A long message's card shows its first eight lines, the last fading out; › or a click on the card opens it whole.",
       snapshot: chat([
         user("Land the grid lane and report back", 9),
         assistant("Started grid-lane; it will report here.", 8.5),
         summary(8.5, { status: "completed" }),
         user(report, 6, { incoming: message("grid-lane", report, undefined, "child-3"), untyped: true }),
+      ]),
+    },
+    "lane-report": {
+      note: "Leo's lane report reference: sender header, Markdown table and links, with a long body folded to eight lines in both themes.",
+      snapshot: chat([
+        user("Ask the lanes for the current report", 9),
+        assistant("They are sending the report now.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(laneReport, 2, { incoming: message("cx3-s71-jank", laneReport, undefined, "lane-jank"), untyped: true }),
       ]),
     },
     opened: {
@@ -306,6 +415,37 @@ export default agentPaneEntry({
         user(adopted, 5, { incoming: message("coord-deputy", adopted, undefined, "deputy-1"), untyped: true }),
       ]),
       play: openAll,
+    },
+    minimal: {
+      note: "Minimal Mode (shipped, A): each message is one line, the sender's chip (it still opens that chat), the message's first line cut with an ellipsis, and a chevron; the line opens it.",
+      display: MINIMAL,
+      snapshot: minimalChat,
+    },
+    "minimal-open": {
+      note: "Minimal Mode: the long report's line opened, its whole card under it as in normal mode; the line closes it again.",
+      display: MINIMAL,
+      snapshot: minimalChat,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__toggle").length >= 3);
+        await ctx.click({ selector: '.cv-received__toggle[aria-label*="Landing report"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-received__toggle[aria-expanded="true"]'));
+      },
+    },
+    "minimal-fade-count": {
+      note: "Minimal Mode, gallery only (B): the first line fades out at its end instead of an ellipsis, with how many more lines the message has.",
+      display: MINIMAL,
+      snapshot: minimalChat,
+      play: fadeCount,
+    },
+    "minimal-inline-name": {
+      note: "Minimal Mode, gallery only (C): no chip; the sender's name in bold starts the line.",
+      display: MINIMAL,
+      snapshot: minimalChat,
+      play: inlineName,
+    },
+    "minimal-off": {
+      note: "The same chat with Minimal Mode off: unchanged, each message's line over its card.",
+      snapshot: minimalChat,
     },
     notice: {
       note: "A background task's end in an adopted Claude session's history: one quiet line, no raw XML.",

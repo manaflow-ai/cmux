@@ -28,7 +28,7 @@ FAILURES = []
 # jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
-    "cmux-tui-artifacts.yml": ["publish", "publish-tree", "publish-tree-tested"],
+    "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel", "mark-tree-commits"],
     "dogfood-artifact-publish.yml": ["publish"],
 }
 ARTIFACT_SECRETS = {
@@ -45,7 +45,7 @@ NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'rel
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
-    "nightly.yml": ["build-sign-notarize-nightly", "publish-nightly"],
+    "nightly.yml": ["build-sign-notarize-nightly", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"],
     "ios-app-store.yml": ["upload-and-validate"],
     "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],

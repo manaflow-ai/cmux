@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import QuartzCore
 
@@ -46,11 +47,9 @@ import QuartzCore
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
         let animates = strip.window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }
-                if strip.tabsClip.layer?.mask != nil { strip.tabsClip.layer?.mask = nil }
-            }
+        CATransaction.setMainCompletion { [weak self] in
+            guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }
+            if strip.tabsClip.layer?.mask != nil { strip.tabsClip.layer?.mask = nil }
         }
         if animates {
             // A freshly installed mask starts from fully opaque, not from

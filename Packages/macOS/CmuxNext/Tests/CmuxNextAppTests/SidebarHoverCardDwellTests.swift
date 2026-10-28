@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-13: the workspace hover card showed at once on every row, so
 /// moving the pointer down the sidebar popped a card on each row it passed.

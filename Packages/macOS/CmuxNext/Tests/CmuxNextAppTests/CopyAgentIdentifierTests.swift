@@ -88,10 +88,11 @@ struct CopyAgentIdentifierTests {
         #expect(!Self.runs(Self.tabMenu(terminal, services)).contains(Self.action))
     }
 
-    @Test func theWorkspaceRowShowingAChatsSummaryOffersItAndCopiesThatChat() {
+    /// The workspace row's menu no longer lists it (Leo 2026-10-23: trim the row menu, keep the
+    /// palette); run on a workspace (the palette, CLI) it still copies the chat its summary shows.
+    @Test func aWorkspaceShowingAChatsSummaryCopiesThatChat() {
         let f = Self.fixture()
-        #expect(Self.runs(Self.workspaceMenu(f.chatWorkspace, f.services)).contains(Self.action))
-        #expect(!Self.runs(Self.workspaceMenu(f.terminalWorkspace, f.services)).contains(Self.action), "a workspace with no chat has no id to copy")
+        #expect(!Self.runs(Self.workspaceMenu(f.chatWorkspace, f.services)).contains(Self.action), "the row menu is trimmed")
         #expect(f.services.registry.perform(Self.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: f.chatWorkspace))))
         #expect(f.copied.text == Self.session)
     }

@@ -19,7 +19,7 @@ extension AppBrowserPage {
     static func answersWhileHibernated(_ operation: BrowserPageOperation) -> Bool {
         switch operation {
         case .state, .navigate, .back, .forward, .reload: true
-        case .evaluate, .evaluateAsync, .screenshot, .cookies, .input: false
+        case .evaluate, .evaluateAsync, .screenshot, .cookies, .input, .upload: false
         }
     }
 

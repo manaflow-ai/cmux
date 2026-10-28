@@ -57,6 +57,7 @@ mod public_fold;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
+mod root_identity;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
@@ -5175,29 +5176,15 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
             platform::restrict_file(&path)?;
             let bytes = fs::read(&path)
                 .with_context(|| format!("read resource receipt pepper {}", path.display()))?;
-            ResourceEffectPepper::from_bytes(bytes, &path)
+            if bytes.len() < RESOURCE_EFFECT_PEPPER_BYTES {
+                root_identity::replace_cut_pepper(&root, &path, bytes)
+            } else {
+                ResourceEffectPepper::from_bytes(bytes, &path)
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             ensure_missing_pepper_can_migrate(&root, &path)?;
-            let pepper = ResourceEffectPepper::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(pepper.0.as_ref())
-                .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
-            file.sync_all()
-                .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
-            Ok(pepper)
+            root_identity::create_pepper(&root, &path, false)
         }
         Err(error) => {
             Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
@@ -5208,6 +5195,11 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
 }
 
 fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow::Result<()> {
+    ensure_no_registry_at(root, pepper_path, SCHEMA_VERSION)
+}
+
+/// Fails when a registry under `root` is at `schema` or later.
+fn ensure_no_registry_at(root: &Path, pepper_path: &Path, schema_floor: i64) -> anyhow::Result<()> {
     for entry in
         fs::read_dir(root).with_context(|| format!("read state root {}", root.display()))?
     {
@@ -5229,7 +5221,7 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
             .parse()
             .with_context(|| format!("registry schema is invalid: {}", database.display()))?;
         anyhow::ensure!(
-            schema < SCHEMA_VERSION,
+            schema < schema_floor,
             "resource receipt pepper is missing for an existing registry: {}",
             pepper_path.display()
         );
@@ -5255,30 +5247,17 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
 
     let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
     let result = match fs::read(&path) {
+        // Cut by a full disk in an earlier build's in-place write: never
+        // handed out (returned only after its fsync), so a new id replaces it.
+        Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
+            root_identity::create_machine_id(&root, &path, true)
+        }
         Ok(bytes) => {
             platform::restrict_file(&path)?;
             parse_machine_id_file(&path, &bytes)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let id = MachinePublicId::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create machine identity {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(id.as_str().as_bytes())
-                .and_then(|()| file.write_all(b"\n"))
-                .with_context(|| format!("write machine identity {}", path.display()))?;
-            file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
-            Ok(id)
+            root_identity::create_machine_id(&root, &path, false)
         }
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))

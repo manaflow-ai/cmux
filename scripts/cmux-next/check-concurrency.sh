@@ -44,11 +44,19 @@
 #               `nonisolated deinit`, with main-actor cleanup in
 #               `guard Thread.isMainThread else { return }` plus
 #               `MainActor.assumeIsolated { ... }`.
-#   generic main-actor class: in a uiSwiftSettings target it declares
-#               `nonisolated deinit`. Without one its implicit deinit is
-#               isolated, and the Release compile's optimizer crashes on it
-#               (EarlyPerfInliner, swift-frontend 6.3, macOS 14 target: #23050's
-#               FirstMouseHostingView, fixed in #23233; #20408 before it).
+#   generic main-actor class: a class in main-actor code that is generic by
+#               its own parameters or by context (nested in a generic type, in
+#               an extension of one in any file, in a generic function or under
+#               a `where` clause) declares `nonisolated deinit`. Without one its
+#               deinit is isolated, and the Release compile's optimizer crashes
+#               on it (EarlyPerfInliner, swift-frontend 6.3, macOS 14 target:
+#               #23050's FirstMouseHostingView, fixed in #23233; #20408's
+#               ThemedPicker.Coordinator; 6bf522e6cdd's ObservedMap.Slot).
+#               scripts/cmux-next/swift_scope.py is the one detector; the
+#               pre-push guardrails.py applies the same one to what a push adds.
+#               A class generic only through an extension names the
+#               declaration that makes it so (`generic context: <file>:<line>`):
+#               crash-class-gate.sh --pr counts a PR that changes that file.
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
@@ -64,8 +72,8 @@
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
-scope_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-main-actor-work.py"
-exec python3 - "$root" "$scope_helper" <<'PY'
+scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 - "$root" "$scripts_dir/check-main-actor-work.py" "$scripts_dir/swift_scope.py" <<'PY'
 import importlib.util
 import os
 import re
@@ -78,21 +86,25 @@ root = sys.argv[1]
 _spec = importlib.util.spec_from_file_location("main_actor_scope", sys.argv[2])
 main_actor_scope = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(main_actor_scope)
+# The generic-class deinit detector guardrails.py shares (one crash class, one detector).
+_spec = importlib.util.spec_from_file_location("cmux_next_swift_scope", sys.argv[3])
+swift_scope = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = swift_scope
+_spec.loader.exec_module(swift_scope)
 sources = os.path.join(root, "Sources")
 
 # Targets built with `.defaultIsolation(MainActor.self)`: every target whose
-# swiftSettings are `uiSwiftSettings` in Package.swift. Read from the manifest,
+# swiftSettings are `uiSwiftSettings` in Package.swift. Read from the manifest
+# (swift_scope.package_targets, each target call alone, its `path:` honored),
 # so a new UI target is scanned without an edit here (a hand list missed 21).
-def main_actor_modules(package_root):
+def package_targets(package_root):
     with open(os.path.join(package_root, "Package.swift"), encoding="utf-8") as handle:
-        manifest = handle.read()
-    found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)', manifest, re.S)
-    modules = {name for name, settings in found if settings == "uiSwiftSettings"}
-    if not modules:
+        targets = swift_scope.package_targets(handle.read())
+    if not any(target.main for target in targets):
         sys.exit("check-concurrency: no uiSwiftSettings targets found in Package.swift")
-    return modules
+    return targets
 
-MAIN_ACTOR_MODULES = main_actor_modules(root)
+TARGETS = package_targets(root)
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
@@ -120,6 +132,14 @@ EVERYWHERE = [
      r"|\bAsync(Throwing)?Stream(<[^>]*>)?(\([^)]*\.self\))?\s*\{\s*(\[[^\]]*\]\s*)?\w+\s+in\b"),
 ]
 
+# Every call that suspends for a duration: Task.sleep, a clock's or sleeper's
+# `.sleep(for:/until:)`, and an awaited injected sleeper (`try await sleep(delay)`,
+# `await self.sleep(d)`: the `Sleep` closure CLAUDE.md prescribes for tests).
+# One definition for the idle-wakeup rule and the task-group deadline rule;
+# scripts/cmux-next/guardrails.py has no sleep rule of its own.
+SLEEP_CALL = (r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b"
+              r"|\bawait\s+(?:[A-Za-z_]\w*\??\.)*sleep\(")
+
 # Idle wakeups: nothing polls; waits are events, one-shot DemandTimer
 # deadlines, Backoff after a failure, or FrameClient frames.
 WAKEUP_PRIMITIVES_MODULE = "CmuxNextWakeups"
@@ -128,8 +148,7 @@ WAKEUP_RULES = [
      r"\bTimer\.(scheduledTimer|publish)\b|\bTimer\((timeInterval|fire|fireAt)|\bNSTimer\b|\bCFRunLoopTimerCreate|\bmakeTimerSource\(|\brepeating:\s*\.(seconds|milliseconds|microseconds|nanoseconds|never)"),
     ("raw display link (use a FrameClient of the window's FrameScheduler)",
      r"\bdisplayLink\(target:|\bCADisplayLink\(|\bCVDisplayLink"),
-    ("sleep (wait for an event; DemandTimer for a deadline, Backoff.wait after a failure)",
-     r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b"),
+    ("sleep (wait for an event; DemandTimer for a deadline, Backoff.wait after a failure)", SLEEP_CALL),
     ("loop that can spin (block or await readiness; end on EOF and fatal errors)",
      r"\bwhile\s+true\b|\bwhile\s+!\s*(Task\.)?isCancelled\b|\brepeat\s*\{"),
 ]
@@ -141,7 +160,7 @@ WAKEUP_PENDING_FILES: set[str] = set()
 # A task group whose body sleeps within this many lines is a deadline race.
 TASK_GROUP_WINDOW = 8
 TASK_GROUP = re.compile(r"\bwith(Throwing)?(Discarding)?TaskGroup\b")
-GROUP_SLEEP = re.compile(r"\bsleep\((for|until):")
+GROUP_SLEEP = re.compile(SLEEP_CALL)
 
 # macOS 14 floor (plans/cmux-next/macos-floor.md): Synchronization (Mutex,
 # Atomic) needs macOS 15; CmuxNextCompat has the same API on macOS 14.
@@ -173,9 +192,6 @@ MAIN_ACTOR = [
 ]
 
 ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
-# A generic class declaration (`final class Name<T>`); `nonisolated class` is not main-actor.
-GENERIC_CLASS = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate|open|final)\s+)*class\s+\w+\s*<")
-NONISOLATED_DEINIT = re.compile(r"^\s*nonisolated\s+deinit\b")
 # A plain deinit takes the target's default isolation: main-actor in a uiSwiftSettings target.
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
@@ -186,19 +202,24 @@ WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 
-def crash_class_hits(code, lines, index, module, main_lines, relative):
+def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared):
     """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
     hits = []
     if ISOLATED_DEINIT.match(code):
         hits.append("isolated deinit (its hop traps inside an action's task-local scope, cx-t7hu; "
                     "write nonisolated deinit with MainActor.assumeIsolated on the main thread)")
-    if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
+    if PLAIN_DEINIT.match(code) and default_main and main_lines[index]:
         hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
                     "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
-    if (GENERIC_CLASS.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]
-            and not declares_nonisolated_deinit(lines, index) and not allowed(lines, index)):
-        hits.append("generic main-actor class with no `nonisolated deinit` (its isolated deinit crashes the Release "
-                    "compile's optimizer, #23050 / #23233); declare `nonisolated deinit {}`")
+    judged = (swift_scope.judge(lines, index, generic_declared.__contains__, main_lines, default_main)
+              if "class" in code else None)
+    if judged is not None and not swift_scope.escaped(lines, index, swift_scope.GENERIC_CLASS_ALLOW):
+        # A class generic only by an extension of a type declared generic in another file names that
+        # declaration: a change there makes it a candidate, so crash-class-gate.sh --pr counts that file too.
+        context = "; ".join(f"generic context: {site}" for name in judged.extended for site in generic_declared[name])
+        hits.append("generic main-actor class with no `nonisolated deinit` (generic by itself or by context; its "
+                    "isolated deinit crashes the Release compile's optimizer, #23050 / #23233); declare "
+                    "`nonisolated deinit {}`" + (f" ({context})" if context else ""))
     if TASK_LOCAL_BINDING.search(code) and relative != TASK_LOCAL_HELPER and not allowed(lines, index):
         hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
                     "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
@@ -206,25 +227,6 @@ def crash_class_hits(code, lines, index, module, main_lines, relative):
         hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
                     "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
     return hits
-
-
-def declares_nonisolated_deinit(lines, index):
-    """Whether the class declared at `index` has a `nonisolated deinit` at its own depth."""
-    depth = 0
-    opened = False
-    for line in lines[index:]:
-        code = main_actor_scope.strip(line)  # no braces from string literals or comments
-        if opened and depth == 1 and NONISOLATED_DEINIT.match(code):
-            return True
-        for char in code:
-            if char == "{":
-                depth += 1
-                opened = True
-            elif char == "}":
-                depth -= 1
-        if opened and depth <= 0:
-            return False
-    return False
 
 
 def allowed(lines, index, escape=ALLOW):
@@ -243,6 +245,20 @@ rules_wakeup = [(name, re.compile(rx)) for name, rx in WAKEUP_RULES]
 rules_main = [(name, re.compile(rx)) for name, rx in MAIN_ACTOR]
 
 failures = 0
+texts = {}
+for dirpath, _, files in os.walk(sources):
+    for filename in sorted(files):
+        if filename.endswith(".swift"):
+            path = os.path.join(dirpath, filename)
+            with open(path, encoding="utf-8") as handle:
+                texts[path] = handle.read()
+# The generic-class rule reads an extension's context: is its type declared generic anywhere in Sources,
+# and where ({type name: ["Sources/<path>:<line>", ...]}).
+generic_declared = {}
+for path, text in sorted(texts.items()):
+    for name, numbers in swift_scope.generic_declarations(text).items():
+        site = os.path.relpath(path, root).replace(os.sep, "/")
+        generic_declared.setdefault(name, []).extend(f"{site}:{number}" for number in numbers)
 for dirpath, _, files in os.walk(sources):
     for filename in sorted(files):
         if not filename.endswith(".swift"):
@@ -251,12 +267,13 @@ for dirpath, _, files in os.walk(sources):
         relative = os.path.relpath(path, sources)
         module = relative.split(os.sep)[0]
         is_service = module in SERVICE_MODULES or SERVICE_APP_FILE.match(relative.replace(os.sep, "/")) is not None
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.read().split("\n")
+        lines = texts[path].split("\n")
         # Main-actor rules apply to main-actor code: the target default for a
         # uiSwiftSettings target, `@MainActor` scopes anywhere, minus
         # nonisolated / @concurrent / actor / detached scopes.
-        main_lines = main_actor_scope.main_actor_lines(lines, module in MAIN_ACTOR_MODULES)
+        default_main = swift_scope.default_isolation(
+            os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
+        main_lines = main_actor_scope.main_actor_lines(lines, default_main)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -269,7 +286,8 @@ for dirpath, _, files in os.walk(sources):
                 failures += 1
             if ONLY == "synchronization":
                 continue
-            hits = crash_class_hits(code, lines, index, module, main_lines, relative.replace(os.sep, "/"))
+            hits = crash_class_hits(code, lines, index, default_main, main_lines, relative.replace(os.sep, "/"),
+                                    generic_declared)
             if ONLY == "crash-class":
                 for name in hits:
                     print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")

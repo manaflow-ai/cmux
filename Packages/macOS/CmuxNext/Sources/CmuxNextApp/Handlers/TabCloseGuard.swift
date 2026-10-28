@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextFocus
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
@@ -53,30 +55,45 @@ enum TabCloseGuard {
     /// shows, a Cmd-W behind it closes nothing until the person answers.
     private(set) static var reading: Set<String> = []
 
-    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still reading,
-    /// the tab selected once it closes (the next not closing, else the previous), so N
-    /// quick presses close N tabs (Leo 2026-10-21). Nil when every other tab is closing too.
-    static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel) -> StripTabID? {
-        guard reading.contains(id.rawValue) else { return id }
+    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still under way
+    /// (`closing`: the daemon's read, or its page deciding), the tab selected once it closes (the
+    /// next not closing, else the previous), so N quick presses close N tabs (Leo 2026-10-21).
+    /// Nil when every other tab is closing too.
+    static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel, closing: (StripTabID) -> Bool) -> StripTabID? {
+        guard closing(id) else { return id }
         let ordered = strip.orderedTabs
         guard let index = ordered.firstIndex(where: { $0.id == id }) else { return id }
-        func open(_ tab: TabItem) -> Bool { !asking.contains(tab.id.rawValue) && tab.isClosable }
+        func open(_ tab: TabItem) -> Bool { !closing(tab.id) && !asking.contains(tab.id.rawValue) && tab.isClosable }
         return (ordered[(index + 1)...].first(where: open) ?? ordered[..<index].last(where: open))?.id
     }
 
-    /// Leo 2026-10-21: "when im trying to close all stuff in the brwoser area tabs... it hopss
-    /// over to my main pane and closes that". A Cmd-W keeps the focus in its pane while the
-    /// pane has tabs (``LinkOpener/returnPane(closing:in:emptiesPane:)``); only the close of a
-    /// pane's last tab moves it to another pane. The presses that follow that one quickly are
-    /// the same burst of closing, not a close in the pane the focus landed in: they close
-    /// nothing (``EmptiedPaneCloseRun``, kept per app in ``AppServices/emptiedPaneCloseRun``).
-    static func swallowsCmdW(_ services: AppServices, at now: TimeInterval) -> Bool {
-        services.emptiedPaneCloseRun.swallows(at: now, window: services.quickPressWindow())
+    /// ``cmdWTarget(_:in:closing:)`` for `pane`: its tabs still in the daemon's read, or whose page
+    /// decides its close (``PageClosingTabs``), are closing.
+    static func cmdWTarget(_ id: StripTabID, in pane: PaneController) -> StripTabID? {
+        let pages = pane.services.closedTabs?.undoToasts.pageClosing
+        return cmdWTarget(id, in: pane.stripModel) { tab in
+            reading.contains(tab.rawValue) || pages?.contains(tab.rawValue) == true
+        }
+    }
+
+    /// A Close Tab press as ``PaneCloseAim`` reads it: the input event AppKit is dispatching (its
+    /// time and repeat flag), else the time of the press that started a gated run, else now.
+    static func press(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> PaneCloseAim.Press {
+        let event = ctx.registry.dispatchingInputEvent()
+        switch event?.type {
+        case .keyDown?:
+            return .init(time: event?.timestamp ?? 0, isKey: true, isRepeat: event?.isARepeat == true)
+        case .leftMouseDown?, .leftMouseUp?, .rightMouseDown?, .rightMouseUp?, .otherMouseDown?, .otherMouseUp?, .keyUp?:
+            return .init(time: event?.timestamp ?? 0, isKey: false, isRepeat: false)
+        default:
+            return .init(time: invocation.inputTimestamp ?? ProcessInfo.processInfo.systemUptime, isKey: false, isRepeat: false)
+        }
     }
 
     /// Whether closing `closing` leaves `pane` with no tab (tabs whose close is still asking count as closed).
     static func empties(_ pane: PaneController, closing: [StripTabID]) -> Bool {
-        pane.orderedIDs.allSatisfy { closing.contains($0) || asking.contains($0.rawValue) }
+        let pages = pane.services.closedTabs?.undoToasts.pageClosing
+        return pane.orderedIDs.allSatisfy { closing.contains($0) || asking.contains($0.rawValue) || pages?.contains($0.rawValue) == true }
     }
 
     /// Whether closing `tabs` can ask at all (a live terminal and a warning
@@ -142,31 +159,5 @@ enum TabCloseGuard {
     static func displayName(_ agent: String?) -> String {
         guard let agent, let first = agent.first else { return ConfirmationStrings.theAgent }
         return first.uppercased() + agent.dropFirst()
-    }
-}
-
-/// Pure: the rule for a person's Cmd-W right after one that closed its pane's last tab
-/// (``TabCloseGuard/swallowsCmdW(_:at:)``). That close removes the pane and the focus lands in
-/// another one, so the next quick press would close a tab the person never looked at (Leo's
-/// agent chat). The run starts at that close; each press that comes within `window` of the
-/// press before it (``AppServices/quickPressWindow``: quick presses and held-key repeats
-/// both fit) closes nothing and keeps the run going. The first press after a longer pause
-/// ends the run and closes as usual.
-struct EmptiedPaneCloseRun: Equatable {
-    /// When the run's last press came (seconds of uptime), or nil when no run is going.
-    private(set) var last: TimeInterval?
-
-    /// A press at `now` closed its pane's last tab: a run starts.
-    mutating func emptied(at now: TimeInterval) { last = now }
-
-    /// A press at `now`: true when it belongs to the run (it closes nothing, and the run lasts
-    /// `window` past it), false when it closes as usual (the run, if any, ends).
-    mutating func swallows(at now: TimeInterval, window: TimeInterval) -> Bool {
-        guard let last, now >= last, now - last < window else {
-            self.last = nil
-            return false
-        }
-        self.last = now
-        return true
     }
 }

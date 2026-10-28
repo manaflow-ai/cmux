@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -59,6 +60,8 @@ final class CloseUndoToasts {
     /// page runs its beforeunload first (`BrowserUserClosing`) and closes the
     /// tab itself afterwards. Starts that page's close. Tests pass their own.
     var pageDecidesClose: @MainActor (PaneController, StripTabID) -> Bool = CloseUndoToasts.livePageDecidesClose
+    /// Tabs whose page decides a person's close now: a quick next Cmd-W skips them (``PageClosingTabs``).
+    let pageClosing = PageClosingTabs()
     /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
     let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
         prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
@@ -123,12 +126,10 @@ final class CloseUndoToasts {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            reopenWatch?.cancel()
-        }
+        observation?.cancel()
+        reopenWatch?.cancel()
     }
 
     private static func daemonItemIDs(_ daemons: [DaemonService]) -> [String] {
@@ -152,6 +153,9 @@ final class CloseUndoToasts {
         // second close of it (before the daemon answered the first) finds nothing to close.
         // A page's own close of its tab, after a close of several tabs waited for it, joins that close.
         let undoToasts = parts.first?.pane.services.closedTabs?.undoToasts
+        // A close of a tab whose page was deciding (the page's own close after it decided, a close
+        // button): that decision is over; the close below starts a new one if the page decides again.
+        for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
         let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
@@ -166,7 +170,10 @@ final class CloseUndoToasts {
                 // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): the page
                 // decides, and its own close (after Leave) closes the tab then.
                 let decides = pane.services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
-                let deciders = user ? part.ids.filter { decides(pane, $0) } : []
+                let deciders = user ? part.ids.filter { !pane.isMirror($0) && decides(pane, $0) } : [] // a mirror's close takes out the chip, never the page
+                if let undo = pane.services.closedTabs?.undoToasts {
+                    for id in deciders { if let page = pane.services.cache.browsers[id.rawValue]?.tab { undo.pageClosing.begin(id.rawValue, page: page) } }
+                }
                 closing.append((pane, part.ids.filter { !deciders.contains($0) }))
                 if !deciders.isEmpty { deciding.append((pane, deciders)) }
             }

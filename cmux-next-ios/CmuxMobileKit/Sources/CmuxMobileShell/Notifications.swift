@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileChief
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -21,9 +22,12 @@ public struct NotificationRoute: Equatable, Sendable {
     public var workspaceID: String?
     public var tabID: String?
     public var conversationID: String?
+    /// A cmux link the person opened (kind `link`): resolved by the Mac's public ids, not a push's.
+    public var link: CmuxLink?
 
     public init(kind: String, mac: String? = nil, sessionID: String? = nil, workspaceID: String? = nil, tabID: String? = nil,
-                conversationID: String? = nil) {
+                conversationID: String? = nil, link: CmuxLink? = nil) {
+        self.link = link
         self.kind = kind
         self.mac = mac
         self.sessionID = sessionID
@@ -82,6 +86,13 @@ public final class NotificationRouter {
         set(NotificationRoute(reply))
     }
 
+    /// Opens a cmux link (Safari, Messages, Notes, a QR code, or a tap in a
+    /// chat) the way a tapped notification opens: now, or once a Mac's tree
+    /// lists what it names.
+    public func open(link: CmuxLink) {
+        set(NotificationRoute(kind: "link", link: link))
+    }
+
     /// Waits for `route`, at most `waitBudget`: then it is tried once more, as expired.
     func set(_ route: NotificationRoute?, at now: ContinuousClock.Instant = .now) {
         pending = route
@@ -121,7 +132,11 @@ public final class NotificationRouter {
 public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
+        PushAppGroup.prime()
         PushReplies.shared.registerCategories()
+        // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
+        CmuxLinkOpener.shared.handler = { NotificationRouter.shared.open(link: $0) }
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
@@ -141,10 +156,17 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         log.error("APNs registration failed: \(String(describing: error), privacy: .public)")
     }
 
-    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    /// A push while the app is in front. The completion handler form, called on
+    /// the main thread, like `didReceive`: the async form of a
+    /// UNUserNotificationCenterDelegate method calls UIKit's handler from a
+    /// background thread (NotificationDelegateThreadTests).
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                                   withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
-        let showing = await MainActor.run { route.map { NotificationRouter.shared.isShowing($0) } ?? false }
-        return showing ? [] : [.banner, .list, .sound]
+        Task { @MainActor in
+            let showing = route.map { NotificationRouter.shared.isShowing($0) } ?? false
+            completionHandler(showing ? [] : [.banner, .list, .sound])
+        }
     }
 
     /// Taps and buttons. iOS keeps a background launch alive until the
@@ -152,20 +174,36 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     /// first. The handler must run on the main thread: UIKit updates the app's
     /// snapshot in it and aborts off the main thread (verify/push-matrix.md,
     /// failure 2: the async form returned on a background thread and every
-    /// notification button crashed the app).
+    /// notification button crashed the app; TestFlight 1.2.0 (20261023213712)
+    /// crashed the same way on a plain tap). Never make this `async`:
+    /// NotificationDelegateThreadTests fails if the handler leaves the main thread.
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                                    withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
+        // The app's own Chief alert (ChiefAlerts): it carries no `cmuxMobile`
+        // payload, so the trust gate refused it and the tap opened nothing.
+        if let route = ChiefAlerts.route(userInfo: userInfo, actionIdentifier: response.actionIdentifier) {
+            let kind = route.kind, mac = route.mac, conversation = route.conversationID
+            Task { @MainActor in
+                NotificationRouter.shared.set(NotificationRoute(kind: kind, mac: mac, conversationID: conversation))
+                completionHandler()
+            }
+            return
+        }
         let shown = PushTrustGate.Shown(title: content.title, subtitle: content.subtitle, body: content.body,
                                         category: content.categoryIdentifier)
         // Only the app's own (local) notifications may carry a retry (review H1).
         let fromPush = response.notification.request.trigger is UNPushNotificationTrigger
-        let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
+        var read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
                                         text: (response as? UNTextInputNotificationResponse)?.userText,
                                         userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app, shown: shown)
+        // Reply sends what the long look's "+" attached to this notification with its text.
+        let requestID = response.notification.request.identifier
+        let reply = response.actionIdentifier == PushAction.reply.identifier
         Task { @MainActor in
+            if reply { read.attachments = await PushReplies.stagedAttachments(for: requestID) }
             await PushReplies.shared.handle(read)
             completionHandler()
         }
@@ -231,6 +269,11 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
+    }
+
+    func openPairingCode(_ text: String) -> Bool {
+        guard let live, let invite = PairInvite(text: text) else { return false }
+        return live.accept(invite)
     }
 }
 #endif

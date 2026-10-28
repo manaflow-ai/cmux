@@ -174,8 +174,9 @@ extension SidebarRegionView {
 
     private func frame(of subject: SidebarRegionDragSubject) -> CGRect? {
         switch subject {
-        case let .item(id): layoutResult.rows.first { SidebarRegionReorder.item(of: $0)?.0 == id }?.frame
-        case let .section(id): SidebarRegionReorder.frame(of: id, in: layoutResult)
+        // Within the band: a row's frame runs past its edge by the row trim (`rowEdgeGap`), its pill does not.
+        case let .item(id): layoutResult.rows.first { SidebarRegionReorder.item(of: $0)?.0 == id }?.frame.clippedX(to: bounds)
+        case let .section(id): SidebarRegionReorder.frame(of: id, in: layoutResult)?.clippedX(to: bounds)
         }
     }
 

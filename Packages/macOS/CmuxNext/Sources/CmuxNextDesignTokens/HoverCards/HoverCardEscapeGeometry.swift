@@ -63,11 +63,8 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         case middle
     }
 
-    /// The room between a target and a `.beside` card (the update card); a sidebar row's card
-    /// stands `edgeGap(scale:)` off the sidebar's edge instead.
-    public static let rowGap: CGFloat = 10
-
-    /// The room between the sidebar column's visible edge and a row's card: one device pixel of
+    /// The room between the sidebar column's visible edge and a row's card, and between a target
+    /// and a `.beside` card (the update card, a pull request badge's card): one device pixel of
     /// `scale` (Lawrence 2026-10-21: "horizontally only 1 pixel gap").
     public static func edgeGap(scale: CGFloat) -> CGFloat { 1 / max(scale, 1) }
 
@@ -78,20 +75,23 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// - Parameter row: The row's frame on screen (its pill, a header, a rail mark).
     /// - Parameter column: The sidebar column's visible frame on screen; only its x extent is used.
     /// - Returns: `row`'s vertical extent spanning `column`'s horizontal one.
-    /// The room a row's card rests in: the screen's visible frame less `margin`, and inside its
-    /// window, so the last row's card never hangs below the window (Lawrence 2026-10-22). The window
-    /// takes no margin: the card's near edge stays one device pixel off a sidebar at its edge.
+    public static func rowBand(row: CGRect, column: CGRect) -> CGRect {
+        CGRect(x: column.minX, y: row.minY, width: column.width, height: row.height)
+    }
+
+    /// The room a row's card rests in: the screen's visible frame less `margin`, and between its
+    /// window's bottom and top, so the last row's card never hangs below the window (Lawrence
+    /// 2026-10-22). The window takes no margin. Across, the room is the screen's: the card goes
+    /// beside the sidebar, past the window's edge when the window is no wider than the sidebar,
+    /// and never over the rows it describes.
     /// - Parameter visible: The screen's visible frame (or the whole screen), screen coordinates.
     /// - Parameter window: The parent window's frame; nil out of a window.
     public static func room(visible: CGRect, window: CGRect?, margin: CGFloat) -> CGRect {
         let screen = visible.insetBy(dx: margin, dy: margin)
         guard let window else { return screen }
-        let inside = screen.intersection(window)
-        return inside.isNull || inside.isEmpty ? screen : inside
-    }
-
-    public static func rowBand(row: CGRect, column: CGRect) -> CGRect {
-        CGRect(x: column.minX, y: row.minY, width: column.width, height: row.height)
+        let bottom = max(screen.minY, window.minY), top = min(screen.maxY, window.maxY)
+        guard top > bottom else { return screen }
+        return CGRect(x: screen.minX, y: bottom, width: screen.width, height: top - bottom)
     }
 
     /// Debug Settings: the escape-slot layout (`RowAlignment.middle`) instead of the top-aligned one.

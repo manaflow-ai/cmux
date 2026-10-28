@@ -52,6 +52,8 @@ pub struct ServiceConfig {
     pub chief_socket: Option<PathBuf>,
     /// The `browser` service: who starts browser hosts, and the running ones.
     pub browser: crate::browser::BrowserConfig,
+    /// The `surface` service: who starts simulator surface sources, and the running hosts.
+    pub surface: crate::surface::SurfaceConfig,
 }
 
 impl ServiceConfig {
@@ -392,6 +394,14 @@ impl HostConfig {
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
         };
+        // Supervised: the app streams its phone tabs' simulators when this build
+        // can (`CMUX_MOBILE_SURFACE_HOSTS=1`: SimulatorKit loads).
+        let surface = match &supplied {
+            Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
+                crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs)
+            }
+            _ => crate::surface::SurfaceConfig::default(),
+        };
         let file_roots = env("CMUX_MOBILE_FILE_ROOTS")
             .map(|roots| roots.split(':').filter(|r| !r.is_empty()).map(PathBuf::from).collect())
             .unwrap_or_default();
@@ -436,6 +446,7 @@ impl HostConfig {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(DEFAULT_UPLOAD_MAX_BYTES),
                 browser,
+                surface,
             },
         })
     }

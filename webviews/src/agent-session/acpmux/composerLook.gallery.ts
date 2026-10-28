@@ -11,15 +11,29 @@ import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 
-/// A started Claude Code chat in a project: the transcript over the composer.
-const startedChat = () =>
-  chat([
+/// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
+/// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
+const startedChat = () => {
+  const snapshot = chat([
     user("Add retries to the fetch helper, with a backoff.", 12),
     assistant(
       "Added `withRetry` to `fetchJson`: three tries with jittered backoff, and only for network errors and 5xx answers. The tests cover a 503 that recovers and a 404 that does not retry.",
       11,
     ),
   ]);
+  snapshot.summary = {
+    ...snapshot.summary!,
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Ask before edits", description: "Review changes before they run" },
+        { id: "acceptEdits", name: "Edit automatically", description: "Make edits without asking" },
+        { id: "plan", name: "Plan", description: "Plan before making changes" },
+      ],
+    },
+  };
+  return snapshot;
+};
 
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
@@ -158,6 +172,7 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 760, wide: 1100 },
   covers: [
     "agent-session/acpmux/composerLook.ts",
+    "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
@@ -185,6 +200,22 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "claude"),
     },
+    "permission-pill-claude": {
+      note: "Claude's permission capsule hovered: the shared 8px inset, 28px height and full radius match Codex.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.hover({ selector: ".acpmux-access-trigger" });
+      },
+    },
+    "permission-pill-codex": {
+      note: "Codex's permission capsule hovered: the same dimensions, 16px after the + glyph.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "codex");
+        await ctx.hover({ selector: ".acpmux-access-trigger" });
+      },
+    },
     "claude-chat-dots": {
       note: "Claude's look with the pointer in the quiet row's empty middle: the two dots show there, Claude marked.",
       snapshot: startedChat(),
@@ -199,7 +230,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-dots": {
-      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked.",
+      note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");
