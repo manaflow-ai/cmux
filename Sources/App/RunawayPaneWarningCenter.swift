@@ -37,9 +37,10 @@ final class RunawayPaneWarningCenter {
     private(set) var stopTasks: [PaneMemoryPaneKey: Task<Void, Never>] = [:]
     @ObservationIgnored
     private var tracker = RunawaySessionWarningTracker<PaneMemoryPaneKey>()
-    /// Consecutive samples in which each live pane's TTY was unavailable.
+    /// Last measured TTY for each live pane, including dismissed warnings.
+    /// Used only to prove recovery from a complete census, never to signal.
     @ObservationIgnored
-    private var unavailableSampleCounts: [PaneMemoryPaneKey: Int] = [:]
+    private var measuredTTYDevices: [PaneMemoryPaneKey: Int64] = [:]
     @ObservationIgnored
     private var timer: DispatchSourceTimer?
     @ObservationIgnored
@@ -61,10 +62,6 @@ final class RunawayPaneWarningCenter {
     private let appProcessID: Int
     @ObservationIgnored
     private let appProcessGroupID: Int
-
-    /// Samples a warning survives without a TTY measurement. A brief gap keeps
-    /// it; a pane whose shell exited must not keep a frozen warning forever.
-    static let maximumUnavailableSamples = 3
 
     private struct Measurement: Sendable {
         let warnings: [PaneMemoryPaneKey: RunawayPaneWarning]
@@ -125,6 +122,7 @@ final class RunawayPaneWarningCenter {
         let snapshotProvider = snapshotProvider
         let argumentsProvider = argumentsProvider
         let ttyDevice = ttyDevice
+        let measuredTTYDevices = measuredTTYDevices
         evaluationTask = Task { @MainActor [weak self] in
             let measured = await Self.measure(
                 descriptors: descriptors,
@@ -132,13 +130,19 @@ final class RunawayPaneWarningCenter {
                 policy: policy,
                 snapshotProvider: snapshotProvider,
                 argumentsProvider: argumentsProvider,
-                ttyDevice: ttyDevice
+                ttyDevice: ttyDevice,
+                previouslyMeasuredTTYDevices: measuredTTYDevices
             )
             guard let self else { return }
             self.evaluationTask = nil
-            // An unavailable census is no evidence either way; keep state.
+            let liveKeys = Set(self.paneProvider?().map(\.key) ?? [])
+            self.measuredTTYDevices = self.measuredTTYDevices.filter { liveKeys.contains($0.key) }
+            self.warnings.removeAll { !liveKeys.contains($0.key) }
+            _ = self.tracker.ingest([:], unavailableKeys: liveKeys, policy: policy)
+            // An unavailable census is no evidence either way; keep state for
+            // live panes, but closure is authoritative even without a census.
             guard let measured else { return }
-            self.apply(measured, liveKeys: Set(self.paneProvider?().map(\.key) ?? []), policy: policy)
+            self.apply(measured, liveKeys: liveKeys, policy: policy)
         }
     }
 
@@ -203,17 +207,13 @@ final class RunawayPaneWarningCenter {
         // A pane can close while the census is in flight. Missing TTY data
         // for a still-live pane is not evidence that its runaway recovered.
         let measured = measurement.warnings.filter { liveKeys.contains($0.key) }
-        var unavailableKeys = measurement.unavailableKeys.intersection(liveKeys)
-        unavailableSampleCounts = unavailableSampleCounts.filter { unavailableKeys.contains($0.key) }
-        var recoveredKeys = measurement.recoveredKeys.intersection(liveKeys)
-        for key in unavailableKeys {
-            let count = (unavailableSampleCounts[key] ?? 0) + 1
-            unavailableSampleCounts[key] = count
-            if count > Self.maximumUnavailableSamples { recoveredKeys.insert(key) }
-        }
-        unavailableKeys.subtract(recoveredKeys)
-        for key in recoveredKeys {
+        let unavailableKeys = measurement.unavailableKeys.intersection(liveKeys)
+        for key in measurement.recoveredKeys.intersection(liveKeys) {
             tracker.reset(key)
+            measuredTTYDevices.removeValue(forKey: key)
+        }
+        for (key, warning) in measured {
+            measuredTTYDevices[key] = warning.ttyDevice
         }
         let usages = measured.mapValues {
             RunawaySessionUsage(
@@ -255,7 +255,8 @@ final class RunawayPaneWarningCenter {
         policy: RunawaySessionWarningPolicy,
         snapshotProvider: SnapshotProvider,
         argumentsProvider: ArgumentsProvider,
-        ttyDevice: TTYDeviceResolver
+        ttyDevice: TTYDeviceResolver,
+        previouslyMeasuredTTYDevices: [PaneMemoryPaneKey: Int64]
     ) async -> Measurement? {
         let snapshot = await snapshotProvider()
         guard let census = snapshot.runawaySessionCensus() else { return nil }
@@ -266,7 +267,14 @@ final class RunawayPaneWarningCenter {
         for descriptor in descriptors {
             guard let ttyName = descriptor.ttyName,
                   let device = ttyDevice(ttyName) else {
-                unavailableKeys.insert(descriptor.key)
+                // A missing live TTY is ambiguous. Only a complete census
+                // proving the previous TTY empty confirms the session ended.
+                if let previousDevice = previouslyMeasuredTTYDevices[descriptor.key],
+                   census.usage(ttyDevice: previousDevice) == nil {
+                    recoveredKeys.insert(descriptor.key)
+                } else {
+                    unavailableKeys.insert(descriptor.key)
+                }
                 continue
             }
             let signallableGroups = selector.signallableProcessGroupIDs(ttyDevice: device, in: census) ?? []
