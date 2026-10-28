@@ -108,6 +108,9 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     }
 
     /// Closure-injected core, so tests can drive it without the actor stack.
+    /// `authenticatedScopeID` must include the account and selected team; when
+    /// it is omitted, discovery fails closed instead of falling back to account
+    /// identity, which cannot fence a same-account team switch.
     public init(
         preferredTag: String,
         compatibilityPolicy: MobileMacBuildCompatibilityPolicy?,
@@ -123,7 +126,9 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         self.invalidateSnapshot = invalidateSnapshot
         self.revokeBinding = revokeBinding
         self.authenticatedAccountID = authenticatedAccountID
-        let scopeID = authenticatedScopeID ?? authenticatedAccountID
+        // A missing scope identity must fail closed. Account-only identity is
+        // insufficient because a team switch can keep the account unchanged.
+        let scopeID: @Sendable () async -> String? = authenticatedScopeID ?? { nil }
         self.authenticatedScopeID = scopeID
         self.routeCatalog = MobileIrohRouteCatalog(authenticatedScopeID: scopeID)
     }
