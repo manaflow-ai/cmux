@@ -72,7 +72,7 @@ nonisolated enum AcpmuxStatusClient {
     /// is deliberately small enough that a summary with tools stays below the
     /// transport reply limit; callers receive no all-sessions size failure.
     @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
-                                         pageSize: Int = 64, deadline: Duration = .seconds(2)) async throws -> [[String: Any]] {
+                                         pageSize: Int = 64, deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
         var pageParams = params
         pageParams["limit"] = pageSize
         var cursor: String?
@@ -109,13 +109,15 @@ nonisolated enum AcpmuxStatusClient {
     /// daemon's cached peer rows, so a closed chat remains addressable while its
     /// peer is offline; unlike `_acpmux/info`, it never forwards to that peer.
     @concurrent static func sessionSummary(socketPath: String, sessionId: String,
-                                           deadline: Duration = .seconds(2)) async throws -> [String: Any] {
-        let result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
+                                           deadline: Duration = .seconds(2)) async throws -> sending [String: Any]? {
+        let result: [String: Any]
+        do {
+            result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
                                     params: ["query": sessionId], deadline: deadline)
-        guard let summary = sessionSummary(sessionId, in: result) else {
-            throw Failure.rpc("acpmux session not found: \(sessionId)")
+        } catch Failure.rpc(let message) where message.hasPrefix("no session") {
+            return nil
         }
-        return summary
+        return sessionSummary(sessionId, in: result)
     }
 
     static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {
@@ -127,7 +129,7 @@ nonisolated enum AcpmuxStatusClient {
     /// `_acpmux/info` for exactly one session. `waitLogs: false` keeps this
     /// read to the summary and pending fields needed by native callers.
     @concurrent static func sessionInfo(socketPath: String, sessionId: String,
-                                       deadline: Duration = .seconds(2)) async throws -> [String: Any] {
+                                       deadline: Duration = .seconds(2)) async throws -> sending [String: Any] {
         try await call(socketPath: socketPath, method: "_acpmux/info",
                        params: ["sessionId": sessionId, "waitLogs": false], deadline: deadline)
     }
@@ -194,7 +196,7 @@ nonisolated enum AcpmuxStatusClient {
     /// folder the page names.
     @concurrent static func sessionFolder(socketPath: String, sessionId: String,
                                           deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
-        let result = try await sessionSummary(socketPath: socketPath, sessionId: sessionId, deadline: deadline)
+        guard let result = try await sessionSummary(socketPath: socketPath, sessionId: sessionId, deadline: deadline) else { return nil }
         return AgentPaneSessionFolder(sessionId: sessionId, info: result)
     }
 

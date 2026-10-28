@@ -79,7 +79,7 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 /// ending its agents for Quit Everything.
 public nonisolated struct AcpmuxQuit {
     public nonisolated init() {}
-    @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> [[String: Any]] {
+    @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> sending [[String: Any]] {
         // Read one cursor-consistent snapshot, then discard peer and closed
         // rows. Querying each live status separately can miss a session that
         // changes status between requests and drops idle Chief hosts.
