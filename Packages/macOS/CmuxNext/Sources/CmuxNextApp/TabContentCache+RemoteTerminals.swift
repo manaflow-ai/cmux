@@ -17,7 +17,8 @@ extension TabContentCache {
         let validity = "remote#\(daemon.machineID)#\(ref.terminalID.rawValue)#\(resource.rawValue)#\(generation.rawValue)"
         if let entry = terminals[key], entry.validity == validity { return entry }
         // The terminal's session restarted: the new view shows what the old one showed until it draws.
-        let carried = terminals[key]?.session.carriedFrame()
+        let identity = "remote#\(daemon.machineID)#\(ref.terminalID.rawValue)#\(resource.rawValue)"
+        let carried = terminals[key].flatMap { $0.terminalIdentity == identity ? $0.session.carriedFrame() : nil }
         discardTerminal(key)
         let target = DaemonTerminalIO.Target(
             attachment: .unplaced(terminalResourceID: resource, generation: generation),
@@ -35,6 +36,7 @@ extension TabContentCache {
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface, mainWork: mainWork)
+        entry.terminalIdentity = identity
         terminals[key] = entry
         session.delegate = sessionDelegate
         session.isRenderingSuspended = !render

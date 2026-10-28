@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextTerminalFind
 public import CmuxNextTrace
 public import CmuxNextWakeups
+import CmuxNextCompat
 import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
@@ -302,10 +303,22 @@ public final class TerminalSession {
     /// What this session's pane shows now, for a session that replaces it on the same tab (a daemon restart
     /// gives the terminal a new generation, so the App makes a new view of it): the held frame while a hold
     /// is on screen, else the surface's last presented frame once it drew content; nil when it shows nothing.
+    /// A surface frame is made non-volatile here and given away: this session, closed next, never marks it
+    /// volatile again (``TerminalHeldFrame/giveAway(_:)``); nil when the system purged its pages meanwhile.
     public func carriedFrame() -> TerminalCarriedFrame? {
-        if let held = frameHold.heldFrame { return TerminalCarriedFrame(frame: held) }
-        guard surfaceHasContent, let surface = surfaceView.presentedFrame else { return nil }
-        return TerminalCarriedFrame(frame: .surface(surface))
+        let frame: TerminalFrameHold.HeldFrame
+        if let held = frameHold.heldFrame {
+            frame = held
+        } else if surfaceHasContent, let surface = surfaceView.presentedFrame {
+            frame = .surface(surface)
+        } else {
+            return nil
+        }
+        if case .surface(let surface) = frame {
+            surfaceView.heldFrame.giveAway(surface)
+            guard surface.reclaim() else { return nil }
+        }
+        return TerminalCarriedFrame(frame: frame)
     }
 
     /// Shows `frame` (``carriedFrame()`` of the session this one replaces) until this session's first content

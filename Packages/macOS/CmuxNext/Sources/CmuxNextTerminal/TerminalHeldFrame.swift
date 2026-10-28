@@ -9,6 +9,15 @@ import IOSurface
 struct TerminalHeldFrame {
     /// The presented frame made volatile while the surface does not draw.
     private(set) var frame: IOSurface?
+    /// A frame another view shows now (``giveAway(_:)``): never made volatile here again.
+    private var givenAway: IOSurface?
+
+    /// `surface` is shown by another view from now on (a replacement session's carried frame): this surface,
+    /// paused or closed, must not mark it volatile under that view.
+    mutating func giveAway(_ surface: IOSurface) {
+        givenAway = surface
+        if frame === surface { frame = nil }
+    }
 
     /// The surface paused (`volatile`) or draws again. A frame in flight at the pause may have replaced
     /// the held one: that one is not volatile. The held frame is reclaimed before the renderer is told it
@@ -17,7 +26,7 @@ struct TerminalHeldFrame {
     mutating func hold(volatile: Bool, in source: some TerminalFrameSource) {
         let presented = source.presentedFrame
         if volatile {
-            frame = presented
+            frame = presented === givenAway ? nil : presented
             frame?.makeVolatile()
             source.setPresentation(.hidden)
             return
