@@ -13,6 +13,9 @@ SPEC.loader.exec_module(guard)
 
 
 class AttachmentCapsGuardTests(unittest.TestCase):
+    def test_checked_in_tree_has_no_unreviewed_caps(self):
+        self.assertEqual(guard.violations(SCRIPT.parents[2]), [])
+
     def check_source(self, source, expected, relative="src/upload.swift"):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
