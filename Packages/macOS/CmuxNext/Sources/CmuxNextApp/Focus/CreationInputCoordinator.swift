@@ -273,7 +273,6 @@ final class CreationInputCoordinator {
     private static func creatingTab(of controller: WindowController, in buffer: CreationInputBuffer) -> String? {
         let focus = controller.focus.state
         if case .tab(let tab)? = focus.expectation?.key, buffer.isCreating(tab: tab) { return tab }
-        if case .terminal(_, let tab) = focus.resolved, buffer.isCreating(tab: tab) { return tab }
         return nil
     }
 
@@ -291,11 +290,8 @@ final class CreationInputCoordinator {
     /// Only that view: focus names the newest pending creation's early tab, its pane shows it, and the window's first
     /// responder is its terminal (never another terminal, an agent's composer or Home's message box).
     private func takesKeysEarly(_ buffer: CreationInputBuffer, controller: WindowController, window: NSWindow) -> Bool {
-        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, buffer.newestEarlyTab == tab,
-              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
-              case .terminal(let entry)? = paneController.currentContent,
-              let responder = window.firstResponder as? NSView else { return false }
-        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view)
+        guard case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab) else { return false }
+        return Self.responderTakesKeys(controller, window: window)
     }
 
     /// Runs the held keys into the early view that has the keyboard, in order, at once. False when a key run again
@@ -362,12 +358,7 @@ final class CreationInputCoordinator {
     /// straight to that view through ``capture(_:in:)``) until the creation resolves.
     private func flush(in window: NSWindow, force: Bool = false) {
         guard let buffer = buffers[window.windowNumber] else { return }
-        if !force, !buffer.isResolved {
-            if !buffer.isEmpty, let controller = router?.focus(for: window).0, takesKeysEarly(buffer, controller: controller, window: window) {
-                _ = deliverEarly(buffer)
-            }
-            return
-        }
+        if !force, !buffer.isResolved { return }
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
             buffers[window.windowNumber] = nil
