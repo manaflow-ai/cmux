@@ -143,7 +143,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     const key = sourceKey(source);
     const prior = seen.get(key);
     if (!prior || (source.kind === "pullRequest" && prior.source.kind !== "pullRequest"))
-      seen.set(key, { source, order, sequence: sequence++ });
+      seen.set(key, { source, order: prior?.order ?? order, sequence: prior?.sequence ?? sequence++ });
   };
   // Match canonical GitHub links after removing query and fragment suffixes. Keep a separate
   // identity set so an issue-form link for a PR the chat changed cannot resurrect it as a Source.
@@ -191,7 +191,13 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       const inputFields = input(item);
       const inputCommandValue = inputFields.command;
       const inputCommand =
-        field(inputCommandValue) ?? (Array.isArray(inputCommandValue) ? inputCommandValue.map(String).join(" ") : undefined);
+        field(inputCommandValue) ??
+        (Array.isArray(inputCommandValue)
+          ? inputCommandValue
+              .map(String)
+              .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
+              .join(" ")
+          : undefined);
       const command = item.command ? pullRequestSourceCommand(item.command) : inputCommand ?? "";
       const title = item.command || inputCommand ? pullRequestSourceCommand(item.command ?? inputCommand ?? item.title) : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from

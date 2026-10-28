@@ -497,6 +497,10 @@ test("short-circuit and negated shell forms reflect executed mutations", () => {
   });
   expect(transcriptPullRequests(toolsRows(shell("true || gh pr merge 42 -R acme/app --squash")))).toEqual([]);
   expect(transcriptPullRequests(toolsRows(shell("! gh pr merge 43 -R acme/app --squash")))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("false; gh pr merge 44 -R acme/app --squash")))[0]).toMatchObject({
+    number: 44,
+    changed: true,
+  });
 });
 
 test("issue commands do not hide unrelated references on the same shell line", () => {
@@ -512,6 +516,12 @@ test("PR body payloads do not become separate activity", () => {
     transcriptPullRequests(rows),
   ).toMatchObject([{ repo: "acme/app", number: 41, changed: true }]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+  const argv = toolsRows(
+    tool("execute", "execute", "completed", {
+      inputSummary: JSON.stringify({ command: ["gh", "pr", "comment", "41", "-R", "acme/app", "--body", "see https://github.com/acme/other/pull/9"] }),
+    }),
+  );
+  expect(sessionSummary(argv, "acme/app").sources).toEqual([]);
 });
 
 test("brokered PR lifecycle writes settle the same record", () => {

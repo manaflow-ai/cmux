@@ -214,7 +214,7 @@ function toolFindings(tool: Tool): Finding[] {
   const calls = parts
     .flatMap((part) => {
       const trimmed = part.trim();
-      if (/^(?:if\s+)?false\s*$/.test(trimmed)) {
+      if (/^(?:if|elif)\s+false\s*$/.test(trimmed)) {
         skipFalseBranch = true;
         return [];
       }
