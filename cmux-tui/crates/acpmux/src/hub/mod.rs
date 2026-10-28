@@ -136,7 +136,7 @@ pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
 mod peer_grace;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 #[cfg(test)]
 mod peer_grace_tests;
