@@ -1,0 +1,304 @@
+{
+ "id": "capture-storm-renderer-exit",
+ "priority": "P1",
+ "title": "Chromium page pictures in flight while every renderer exits, then SIGTERM with pictures in flight: no crash, a clean quit",
+ "why": "P0 #1 (2026-10-28): optimized builds crashed in Chromium (SIGSEGV in RenderWidgetHostImpl::OnSnapshotFromSurfaceReceived) when a renderer exited while a page picture was in flight; 19 of 21 reports came at lease ends (SIGTERM, then the quit closes every renderer). A crashed renderer, a discard or a quit ends renderers every day.",
+ "source": "handoff/cef-snapshot-crash-result.md",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-capstorm-${nonce}",
+   "as": "left"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo capstorm-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "term"
+  },
+  {
+   "do": "expect",
+   "title": "the terminal works",
+   "since": "term",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "capstorm-${nonce}-42"
+    },
+    {
+     "frame_text": "capstorm-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b1-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b1-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "enter": true,
+   "mark": "b1"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.com shows",
+   "since": "b1",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    },
+    {
+     "frame_text": "Example Domain"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b2-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b2-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.org",
+   "enter": true,
+   "mark": "b2"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.org shows",
+   "since": "b2",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "capture_storm",
+   "seconds": 3,
+   "as": "s1"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.55
+  },
+  {
+   "do": "kill_renderers",
+   "mark": "killed-1"
+  },
+  {
+   "do": "capture_storm_end",
+   "as": "s1"
+  },
+  {
+   "do": "expect",
+   "title": "round 1: pictures in flight while every renderer exits: the app lives",
+   "since": "killed-1",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "system.identify",
+      "path": "pid",
+      "not_equals": null
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "r",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "capture_storm",
+   "seconds": 3,
+   "as": "s2"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "kill_renderers",
+   "mark": "killed-2"
+  },
+  {
+   "do": "capture_storm_end",
+   "as": "s2"
+  },
+  {
+   "do": "expect",
+   "title": "round 2: pictures in flight while every renderer exits: the app lives",
+   "since": "killed-2",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "system.identify",
+      "path": "pid",
+      "not_equals": null
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "r",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "capture_storm",
+   "seconds": 3,
+   "as": "s3"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.05
+  },
+  {
+   "do": "kill_renderers",
+   "mark": "killed-3"
+  },
+  {
+   "do": "capture_storm_end",
+   "as": "s3"
+  },
+  {
+   "do": "expect",
+   "title": "round 3: pictures in flight while every renderer exits: the app lives",
+   "since": "killed-3",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "system.identify",
+      "path": "pid",
+      "not_equals": null
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "r",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "capture_storm",
+   "seconds": 4,
+   "as": "end"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "relaunch",
+   "how": "term",
+   "mark": "reopened"
+  },
+  {
+   "do": "expect",
+   "title": "SIGTERM (a lease end) with pictures in flight: the reopen finds a clean quit, no crash",
+   "since": "reopened",
+   "timeout": 45,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "launch.recovery",
+      "equals": "clean"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.windows",
+      "path": "windows",
+      "len": 1
+     }
+    }
+   ]
+  }
+ ]
+}

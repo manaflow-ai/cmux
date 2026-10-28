@@ -1014,8 +1014,8 @@ class Journey:
 
     def step_relaunch(self, step):
         """Ends the app and opens it again, as a person does: `how` "quit" presses Cmd-Q (answering a quit
-        sheet with its default, as Return does) and "crash" crashes it (`debug.crash.app`, SIGSEGV in the
-        app's own process, so none of its quit path runs). The same bundle opens again through LaunchServices
+        sheet with its default, as Return does), "term" sends it SIGTERM (a lease end: its quit path runs) and
+        "crash" crashes it (`debug.crash.app`, SIGSEGV in the app's own process, so none of its quit path runs). The same bundle opens again through LaunchServices
         with its launch variables (the slot's HOME, socket and settings file). Then every named terminal is
         found again in the restored topology; the journey's checks say what came back."""
         how = step.get("how", "quit")
@@ -1047,8 +1047,13 @@ class Journey:
             except (StepError, OSError, ValueError) as error:
                 record["reply"] = f"no answer (expected): {str(error)[-120:]}"
             end = now() + QUIT_SECONDS
+        elif how == "term":
+            # As a lease end (or a logout) ends the app: SIGTERM to its pid; its own quit path runs.
+            os.kill(old, 15)
+            record["signal"] = "TERM"
+            end = now() + QUIT_SECONDS
         else:
-            raise StepError(f"relaunch: how is quit or crash, not {how!r}")
+            raise StepError(f"relaunch: how is quit, crash or term, not {how!r}")
         while now() < end and app.alive(old):
             time.sleep(0.25)
         if app.alive(old):
