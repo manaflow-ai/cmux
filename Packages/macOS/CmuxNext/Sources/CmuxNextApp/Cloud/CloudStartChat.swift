@@ -1,0 +1,88 @@
+import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextCloud
+import CmuxNextDaemon
+import Foundation
+
+/// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`,
+/// ``AgentPaneCloudStart``; leo-workspace design/cloud-work-mode.md): the chat goes to Cloud with no
+/// machine, size or environment prompt. It takes a Cloud machine the way Move to Cloud does (one
+/// that is connected, else any, else a new one sized for the chat by ``CloudChatPick``), copies
+/// the chat's folder there with Move to Cloud's sync, and opens a new chat on that machine in the
+/// copied folder whose first prompt is the person's (a seeded prompt, sent once with the Send's
+/// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
+///
+/// Progress and failures are Move to Cloud's toasts, and the page gets the failure's message.
+/// Behind Labs preview features, like the picker's Cloud row.
+@MainActor
+struct CloudStartChat {
+    let services: AppServices
+
+    /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
+    static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
+        { [weak tabs, weak services] view, start in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key) else {
+                return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
+            }
+            return await CloudStartChat(services: services).reply(start, tab: tab)
+        }
+    }
+
+    /// The page's reply: success with the machine's name, or a refusal in the person's words.
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel) async -> [String: Any] {
+        if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
+        let toastID = "cloud-start-" + tab.id
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
+        do {
+            let machine = try await run(start, tab: tab)
+            CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
+            return AgentPaneReply.success(["machine": machine])
+        } catch {
+            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
+                ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
+            services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
+            CloudMove.toast(services, toastID, message, duration: .seconds(12))
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
+        }
+    }
+
+    /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`).
+    static func refusal(_ services: AppServices) -> String? {
+        if services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud { return "cloud_disabled" }
+        if services.settings?.snapshot.previewFeatures != true { return "labs_off" }
+        return services.cloud.isSignedIn ? nil : "not_signed_in"
+    }
+
+    /// The start; returns the machine's name.
+    private func run(_ start: AgentPaneCloudStart, tab: TabModel) async throws -> String {
+        guard let folder = CloudMoveFolder(chat: start.cwd) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
+        guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
+        guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
+        let move = CloudMove(services: services)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: start.cwd, tab: tab) }
+        let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
+        guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
+            throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
+        }
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again)
+        let context = AppActionContext(services: services)
+        let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+        let seed = AgentPaneSeed(cwd: remote.chat, prompt: start.task, promptBy: .person, harness: start.harness)
+        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed))
+        let opened = try await pending.value()
+        CloudHandlers.show(anchor.id, context)
+        if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
+            for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
+        }
+        // This Mac's tab never started a chat: the chat is the machine's now.
+        do {
+            try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
+        } catch {
+            services.cloud.logger.error("cloud start chat: closing this Mac's tab failed: \(String(describing: error), privacy: .public)")
+        }
+        return name
+    }
+}

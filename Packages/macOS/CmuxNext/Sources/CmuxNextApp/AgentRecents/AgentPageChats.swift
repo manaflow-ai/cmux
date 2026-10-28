@@ -29,6 +29,8 @@ final class AgentPageChats {
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
+    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
 
@@ -73,6 +75,7 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        view.model.onCloudStartChat = cloudStart.map { run in { [weak view] start in await run(view, start) } }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
@@ -83,6 +86,7 @@ final class AgentPageChats {
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
+        tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         notices.start()
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
