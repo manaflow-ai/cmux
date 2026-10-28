@@ -73,6 +73,33 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
+    @Test(arguments: [false, true])
+    func aLocalDestinationTitleCreatesALocalChat(targeted: Bool) async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "local-destination-fixture")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let pane = try #require(services.windows.active?.focusedPane)
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let source = AgentChatDestinationsTests.source
+            let invocation = ActionInvocation(
+                target: targeted ? ActionTargetRef(kind: .pane, id: pane.paneKey) : nil,
+                arguments: ["host": .string(source.local.title), "cwd": .string("/tmp")], origin: .cli)
+            let result = await AgentHandlers.createOnHost(source.local.title, invocation: invocation,
+                destinations: source, context: AppActionContext(services: services))
+            _ = try result.get()
+            try await PasswordManagerRouteTests.until {
+                PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) }
+            }
+            let created = try #require(PasswordManagerRouteTests.tabs(services).first { !before.contains($0.id) })
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(handshake["peer"] == nil, "a resolved local title is not an acpmux peer")
+            #expect(!view.model.remoteChat)
+        }
+    }
+
     @Test(arguments: [false, true], [ActionOrigin.cli, .mcp])
     func peerCreationKeepsTheRequestedFolderAndPicks(targeted: Bool, origin: ActionOrigin) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
