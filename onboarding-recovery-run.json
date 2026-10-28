@@ -1,0 +1,132 @@
+[
+  {
+    "id": "none-install-failure",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "none-install-failure",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-out-login",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-out-login",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-in-send",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-in-send",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-in-local-terminal",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-in-local-terminal",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "none-cloud-create",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "none-cloud-create",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "none-cloud-page",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "none-cloud-page",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-out-cloud-create",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-out-cloud-create",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-out-cloud-page",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-out-cloud-page",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-in-cloud-create",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-in-cloud-create",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  },
+  {
+    "id": "signed-in-cloud-page",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.onboarding-recovery",
+      "variant": "signed-in-cloud-page",
+      "source": "src/agent-session/acpmux/OnboardingRecovery.gallery.ts",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 650
+    }
+  }
+]
