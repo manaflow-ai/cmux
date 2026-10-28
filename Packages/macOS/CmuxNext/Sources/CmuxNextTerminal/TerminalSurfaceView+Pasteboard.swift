@@ -90,14 +90,20 @@ extension TerminalSurfaceView: NSMenuItemValidation {
         TerminalPasteboard.pasteText(from: sender.draggingPasteboard) == nil ? [] : .copy
     }
 
-    /// Dropped files paste as shell-escaped paths, dropped text as text.
-    /// Delivered through `ghostty_surface_text` so bracketed paste applies.
+    /// Dropped files paste as shell-escaped paths, dropped text as text (``pasteDropped(_:)``).
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let surface, let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard) else { return false }
+        guard let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard), pasteDropped(text) else { return false }
+        window?.makeFirstResponder(self)
+        return true
+    }
+
+    /// Sends dropped `text` to the terminal through `ghostty_surface_text`, so bracketed paste applies.
+    /// False without a live surface.
+    func pasteDropped(_ text: String) -> Bool {
+        guard let surface else { return false }
         // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
         // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
         unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
-        window?.makeFirstResponder(self)
         return true
     }
 }
