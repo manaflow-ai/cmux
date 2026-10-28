@@ -122,6 +122,22 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    adapter, offered everywhere) counts only when named or configured; no
    harness at all is `needs_user` to install one. `cmux setup status`
    adds a `harness` check with the same rows.
+   Harness rows also expose `auth_status` and `recovery` (the same action as
+   `user_action`, or null). `auth_status` is `detected` for existing sign-in or
+   provider-configuration evidence, `signed_out` for the existing check's explicit
+   sign-out, `needs_action` when a provider/check error prevents verification,
+   `unknown` when the check is deliberately unavailable, or `not_installed`.
+   `detected` does **not** prove a token is fresh or belongs to the expected account.
+   No expiry or wrong-account conclusion is inferred from missing files or errors.
+   An explicit provider/check error keeps `signed_in: null`, makes the task
+   `needs_user`, and names a `check` action: `cmux harness doctor ID --no-prompt
+   --json` for the configured profile, or `cmux setup harness ID` for an unsaved
+   shipped example. The person/agent inspects `auth_detail` and the profile's
+   provider settings first. This diagnostic sends no model prompt and is never
+   executed automatically. Unknown Keychain/disabled-launch cases keep their
+   existing behavior. Expiry and expected-account verification still require
+   provider evidence; this report neither refreshes credentials nor switches accounts.
+
 3. `machine SSH_TARGET [--name NAME]`. It reads the peers
    from the running acpmux daemon (or acpmux's config without one; it never
    starts a daemon to check) and matches the peer by `--name`, or without

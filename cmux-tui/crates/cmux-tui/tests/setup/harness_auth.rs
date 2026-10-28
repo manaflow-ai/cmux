@@ -107,3 +107,52 @@ login = "claude auth login"
     assert_eq!(row["auth_status"], "signed_out", "{row}");
     assert_eq!(row["recovery"]["command"], "cmux harness login work-claude");
 }
+
+#[test]
+fn cmux_setup_harness_auth_timeout_is_not_sign_out() {
+    let world = World::new("htimeout");
+    let agent = world.bin.join("opencode");
+    World::executable(
+        &agent,
+        "#!/bin/sh\n[ \"$1\" = --version ] && { echo 1.0.0; exit 0; }\nexec sleep 60\n",
+    );
+    world.configure(json!({"slow-opencode": {"argv": [agent]}}));
+    let report = world.json(&["setup", "harness", "slow-opencode"]);
+    let row = &report["harnesses"][0];
+    assert_eq!(row["auth_status"], "needs_action", "{row}");
+    assert_eq!(row["signed_in"], Value::Null);
+    assert_eq!(row["recovery"]["kind"], "check");
+    assert_eq!(row["recovery"]["command"], "cmux harness doctor slow-opencode --no-prompt --json");
+    assert!(row["auth_detail"].as_str().unwrap().contains("initialize"));
+}
+
+#[test]
+fn cmux_setup_harness_auth_codex_signed_out_keeps_custom_profile() {
+    let world = World::new("hcodex");
+    let agent = world.bin.join("codex");
+    World::executable(
+        &agent,
+        "#!/bin/sh\n[ \"$1\" = --version ] && { echo 1.0.0; exit 0; }\necho 'Not logged in' >&2\nexit 1\n",
+    );
+    world.configure(json!({"work-codex": {"argv": [agent, "app-server"]}}));
+    let report = world.json(&["setup", "harness", "work-codex"]);
+    let row = &report["harnesses"][0];
+    assert_eq!(row["auth_status"], "signed_out", "{row}");
+    assert_eq!(row["signed_in"], false);
+    assert_eq!(row["recovery"]["command"], "cmux harness login work-codex");
+}
+
+#[test]
+fn cmux_setup_harness_auth_keychain_unknown_stays_non_actionable() {
+    let world = World::new("hunknown");
+    let agent = world.bin.join("claude-agent-acp");
+    world.harness(&agent, "1.0.0");
+    world.configure(json!({"work-claude": {"argv": [agent]}}));
+    let report = world.json(&["setup", "harness", "work-claude"]);
+    let row = &report["harnesses"][0];
+    assert_eq!(row["auth_status"], "unknown", "{row}");
+    assert_eq!(row["signed_in"], Value::Null);
+    assert_eq!(row["state"], "ok");
+    assert_eq!(row["recovery"], Value::Null);
+    assert_eq!(World::harness_log(&agent), "");
+}
