@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { checkRunningLineLoops, hasCompleteRunningLineShimmer, type RunningLineLoop } from "./runningLineMotion";
+import {
+  checkRunningLineLoops,
+  hasCompleteRunningLineShimmer,
+  type RunningLineLoop,
+} from "./runningLineMotion";
 
 const element = (className: string, parent?: Element): Element => {
   const classes = new Set(className.split(/\s+/).filter(Boolean));
