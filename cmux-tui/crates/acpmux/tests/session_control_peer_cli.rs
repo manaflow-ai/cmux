@@ -15,6 +15,7 @@ use acpmux::server::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -199,7 +200,11 @@ async fn new_session(client: &mut Rpc, root: &Path, name: &str) -> String {
 
 async fn cli(root: &Path, socket: &Path, args: &[&str]) -> (bool, String, String) {
     let mut command = daemon_env::tokio_command(root, daemon_env::Agents::Deny);
-    command.env("ACPMUX_SOCKET", socket).args(args);
+    command
+        .env("ACPMUX_SOCKET", socket)
+        .env("PATH", format!("{}:{}", root.join("bin").display(), daemon_env::bare_path(&[])))
+        .env("GROUP_CAPTURE", root.join("group-args"))
+        .args(args);
     let out = tokio::time::timeout(Duration::from_secs(30), command.kill_on_drop(true).output())
         .await
         .expect("CLI command timeout")
@@ -222,6 +227,7 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
     let stop_id = new_session(&mut cb, &root, "remote-stop").await;
     let resume_id = new_session(&mut cb, &root, "remote-resume").await;
     let resume_by_id = new_session(&mut cb, &root, "resume-by-id").await;
+    let cancel_id = new_session(&mut cb, &root, "remote-cancel").await;
     let retry_id = new_session(&mut cb, &root, "remote-retry").await;
     let _same_local = new_session(&mut cb, &root, "local-ambiguous").await;
     let _peer_ambiguous = new_session(&mut cb, &root, "peer-ambiguous").await;
@@ -328,6 +334,27 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
     let prompted: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(prompted["reply"], "echo: hello", "{prompted}");
 
+    for key in ["remote-cancel", cancel_id.as_str()] {
+        cb.send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": cancel_id,
+            "prompt": [{"type": "text", "text": "until-cancel"}]}),
+        )
+        .await;
+        cb.wait(method::SESSION_UPDATE, |p| {
+            p["sessionId"] == cancel_id && p["update"]["content"]["text"] == "running"
+        })
+        .await;
+        let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "cancel", key]).await;
+        assert!(ok, "{stdout}{stderr}");
+        cb.wait(method::MUX_EVENT, |p| {
+            p["sessionId"] == cancel_id
+                && p["kind"] == "turn_result"
+                && p["msg"]["stopReason"] == "cancelled"
+        })
+        .await;
+    }
+
     let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "stop", &stop_id]).await;
     assert!(ok, "{stdout}{stderr}");
     let stopped = cb.call(method::MUX_INFO, json!({"sessionId": stop_id})).await;
@@ -408,6 +435,10 @@ async fn lifecycle_commands_keep_a_peer_owner_when_raw_ids_collide() {
         .unwrap();
     let socket = root.join("a.sock");
     let server = tokio::spawn(serve_unix(a.clone(), bind_unix(&socket).await.unwrap()));
+    std::fs::create_dir(root.join("bin")).unwrap();
+    let cmux = root.join("bin/cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GROUP_CAPTURE\"\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     let (ok, stdout, stderr) = cli(
         &root,
@@ -417,6 +448,9 @@ async fn lifecycle_commands_keep_a_peer_owner_when_raw_ids_collide() {
             "new",
             "--host",
             "lying",
+            "--group",
+            "test-group",
+            "--detach",
             "--name",
             "remote-start",
             "--model",
@@ -429,6 +463,8 @@ async fn lifecycle_commands_keep_a_peer_owner_when_raw_ids_collide() {
     assert!(ok, "{stdout}{stderr}");
     let started: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(started["name"], "remote-name", "{started}");
+    let opened = std::fs::read_to_string(root.join("group-args")).unwrap();
+    assert_eq!(opened.lines().nth(2), Some(qualified.as_str()), "{opened}");
 
     let (ok, stdout, stderr) =
         cli(&root, &socket, &["--json", "session", "stop", "lying/remote-name"]).await;

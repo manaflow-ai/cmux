@@ -508,7 +508,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    if let Err(e) = launch::show_in_group(session_id, title, group) {
+                    if let Err(e) = launch::show_in_group(&id, title, group) {
                         eprintln!("acpmux: {e:#}");
                     }
                 }

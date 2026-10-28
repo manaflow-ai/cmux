@@ -318,8 +318,8 @@ fn workspace_key(id: &str) -> String {
 /// app's `agent open` action (`cmux agent open`), optionally named `title`.
 /// Unnamed launches omit the title so a peer's generated session name cannot
 /// accidentally match another session's workspace in the same group.
-/// A remote create returns the ID mirrored by the local daemon. Open that
-/// ID here, without `--host`: the workspace belongs to this Mac and its
+/// A remote create's ID stays qualified with its owning peer. Open that
+/// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
 pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
