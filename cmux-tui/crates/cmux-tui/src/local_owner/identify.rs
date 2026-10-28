@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::platform::transport;
 use serde_json::Value;
 
-const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+pub(super) const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub(super) enum IdentifyError {
     Timeout,
