@@ -15,7 +15,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,6 +52,27 @@ async fn call(hub: &Arc<Hub>, origin: Origin, m: &str, params: Value) -> Value {
     }
 }
 
+async fn call_auth(
+    hub: &Arc<Hub>,
+    origin: Origin,
+    auth: ConnAuth,
+    m: &str,
+    params: Value,
+) -> Value {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
+    in_tx.send(Message::request(1, m, params).to_line()).await.unwrap();
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), out_rx.recv()).await.unwrap().unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            return v;
+        }
+    }
+}
+
 fn err(v: &Value) -> String {
     v["error"]["message"].as_str().unwrap_or_default().to_owned()
 }
@@ -77,7 +98,7 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
         let r = call(&hub, origin, "session/new", new(meta.clone())).await;
         assert!(err(&r).contains(WEB_ONLY), "{origin:?} {meta}: {r}");
     }
-    // Only the policy at start: a peer's later widening keeps the Web's rule.
+    // A peer's later widening keeps the Web's rule without the owner grant.
     let r = call(&hub, Origin::Peer, "session/new", new(json!({}))).await;
     let id = r["result"]["sessionId"].as_str().unwrap().to_owned();
     let r = call(
@@ -88,6 +109,27 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
     )
     .await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");
+
+    // Paired clients are also remote Web origins for policy raises.
+    let r = call_auth(
+        &hub,
+        Origin::Peer,
+        ConnAuth::Device,
+        "_acpmux/set_policy",
+        json!({"sessionId": id, "policy": "approve-all"}),
+    )
+    .await;
+    assert!(err(&r).contains(WEB_ONLY), "{r}");
+
+    // Narrowing remains available to every remote origin.
+    let r = call(
+        &hub,
+        Origin::Peer,
+        "_acpmux/set_policy",
+        json!({"sessionId": id, "policy": "deny-all"}),
+    )
+    .await;
+    assert!(r.get("error").is_none(), "{r}");
 }
 
 #[tokio::test]
