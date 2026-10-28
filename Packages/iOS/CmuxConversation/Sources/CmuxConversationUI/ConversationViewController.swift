@@ -1,7 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
-import CmuxMobileSupport
+public import CmuxMobileSupport
 import GameController
 import UIKit
 
@@ -208,9 +208,16 @@ public final class ConversationViewController: UIViewController {
     private var isTransitioningSize = false
     var effects = ConversationEffectsState()
 
-    public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
+    /// The app's keyboard notifications (`MobileKeyboardDock`).
+    private let keyboard: MobileKeyboardFrameTracker
+
+    /// - Parameter keyboard: the app's keyboard tracker; without one the
+    ///   conversation keeps its own.
+    public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions(),
+                keyboard: MobileKeyboardFrameTracker? = nil) {
         self.store = store
         self.options = options
+        self.keyboard = keyboard ?? MobileKeyboardFrameTracker()
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -265,7 +272,7 @@ public final class ConversationViewController: UIViewController {
         view.addSubview(topEdgeFade)
         view.addSubview(header)
 
-        let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true)
+        let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboard)
         keyboardDock.trackInteractiveDismissal(of: collectionView)
         self.keyboardDock = keyboardDock
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)

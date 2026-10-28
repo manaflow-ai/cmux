@@ -25,6 +25,7 @@ public final class ConversationComposeViewController: UIViewController {
     private var composerHeight: NSLayoutConstraint?
     /// The docked keyboard's top edge: the composer sits on it.
     private var keyboardDock: MobileKeyboardDock?
+    private let keyboardTracker = MobileKeyboardFrameTracker()
 
     public init(directory: any ConversationDirectory) {
         session = ConversationComposeSession(directory: directory)
@@ -148,7 +149,7 @@ public final class ConversationComposeViewController: UIViewController {
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         self.composerHeight = composerHeight
 
-        let keyboard = MobileKeyboardDock(view: view, usesBottomSafeArea: true)
+        let keyboard = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboardTracker)
         keyboardDock = keyboard
         let m = ComposeMetrics.self
         NSLayoutConstraint.activate([

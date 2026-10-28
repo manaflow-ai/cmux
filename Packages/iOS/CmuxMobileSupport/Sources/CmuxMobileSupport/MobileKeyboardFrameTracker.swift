@@ -26,6 +26,15 @@ public final class MobileKeyboardFrameTracker {
     /// The keyboard's most recent end frame in screen coordinates, or `nil`
     /// before the first keyboard notification observed by this instance.
     public private(set) var lastEndFrame: CGRect?
+    /// Whether the last will-show / will-hide said the keyboard is on screen.
+    public private(set) var isShown = false
+
+    /// Which keyboard notification a subscriber hears.
+    public enum Change: Sendable {
+        case willChangeFrame, didChangeFrame, willShow, willHide
+    }
+
+    private var subscribers: [(owner: () -> AnyObject?, handler: @MainActor (Notification, Change) -> Void)] = []
 
     private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
     private nonisolated let notificationCenter: NotificationCenter
@@ -36,10 +45,13 @@ public final class MobileKeyboardFrameTracker {
         // will + did both update the record: `will` keeps an attach that lands
         // mid-transition current, `did` corrects a transition UIKit retargeted
         // after the `will` payload was posted.
-        tokens = [
-            UIResponder.keyboardWillChangeFrameNotification,
-            UIResponder.keyboardDidChangeFrameNotification,
-        ].map { name in
+        let changes: [(Notification.Name, Change)] = [
+            (UIResponder.keyboardWillChangeFrameNotification, .willChangeFrame),
+            (UIResponder.keyboardDidChangeFrameNotification, .didChangeFrame),
+            (UIResponder.keyboardWillShowNotification, .willShow),
+            (UIResponder.keyboardWillHideNotification, .willHide),
+        ]
+        tokens = changes.map { name, change in
             notificationCenter.addObserver(
                 forName: name,
                 object: nil,
@@ -47,10 +59,29 @@ public final class MobileKeyboardFrameTracker {
             ) { [weak self] notification in
                 let endFrame =
                     notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
-                guard let endFrame else { return }
-                MainActor.assumeIsolated { self?.lastEndFrame = endFrame } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    self?.record(notification, change: change, endFrame: endFrame)
+                }
             }
         }
+    }
+
+    /// Calls `handler` for every keyboard notification after this tracker has
+    /// recorded it, inside UIKit's posting (and so the keyboard's animation),
+    /// for as long as `owner` lives.
+    public func subscribe(_ owner: AnyObject, handler: @escaping @MainActor (Notification, Change) -> Void) {
+        subscribers.append((owner: { [weak owner] in owner }, handler: handler))
+    }
+
+    private func record(_ notification: Notification, change: Change, endFrame: CGRect?) {
+        switch change {
+        case .willShow: isShown = true
+        case .willHide: isShown = false
+        case .willChangeFrame, .didChangeFrame: break
+        }
+        if let endFrame { lastEndFrame = endFrame }
+        subscribers.removeAll { $0.owner() == nil }
+        for subscriber in subscribers { subscriber.handler(notification, change) }
     }
 
     deinit {
