@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextTabs
+@testable import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -85,6 +86,55 @@ import Testing
         #expect(intents == [.newTab(after: nil, sameKind: false)], "the plain + still creates the default tab")
         strip.showNewTabMenu()
         #expect(presentations == 3, "the existing hold/right-click entry point keeps the same menu")
+    }
+
+    @Test func thePaneChooserStaysBesidePlusDuringMovementAndInterruptedScroll() throws {
+        _ = NSApplication.shared
+        let tabs = [TabItem(id: TabID("first"), title: "First"), TabItem(id: TabID("last"), title: "Last")]
+        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: tabs[0].id))
+        strip.showsNewTabMenuButton = true
+        strip.frame = NSRect(x: 0, y: 0, width: 1000, height: 40)
+        let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = strip
+        defer { window.orderOut(nil) }
+        strip.layoutSubtreeIfNeeded()
+        let plus = try #require(strip.newTabButton.layer)
+        let chooser = try #require(strip.newTabMenuButton.layer)
+        let spacing = chooser.position.x - plus.position.x
+        // Drive the same frame transition a collapsing group produces, then interrupt its scroll.
+        // An explicit motion makes sampling deterministic even when the test host disables animations.
+        let motion = MotionMove(curve: .tween(.tabMove), duration: 0.2)
+        let before = plus.position.x
+        let last = try #require(strip.placed[tabs[1].id])
+        strip.placed[tabs[1].id] = TabPlace(x: last.x, width: last.width - 60)
+        let move = TabStripMove(generation: 100, motion: motion, closing: nil)
+        strip.applyFrames(move: move)
+        try #require(abs(plus.position.x - before) > 1, "the fixture must move the controls")
+        for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let time = move.begin + motion.duration * fraction
+            #expect(abs(MotionPath(chooser, "position").value(at: time).x
+                - MotionPath(plus, "position").value(at: time).x - spacing) < 0.5)
+        }
+        // Finish the layout movement before isolating a scroll and its cancellation.
+        TabStripMove.cancel(plus)
+        TabStripMove.cancel(chooser)
+        let mapping = strip.scrollMapping
+        strip.scrollOffset += 20
+        let scroll = TabStripMove(generation: 101, motion: motion, closing: nil, isScroll: true)
+        strip.applyFrames(move: scroll, scrollFrom: mapping)
+        let start = MotionPath(plus, "position").value(at: scroll.begin).x
+        let end = MotionPath(plus, "position").value(at: scroll.begin + motion.duration).x
+        try #require(abs(start - end) > 1, "the fixture must scroll the controls")
+        strip.settleScroll()
+        strip.applyFrames()
+        let now = CACurrentMediaTime()
+        for fraction in [0.0, 0.5, 1.0] {
+            let time = now + motion.duration * fraction
+            #expect(abs(MotionPath(chooser, "position").value(at: time).x - chooser.position.x) < 0.5,
+                    "a wheel interrupt leaves no chooser drift")
+            #expect(abs(MotionPath(chooser, "position").value(at: time).x
+                - MotionPath(plus, "position").value(at: time).x - spacing) < 0.5)
+        }
     }
 
     @Test func theScreenBarKeepsItsOwnScreenMenuControl() throws {
