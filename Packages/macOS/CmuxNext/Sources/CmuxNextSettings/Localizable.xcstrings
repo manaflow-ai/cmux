@@ -180074,14 +180074,54 @@
       "comment": "Settings > Appearance > Agent Chat: the hidden Session Info card order preference edited by dragging",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Session Info order"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Session Info order"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Session Info order"}}
       }
     },
     "settings.agentPane.display.inspectorOrder.help": {
       "comment": "Settings > Appearance > Agent Chat > Session Info order: hidden preference help",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The order of Session Info cards."}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The order of Session Info cards."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "The order of Session Info cards."}}
       }
     }
   },
