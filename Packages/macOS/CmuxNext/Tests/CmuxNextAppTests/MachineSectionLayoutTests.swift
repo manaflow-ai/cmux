@@ -139,6 +139,32 @@ import Testing
         #expect(added == 1)
     }
 
+    /// Keyboard (Full Keyboard Access), as the SwiftUI buttons had: New Workspace shows while it has focus,
+    /// and Space or Return runs Add Machine… when it has focus.
+    @Test func keyboardFocusShowsNewWorkspaceAndSpaceRunsAddMachine() throws {
+        var added = 0
+        let view = Self.section(add: { added += 1 })
+        view.update(Self.rows, style: .compact)
+        let row = try #require(view.rowViews["c1"])
+        #expect(!row.revealsNewWorkspace)
+        #expect(row.newButton.becomeFirstResponder())
+        #expect(row.revealsNewWorkspace)
+        #expect(row.newButton.resignFirstResponder())
+        #expect(!row.revealsNewWorkspace)
+        func key(_ characters: String, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                                          characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0))
+        }
+        #expect(MachineSectionAddRow.activates(try key(" ")))
+        #expect(MachineSectionAddRow.activates(try key("\r")))
+        #expect(!MachineSectionAddRow.activates(try key("a")))
+        #expect(!MachineSectionAddRow.activates(try key(" ", .command)))
+        view.addRow.keyDown(with: try key(" "))
+        #expect(added == 1)
+        #expect(view.addRow.becomeFirstResponder() && view.addRow.showsFocus)
+        #expect(view.addRow.resignFirstResponder() && !view.addRow.showsFocus)
+    }
+
     /// A name or header that fits is drawn whole (a label's frame is its text plus padding), and every
     /// name, and Add Machine…, starts on one text column after the icon column.
     @Test func namesThatFitAreWholeAndShareOneColumn() {

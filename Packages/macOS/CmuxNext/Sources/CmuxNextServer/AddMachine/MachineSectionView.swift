@@ -167,6 +167,7 @@ final class MachineSectionRowView: NSView {
     private var tracking: NSTrackingArea?
     private var pointerInside = false
     private var menuOpen = false
+    private var buttonFocused = false
     private var iconSize: CGFloat = 0
 
     init(newWorkspace: @escaping @MainActor (String) -> Void) {
@@ -183,6 +184,10 @@ final class MachineSectionRowView: NSView {
         stateLabel.font = Typography.caption
         spinner.isHidden = true
         newButton.onPress = { [weak self] in self?.runNewWorkspace() }
+        newButton.onFocusChange = { [weak self] focused in
+            self?.buttonFocused = focused
+            self?.reveal()
+        }
         newButton.alphaValue = 0
         for view in [icon, nameLabel, health, stateLabel, spinner, newButton] as [NSView] { addSubview(view) }
         setAccessibilityElement(true)
@@ -221,7 +226,7 @@ final class MachineSectionRowView: NSView {
         ([nameLabel] + (stateLabel.isHidden ? [] : [stateLabel])).map(\.stringValue).joined(separator: " · ")
     }
 
-    /// Whether New Workspace is showing (the pointer is on the row, or its menu is open).
+    /// Whether New Workspace is showing (the pointer is on the row, its menu is open, or it has keyboard focus).
     var revealsNewWorkspace: Bool { newButton.alphaValue > 0 }
 
     private func runNewWorkspace() {
@@ -291,7 +296,7 @@ final class MachineSectionRowView: NSView {
     }
 
     private func reveal() {
-        newButton.alphaValue = pointerInside || menuOpen ? 1 : 0
+        newButton.alphaValue = pointerInside || menuOpen || buttonFocused ? 1 : 0
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu() }
@@ -345,11 +350,14 @@ final class MachineSectionRowView: NSView {
 }
 
 /// A small icon button in the secondary ink (tertiary when disabled) with the chrome's own hover and
-/// pressed fill, which covers the button alone.
+/// pressed fill and its themed focus outline, which cover the button alone. With Full Keyboard Access
+/// it takes Tab focus and Space presses it, as a SwiftUI button did; AppKit's blue ring is off.
 final class MachineSectionIconButton: NSButton {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
     /// What a click or VoiceOver's press does.
     var onPress: (() -> Void)?
+    /// The button took (true) or gave up (false) keyboard focus: its row keeps it shown while focused.
+    var onFocusChange: ((Bool) -> Void)?
     private let glyph: IconName
     private var renderedSize: CGFloat = 0
 
@@ -366,7 +374,6 @@ final class MachineSectionIconButton: NSButton {
         wantsLayer = true
         target = self
         action = #selector(pressed)
-        refusesFirstResponder = true
         focusRingType = .none
         hover.followPointer(isHoverable: { [weak self] in self?.isEnabled == true }, onChange: { [weak self] in self?.needsDisplay = true })
     }
@@ -377,6 +384,23 @@ final class MachineSectionIconButton: NSButton {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override var isEnabled: Bool { didSet { needsDisplay = true } }
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        setFocused(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        setFocused(false)
+        return true
+    }
+
+    private func setFocused(_ focused: Bool) {
+        hover.state.focused = focused
+        onFocusChange?(focused)
+    }
 
     @objc private func pressed() { onPress?() }
 
@@ -416,6 +440,8 @@ final class MachineSectionIconButton: NSButton {
 /// body font. The pointer brightens it from the secondary ink to the primary one; it draws no fill.
 final class MachineSectionAddRow: NSView {
     private let icon = NSImageView()
+    /// The themed focus outline around the icon and the text (never the whole row).
+    private let focusOutline = CALayer()
     let label = ChromeLabel(labelWithString: "")
     private let action: @MainActor () -> Void
     private var tracking: NSTrackingArea?
@@ -433,6 +459,13 @@ final class MachineSectionAddRow: NSView {
         icon.setAccessibilityElement(false)
         addSubview(icon)
         addSubview(label)
+        wantsLayer = true
+        focusOutline.cornerRadius = Metrics.itemCornerRadius
+        focusOutline.cornerCurve = .continuous
+        focusOutline.isHidden = true
+        focusOutline.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+        layer?.addSublayer(focusOutline)
+        focusRingType = .none
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(AddMachineStrings.addMachine)
@@ -458,6 +491,37 @@ final class MachineSectionAddRow: NSView {
         icon.frame = NSRect(x: inset, y: bounds.midY - side / 2, width: side, height: side)
         let x = icon.frame.maxX + MachineSectionMetrics.iconGap
         label.place(textX: x, y: bounds.midY - label.naturalSize.height / 2, maxTextWidth: bounds.maxX - inset - x)
+        focusOutline.frame = NSRect(x: inset - Metrics.space1, y: 0, width: hitRect.width - inset + Metrics.space1, height: bounds.height)
+    }
+
+    // MARK: Keyboard (Full Keyboard Access: Tab focuses it, Space or Return runs it, as a button)
+
+    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override var canBecomeKeyView: Bool { NSApp.isFullKeyboardAccessEnabled }
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        focusOutline.isHidden = false
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        focusOutline.isHidden = true
+        return true
+    }
+
+    /// Whether the focus outline shows (tests).
+    var showsFocus: Bool { !focusOutline.isHidden }
+
+    override func keyDown(with event: NSEvent) {
+        if Self.activates(event) { action() } else { super.keyDown(with: event) }
+    }
+
+    /// Space, Return or Enter with no modifier, as a focused button takes them.
+    static func activates(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
+        return [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "")
     }
 
     /// Only the icon and the text take the click and the hover, never the empty width after them.
@@ -507,6 +571,8 @@ final class MachineSectionAddRow: NSView {
             let ink = pointerInside ? MachineSectionInk.primary : MachineSectionInk.secondary
             icon.contentTintColor = ink
             label.textColor = ink
+            focusOutline.borderColor = Palette.focusRing.cgColor
+            focusOutline.borderWidth = Metrics.lineWidth(1.5)
         }
     }
 }
