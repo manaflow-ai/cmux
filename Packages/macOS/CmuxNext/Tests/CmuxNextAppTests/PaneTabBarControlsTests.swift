@@ -50,7 +50,13 @@ import Testing
         #expect(plus.accessibilityRole() == .button)
 
         let strip = pane.view.stripView
-        let chooser = try #require(strip.accessibilityChildren()?.compactMap { $0 as? NSButton }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = strip
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        strip.syncFromModel()
+        let chooser = try #require(strip.accessibilityChildren()?.compactMap { $0 as? PaneTypeMenuButton }
             .first { $0.accessibilityIdentifier() == "cmux.tabs.newTabMenu" }, "pane types have their own visible chevron")
         #expect(!chooser.isHidden)
         #expect(chooser.accessibilityRole() == .popUpButton)
@@ -65,28 +71,32 @@ import Testing
         strip.model.intentHandler = { intents.append($0) }
         let paneTarget = ActionTargetRef(kind: .pane, id: pane.paneKey)
         var presentations = 0
+        var expectsHighlight = true
         strip.presentNewTabMenu = { menu, _, _ in
             presentations += 1
             let actions = menu.items.compactMap { ActionRegistry.menuRun(of: $0) }
             #expect(Array(actions.prefix(3).map(\.id.rawValue)) == ["newSurface", "openBrowser.chromium", "palette.newAgentChat"])
             #expect(actions.prefix(3).allSatisfy { $0.target == paneTarget })
-            if presentations <= 2 { #expect(chooser.isHighlighted, "the chooser stays lit while its menu tracks") }
+            #expect(chooser.isHighlighted == expectsHighlight, "only the menu's owning chooser stays lit while it tracks")
         }
         let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown,
                                                   location: strip.convert(chooserPoint, to: nil), modifierFlags: [], timestamp: 0,
-                                                  windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        strip.mouseDown(with: event)
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        window.sendEvent(event)
         #expect(presentations == 1, "mouse-down opens the menu immediately")
         #expect(intents.isEmpty)
         #expect(!strip.pressedNewTab)
         #expect(!chooser.isHighlighted)
         #expect(chooser.accessibilityPerformPress())
         #expect(presentations == 2, "VoiceOver opens the same pane-target menu")
+        #expect(chooser.accessibilityPerformShowMenu())
+        #expect(presentations == 3, "the accessibility menu action shares that entry point")
 
         #expect(plus.accessibilityPerformPress())
         #expect(intents == [.newTab(after: nil, sameKind: false)], "the plain + still creates the default tab")
+        expectsHighlight = false
         strip.showNewTabMenu()
-        #expect(presentations == 3, "the existing hold/right-click entry point keeps the same menu")
+        #expect(presentations == 4, "the existing hold/right-click entry point keeps the same menu")
     }
 
     @Test func thePaneChooserStaysBesidePlusDuringMovementAndInterruptedScroll() throws {
@@ -151,7 +161,7 @@ import Testing
         let bar = content.screenBar.view
         #expect(bar.opensNewTabMenuOnPress, "the screen bar's + opens its menu on press")
         #expect(bar.newTabButton.showsChevron, "the screen control retains its existing screen-menu caret")
-        #expect(bar.accessibilityChildren()?.compactMap { $0 as? NSButton }
+        #expect(bar.accessibilityChildren()?.compactMap { $0 as? PaneTypeMenuButton }
             .contains { $0.accessibilityIdentifier() == "cmux.tabs.newTabMenu" } != true,
             "a screen bar does not gain the pane-type chooser")
         #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")

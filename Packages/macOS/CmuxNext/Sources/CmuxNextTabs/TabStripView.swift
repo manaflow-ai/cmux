@@ -91,7 +91,7 @@ public final class TabStripView: NSView {
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
-    let newTabMenuButton = TitlebarBandButton(symbol: "chevron.down")
+    let newTabMenuButton = PaneTypeMenuButton()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -240,12 +240,10 @@ public final class TabStripView: NSView {
         contentView.addSubview(newTabButton)
         contentView.addSubview(newTabMenuButton)
         newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
-        newTabMenuButton.setAccessibilityRole(.popUpButton)
-        newTabMenuButton.setAccessibilityLabel(Strings.axNewTab)
-        newTabMenuButton.setAccessibilityIdentifier("cmux.tabs.newTabMenu")
-        newTabMenuButton.themedToolTip = Strings.axNewTab
-        newTabMenuButton.target = self
-        newTabMenuButton.action = #selector(pressNewTabMenu(_:))
+        newTabMenuButton.onPress = { [weak self] in
+            guard let self else { return }
+            showNewTabMenu(anchor: newTabMenuButton)
+        }
         newTabButton.onPress = { [weak self] in
             guard let self else { return }
             if opensNewTabMenuOnPress { showNewTabMenu() }

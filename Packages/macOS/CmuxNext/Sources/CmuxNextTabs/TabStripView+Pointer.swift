@@ -327,10 +327,6 @@ extension TabStripView {
         return true
     }
 
-    @objc func pressNewTabMenu(_ sender: NSButton) {
-        showNewTabMenu(anchor: newTabMenuButton)
-    }
-
     /// One menu builder for the adjacent chooser, hold/right-click and press-menu strips.
     func showNewTabMenu(anchor: NSView? = nil) {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
