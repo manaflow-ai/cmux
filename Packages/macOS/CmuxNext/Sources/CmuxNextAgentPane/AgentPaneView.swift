@@ -157,7 +157,8 @@ public final class AgentPaneView: NSView {
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
         guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI,
-                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat, origin: model.pageOrigin)
+                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat, origin: model.pageOrigin,
+                                                    work: work)
         else { return nil }
         self.page = page
         pageEvents = provider

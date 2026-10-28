@@ -58,7 +58,7 @@ impl Mux {
         if !if_empty {
             return Ok(());
         }
-        let workspace = &state.workspaces[index];
+        let workspace = state.workspace_at(index)?;
         let mut panes = Vec::new();
         for screen in &workspace.screens {
             screen.root.pane_ids(&mut panes);

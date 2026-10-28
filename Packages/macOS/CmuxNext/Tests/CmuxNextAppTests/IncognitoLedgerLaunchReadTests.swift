@@ -31,13 +31,13 @@ struct IncognitoLedgerLaunchReadTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let left = folder.appending(path: "left.json")
         try Self.write(["w1", "w2"], to: left)
-        let crashed = IncognitoWorkspaceLedger(url: left, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: left, on: Self.work))
+        let crashed = IncognitoWorkspaceLedger(url: left, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: left, on: Self.work), work: Self.work)
         #expect(await crashed.load() == ["w1", "w2"])
         try FileManager.default.removeItem(at: left)
         #expect(crashed.mayHaveLeftovers, "the file went after the launch read; the check must not look again")
 
         let clean = folder.appending(path: "clean.json")
-        let ledger = IncognitoWorkspaceLedger(url: clean, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: clean, on: Self.work))
+        let ledger = IncognitoWorkspaceLedger(url: clean, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: clean, on: Self.work), work: Self.work)
         #expect(await ledger.load().isEmpty)
         try Self.write(["late"], to: clean)
         #expect(!ledger.mayHaveLeftovers, "a file made after the launch read is this run's, not the last run's")
@@ -50,7 +50,7 @@ struct IncognitoLedgerLaunchReadTests {
         let work = BackgroundWork(label: "test.incognito-ledger-dropped")
         work.beginShutdown()
         let dropped = LaunchRead<IncognitoWorkspaceLedger.Leftovers>(on: work, shutdown: .skipOnShutdown) { .noFile }
-        let ledger = IncognitoWorkspaceLedger(url: URL(filePath: "/nonexistent/incognito-workspaces.json"), leftovers: dropped)
+        let ledger = IncognitoWorkspaceLedger(url: URL(filePath: "/nonexistent/incognito-workspaces.json"), leftovers: dropped, work: Self.work)
         #expect(ledger.mayHaveLeftovers)
         await work.shutdown()
         #expect(dropped.value == nil && ledger.mayHaveLeftovers)
@@ -65,7 +65,7 @@ struct IncognitoLedgerLaunchReadTests {
         try Self.write(["w"], to: url)
         let work = BackgroundWork(label: "test.incognito-ledger-quit")
         work.beginShutdown()
-        let ledger = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work))
+        let ledger = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work), work: work)
         #expect(await ledger.load() == ["w"])
         await work.shutdown()
     }
@@ -78,13 +78,13 @@ struct IncognitoLedgerLaunchReadTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let corrupt = folder.appending(path: "incognito-workspaces.json")
         try Data("{\"workspaces\": [".utf8).write(to: corrupt)
-        let ledger = IncognitoWorkspaceLedger(url: corrupt, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: corrupt, on: Self.work))
+        let ledger = IncognitoWorkspaceLedger(url: corrupt, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: corrupt, on: Self.work), work: Self.work)
         #expect(await ledger.load().isEmpty)
         #expect(ledger.mayHaveLeftovers, "an unreadable ledger may list incognito workspaces")
 
         let empty = folder.appending(path: "empty.json")
         try Self.write([], to: empty)
-        let listsNone = IncognitoWorkspaceLedger(url: empty, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: empty, on: Self.work))
+        let listsNone = IncognitoWorkspaceLedger(url: empty, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: empty, on: Self.work), work: Self.work)
         #expect(await listsNone.load().isEmpty)
         #expect(!listsNone.mayHaveLeftovers)
     }
@@ -99,7 +99,7 @@ struct IncognitoLedgerLaunchReadTests {
         try Self.write(["w"], to: url)
         let work = BackgroundWork(label: "test.incognito-ledger-refused")
         await work.shutdown()
-        let ledger = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work))
+        let ledger = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work), work: work)
         #expect(await ledger.load().isEmpty)
         #expect(ledger.mayHaveLeftovers, "the file was never read: it may list incognito workspaces")
     }
