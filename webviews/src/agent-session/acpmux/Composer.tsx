@@ -41,6 +41,7 @@ import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type Ment
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
+import { composerPlusRegistry, composerPlusSections } from "./composerPlusRegistry";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { cliOnlyCommand } from "./cliOnlyCommands";
@@ -1655,6 +1656,47 @@ export function Composer({
   ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
+  // Files/chats/pages actions come from the shared command-palette registry. The local labels
+  // remain translated while the stable command ids keep the + menu and palette on one path.
+  const plusRegistryEntries = composerPlusRegistry({
+    extensions: [
+      {
+        id: "files.chats",
+        section: "files",
+        name: t("sidebar.search"),
+        description: t("composer.plusChatsHint"),
+        icon: "search",
+        keywords: ["files", "chats", "search", "context"],
+        action: { kind: "command", id: "agentPane.searchChats" },
+      },
+      {
+        id: "files.pages",
+        section: "files",
+        name: t("composer.plusSearchPages"),
+        description: t("composer.plusPagesHint"),
+        icon: "search",
+        keywords: ["pages", "history", "search"],
+        action: { kind: "command", id: "history.search" },
+      },
+    ],
+  });
+  const plusFileEntries = composerPlusSections(plusRegistryEntries).get("files") ?? [];
+  const fileSearchChoices = plusFileEntries
+    .filter((entry) => entry.id !== "files.pages" && (searchFiles || entry.id !== "files.search"))
+    .map((entry) => ({
+      id: entry.id === "files.search" ? "files" : entry.id === "files.chats" ? "chats" : entry.id,
+      name: entry.id === "files.search" ? t("files.search") : entry.name,
+      description: entry.id === "files.search" ? t("files.hint") : entry.description,
+      icon: <SearchIcon size={18} />,
+    }));
+  const pageSearchChoices = plusFileEntries
+    .filter((entry) => entry.id === "files.pages")
+    .map((entry) => ({
+      id: "pages",
+      name: entry.name,
+      description: entry.description,
+      icon: <SearchIcon size={18} />,
+    }));
   return (
     <form
       ref={form}
@@ -1926,43 +1968,36 @@ export function Composer({
                               ? mention()
                               : openCommands(),
                   },
-                  {
-                    title: t("composer.plusFilesChats"),
-                    choices: [
-                      ...(searchFiles
-                        ? [
-                            {
-                              id: "files",
-                              name: t("files.search"),
-                              description: t("files.hint"),
-                              icon: <SearchIcon size={18} />,
-                            },
-                          ]
-                        : []),
-                      {
-                        id: "chats",
-                        name: t("sidebar.search"),
-                        description: t("composer.plusChatsHint"),
-                        icon: <SearchIcon size={18} />,
-                      },
-                    ],
-                    onPick: (id) => {
-                      if (id === "files") setFindingFiles(true);
-                      else void postNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
-                    },
-                  },
-                  {
-                    title: t("composer.plusPages"),
-                    choices: [
-                      {
-                        id: "pages",
-                        name: t("composer.plusSearchPages"),
-                        description: t("composer.plusPagesHint"),
-                        icon: <SearchIcon size={18} />,
-                      },
-                    ],
-                    onPick: () => void postNative("action.run", { id: "history.search" }).catch(() => undefined),
-                  },
+                  ...(searchFiles && fileSearchChoices.length
+                    ? [
+                        {
+                          title: t("composer.plusFilesChats"),
+                          choices: fileSearchChoices,
+                          onPick: (id: string) => {
+                            if (id === "files") setFindingFiles(true);
+                            else void postNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
+                          },
+                        },
+                      ]
+                    : fileSearchChoices.some((choice) => choice.id === "chats")
+                      ? [
+                          {
+                            title: t("composer.plusFilesChats"),
+                            choices: fileSearchChoices,
+                            onPick: () =>
+                              void postNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined),
+                          },
+                        ]
+                      : []),
+                  ...(pageSearchChoices.length
+                    ? [
+                        {
+                          title: t("composer.plusPages"),
+                          choices: pageSearchChoices,
+                          onPick: () => void postNative("action.run", { id: "history.search" }).catch(() => undefined),
+                        },
+                      ]
+                    : []),
                 ]}
               />
             )}

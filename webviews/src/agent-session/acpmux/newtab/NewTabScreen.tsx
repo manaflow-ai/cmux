@@ -32,6 +32,7 @@ import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon, SearchIcon } from "../ComposerPickers";
+import { composerPlusRegistry, composerPlusSections } from "../composerPlusRegistry";
 import { postNative } from "../native";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
@@ -1116,6 +1117,46 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !chatBox;
 
+  const plusRegistryEntries = composerPlusRegistry({
+    extensions: [
+      {
+        id: "files.chats",
+        section: "files",
+        name: t("sidebar.search"),
+        description: t("composer.plusChatsHint"),
+        icon: "search",
+        keywords: ["files", "chats", "search", "context"],
+        action: { kind: "command", id: "agentPane.searchChats" },
+      },
+      {
+        id: "files.pages",
+        section: "files",
+        name: t("composer.plusSearchPages"),
+        description: t("composer.plusPagesHint"),
+        icon: "search",
+        keywords: ["pages", "history", "search"],
+        action: { kind: "command", id: "history.search" },
+      },
+    ],
+  });
+  const plusFileEntries = composerPlusSections(plusRegistryEntries).get("files") ?? [];
+  const plusSearchChoices = plusFileEntries
+    .filter((entry) => entry.id !== "files.pages")
+    .map((entry) => ({
+      id: entry.id === "files.search" ? "files" : entry.id === "files.chats" ? "chats" : entry.id,
+      name: entry.id === "files.search" ? t("files.search") : entry.name,
+      description: entry.id === "files.search" ? t("files.hint") : entry.description,
+      icon: <SearchIcon size={18} />,
+    }));
+  const plusPageChoices = plusFileEntries
+    .filter((entry) => entry.id === "files.pages")
+    .map((entry) => ({
+      id: "pages",
+      name: entry.name,
+      description: entry.description,
+      icon: <SearchIcon size={18} />,
+    }));
+
   const attachmentPicker = (
     <>
       <input
@@ -1151,26 +1192,15 @@ export function NewTabScreen(props: Props) {
           },
           {
             title: t("composer.plusFilesChats"),
-            choices: [
-              {
-                id: "chats",
-                name: t("sidebar.search"),
-                description: t("composer.plusChatsHint"),
-                icon: <SearchIcon size={18} />,
-              },
-            ],
-            onPick: () => props.onShowAll(),
+            choices: plusSearchChoices,
+            onPick: (id) => {
+              if (id === "files") void postNative("action.run", { id: "searchFiles" }).catch(() => undefined);
+              else props.onShowAll();
+            },
           },
           {
             title: t("composer.plusPages"),
-            choices: [
-              {
-                id: "pages",
-                name: t("composer.plusSearchPages"),
-                description: t("composer.plusPagesHint"),
-                icon: <SearchIcon size={18} />,
-              },
-            ],
+            choices: plusPageChoices,
             onPick: () => void postNative("action.run", { id: "history.search" }).catch(() => undefined),
           },
         ]}
