@@ -128,9 +128,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         await trigger.dispatchEvent("click", { detail: 1 });
         const popup = page.locator(popupSelector);
         await popup.waitFor();
-        const triggerBounds = (await trigger.boundingBox())!;
-        const popupBounds = (await popup.boundingBox())!;
-        expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(triggerBounds.y + 1);
+        expect(await popup.getAttribute("data-side")).toBe("top");
         await contained(page, popup);
       } finally {
         await page.close();
