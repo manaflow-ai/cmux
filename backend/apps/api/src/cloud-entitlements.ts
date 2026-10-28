@@ -79,13 +79,16 @@ export class CloudEntitlementStore implements CloudEntitlements {
     return companyPlanKey(company, own) ?? (own === null ? null : Object.hasOwn(PAID_PLAN_LIMITS, own) ? own : CLOUD_RESTRICTED)
   }
 
-  private record(team: string, plan: string | null, at: number) {
+  /** Records a read that started at `at`; a read that started before a newer recorded one changes nothing (concurrent refreshes). */
+  record(team: string, plan: string | null, at: number) {
+    const hit = this.memo.get(team)
+    if (hit && hit.at > at) return
     this.memo.set(team, { plan, at })
     if (plan !== null) {
       this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_entitlement (team TEXT PRIMARY KEY, plan TEXT NOT NULL, checked_at INTEGER NOT NULL)`)
-      this.sql.exec(`INSERT INTO cloud_entitlement (team, plan, checked_at) VALUES (?, ?, ?) ON CONFLICT (team) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at`, team, plan, at)
+      this.sql.exec(`INSERT INTO cloud_entitlement (team, plan, checked_at) VALUES (?, ?, ?) ON CONFLICT (team) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_entitlement.checked_at`, team, plan, at)
     } else if (this.hasTable()) {
-      this.sql.exec(`DELETE FROM cloud_entitlement WHERE team = ?`, team)
+      this.sql.exec(`DELETE FROM cloud_entitlement WHERE team = ? AND checked_at <= ?`, team, at)
     }
   }
 

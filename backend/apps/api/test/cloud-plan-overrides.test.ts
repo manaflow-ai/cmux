@@ -6,6 +6,7 @@ import webAccessText from "../../../../web/services/admin/access.ts?raw"
 import { cloudVmPlanOf, storeVmPlan } from "../src/cloud-vm-plan.ts"
 import { readVmPlanOverride } from "../src/stack-server.ts"
 import { CLOUD_RESTRICTED, cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits, STUB_PLAN, teamPlan, type CloudConfig } from "../src/domains/cloud-plan.ts"
+import { CloudEntitlementStore } from "../src/cloud-entitlements.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { inDO, post, testEnv } from "./setup/inference-person.ts"
@@ -238,6 +239,21 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
     expect(await planGet(x.t)).toMatchObject({ plan_id: "max", limits: { max_active: COMPANY_MAX_ACTIVE } })
     const y = await person("grant-company-vm-free", "max", "free", "grant-company-vm-free@manaflow.ai", true)
     expect(await planGet(y.t)).toMatchObject({ plan_id: "team", limits: { max_active: COMPANY_MAX_ACTIVE } })
+  })
+
+  it("an older entitlement read never overwrites a newer one (concurrent refreshes)", async () => {
+    const x = await person("grant-ent-order", null, null)
+    await inDO(cloud.CLOUD_DO.get(cloud.CLOUD_DO.idFromName(x.team)), async (i) => {
+      const store = new CloudEntitlementStore(i.ctx.storage.sql, env as never, () => 0)
+      store.record("team_order", "pro", 2_000)
+      store.record("team_order", "max", 1_000)
+      expect(store.plan("team_order")).toBe("pro")
+      store.record("team_order", null, 1_500)
+      expect(store.plan("team_order")).toBe("pro")
+      expect(new CloudEntitlementStore(i.ctx.storage.sql, env as never, () => 0).plan("team_order")).toBe("pro")
+      store.record("team_order", null, 3_000)
+      expect(new CloudEntitlementStore(i.ctx.storage.sql, env as never, () => 0).plan("team_order")).toBeNull()
+    })
   })
 
   it("an unverified company address gets no grant", async () => {
