@@ -154,17 +154,14 @@ test.serial("with no harness installed, the page has no No agent row and the chi
   expect(opened.count).toBe(1);
 });
 
-test.serial(
-  "with harnesses installed, the full picker's harness strip ends with Add harness…",
-  async () => {
-    const opened = await page(noChat().catalog);
-    expect(named("Add harness", host.querySelector(".nt-composer")!)).toBeUndefined();
-    await act(async () => void openPicker("Model"));
-    const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
-    expect(menu).not.toBeNull();
-    const add = menu.querySelector<HTMLButtonElement>(".acpmux-mp-rail-list .acpmux-mp-add-harness")!;
-    expect(add.getAttribute("aria-label")).toBe("Add harness…");
-    await act(async () => add.click());
-    expect(opened.count).toBe(1);
-  },
-);
+test.serial("with harnesses installed, the full picker's harness strip ends with Add harness…", async () => {
+  const opened = await page(noChat().catalog);
+  expect(named("Add harness", host.querySelector(".nt-composer")!)).toBeUndefined();
+  await act(async () => void openPicker("Model"));
+  const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
+  expect(menu).not.toBeNull();
+  const add = menu.querySelector<HTMLButtonElement>(".acpmux-mp-rail-list .acpmux-mp-add-harness")!;
+  expect(add.getAttribute("aria-label")).toBe("Add harness…");
+  await act(async () => add.click());
+  expect(opened.count).toBe(1);
+});

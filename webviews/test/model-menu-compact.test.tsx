@@ -755,7 +755,9 @@ test("rail tabs keep width probes while their visible content changes", async ()
     [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map((node) => node.textContent ?? "");
   const heldWidths = probeLabels();
   const counts: number[] = [];
-  for (const name of railTabs().map((tab) => tab.getAttribute("aria-label")!)) {
+  for (const name of railTabs()
+    .filter((tab) => !tab.classList.contains("acpmux-quick-rail-add"))
+    .map((tab) => tab.getAttribute("aria-label")!)) {
     const tab = railTabs().find((each) => each.getAttribute("aria-label") === name)!;
     await act(async () => tab.click());
     await settle();

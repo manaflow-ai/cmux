@@ -1279,6 +1279,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   <PickerOption
                     type="button"
                     className={`acpmux-mp-add-harness ${railTab}`}
+                    active={false}
                     aria-label={addHarnessText}
                     title={addHarnessText}
                     onClick={addHarness}
