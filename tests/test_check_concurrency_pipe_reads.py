@@ -87,6 +87,27 @@ func start(_ pipe: Pipe) {
     }
 }
 """
+# The closure's brace on the line after `readabilityHandler =`.
+NEXT_LINE_BRACE = """import Foundation
+
+func start(_ pipe: Pipe, yield: @escaping @Sendable (Data) -> Void) {
+    pipe.fileHandleForReading.readabilityHandler =
+        { handle in
+            yield(handle.availableData)
+        }
+}
+"""
+# The name in a string literal or after code in a trailing comment is text, not a read.
+TEXT = """import Foundation
+
+func start(_ pipe: Pipe, log: @escaping @Sendable (String) -> Void) {
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+        log("no availableData here")
+        log("x") // availableData is not read here either
+        _ = handle.readReady()
+    }
+}
+"""
 ALLOWED = """import Foundation
 
 func start(_ pipe: Pipe, yield: @escaping @Sendable (Data) -> Void) {
@@ -141,6 +162,13 @@ class PipeReadRule(unittest.TestCase):
 
     def test_a_comment_naming_it_is_green(self):
         result = run({"FixtureCore/Reader.swift": COMMENT})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_brace_on_the_next_line_still_opens_the_handler(self):
+        self.assert_red(run({"FixtureCore/Reader.swift": NEXT_LINE_BRACE}), 6)
+
+    def test_the_name_in_a_string_or_a_trailing_comment_is_green(self):
+        result = run({"FixtureCore/Reader.swift": TEXT})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_reviewed_escape_is_green(self):

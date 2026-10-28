@@ -208,34 +208,47 @@ ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 # A readability handler's closure literal, and `availableData` read inside one (cmuxterm-hq#4753).
 READABILITY_HANDLER = re.compile(r"\breadabilityHandler\s*=\s*\{")
+# `readabilityHandler =` at the end of a line: the closure's `{` opens the next code line.
+READABILITY_HANDLER_PENDING = re.compile(r"\breadabilityHandler\s*=\s*$")
 AVAILABLE_DATA = re.compile(r"\bavailableData\b")
 PIPE_READ_ALLOW = re.compile(r"//\s*pipe-read-allow:\s*\S")
 STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
 
 
-def readability_handler_lines(lines):
-    """Which lines are inside a `readabilityHandler = { ... }` closure, by brace depth (strings and
-    `//` comments ignored); the line that opens one counts."""
-    inside = [False] * len(lines)
+def readability_handler_code(lines):
+    """For each line inside a `readabilityHandler = { ... }` closure (the line that opens one counts),
+    its code with string literals emptied and `//` comments cut, so a match is code, not text; None
+    for a line outside one. The closure's extent is found by brace depth over that same code."""
+    inside = [None] * len(lines)
     depth = 0
     open_handlers = []  # the depth of each enclosing handler's opening brace
+    pending = False  # the previous code line ended `readabilityHandler =`
     for index, line in enumerate(lines):
         code = STRING_LITERAL.sub('""', line).split("//", 1)[0]
         opening = {match.end() - 1 for match in READABILITY_HANDLER.finditer(code)}
-        inside[index] = bool(open_handlers)
+        stripped = code.lstrip()
+        if pending and stripped:
+            if stripped.startswith("{"):
+                opening.add(len(code) - len(stripped))
+            pending = False
+        if READABILITY_HANDLER_PENDING.search(code):
+            pending = True
+        was_inside = bool(open_handlers)
         for column, char in enumerate(code):
             if char == "{":
                 depth += 1
                 if column in opening:
                     open_handlers.append(depth)
-                    inside[index] = True
+                    was_inside = True
             elif char == "}":
                 if open_handlers and open_handlers[-1] == depth:
                     open_handlers.pop()
                 depth -= 1
+        if was_inside:
+            inside[index] = code
     return inside
 
-def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared, handler_lines):
+def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared, handler_code):
     """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
     hits = []
     if ISOLATED_DEINIT.match(code):
@@ -259,7 +272,8 @@ def crash_class_hits(code, lines, index, default_main, main_lines, relative, gen
     if WORKSPACE_SYNC.search(code) and relative != WORKSPACE_HELPER and not allowed(lines, index):
         hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
                     "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
-    if handler_lines[index] and AVAILABLE_DATA.search(code) and not allowed(lines, index, PIPE_READ_ALLOW):
+    if handler_code[index] is not None and AVAILABLE_DATA.search(handler_code[index]) \
+            and not allowed(lines, index, PIPE_READ_ALLOW):
         hits.append("availableData in a readabilityHandler (a failed read raises an Objective-C exception Swift "
                     "cannot catch, which aborts the app, cmuxterm-hq#4753); switch on handle.readReady(): "
                     ".bytes, .retry (return), .end (clear the handler)")
@@ -311,7 +325,7 @@ for dirpath, _, files in os.walk(sources):
         default_main = swift_scope.default_isolation(
             os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
         main_lines = main_actor_scope.main_actor_lines(lines, default_main)
-        handler_lines = readability_handler_lines(lines)
+        handler_code = readability_handler_code(lines)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -325,7 +339,7 @@ for dirpath, _, files in os.walk(sources):
             if ONLY == "synchronization":
                 continue
             hits = crash_class_hits(code, lines, index, default_main, main_lines, relative.replace(os.sep, "/"),
-                                    generic_declared, handler_lines)
+                                    generic_declared, handler_code)
             if ONLY == "crash-class":
                 for name in hits:
                     print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
