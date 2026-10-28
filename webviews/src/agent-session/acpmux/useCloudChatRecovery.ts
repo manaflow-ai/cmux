@@ -17,6 +17,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   const [state, setState] = useState<CloudChatState>();
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState(false);
+  const [readRevision, setReadRevision] = useState(0);
   const actionGeneration = useRef(0);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
   useEffect(() => {
@@ -65,7 +66,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [identity, session, active, resuming, recheck]);
+  }, [identity, session, active, resuming, recheck, readRevision]);
 
   const resume = () => {
     if (!cloud || resuming) return;
@@ -85,6 +86,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   return {
     state: active ? state : undefined,
     resume,
+    refresh: () => setReadRevision((value) => value + 1),
     resuming,
     error: error ? t("unavailable.resumeFailed") : undefined,
   };

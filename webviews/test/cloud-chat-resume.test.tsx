@@ -37,12 +37,17 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
   const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
   const calls: string[] = [];
   let stage = "paused";
+  let failRead = true;
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
         agentSession: {
           postMessage: ({ method }: { method: string }) => {
             calls.push(method);
+            if (method === "cloudMachine.recoveryList" && failRead) {
+              failRead = false;
+              return { ok: false, error: { code: "network" } };
+            }
             if (method === "cloudMachine.attach") {
               stage = "connecting";
               return { ok: true, value: {} };
@@ -79,12 +84,16 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
         unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
         onResumeMachine={recovery.resume}
         onRemove={noop}
-        onReconnect={noop}
+        onReconnect={recovery.refresh}
         resuming={recovery.resuming}
       />
     );
   }
   await act(async () => root.render(<Recovery />));
+  const retry = mount.querySelector<HTMLButtonElement>('[data-action="reconnect"]');
+  expect(retry).not.toBeNull();
+  await act(async () => retry!.click());
+  expect(calls.filter((method) => method === "cloudMachine.recoveryList")).toHaveLength(2);
   const button = mount.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]');
   expect(button).not.toBeNull();
   await act(async () => button!.click());
