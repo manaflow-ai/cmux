@@ -719,8 +719,10 @@ export function acpmuxSend(
   // A shell/reach wrapper's recorded stdin, inherited unless its inner command replaces it.
   inheritedStdin?: ShellWord | "file",
 ): AcpmuxSend | undefined {
-  return readAcpmuxSend(line, host, depth, priorFiles, inheritedStdin);
+  return readAcpmuxSend(line, host, depth, priorFiles, inheritedStdin, undefined, { sends: 0, opaque: false });
 }
+
+type SendScan = { sends: number; opaque: boolean };
 
 function readAcpmuxSend(
   line: string,
@@ -729,8 +731,14 @@ function readAcpmuxSend(
   priorFiles?: ReadonlyMap<string, string>,
   inheritedStdin?: ShellWord | "file",
   provenance?: { unsafe: boolean },
+  scan?: SendScan,
 ): AcpmuxSend | undefined {
-  if (depth > 3 || !/acp/.test(line)) return undefined;
+  const sendScan = scan ?? { sends: 0, opaque: false };
+  if (depth > 3) {
+    sendScan.opaque = true;
+    return undefined;
+  }
+  if (!/acp/.test(line)) return undefined;
   const commands = shellCommands(line);
   // File-backed bodies come only from recorded writers in this turn. Pass the current safe map
   // through wrappers; resolving a path never reads the host filesystem.
@@ -772,7 +780,6 @@ function readAcpmuxSend(
   /// The send came from `acpmux send`'s own words here, not from a nested line.
   let direct = false;
   /// Commands that send, read or not (`acpmux send "$LANE" hi` is a send whose target is unknown).
-  let sends = 0;
   for (const [index, command] of commands.entries()) {
     // Apply producer events in shell order before examining a send. A later unknown write or
     // shadowing redirect therefore cannot reuse an earlier heredoc body.
@@ -816,7 +823,9 @@ function readAcpmuxSend(
           undefined,
           stdinOf(commands, index, recordedFiles, inheritedStdin),
           provenance,
+          sendScan,
         );
+      else if (rest.length > 1) sendScan.opaque = true;
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
       let flag = -1;
@@ -837,23 +846,22 @@ function readAcpmuxSend(
           new Map([...recordedFiles].map(([path, body]) => [path, body.text])),
           stdinOf(commands, index, recordedFiles, inheritedStdin),
           provenance,
+          sendScan,
         );
+      else if (flag > 0) sendScan.opaque = true;
     } else if (name === "acpmux" || name === "acpmux-debug-cli") {
       let sub = 1;
       while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
       if (words[sub]?.text === "send") {
-        sends += 1;
+        sendScan.sends += 1;
         send = sendArgs(words.slice(sub + 1), stdinOf(commands, index, recordedFiles, inheritedStdin), host);
       }
     } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
-      sends += 1;
+      sendScan.sends += 1;
       send = sendArgs(words.slice(3), stdinOf(commands, index, recordedFiles, inheritedStdin), host);
     }
     if (!uncertainControlFlow && !send) applyRecordedMessageBodyChange(command, recordedFiles);
-    // A nested line counts its send, read or not: two messages keep the command row.
-    const nested = name === "reach" || SHELLS.has(name);
-    if (nested && (send || NESTED_SEND.test(command.words.map((word) => word.text).join(" ")))) sends += 1;
-    if (sends > 1) return undefined;
+    if (sendScan.sends > 1) return undefined;
     if (send) {
       if (found) return undefined;
       found = send;
@@ -861,7 +869,7 @@ function readAcpmuxSend(
       direct = name !== "reach" && !SHELLS.has(name);
     }
   }
-  if (!found) return undefined;
+  if (!found || sendScan.sends > 1 || sendScan.opaque) return undefined;
   // Every other step that does more than set up, report, feed the send or filter what it printed
   // is other work, and so is a step that writes a file or runs a substitution that does more than
   // read: the row counts them ("and 1 more"). A line the shell refuses (an unclosed quote), a send
@@ -904,9 +912,6 @@ function readAcpmuxSend(
   if (last && !skippable && (direct || found.ownsExit)) send.ownsExit = true;
   return send;
 }
-
-/// A send somewhere in a nested line's words.
-const NESTED_SEND = /\b(?:acpmux(?:-debug-cli)?(?:\s+--[a-z-]+)*\s+send|cmux\s+acp\s+send)\b/;
 
 /// Whether a filter's words are options it may take, their numbers (`-n 5`), and at most its operands.
 function onlyFilters(words: readonly ShellWord[], filter: (typeof FILTERS)[string]): boolean {

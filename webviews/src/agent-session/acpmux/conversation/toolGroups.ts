@@ -8,7 +8,7 @@ import { isBareShellName } from "../toolPaths";
 import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
-import { mcpCall, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 
@@ -115,11 +115,12 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       // Observational calls, including MCP calls with these ACP kinds, cannot replace a file.
       // Their status or missing timestamps must not invalidate a producer or block a later one.
       // Commands, diffs and unknown capabilities still use the conservative mutation path.
+      const observationalMcp = !tool.kind && named && mcpIsObservational(named);
       if (
         !tool.command &&
         !tool.diffs?.length &&
         !tool.background &&
-        (tool.kind === "read" || tool.kind === "search" || tool.kind === "fetch")
+        (observationalMcp || tool.kind === "read" || tool.kind === "search" || tool.kind === "fetch")
       )
         return;
       const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
