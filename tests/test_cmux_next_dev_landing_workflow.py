@@ -90,11 +90,16 @@ class WorkflowTests(unittest.TestCase):
         compile_if = self.jobs["cmux-scheme-compile"]["if"]
         tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
         self.assertIn(tree, job["if"])
-        # Only for the commit the dispatcher asked for: the compile's "Require the requested DEV daily
-        # commit" step fails a stale daily at once, so placing it would hold a Mac for nothing.
-        guard = ("(inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha || "
-                 "inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha)")
-        self.assertIn(guard + " && " + tree, job["if"])
+        # Only a run whose DEV Release app gets built: the Release step's dispatch condition, word for word
+        # (feat-cmux-next only, the requested commit only), so a placement never holds a Mac for nothing.
+        compile_steps = {s.get("id"): s for s in self.jobs["cmux-scheme-compile"]["steps"]}
+        release_if = compile_steps["compile-cmux-next-dev-release"]["if"]
+        dispatch = release_if[release_if.index("(github.event_name == 'workflow_dispatch'"):]
+        self.assertEqual(dispatch.count("("), dispatch.count(")"), "the Release step's whole dispatch clause")
+        for clause in ("github.ref == 'refs/heads/feat-cmux-next'", "inputs.dev_daily_sha == github.sha",
+                       "inputs.dev_daily_sha == inputs.same_tree_sha"):
+            self.assertIn(clause, dispatch)
+        self.assertIn(" && " + dispatch + " && " + tree, job["if"])
         require = {s.get("name"): s for s in self.jobs["cmux-scheme-compile"]["steps"]}[
             "Require the requested DEV daily commit"]
         self.assertIn('[[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]]', require["run"])
