@@ -162,6 +162,7 @@ import Testing
 
         let scripts = engine.scripts
         #expect(scripts.first?.contains("__cmuxUploads") == true)
+        #expect(!scripts.contains { $0.contains("new W.DataTransfer()") }, "cancelled upload must not commit files")
         #expect(scripts.last?.contains("delete el.__cmuxUploads[") == true)
     }
 
