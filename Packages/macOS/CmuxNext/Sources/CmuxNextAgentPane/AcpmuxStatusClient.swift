@@ -92,7 +92,9 @@ nonisolated enum AcpmuxStatusClient {
                 guard let id = row["sessionId"] as? String, !id.isEmpty else {
                     throw Failure.rpc("_acpmux/sessions returned a row without sessionId")
                 }
-                let key = "\(row["peer"] as? String ?? "")/\(row["qualifiedSessionId"] as? String ?? id)"
+                let peer = row["peer"] as? String ?? ""
+                let qualified = row["qualifiedSessionId"] as? String ?? id
+                let key = "\(peer)/\(qualified)"
                 if seenRows.insert(key).inserted { rows.append(row) }
             }
             guard let next = (result["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return rows }

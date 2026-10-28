@@ -75,7 +75,7 @@ final class AgentDialogDesk {
         while true { // wakeup-allow: each pass awaits a daemon page; a terminal page, malformed reply, or repeated cursor ends it
             var params: [String: Any] = ["status": "waiting", "limit": 64]
             if let cursor { params["cursor"] = cursor }
-            guard let page = await line.call("_acpmux/sessions", params) else { break }
+            guard let page = await line.call("_acpmux/sessions", params) else { return [] }
             guard let pageRows = page["sessions"] as? [[String: Any]] else { return [] }
             for row in pageRows {
                 guard (row["peer"] as? String)?.isEmpty != false,
