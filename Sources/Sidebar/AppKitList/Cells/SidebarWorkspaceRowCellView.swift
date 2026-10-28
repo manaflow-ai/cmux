@@ -28,7 +28,7 @@ final class SidebarWorkspaceRowSelectionChromeObserverStore {
     }
 
     deinit {
-        invalidate()
+        removeObservers()
     }
 
     func install(
@@ -67,7 +67,11 @@ final class SidebarWorkspaceRowSelectionChromeObserverStore {
         )
     }
 
-    nonisolated func invalidate() {
+    func invalidate() {
+        removeObservers()
+    }
+
+    private nonisolated func removeObservers() {
         observers.forEach(notificationCenter.removeObserver)
         observers.removeAll()
         if let workspaceObserver {

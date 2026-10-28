@@ -27,21 +27,69 @@ struct SidebarWorkspaceRowRetirementTests {
             MainActor.assumeIsolated { probe.count += 1 }
         }
 
-        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: window)
-        workspaceNotificationCenter.post(
-            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-            object: nil
-        )
-        #expect(probe.count == 2)
+        defer { window.close() }
+        let windowNotifications = [
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+        ]
+        let applicationNotifications = [
+            NSColor.systemColorsDidChangeNotification,
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+        ]
+        func postSelectionChanges() {
+            for name in windowNotifications {
+                notificationCenter.post(name: name, object: window)
+            }
+            for name in applicationNotifications {
+                notificationCenter.post(name: name, object: nil)
+            }
+            workspaceNotificationCenter.post(
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                object: nil
+            )
+        }
+
+        postSelectionChanges()
+        #expect(probe.count == 8)
 
         store = nil
-        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: window)
-        workspaceNotificationCenter.post(
-            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-            object: nil
+        postSelectionChanges()
+        #expect(probe.count == 8)
+    }
+
+    @Test
+    func selectionChromeObserversFollowWindowReplacementAndInvalidation() {
+        let notificationCenter = NotificationCenter()
+        let workspaceNotificationCenter = NotificationCenter()
+        let firstWindow = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        let secondWindow = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        defer {
+            firstWindow.close()
+            secondWindow.close()
+        }
+        let probe = SidebarWorkspaceObserverDeliveryProbe()
+        let store = SidebarWorkspaceRowSelectionChromeObserverStore(
+            notificationCenter: notificationCenter,
+            workspaceNotificationCenter: workspaceNotificationCenter
         )
-        #expect(probe.count == 2)
-        window.close()
+        let repaint: @Sendable (Notification) -> Void = { _ in
+            MainActor.assumeIsolated { probe.count += 1 }
+        }
+        store.install(on: firstWindow, repaint: repaint)
+        store.install(on: secondWindow, repaint: repaint)
+        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: firstWindow)
+        #expect(probe.count == 0)
+        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: secondWindow)
+        notificationCenter.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        workspaceNotificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(probe.count == 3)
+
+        store.invalidate()
+        store.invalidate()
+        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: secondWindow)
+        notificationCenter.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        workspaceNotificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(probe.count == 3)
     }
 
     @Test
