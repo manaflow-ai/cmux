@@ -550,7 +550,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
-        if window == nil { popupHost?.dismiss() }
+        if window == nil {
+            chromiumSession?.questionKeys?.invalidate()
+            popupHost?.dismiss()
+        }
         chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         applyTheme()
         windowDidChangeChrome()
@@ -563,6 +566,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Another tab took the pane: the page's popup ends.
     public override func viewDidHide() {
         super.viewDidHide()
+        chromiumSession?.questionKeys?.invalidate()
         popupHost?.dismiss()
         chromiumSession?.page.setVisible(false)
     }

@@ -60,7 +60,10 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
-        if let chromiumSession { chromiumSession.page.load(url) } else {
+        if let chromiumSession {
+            chromiumSession.questionKeys?.invalidate()
+            chromiumSession.page.load(url)
+        } else {
             // The host loaded a document itself: the crash notice's pending WebKit load is moot.
             webKitLoadsOnReload = false
             webView.load(URLRequest(url: url))
@@ -69,6 +72,7 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
@@ -206,10 +210,12 @@ extension PageWebView {
         guard let chromiumSession else { return }
         switch event {
         case .devTools(let json):
+            if chromiumSession.questionKeys?.receive(json) == true { return }
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
         case .committed(let url):
+            chromiumSession.questionKeys?.invalidate()
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
@@ -223,8 +229,10 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            chromiumSession.questionKeys?.invalidate()
             contentProcessTerminated()
         case .ended:
+            chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
         case .openRequested(let url):
             openOutside(url, modifiers: [])
