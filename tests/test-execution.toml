@@ -1782,6 +1782,10 @@ path = "tests/test_ci_workflow_run_api_budget.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_glaeda_route_app_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 

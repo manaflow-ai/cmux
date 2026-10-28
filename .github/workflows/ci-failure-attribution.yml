@@ -77,9 +77,12 @@ jobs:
       # by its triggering actor) and pr_status finds the comment by its author.
       # Check-run annotations need `checks`, which the App lacks: GH_TOKEN reads
       # them (guard_attribution.GitHub).
+      # Only when the cmux-bot mint gave nothing: READ_TOKEN below prefers cmux-bot's
+      # token, so a glaeda-route token minted beside it went unused and its mint
+      # still spent the shared glaeda-route installation budget on every CI run.
       - name: Mint the glaeda-route token
         id: glaeda-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.cmux-bot-token.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
