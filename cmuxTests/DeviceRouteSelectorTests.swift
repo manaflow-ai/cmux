@@ -116,6 +116,28 @@ struct DeviceRouteSelectorTests {
     }
 
     @MainActor
+    @Test("An unavailable Iroh peer falls back to an authorized Tailscale connection")
+    func unavailableIrohConnectsOverAuthorizedTailscale() async throws {
+        let iroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: [])
+        )
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0)
+        let evidence = try #require(grant(for: tailscale))
+        var attempts: [DeviceRouteSelector.Selection] = []
+        let connected = try await DeviceLinkConnectionAttempt.connect(
+            routes: [tailscale, iroh], instance: studio, hostName: "Studio",
+            selector: DeviceRouteSelector(allowsIroh: true), grant: { self.grant(for: $0) }
+        ) { selection in
+            attempts.append(selection)
+            if selection.route.kind == .iroh { throw DeviceLinkError.notConnected }
+            return selection.route
+        }
+        #expect(connected == tailscale)
+        #expect(attempts == [.init(route: iroh, evidence: nil), .init(route: tailscale, evidence: evidence)])
+    }
+
+    @MainActor
     @Test("The per-peer runtime retains real fallback transports and their authorization checks")
     func automaticRuntimeKeepsFallbackTransport() async throws {
         let suite = "DeviceRouteSelector-\(UUID().uuidString)"

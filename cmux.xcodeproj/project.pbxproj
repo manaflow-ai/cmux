@@ -2002,6 +2002,7 @@
 				D44F126C5ADC43644BB030D9 /* DeviceIrxPeerTransportProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9CE5C9947FB0EB965C69FE8 /* DeviceIrxPeerTransportProvider.swift */; };
 				DEC1CE000000000000000018 /* DeviceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000017 /* DeviceLink.swift */; };
 				DEC1CE00000000000000001A /* DeviceLinkAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */; };
+		D642A6B216CB04E122DC511A /* DeviceLinkConnectionAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6435AE89A601447CEB69A5FD /* DeviceLinkConnectionAttempt.swift */; };
 				DE1345800000000000000006 /* DeviceLinkControlPlaneRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000005 /* DeviceLinkControlPlaneRules.swift */; };
 				DE1345800000000000000010 /* DeviceLinkControlPlaneRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE134580000000000000000F /* DeviceLinkControlPlaneRulesTests.swift */; };
 				DE134580000000000000000A /* DeviceLinkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000009 /* DeviceLinkDiagnostics.swift */; };
@@ -6686,6 +6687,7 @@
 				E9CE5C9947FB0EB965C69FE8 /* DeviceIrxPeerTransportProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceIrxPeerTransportProvider.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000017 /* DeviceLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLink.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkAuthorization.swift"; sourceTree = "<group>"; };
+		6435AE89A601447CEB69A5FD /* DeviceLinkConnectionAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Devices/DeviceLinkConnectionAttempt.swift; sourceTree = "<group>"; };
 				DE1345800000000000000005 /* DeviceLinkControlPlaneRules.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkControlPlaneRules.swift"; sourceTree = "<group>"; };
 				DE134580000000000000000F /* DeviceLinkControlPlaneRulesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkControlPlaneRulesTests.swift; sourceTree = "<group>"; };
 				DE1345800000000000000009 /* DeviceLinkDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkDiagnostics.swift"; sourceTree = "<group>"; };
@@ -12641,6 +12643,7 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				6435AE89A601447CEB69A5FD /* DeviceLinkConnectionAttempt.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16042,6 +16045,7 @@
 				D44F126C5ADC43644BB030D9 /* DeviceIrxPeerTransportProvider.swift in Sources */,
 				DEC1CE000000000000000018 /* DeviceLink.swift in Sources */,
 				DEC1CE00000000000000001A /* DeviceLinkAuthorization.swift in Sources */,
+				D642A6B216CB04E122DC511A /* DeviceLinkConnectionAttempt.swift in Sources */,
 				DE1345800000000000000006 /* DeviceLinkControlPlaneRules.swift in Sources */,
 				DE134580000000000000000A /* DeviceLinkDiagnostics.swift in Sources */,
 				DE134580000000000000000C /* DeviceLinkDiagnosticsSection.swift in Sources */,

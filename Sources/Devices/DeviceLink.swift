@@ -333,7 +333,24 @@ final class DeviceLink {
     private func makeConnectedClient(
         record: DeviceDirectoryRecord
     ) async throws -> (client: MobileCoreRPCClient, events: AsyncStream<MobileEventEnvelope>) {
-        let selection = try selectRoute()
+        try await DeviceLinkConnectionAttempt.connect(
+            routes: record.routes,
+            instance: record.instance,
+            hostName: record.deviceName,
+            selector: routeSelector,
+            grant: { [authorization] route in
+                authorization.authorization(for: record.instance, route: route)
+            },
+            connect: { selection in
+                try await self.makeConnectedClient(record: record, selection: selection)
+            }
+        )
+    }
+
+    private func makeConnectedClient(
+        record: DeviceDirectoryRecord,
+        selection: DeviceRouteSelector.Selection
+    ) async throws -> (client: MobileCoreRPCClient, events: AsyncStream<MobileEventEnvelope>) {
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
             terminalID: nil,
