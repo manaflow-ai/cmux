@@ -74,6 +74,28 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func fileWatcherReappliesUnchangedTextBoxSettings() async throws {
+        try await withSettingsFile { defaults, settingsFileURL in
+            let (events, continuation) = AsyncStream<Void>.makeStream()
+            defer { continuation.finish() }
+            let store = makeStore(
+                settingsFileURL: settingsFileURL,
+                defaults: defaults,
+                startWatching: true,
+                onWatchedFileReload: { _ in continuation.yield() }
+            )
+
+            divergeDefaults(defaults)
+            // Rewriting the same values must still apply file authority.
+            try #"{"terminal":{"showTextBoxOnNewTerminals":true,"focusTextBoxOnNewTerminals":true}}"#
+                .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+            for await _ in events { break }
+            expectFileValuesApplied(defaults)
+            withExtendedLifetime(store) {}
+        }
+    }
+
     @Test
     func removingKeyFromSettingsFileRestoresSettingsValue() async throws {
         try await withSettingsFile(initialDefaults: false) { defaults, settingsFileURL in
@@ -132,7 +154,8 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
         settingsFileURL: URL,
         defaults: UserDefaults,
         notificationCenter: NotificationCenter = NotificationCenter(),
-        startWatching: Bool = false
+        startWatching: Bool = false,
+        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) -> KeyboardShortcutSettingsFileStore {
         KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
@@ -141,7 +164,8 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
             notificationCenter: notificationCenter,
             userDefaults: defaults,
             startWatching: startWatching,
-            isUserDefaultsKeyForcedByProfile: { _ in false }
+            isUserDefaultsKeyForcedByProfile: { _ in false },
+            onWatchedFileReload: onWatchedFileReload
         )
     }
 

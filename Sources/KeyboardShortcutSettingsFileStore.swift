@@ -43,6 +43,7 @@ final class CmuxSettingsFileStore {
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let userDefaults: UserDefaults
+    private let settingsFilePrecedencePolicy = SettingsFilePrecedencePolicy()
     private let languageSettingsStore: LanguageSettingsStore?
     private let passwordStore: SocketControlPasswordStore
     /// Whether an MDM configuration profile forces a `UserDefaults` key.
@@ -331,13 +332,11 @@ final class CmuxSettingsFileStore {
         next: [String: ManagedSettingsValue],
         appliesFileAuthoritativeKeys: Bool
     ) -> Set<String> {
-        Set(next.compactMap { key, value in
-            if appliesFileAuthoritativeKeys,
-               TerminalTextBoxInputSettings.settingsFileAuthoritativeKeys.contains(key) {
-                return key
-            }
-            return previous[key] == value ? nil : key
-        })
+        settingsFilePrecedencePolicy.keysToApply(
+            previous: previous,
+            next: next,
+            appliesFileAuthority: appliesFileAuthoritativeKeys
+        )
     }
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
