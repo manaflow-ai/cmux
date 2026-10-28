@@ -261,17 +261,9 @@ export function WorkflowAgentRow({
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
   // ordinary subagent opener.
-  const openable = Boolean(onOpenWorkflowAgent);
-  const row = (
-    <button
-      type="button"
-      className={`acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`}
-      disabled={!openable}
-      aria-label={accessibleLabel}
-      onClick={() => {
-        if (onOpenWorkflowAgent) onOpenWorkflowAgent(agent);
-      }}
-    >
+  const className = `acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`;
+  const content = (
+    <>
       <span className="acpmux-workflow-agent__icon" aria-hidden="true">
         {agent.state === "running" ? (
           <Spinner size={ROW_ICON} loading />
@@ -296,11 +288,22 @@ export function WorkflowAgentRow({
       </span>
       <span className="acpmux-workflow-agent__state">{state}</span>
       <span className="acpmux-chat-inspector-task__time">{time}</span>
-    </button>
+    </>
   );
   return (
     <li className="acpmux-chat-inspector-task acpmux-workflow-agent" data-state={agent.state}>
-      {row}
+      {onOpenWorkflowAgent ? (
+        <button
+          type="button"
+          className={className}
+          aria-label={accessibleLabel}
+          onClick={() => onOpenWorkflowAgent(agent)}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className={className}>{content}</div>
+      )}
     </li>
   );
 }

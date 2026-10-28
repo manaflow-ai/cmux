@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
+import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
@@ -85,10 +86,43 @@ test("workflow agent rows never send a workflow agent id to the ordinary subagen
   await act(async () =>
     root!.render(<WorkflowAgentRow agent={agent} now={NOW} onOpenSubagent={() => (legacyOpened = true)} />),
   );
-  const button = container.querySelector("button") as HTMLButtonElement;
-  expect(button.disabled).toBe(true);
-  await act(async () => button.click());
+  expect(container.querySelector("button")).toBeNull();
+  const row = container.querySelector(".acpmux-workflow-agent__button") as HTMLElement;
+  expect(row.tagName).toBe("DIV");
+  await act(async () => row.click());
   expect(legacyOpened).toBe(false);
+});
+
+test("the shipped Inspector renders workflow agents as normal content until a workflow opener is supplied", () => {
+  for (const variant of ["compact", "detail", "grid"] as const) {
+    const document = new JSDOM(
+      renderToStaticMarkup(
+        <ChatInspector
+          workflows={summaries("running")}
+          onStopWorkflow={async () => undefined}
+          onOpenSubagent={() => undefined}
+          workflowAgentRowVariant={variant}
+        />,
+      ),
+    );
+    const rows = document.window.document.querySelectorAll(".acpmux-workflow-agent");
+    expect(rows.length).toBe(3);
+    for (const row of rows) {
+      expect(row.querySelector("button, [role], [disabled], [aria-disabled], [tabindex], [aria-label]")).toBeNull();
+      expect(text(row.innerHTML)).toContain("Model: Opus 5.5");
+    }
+    document.window.close();
+  }
+});
+
+test("the Inspector renders enabled workflow buttons when a workflow opener is supplied", () => {
+  const document = new JSDOM(
+    renderToStaticMarkup(<ChatInspector workflows={summaries("running")} onOpenWorkflowAgent={() => undefined} />),
+  );
+  const buttons = document.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-workflow-agent button");
+  expect(buttons.length).toBe(3);
+  for (const button of buttons) expect(button.disabled).toBe(false);
+  document.window.close();
 });
 
 test("every workflow row exposes model, effort, last message, state and duration to assistive technology", () => {
@@ -99,11 +133,18 @@ test("every workflow row exposes model, effort, last message, state and duration
     lastMessage: "Review complete",
   };
   for (const variant of ["compact", "detail", "grid"] as const) {
-    const document = new JSDOM(renderToStaticMarkup(<WorkflowAgentRow agent={agent} now={NOW} variant={variant} />));
+    const document = new JSDOM(
+      renderToStaticMarkup(
+        <WorkflowAgentRow agent={agent} now={NOW} variant={variant} onOpenWorkflowAgent={() => undefined} />,
+      ),
+    );
     expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toBe(
       "punchy, Model: Opus 5.5 · high, Review complete, Done, 7s",
     );
     document.window.close();
+    const plain = new JSDOM(renderToStaticMarkup(<WorkflowAgentRow agent={agent} now={NOW} variant={variant} />));
+    expect(text(plain.window.document.body.innerHTML)).toBe("punchy Model: Opus 5.5 · high Review complete Done 7s");
+    plain.window.close();
   }
 });
 

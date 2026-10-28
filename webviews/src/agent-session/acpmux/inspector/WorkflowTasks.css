@@ -122,15 +122,12 @@
   font: inherit;
   text-align: start;
 }
-.acpmux-workflow-agent__button:hover:not(:disabled) {
+button.acpmux-workflow-agent__button:hover {
   background: var(--acpmux-inspector-row-hover);
 }
-.acpmux-workflow-agent__button:focus-visible {
+button.acpmux-workflow-agent__button:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
-}
-.acpmux-workflow-agent__button:disabled {
-  cursor: default;
 }
 .acpmux-workflow-agent__icon {
   flex: none;
