@@ -150,7 +150,9 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
                 if let Some(failed) = active.take() {
                     let failed_node = failed.node.as_ref().cloned();
                     let _ = tokio::time::timeout(NODE_CLOSE_BOUND, async {
-                        if let Some(node) = failed_node {
+                        if let Some(node) = failed_node
+                            && controller.listener_is_current(&node)
+                        {
                             controller.listener_failed(&node).await;
                         }
                     }).await;

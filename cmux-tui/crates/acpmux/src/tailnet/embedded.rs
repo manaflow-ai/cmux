@@ -533,6 +533,11 @@ impl Controller {
         self.retire_node(expected, state)
     }
 
+    pub(crate) fn listener_is_current(&self, node: &Arc<Node>) -> bool {
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        matches!(&inner.state, LifecycleState::Running(current) if Arc::ptr_eq(current, node))
+    }
+
     pub(super) fn retirement_pending(&self) -> bool {
         self.pending_retirement.load(Ordering::Acquire)
     }
