@@ -98,23 +98,61 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
     await page.setContent(`<!doctype html><html><head><style>
       html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); color: white; }
-      :root { --agent-text: rgb(240, 240, 240); }
+      :root { --agent-text: rgb(240, 240, 240); --agent-muted: rgb(150, 160, 170); --agent-soft: rgb(100, 110, 120); }
       ${shellCss}
     </style></head><body>
-      <header class="acpmux-floating-header"><button class="acpmux-header-tool" aria-pressed="true">list</button></header>
+      <header class="acpmux-floating-header"><button class="acpmux-header-tool">list</button></header>
     </body></html>`);
     const button = page.locator(".acpmux-header-tool");
+    const style = () =>
+      button.evaluate((node) => {
+        const computed = getComputedStyle(node);
+        return {
+          background: computed.backgroundColor,
+          color: computed.color,
+          outline: computed.outlineStyle,
+          shadow: computed.boxShadow,
+        };
+      });
+    await page.mouse.move(0, 0);
+    expect(await style()).toEqual({
+      background: "rgba(0, 0, 0, 0)",
+      color: "rgb(150, 160, 170)",
+      outline: "none",
+      shadow: "none",
+    });
     await button.hover();
-    const hoverColors = await button.evaluate((node) => {
-      const style = getComputedStyle(node);
-      return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
+    expect(await style()).toEqual({
+      background: "rgba(0, 0, 0, 0)",
+      color: "rgb(240, 240, 240)",
+      outline: "none",
+      shadow: "none",
     });
-    expect(hoverColors).toEqual({ background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" });
-    const colors = await button.evaluate((node) => {
-      const style = getComputedStyle(node);
-      return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
+    await page.mouse.move(0, 0);
+    await button.evaluate((node) => node.setAttribute("aria-pressed", "true"));
+    expect(await style()).toEqual({
+      background: "rgba(0, 0, 0, 0)",
+      color: "rgb(240, 240, 240)",
+      outline: "none",
+      shadow: "none",
     });
-    expect(colors).toEqual({ background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" });
+    await button.evaluate((node) => {
+      node.removeAttribute("aria-pressed");
+      (node as HTMLButtonElement).focus();
+    });
+    const focused = await style();
+    expect(focused.background).toBe("rgba(0, 0, 0, 0)");
+    expect(focused.outline).toBe("solid");
+    await button.evaluate((node) => {
+      (node as HTMLButtonElement).blur();
+      (node as HTMLButtonElement).disabled = true;
+    });
+    expect(await style()).toEqual({
+      background: "rgba(0, 0, 0, 0)",
+      color: "rgb(100, 110, 120)",
+      outline: "none",
+      shadow: "none",
+    });
     await page.close();
   });
 
