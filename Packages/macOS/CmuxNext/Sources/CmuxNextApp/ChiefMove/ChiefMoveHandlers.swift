@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
@@ -212,8 +213,8 @@ enum ChiefMoveHandlers {
 
     /// The Cloud session token in a 0600 file inside a 0700 folder of its own. Blocking file calls: the files lane only.
     nonisolated private static func writeToken(_ token: String, dir: URL, file: URL) throws {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        guard FileManager.default.createFile(atPath: file.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600]) else {
+        try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        guard FileManager.checked.createFile(atPath: file.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600]) else {
             throw CocoaError(.fileWriteUnknown)
         }
     }
