@@ -393,7 +393,7 @@ public final class MobileSSHComputers {
     public func autoConnect(hostID: UUID) -> Task<Void, Never>? {
         guard canAutoConnect(hostID: hostID) else { return nil }
         let task = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             await self.connectAndList(hostID: hostID)
             if !Task.isCancelled { self.autoConnectTasks[hostID] = nil }
         }
