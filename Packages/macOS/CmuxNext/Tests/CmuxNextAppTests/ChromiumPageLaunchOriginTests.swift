@@ -11,8 +11,8 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p08-startup-041: a cmux page in Chromium follows Chrome's launch order through the engine's one deferral path.
-/// The fake engine waits as `CEFEngine.makeTab` does, on the real ``CEFLaunchDeferral`` (p08-startup-040) over the
+/// A cmux page in Chromium follows Chrome's launch order through the engine's one deferral path.
+/// The fake engine waits as `CEFEngine.makeTab` does, on the real ``CEFLaunchDeferral`` over the
 /// tab origin ``ChromiumPageHost`` sets (``BrowserTabOrigin/init(_:)``), and answers the page through a real
 /// ``ChromiumPageHost`` over a Chromium slot whose engine is never built. A page the launch restored that shows starts in the
 /// first afterFirstFrame slot (one wait in all); one that does not show starts after completion; a person's or a

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// The app's one ``MainJobGate`` and its on/off switch (p04-input-076): the composition root makes
+/// The app's one ``MainJobGate`` and its on/off switch: the composition root makes
 /// it while feature `mainJobGate` is on and has it follow the `debug.mainJobGate` setting. On, the
 /// runtime hook is installed and the run loop drains it; off, the hook is not installed at all and
 /// held jobs go first.

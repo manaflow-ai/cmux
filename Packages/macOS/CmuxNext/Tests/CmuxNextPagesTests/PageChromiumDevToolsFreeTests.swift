@@ -5,7 +5,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// p13-webui-078: a Chromium page's pictures (window image, cover snapshot, debug snapshot), debug
+/// A Chromium page's pictures (window image, cover snapshot, debug snapshot), debug
 /// click and hover, menu Copy and selected text go through the engine's paths that attach no DevTools agent
 /// (the fork's surface copy, native click and move, and `tabEvaluate`), because one DevTools agent ends
 /// main-frame renderer reuse for the whole browser. DevTools stays only where the engine has no such

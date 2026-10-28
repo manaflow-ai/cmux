@@ -1,4 +1,4 @@
-//! `frontend.visibility.set` on the wire (p06-scheduler-227): the verified
+//! `frontend.visibility.set` on the wire: the verified
 //! app's set scopes its own subscription, a subscription made after the set is
 //! scoped too, a CLI subscriber on the same daemon is not, and only the
 //! verified app may send it.

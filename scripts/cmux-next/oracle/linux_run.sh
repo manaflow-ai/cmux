@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # linux_run.sh: daemon-side oracle builds and suite runs on the Linux VM, every one through the
-# runnerd.py queue (p15-oracle-007, p15-oracle-024; spec plans/cmux-next/chrome-parity/p15-oracle.md 3F, 3G).
+# runnerd.py queue (spec plans/cmux-next/chrome-parity/p15-oracle.md 3F, 3G).
 #
 #   linux_run.sh build REF [--profile P] [--features F] [--mutant PATCH] [--coverage] [--leaf-rebuild] [--receipt FILE] [--fresh]
 #       Builds cmux-tui at REF. The last stdout line is the binary path.
 #       The build receipt (cmux-oracle-build-v1: sha, every gitlink, rustc, cold or warm, times, binary
 #       sha256) is build.json next to the binary, copied to FILE. --leaf-rebuild also times a rebuild
 #       after touching crates/cmux-tui/src/main.rs (task 201's incremental number). --mutant applies a seeded
-#       fault (tests/oracle/mutants/daemon/<name>.patch, p15-oracle-026) to the job worktree before cargo runs;
+#       fault (tests/oracle/mutants/daemon/<name>.patch) to the job worktree before cargo runs;
 #       the receipt's `mutant` names it, and mutant builds share one target dir per SHA, apart from the clean one.
 #       --coverage builds with `-C instrument-coverage` for the host target only (build scripts and proc
 #       macros stay plain), in its own target dir; the receipt's `coverage` names the llvm-profdata and
-#       llvm-cov of the SHA's own toolchain and the source root to strip from the mapped paths (p15-oracle-190).
+#       llvm-cov of the SHA's own toolchain and the source root to strip from the mapped paths.
 #   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--mutant PATCH] [--coverage] [--receipt FILE] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Builds REF, then `oracle.py run --binary BIN --ref SHA` in the queue. The last stdout line is the
 #       run directory; the exit code is oracle.py's. --arm is NAME=old|new, launch-config or - (default).
@@ -29,13 +29,13 @@
 #       The base side builds `overlay`'s buildSha, both sides run v0 facets when its plan says v0, and the
 #       comparison masks what is not comparable (`oracle.py diff --overlay`); linux-run.json holds the plan.
 #   linux_run.sh overlay BASE HEAD [--product P] [--profile P] [--features F] [--out FILE] [--fresh]
-#       The base build of a base/head diff (overlay.py prepare, p15-oracle-202): head's oracle commits applied
+#       The base build of a base/head diff (overlay.py prepare): head's oracle commits applied
 #       to the base (an overlay commit, built here to prove it builds), the base itself when it has them
 #       (native), or v0 facets on both sides when a commit does not apply or the overlay does not build.
 #       The last stdout line is the plan file (cmux-oracle-overlay-v1; default
 #       /tmp/oracle/overlay/<base12>-<head12>-<product>.json).
 #   linux_run.sh walks REF [--profile P] [--features F] [--timeout SEC] [--fresh] [-- WALKS_OPTIONS...]
-#       The walks profile (p15-oracle-099): builds REF, then one queued job runs walks_scale.py run on that
+#       The walks profile: builds REF, then one queued job runs walks_scale.py run on that
 #       binary: 100,000 seeded walks of length 30 on arm old and arm new of every daemon switch
 #       (oracle.py diff --switch per chunk of 10,000, one build), and every failure minimized (ddmin)
 #       before the report. Once the report is written, the minimized walks are copied into
@@ -53,9 +53,9 @@
 # random seed, which is then part of the key. Builds run in RUNNERD_SCRATCH/wt (a `git clone --shared`
 # of this repo that runnerd removes when the job ends) with the SHA's VT submodule initialized from its own
 # gitlink: ghostty-next, or ghostty for a SHA from before ghostty-next (the cmux-tui tags that
-# gen_upgrades.py builds, p15-oracle-208); CMUX_GHOSTTY_SRC is never used. The cargo target dir is
+# gen_upgrades.py builds); CMUX_GHOSTTY_SRC is never used. The cargo target dir is
 # runnerd's per-SHA, per-feature cache.
-# Defaults: profile and feature `oracle` (p15-oracle-201), cargo -j 240. Linux only.
+# Defaults: profile and feature `oracle`, cargo -j 240. Linux only.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -250,7 +250,7 @@ job_build() {
   [[ -x "$built" ]] || die "cargo finished without $built"
   cp "$built" "$binary"
   git -C "$JOB_WT" ls-tree -r HEAD | awk '$2 == "commit" { print $4 "\t" $3 }' > "$RUNNERD_OUT/gitlinks.tsv"
-  # An overlay commit (overlay.py, p15-oracle-202) names its base, head and oracle commits in its trailers.
+  # An overlay commit (overlay.py) names its base, head and oracle commits in its trailers.
   local overlay_json
   overlay_json="$(python3 -I "$HERE/overlay.py" describe "$sha" --repo "$JOB_WT")" || die "overlay.py describe $sha failed"
   python3 -I - "$RUNNERD_OUT/build.json" "$sha" "$module" "$gitlink" "$profile" "$features" "$target" "$state" \

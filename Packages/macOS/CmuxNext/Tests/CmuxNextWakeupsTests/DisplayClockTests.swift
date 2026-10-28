@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// DisplayClock (p03-rendering-010): one display link per display, shared by every FrameScheduler on
+/// DisplayClock: one display link per display, shared by every FrameScheduler on
 /// it, as Chrome's `DisplayLinkMac::GetForDisplay` (ui/display/mac/display_link_mac.h). Before it,
 /// every window, the app scheduler and the budgeted scheduler each made their own link: up to three
 /// links (and three main-thread wakes a frame) for one window on one display.
@@ -237,7 +237,7 @@ import Testing
         #expect(displays.liveLinks == 0)
     }
 
-    /// A window moving between displays mid-animation (p03-rendering-011).
+    /// A window moving between displays mid-animation.
     struct ScreenMove: Sendable, CustomStringConvertible {
         let description: String
         let oldInterval: Double
@@ -266,7 +266,7 @@ import Testing
         ]
     }
 
-    /// p03-rendering-011: a window dragged mid-animation to a display with another refresh rate. Its
+    /// A window dragged mid-animation to a display with another refresh rate. Its
     /// WindowScreenFamily moves its scheduler on `didChangeScreen` (before it, the window ticked on
     /// the old display until a stall deadline): from then on it ticks only on the new display's link,
     /// its tick times never run back, no gap is longer than the old interval or one and a half new

@@ -4,8 +4,8 @@ import CmuxNextMemory
 @testable import CmuxNextPages
 import Testing
 
-/// Every web object follows memory pressure on one path, the app's memory coordinator
-/// (p13-webui-047): ``WebUIHost`` registers its preload slot as a spare, next to Chromium's spare
+/// Every web object follows memory pressure on one path, the app's memory coordinator:
+/// ``WebUIHost`` registers its preload slot as a spare, next to Chromium's spare
 /// windows (`ChromiumWarmup`), and the critical limit runs the one urgent discard pass over tabs,
 /// chats and pages (`BrowserHibernation`). The drop order is the cheapest memory first: warning drops
 /// the slot in the level's turn and only holds the spare windows (Chrome keeps its spare renderer and

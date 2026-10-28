@@ -1,6 +1,6 @@
 import Foundation
 
-/// Client-minted attach streams on this connection (attach-streams-v1, p05-ipc-095): the reader routes each
+/// Client-minted attach streams on this connection (attach-streams-v1): the reader routes each
 /// item by the `stream` it carries to the sink its view bound before the open went out, and never counts it
 /// as a stream-0 event (``routedEventCount``).
 extension LineTransport {
@@ -37,7 +37,7 @@ extension LineTransport {
     /// Ids taken on this connection (tests, diagnostics).
     var attachStreamCount: Int { state.withLock { $0.attachStreams.count } }
 
-    /// Reader thread. Routes a tagged item to its stream: the item runs on the ``lane`` in wire order (p05-ipc-144),
+    /// Reader thread. Routes a tagged item to its stream: the item runs on the ``lane`` in wire order,
     /// and the stream's reader wait is returned for the reader to run after the line. Nil on a connection that never
     /// minted a stream, whose line the control path routes. Once this side minted a stream, an item for an id it no
     /// longer holds is dropped, never routed as a control event.

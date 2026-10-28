@@ -18,8 +18,8 @@ public protocol ProviderDevToolsRelay: AnyObject {
     /// Why the last ``prepareRelay(targetID:)`` of `targetID` returned false, when the relay knows a reason
     /// the agent can act on (its page's wake was deferred under memory pressure); nil for the generic failure.
     func prepareFailure(targetID: String) -> String?
-    /// The tab's page as the app's Chromium Host relays it to the browser host by itself (`cdp.prepare`, task
-    /// p01-process-233), after ``prepareRelay(targetID:)`` made it ready; nil when the app must relay it.
+    /// The tab's page as the app's Chromium Host relays it to the browser host by itself (`cdp.prepare`),
+    /// after ``prepareRelay(targetID:)`` made it ready; nil when the app must relay it.
     func directTarget(targetID: String) -> CEFAgentDirectTarget?
     /// A driven tab whose page no pane shows any more renders in the off-screen render window, so a capture
     /// command gets a frame. The app's own relay checks this on every send; a tab the Chromium Host relays
@@ -35,7 +35,7 @@ extension ProviderDevToolsRelay {
     public func keepRendering(targetID: String) {}
 }
 
-/// Where the app's Chromium Host gets the browser host's relay link (task p01-process-233): set after each
+/// Where the app's Chromium Host gets the browser host's relay link: set after each
 /// accepted `hello`, from that connection's credentials; nil ends it.
 @MainActor
 public protocol ProviderRelayLinking: AnyObject {

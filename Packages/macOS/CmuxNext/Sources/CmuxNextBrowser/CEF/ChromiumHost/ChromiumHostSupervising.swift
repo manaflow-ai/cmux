@@ -23,7 +23,7 @@ public protocol ChromiumHostSupervising: AnyObject {
 }
 
 /// A ``ChromiumHostSupervising`` that can end its running host at once, so the next start gets a new
-/// one: the busy banner's Reload Chromium (task p01-process-084), as Chrome's hung page dialog ends
+/// one: the busy banner's Reload Chromium, as Chrome's hung page dialog ends
 /// the renderer that stopped answering (`RenderProcessHost::Shutdown`). A hung UI thread reads no
 /// quit, so this is a kill; the host's end then reaches the runtime as any crash does.
 /// `ChromiumHostSupervisor` conforms (task 080).

@@ -4,9 +4,9 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 
-/// A new dock column on the render server (chrome-parity p03-rendering-028, `motion.renderServer` on): the
+/// A new dock column on the render server (`motion.renderServer` on): the
 /// docked pane grows in from its screen edge on its host's render-server spring, the strip's panes spring
-/// aside, and the strip's clip (the strip container's bounds, p03-rendering-023) springs with the dock on
+/// aside, and the strip's clip (the strip container's bounds) springs with the dock on
 /// the same token, from the range beside the dock's sliver to its rest. Every frame is at rest after the
 /// change's turn, no CPU spring steps and the window's MotionClock never runs: 0 steps per frame. The strip
 /// range is computed at plan apply only (`PaneArrival.stripClip`), never per frame.

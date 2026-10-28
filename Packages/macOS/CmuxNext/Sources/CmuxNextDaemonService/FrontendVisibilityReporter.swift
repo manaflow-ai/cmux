@@ -8,7 +8,7 @@ nonisolated struct FrontendVisibilityLink: Sendable, Equatable {
     var tabs: UInt64
 }
 
-/// Tells the local daemon which tabs this app shows (`frontend.visibility.set`, p06-scheduler-227), so the daemon
+/// Tells the local daemon which tabs this app shows (`frontend.visibility.set`), so the daemon
 /// holds the latest-state events of the others (titles, agent and program status, output, scroll) and sends them
 /// once per aligned second, or at once when the tab shows. Chrome's browser process tells each renderer when its
 /// page shows or hides (`RenderWidgetHostImpl::WasShown`/`WasHidden`,

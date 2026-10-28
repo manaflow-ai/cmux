@@ -1,4 +1,4 @@
-//! `frontend.visibility.set` (p06-scheduler-227): the surfaces the verified
+//! `frontend.visibility.set`: the surfaces the verified
 //! app shows, which scope its own `subscribe` streams.
 //!
 //! The app sends the whole set of surfaces it shows, at most once per frame

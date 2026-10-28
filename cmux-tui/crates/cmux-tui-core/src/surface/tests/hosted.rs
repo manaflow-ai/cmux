@@ -319,7 +319,7 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
     ));
 }
 
-/// p09-observability-018: the host's echo frame names the key press the
+/// The host's echo frame names the key press the
 /// host's PTY read took, and the daemon applies that flow, not a guess of
 /// its own. A connection that did not negotiate the flag refuses it.
 #[cfg(unix)]
@@ -351,7 +351,7 @@ fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
     assert!(unnegotiated.push(flagged(1)).is_err(), "an unnegotiated flow fails closed");
 }
 
-/// p04-input-094: a host that negotiated key stages sends its PTY write and
+/// A host that negotiated key stages sends its PTY write and
 /// read of the press with the flow; one that did not negotiate them, or a
 /// connection that asked for none, fails closed on such a frame.
 #[cfg(unix)]

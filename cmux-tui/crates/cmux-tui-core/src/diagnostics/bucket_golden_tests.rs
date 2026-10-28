@@ -1,5 +1,5 @@
 //! The log-linear buckets match the golden that Swift's CmuxNextMetrics reads too
-//! (`cmux-trace/tests/fixtures/metrics-log-linear-golden.txt`, p09-observability-052),
+//! (`cmux-trace/tests/fixtures/metrics-log-linear-golden.txt`),
 //! so a sample lands in the same bucket in the app's and the daemon's metrics files.
 
 use super::LogLinearHistogram;

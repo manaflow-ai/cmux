@@ -3,7 +3,7 @@ import CmuxFuzzSupport
 import Foundation
 import Testing
 
-/// The unified diff the App reads back to stage one hunk (p10-stability-030): git's output of a
+/// The unified diff the App reads back to stage one hunk: git's output of a
 /// file the user's programs wrote, and the hunk and paths the Changes page names. A well-formed
 /// diff gives exactly the named hunk's patch; any damaged diff or request gives the file's header
 /// and the one hunk with the named lines, or nothing, never a trap. The turn patch the diff page
@@ -55,7 +55,7 @@ struct GitDiffFuzzTests {
     }
 
     /// One input of a property its first choice picks, replayed from bytes. Darwin only:
-    /// CmuxNextAgentPane imports AppKit, so the Linux libFuzzer targets (p10-stability-182) skip it.
+    /// CmuxNextAgentPane imports AppKit, so the Linux libFuzzer targets skip it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(3) {

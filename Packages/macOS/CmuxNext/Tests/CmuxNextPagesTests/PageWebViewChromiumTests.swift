@@ -582,7 +582,7 @@ extension PageWebViewChromiumTests {
     }
 }
 
-/// The "Page unresponsive" card of a Chromium page (p13-webui-057): a tab-scoped cmux dialog while the
+/// The "Page unresponsive" card of a Chromium page: a tab-scoped cmux dialog while the
 /// renderer hangs and the page shows, answered through the page and never waited on.
 extension PageWebViewChromiumTests {
     /// A page whose Chromium page attached, with no deadline.

@@ -8,7 +8,7 @@
 //! and whose client holds the [`IPC_FRAMES_CAPABILITY`] grant when the frame
 //! comes to be handled; any other frame is a bad message.
 //!
-//! A connection holds no thread (p01-process-203). The daemon's one
+//! A connection holds no thread. The daemon's one
 //! `mux-io` loop (server/mux_io.rs) reads its socket with one `recvmsg` per
 //! read, bytes and descriptors together, straight into the reader's buffer,
 //! as Mojo's `ChannelPosix::OnFileCanReadWithoutBlocking` reads into the
@@ -30,9 +30,9 @@
 //! ([`ConnectionSurfaceScheduler::when_settled`]); a closed connection's
 //! requests get at most [`CONNECTION_SURFACE_SHUTDOWN_TIMEOUT`] to end.
 //!
-//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071), and so
+//! REQUEST and CANCEL frames go to [`frame_dispatch`], and so
 //! do INPUT frames, which queue on the stream they name until its opener is
-//! answered ([`pending_streams`], p05-ipc-087).
+//! answered ([`pending_streams`]).
 
 use std::fmt;
 
@@ -172,7 +172,7 @@ pub(super) fn serve_connection(
 pub(super) trait FrameLane {
     /// Whether `client` holds the frames grant now. Asked again for every
     /// frame, in order with the lines before it: a later `set-client-info`
-    /// or `client-hello` can end the grant (p05-ipc-060), and frame payloads
+    /// or `client-hello` can end the grant, and frame payloads
     /// are not revision-translated. Never asked on a connection that cannot
     /// carry frames (not a local Unix socket, or an admission that sees only
     /// lines).
@@ -363,8 +363,8 @@ pub(super) fn start_line_connection(start: LineStart) {
         return completion.fail();
     };
     // Producers write inline to their own handle of the socket while nothing
-    // waits for its writer, the mux-io loop or the writer thread
-    // (p05-ipc-140); none when it cannot be cloned.
+    // waits for its writer, the mux-io loop or the writer thread;
+    // none when it cannot be cloned.
     let inline = stream.try_clone_box().ok().and_then(|socket| {
         InlineSocket::new(socket, mux.bulk_frame_max(), mux.ipc_stats().clone())
     });
@@ -527,7 +527,7 @@ mod reading {
             let mut batch = Vec::new();
             // mq14-allow: the writer thread waits for its own queue (a checked wait).
             while let Some(mut turn) = outbound.recv_turn(&mut batch) {
-                // What an inline write left goes first (p05-ipc-140).
+                // What an inline write left goes first.
                 let rest = turn.rest.take();
                 let written =
                     write_counted_turn(&mut *write_half, &writer_ipc, rest.as_deref(), &batch);

@@ -1,5 +1,5 @@
-// The Settings page's part of the refactor oracle's `webviews` facet (protocol/oracle-state.ts,
-// p15-oracle-215): the shown category as the route, the focused setting's key as the selection, the
+// The Settings page's part of the refactor oracle's `webviews` facet (protocol/oracle-state.ts):
+// the shown category as the route, the focused setting's key as the selection, the
 // search's results or Changed filter as panels, and the search text only as its SHA-256 (the route
 // leaves `?q=` out, so the text never leaves the page). Dialogs and pickers report themselves
 // (ui/oraclePanel.ts).

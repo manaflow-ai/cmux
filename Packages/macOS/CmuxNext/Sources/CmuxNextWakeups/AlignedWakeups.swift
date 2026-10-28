@@ -1,7 +1,7 @@
 /// Places main-thread deadlines on ``MainWakeUpQueue``'s boundaries (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// section E), so close deadlines share the queue's one wake.
 ///
-/// The placements are the resolved form of `TimerAlignment` (p06-scheduler-011): `MainDeadline` maps
+/// The placements are the resolved form of `TimerAlignment`: `MainDeadline` maps
 /// `.whenHidden(node)` to ``Placement/hidden`` while the node is hidden and not exempt for media,
 /// and to ``Placement/flexible`` otherwise; this type only places. They are Chrome's:
 /// - ``Placement/flexible``, the default: no sooner than its time, snapped up to the next 8 ms tick
@@ -28,7 +28,7 @@
 /// wakeups.cancel(ticket)
 /// ```
 public struct AlignedWakeups: Sendable {
-    /// Where a deadline goes on the timeline: the resolved form of `TimerAlignment` (p06-scheduler-011).
+    /// Where a deadline goes on the timeline: the resolved form of `TimerAlignment`.
     public enum Placement: Sendable, Hashable, CaseIterable {
         /// At its own instant, below 36 ms; flexible from 36 ms on.
         case precise
@@ -72,7 +72,7 @@ public struct AlignedWakeups: Sendable {
                          file: StaticString = #fileID, line: UInt = #line,
                          _ action: @escaping MainWakeUpQueue.Action) -> Ticket {
         #if DEBUG || CMUX_BENCH_HOOKS
-        // One record per deadline in the launch's arm census (p08-startup-085); its fire is the record's first.
+        // One record per deadline in the launch's arm census; its fire is the record's first.
         let action = Self.census(queue.ledger.armCensus, owner: owner, site: ArmCensus.Site(file: file, line: line), action)
         #endif
         switch placement {

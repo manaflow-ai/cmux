@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The app tells the local daemon which tabs it shows (p06-scheduler-227, `frontend.visibility.set`): one report a
+/// The app tells the local daemon which tabs it shows (`frontend.visibility.set`): one report a
 /// frame for any number of flips, only when the set changed, each connection told afresh, nothing to a daemon
 /// without `frontend-visibility-v1`, and `null` on the line for a clear.
 @MainActor @Suite(.serialized) struct FrontendVisibilityReporterTests {

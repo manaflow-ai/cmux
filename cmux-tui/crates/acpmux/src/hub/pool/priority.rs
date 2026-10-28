@@ -1,4 +1,4 @@
-//! A pooled entry's process priority (p14-energy-038): best-effort while it
+//! A pooled entry's process priority: best-effort while it
 //! waits in the pool, normal again before a claim serves it. The entry's two
 //! processes are the ones its record names, its host and its harness, each
 //! leading its own process group; nothing else is looked up

@@ -1,5 +1,5 @@
-//! Exact echo flows on terminals whose master the daemon writes itself
-//! (p09-observability-018): a holder terminal tells a holder that granted
+//! Exact echo flows on terminals whose master the daemon writes itself:
+//! a holder terminal tells a holder that granted
 //! WRITE_FLOW about the key press before its bytes, and the output the
 //! holder streams next is that key's echo on the attach stream, once. A
 //! holder older than the capability gets no mark. A write that never
@@ -183,7 +183,7 @@ fn echo_flow_a_failed_write_arms_nothing() {
     assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
 }
 
-/// p04-input-094: a local terminal's key press records the daemon's receive
+/// A local terminal's key press records the daemon's receive
 /// and PTY write before its echo, the read that echoes it stamps the read,
 /// and the press's stamps are there for the attach writer once echoed.
 #[test]

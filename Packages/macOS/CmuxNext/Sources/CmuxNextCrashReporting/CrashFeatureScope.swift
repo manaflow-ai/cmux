@@ -2,7 +2,7 @@ public import CmuxNextFeatures
 public import CmuxNextWakeups
 public import Sentry
 
-/// This launch's features on the Sentry scope (p12-perf-process-151): the `features_hash` tag (the hash
+/// This launch's features on the Sentry scope: the `features_hash` tag (the hash
 /// of every feature's value, `CmuxNextFeatures`' `FeatureFieldState`), the `features` tag (the overrides as
 /// `name=on@remote`, comma-separated, cut to Sentry's tag length) and the full list in the `features`
 /// context. Chrome puts the active variations into crash keys the same way

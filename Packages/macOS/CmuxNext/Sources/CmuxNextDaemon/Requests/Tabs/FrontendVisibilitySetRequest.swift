@@ -1,5 +1,5 @@
 /// `frontend.visibility.set` (cmux-tui/spec/events.md "Frontend visibility", cmux-tui-core
-/// server/frontend_visibility.rs, p06-scheduler-227): the whole set of surfaces this app shows. On this
+/// server/frontend_visibility.rs): the whole set of surfaces this app shows. On this
 /// connection's subscription the daemon holds the latest-state events (title, agent, program status, output,
 /// scroll) of every other surface and delivers them once per aligned second, or at once when the surface shows;
 /// structural events and exits never wait. `visible: nil` clears the scope, and the scope ends with the connection.

@@ -1,4 +1,4 @@
-// Mobile Pairing keeps its scroll across a discard (p13-webui-082). The host owns the pairing
+// Mobile Pairing keeps its scroll across a discard. The host owns the pairing
 // status and the switch, and the page has no field, so it saves no inputs of its own.
 import { describe, expect, test } from "bun:test";
 import { DOCUMENT_SCROLL_KEY, restoredPageInputs } from "../shared/pageState";

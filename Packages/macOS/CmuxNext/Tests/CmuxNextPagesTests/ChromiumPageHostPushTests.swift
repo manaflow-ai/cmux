@@ -5,7 +5,7 @@ import JavaScriptCore
 import Testing
 @testable import CmuxNextPages
 
-/// The page push channel (p13-webui-079): with it, the router's envelopes and the replies reach a
+/// The page push channel: with it, the router's envelopes and the replies reach a
 /// Chromium page as data (``PageChromiumPage/push(_:)``), never as a script, in send order; without
 /// it every delivery is a script, as before. The page script's receiver runs in JavaScriptCore.
 @MainActor

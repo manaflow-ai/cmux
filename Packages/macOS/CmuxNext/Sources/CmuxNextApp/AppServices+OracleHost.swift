@@ -23,7 +23,7 @@ import Foundation
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
 /// bench builds only: a Release build compiles neither this conformance nor any provider in the list. The
-/// facet tasks (p15-oracle-027, 033 to 044, 188, 215, 216) add theirs to the list; until then each facet
+/// facet tasks add theirs to the list; until then each facet
 /// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).
 extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets { makeOracleFacets(lanes: [AgentLaneStore.shared, AgentLaneStore.chief]) }
@@ -64,7 +64,7 @@ extension AppServices: OracleHost {
             },
             // The windows front to back, key and main, and each window's state and frame as screen fractions.
             windows.oracleWindowsFacet(events: appEvents),
-            // The active window's sidebar from its SidebarModel's public values (p15-oracle-036).
+            // The active window's sidebar from its SidebarModel's public values.
             SidebarSnapshot.oracleFacet(self),
             // What Recently Closed lists, from the daemons' mirrored closed history. Each title is hashed after the
             // request's `paths` (the case root and home, as normalize.py gets them) are rewritten.
@@ -129,7 +129,7 @@ extension AppServices: OracleHost {
     }
 }
 
-/// The `overlays` facet's reads (p15-oracle-038), from the owners' state, never a view tree: each window's
+/// The `overlays` facet's reads, from the owners' state, never a view tree: each window's
 /// overlay host (dialogs the host presents, toasts, popovers, menus), its focus model's overlays, its panes' find
 /// models, the hover card coordinator and the palette controller.
 extension AppServices {
@@ -217,7 +217,7 @@ extension AppServices {
         return CmuxNextTabs.TabID(hoverCardTarget: id).map { OracleOverlaysFacet.HoverTarget.tab($0.rawValue) }
     }
 
-    /// The `terminals` facet's main-actor read (p15-oracle-044): the local daemon's terminals, as the facet says. A
+    /// The `terminals` facet's main-actor read: the local daemon's terminals, as the facet says. A
     /// Cloud, SSH or server machine's terminals are not the case's: a reconnecting remote must not fail the snapshot.
     func oracleTerminals() throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
         let connection = machines.local.connection

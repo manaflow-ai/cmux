@@ -38,7 +38,7 @@ import QuartzCore
 /// ``inputAcked(_:seq:)``; the input ring's ``ChromiumHostInputRoute``), a
 /// move or wheel tick still leaves at once when none of its kind is in
 /// flight, and later ones wait coalesced for the ack
-/// (``ChromiumHostInputPacer``, task p01-process-042); keys and clicks never
+/// (``ChromiumHostInputPacer``); keys and clicks never
 /// wait, and what waited leaves ahead of them. With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
@@ -192,7 +192,7 @@ public final class ChromiumHostPageView: NSView, KeyEquivalentOwningSurface {
     /// scrolls to its history swiper the same way (`-[RenderWidgetHostViewCocoa scrollWheel:]`).
     var wheelGesture: ((NSEvent) -> Bool)?
     /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
-    /// wheels carry later seqs (task p01-process-234).
+    /// wheels carry later seqs.
     private(set) var lastWheelSeq: UInt32 = 0
     #endif
 
@@ -447,7 +447,7 @@ extension ChromiumHostPageView {
     }
 
     /// One frame to ``sink``, at once or as the pacer released it; a paced one the writer did not take
-    /// gets no ack. A wheel the writer took is the newest one sent (``lastWheelSeq``, task p01-process-234).
+    /// gets no ack. A wheel the writer took is the newest one sent (``lastWheelSeq``).
     @discardableResult
     private func write(_ frame: ChromiumHostFrame, paced: ChromiumHostInputPacer.Paced?) -> ChromiumHostInputReceipt? {
         let receipt = sink?(frame)
@@ -475,10 +475,10 @@ extension ChromiumHostPageView {
     // Moves and drags go to the host at once, as a browser process forwards them: Chromium's renderer aligns
     // them to its own frame (main_thread_event_queue.cc), and on back-pressure the wire keeps only the latest
     // in its slot (ChromiumHostConnection).
-    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
-    public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
-    public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
-    public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) } // input-coalesce: native (the renderer aligns it)
+    public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it)
+    public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it)
+    public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) } // input-coalesce: native (the renderer aligns it)
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
     public override func scrollWheel(with event: NSEvent) {
@@ -507,7 +507,7 @@ extension ChromiumHostPageView {
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency
-    /// slot's `generated` time, so the host's presentation report by this time finds the slot (p04-input-066).
+    /// slot's `generated` time, so the host's presentation report by this time finds the slot.
     static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
         InputLatencyTracker.eventNanos(seconds)
     }

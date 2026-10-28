@@ -13,7 +13,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// Page policies batch 4 (p07-memory-027, `memoryDiscardInternalPages`): the Chief pages, the
+/// Page policies batch 4 (`memoryDiscardInternalPages`): the Chief pages, the
 /// channels Home, the Home tab and the docked Home declare their discard policy and keep reasons,
 /// and a Home whose view was discarded shows what it showed again. Each discard runs as the page
 /// store runs it (InternalPageTabStore+Show): the provider hears `viewDiscarded`, the tab's next

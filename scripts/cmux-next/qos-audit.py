@@ -96,7 +96,7 @@ USER_INITIATED = "user-initiated"
 UTILITY = "utility"
 # The daemon's per-connection threads (remote_entry.rs, websocket_listener.rs, server/connection_scheduler.rs):
 # they rest at the connection's class under daemonRequestQos (server/connection_qos.rs `ConnectionClass::qos`).
-# A local connection holds none (p01-process-203): `server-threads` `connections` gives the class its lines run
+# A local connection holds none: `server-threads` `connections` gives the class its lines run
 # at. `mux-conn` stays for daemons before it.
 READER_THREADS = ("mux-conn", "mux-remote-conn", "mux-ws-conn")
 # The name a connection's lines are filed under (`server-threads` `connections[].lines_qos`).

@@ -7,7 +7,7 @@ import Testing
 /// The always-on cost of ``IdleEnergyMonitor/noteWake()`` per main run loop wake, in nanoseconds, over
 /// the app's real counters (`CLOCK_UPTIME_RAW`, ``ExpectedActivity``'s input count and
 /// ``ProcessUsage/interruptWakeups(of:)``) at a 120 Hz frame rate's worth of wakes. The budget is
-/// < 100 ns per wake over its uptime read (perf-hot path `idle-energy-wake`, p14-energy-008); the
+/// < 100 ns per wake over its uptime read (perf-hot path `idle-energy-wake`); the
 /// rusage read happens only when a window opens or closes. A measurement, not a gate: run it in a Release build on each macOS major
 /// and quote the line. With CMUX_PERF_RESULT_DIR it also writes each number as result-v1 (lab story
 /// swift-idle-energy-wake).

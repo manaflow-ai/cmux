@@ -4,7 +4,7 @@ import CmuxNextInputCore
 import CmuxNextWakeups
 import Testing
 
-/// The terminals' latency sink (p04-input-094): a key's echo stages and the daemon's stamps reach the tracker's
+/// The terminals' latency sink: a key's echo stages and the daemon's stamps reach the tracker's
 /// slot; a key that ends with no frame stamps nothing, so its slot closes at the tracker's content deadline.
 @MainActor
 struct TerminalKeyLatencyTests {

@@ -1,7 +1,7 @@
 import CmuxNextCompat
 import QuartzCore
 
-/// The half of the terminal cursor that goes with Ghostty's frame (p03-rendering-091). Ghostty calls the cursor
+/// The half of the terminal cursor that goes with Ghostty's frame. Ghostty calls the cursor
 /// callback inside the Core Animation transaction that presents the frame the cell was drawn for, on the thread
 /// that presents it (main, or the GPU completion thread for a content-only frame; ``ghosttySurfaceCursor(_:_:)``).
 /// ``present(_:)`` puts the cell's pixels and place on ``Layers/cell`` in that transaction, so the text and the

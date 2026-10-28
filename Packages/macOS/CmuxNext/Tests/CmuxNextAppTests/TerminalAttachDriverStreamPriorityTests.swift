@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Stream visibility priority (p05-ipc-142): a view's link gets `set-stream-priority` from what the person sees.
+/// Stream visibility priority: a view's link gets `set-stream-priority` from what the person sees.
 /// It opens at its visibility, follows hide and show (TabContentCache's conceal and reveal), is focused while it
 /// holds the app's one ``TerminalStreamFocus``, and a reattached link gets the current priority. Without the
 /// feature (no stream focus) no link is ranked.

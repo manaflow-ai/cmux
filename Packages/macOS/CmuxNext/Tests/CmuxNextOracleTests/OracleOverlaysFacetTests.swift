@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The overlays facet (p15-oracle-038): the schema's object from the host's reading, each window's layers in their
+/// The overlays facet: the schema's object from the host's reading, each window's layers in their
 /// drawing order, the topmost dialog's spec id, typed text and private row-id parts only through the injected
 /// hash, at most ten palette rows, typed hover targets, the owners' change signal for `wait_for`, and
 /// not-comparable with its task when the host has no owners to read. Run: `swift test --filter OracleOverlaysFacetTests`.

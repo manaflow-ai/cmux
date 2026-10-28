@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// A composer send on the channels Home (p06-scheduler-231, p06-scheduler.md "Page relay"). The page
+/// A composer send on the channels Home (p06-scheduler.md "Page relay"). The page
 /// sends its `conversation-op` on its own daemon WebSocket, so before the send it names the op's
 /// client `transaction` through the production router to ``PagePersonCauseRoute``
 /// (webviews/test/home-composer-person-cause.test.ts holds the page's half). After a real key-down

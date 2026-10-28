@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The app's framed IPC negotiation (p05-ipc-092): frames only on a local connection at the daemon's API
+/// The app's framed IPC negotiation: frames only on a local connection at the daemon's API
 /// revision with the daemon's schema, only for the methods it answers on frames, streams local and bridged,
 /// REQUEST frames with the method table's ids, the same replies as lines, and an older daemon that never hears
 /// of any of it.

@@ -165,7 +165,7 @@ def flood(path: Path, size: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The oracle's terminal suite (p15-oracle-101).
+# The oracle's terminal suite.
 #
 # One case: an empty workspace, a terminal of the case's size that runs
 # FEED_SCRIPT on the stream (printf of one argv string, so the bytes reach the

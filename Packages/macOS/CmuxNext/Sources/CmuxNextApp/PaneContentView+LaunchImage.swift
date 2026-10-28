@@ -77,7 +77,7 @@ extension VisiblePaneRefs {
     }
 
     /// Every launch window on screen, or kept off screen until its content is installed, with what it shows.
-    /// A restored window that shows and waits for its launch build (p08-startup-062) is one loading window.
+    /// A restored window that shows and waits for its launch build is one loading window.
     func windows(of manager: WindowManager) -> [Window] {
         _ = (manager.services.paneMounts.generation, manager.services.cache.pageInstalls.revision)
         let built = manager.controllers.compactMap { controller -> Window? in
@@ -101,7 +101,7 @@ extension VisiblePaneRefs {
                           layoutPanes: content.modelPanes.count)
     }
 
-    /// The shown workspace's panes on screen. While the launch holds panes off screen (p08-startup-065), only the panes
+    /// The shown workspace's panes on screen. While the launch holds panes off screen, only the panes
     /// the layout reports on screen hold startup.
     private func panesOnScreen(of controller: WindowController) -> [PaneController] {
         guard let content = controller.content, !content.isParked else { return [] }
@@ -153,7 +153,7 @@ extension BrowserTabState {
     var launchLoadEnded: Bool { hasEndedLoad || processExit != nil }
 }
 
-/// One pane of the launch window as its build behind the picture shows it, focused pane first (p08-startup-060).
+/// One pane of the launch window as its build behind the picture shows it, focused pane first.
 extension PaneController: LaunchWindowPane {
     /// The launch window's build behind its picture holds its content until its own slice (`showForLaunch`), so no
     /// turn builds every pane; the build ends when the phase is built.

@@ -333,7 +333,7 @@ def main_window_shown(control):
 
 
 # ---------------------------------------------------------------------------
-# tabs-10 (p12-perf-process-034): the session of the idle-wakeups target
+# tabs-10: the session of the idle-wakeups target
 
 
 TABS10 = "tabs-10"

@@ -5,8 +5,8 @@ public import CmuxNextWakeups
 import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
-/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Streams
-/// are the default in DEV and NIGHTLY (feature `terminalStreams`, p05-ipc-094; Release after its benches); for
+/// connection when that connection streams terminals (TerminalAttachment+Stream.swift). Streams
+/// are the default in DEV and NIGHTLY (feature `terminalStreams`; Release after its benches); for
 /// one release `CMUX_DISABLE_FEATURES=terminalStreams` keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Events flow
 /// through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's lane
 /// once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
@@ -108,7 +108,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     ///   shows (``NewTerminalTrace/FirstAttach``): its stages are that create's instants. 0: a restore or a
     ///   reattach, which writes none.
     /// - Parameter inputQueue: the view's serial input queue; the socket writer drains on it (nil: its own queue).
-    /// - Parameter keyStamps: takes each key echo's daemon stages (p04-input-094); nil for a daemon whose clock is
+    /// - Parameter keyStamps: takes each key echo's daemon stages; nil for a daemon whose clock is
     ///   not this Mac's.
     public static func attach(
         endpoint: DaemonEndpoint,
@@ -143,7 +143,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// `stream`: the view's attach stream on `transport` (the shared control connection), whose queue drops
     /// and resyncs instead of holding the shared reader (``Delivery/sharedStream(stream:)``); nil: `transport` is
-    /// the view's own connection. `keyStamps`: takes each key echo's daemon stages (p04-input-094), or nil.
+    /// the view's own connection. `keyStamps`: takes each key echo's daemon stages, or nil.
     init(transport: LineTransport, surface: SurfaceID, stream: AttachStreamHandle? = nil,
          keyStamps: (any TerminalKeyStampSink)? = nil) {
         self.transport = transport
@@ -167,7 +167,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let sink = sink
         // The reader hands each line to the connection's decode lane: a snapshot or a replay always decodes there,
         // never on the reader. The sink never waits there; the reader waits after the line for the view's queue,
-        // its lane and a held marker (p05-ipc-144).
+        // its lane and a held marker.
         transport.start(dispatch: sink.dispatch,
                         onEvent: { name, line, _ in sink.deliver(name: name, line: line) },
                         onClose: { sink.close($0) })
@@ -231,7 +231,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread.
     /// Writes from one thread reach the PTY in call order.
     ///
-    /// - Parameter keyFlow: the latency slot flow of the key press the bytes encode (0: none, p04-input-094). The
+    /// - Parameter keyFlow: the latency slot flow of the key press the bytes encode (0: none). The
     ///   send carries it, so the daemon stamps the press's stages and echoes them; while the typing probe traces
     ///   presses, its flow goes instead (``TypingLatencyProbe/openFlow``) and the slot gets no daemon stages.
     public nonisolated func enqueueInput(_ data: Data, keyFlow: UInt64 = 0) {
@@ -362,10 +362,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
     }
 
-    /// Ranks this view's stream against the other views of its connection (`set-stream-priority`,
-    /// p05-ipc-142): focused output rides the input lane, a hidden snapshot view gets no output until it shows.
+    /// Ranks this view's stream against the other views of its connection (`set-stream-priority`):
+    /// focused output rides the input lane, a hidden snapshot view gets no output until it shows.
     /// Latest wins; the same priority again, or any after ``detachNow()``, sends nothing. A view on a connection
-    /// of its own has no stream to rank (``stream`` is nil, p05-ipc-095): its connection is its own lane.
+    /// of its own has no stream to rank (``stream`` is nil): its connection is its own lane.
     public nonisolated func setStreamPriority(_ priority: TerminalStreamPriority) {
         guard let stream else { return }
         let changed = control.value.withLock { control -> Bool in

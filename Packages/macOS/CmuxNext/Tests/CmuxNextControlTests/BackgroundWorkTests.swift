@@ -109,7 +109,7 @@ import Testing
         await blocked.wait()
         // A user-blocking caller asks for best-effort work: it runs at the caller's priority, on the
         // user-blocking slot, while the best-effort slot is still held (else this await never returns).
-        // The Task's result type picks the async `run`; the non-async one returns a `Pending` (p06-scheduler-001).
+        // The Task's result type picks the async `run`; the non-async one returns a `Pending`.
         let seen = try await Task(priority: .high) { () async throws -> Seen in
             try await work.run(.bestEffort, mayBlock: .files) { Seen.here() }
         }.value

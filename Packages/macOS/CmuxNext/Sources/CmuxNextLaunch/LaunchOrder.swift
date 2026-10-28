@@ -2,8 +2,8 @@ public import CmuxNextInputCore
 import CmuxNextSignposts
 public import CmuxNextWakeups
 
-/// The launch's order owners, made once in the app's `main()` and passed by init (p08-startup-012,
-/// plans/cmux-next/chrome-parity/p08-startup.md section 3B): the main-thread scheduler with its
+/// The launch's order owners, made once in the app's `main()` and passed by init
+/// (plans/cmux-next/chrome-parity/p08-startup.md section 3B): the main-thread scheduler with its
 /// startup phase, and the ``StartupScheduler`` every launch task is posted to.
 ///
 /// Chrome makes the same pair before the UI thread runs: `BrowserTaskExecutor` with its startup
@@ -12,7 +12,7 @@ public import CmuxNextWakeups
 /// (`ThreadPoolInstance::EndBestEffortFence`, base/task/thread_pool/thread_pool_instance.h) from
 /// the UI thread. The fence is one pair: ``BestEffortFence`` raises it on the app's
 /// ``BackgroundWork`` as soon as the lanes exist, and the order made on that fence lowers it at
-/// the startup phase's reveal (p06-scheduler-204, plans/cmux-next/chrome-parity/p06-scheduler.md
+/// the startup phase's reveal (plans/cmux-next/chrome-parity/p06-scheduler.md
 /// section A: "Background and the fence open"). The fence has no off-main cap: the reveal deadline
 /// (1.5 s) bounds it, so no held best-effort item starts before the reveal.
 ///
@@ -47,7 +47,7 @@ public struct LaunchOrder {
     /// The one owner of launch order: posts, refs and the completion.
     public let startup: StartupScheduler
     #if CMUX_PGO_PROFILE
-    /// The profile build's flushes (p08-startup-103): launch.profraw at startup complete; `debug.pgo_flush`
+    /// The profile build's flushes: launch.profraw at startup complete; `debug.pgo_flush`
     /// writes rest.profraw before quit.
     public let profileFlush: ProfileFlush
     #endif
@@ -91,9 +91,9 @@ public struct LaunchOrder {
     ///     `BackgroundWork`, whose debug check reads the open input work there (p02-threads 112).
     ///   - input: The app's one input tap (p04-input.md 3 (A)): the budget's pending-input check observes it.
     ///   - startupTag: The launch's tag `main()` made first and gave the main-thread watchdog: the startup
-    ///     scheduler keeps its running task and phase there, so a launch stall names them (p08-startup-088).
+    ///     scheduler keeps its running task and phase there, so a launch stall names them.
     ///   - wakeUps: The main thread's one deadline queue `main()` made first and gave the main-thread watchdog,
-    ///     whose busy windows end on it (p14-energy-065); the scheduler's deadlines share it. Nil: the scheduler
+    ///     whose busy windows end on it; the scheduler's deadlines share it. Nil: the scheduler
     ///     makes its own.
     ///   - budgetPlacement: Where each frame's budgeted batch runs (feature `mainBudgetTurn`: after the commit).
     ///   - mark: Records a launch mark (`launch.revealed`, `launch.settled`, `startup_complete`).
@@ -105,13 +105,13 @@ public struct LaunchOrder {
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
         displays.presents.pendingCommits = { TypingLatencyProbe.shared.takePresentCommits() }
         displays.presents.observeCommits()
-        // The launch's phases (p06-scheduler-006/007/204): background work and the lanes' best-effort
+        // The launch's phases: background work and the lanes' best-effort
         // fence wait for the reveal, idle work for the settle. The marks are queued first, so each
         // shows before the held work it opens.
         let phase = StartupPhase()
         phase.whenReached(.revealed) { mark("launch.revealed") }
         phase.whenReached(.settled) { mark("launch.settled") }
-        let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
+        let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation,
                                                                  placement: budgetPlacement),

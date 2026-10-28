@@ -8,7 +8,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// The driver's observers run in the automation class (p06-scheduler-036): `dialog.opened`
+/// The driver's observers run in the automation class: `dialog.opened`
 /// (DialogBroker) and `tab.crashed` (TabWatcher) are sent by an automation task on the injected
 /// scheduler, after the person's pending input, once per change, and never after the watch ends.
 /// Frames and turns fire by hand, so nothing here waits on a clock or the main run loop.
@@ -88,7 +88,7 @@ import WebKit
         rig.stop()
     }
 
-    /// p06-scheduler-345: a load wait's timeout is an automation-class MainDeadline on the driver's scheduler (it
+    /// A load wait's timeout is an automation-class MainDeadline on the driver's scheduler (it
     /// was a DemandTimer whose fire started an unclassed main-actor Task): when it comes while the person has input
     /// pending, the agent's timeout waits behind it, then fails the wait once.
     @Test func aLoadWaitsTimeoutIsAnAutomationTaskBehindThePersonsInput() async throws {

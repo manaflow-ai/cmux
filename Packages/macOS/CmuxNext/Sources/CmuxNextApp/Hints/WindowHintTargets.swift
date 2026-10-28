@@ -250,7 +250,7 @@ final class PageElement: Equatable {
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `ax` facet (p15-oracle-216, ``OracleAccessibilityFacet``) over the shown tree hint mode walks.
+/// The oracle's `ax` facet (``OracleAccessibilityFacet``) over the shown tree hint mode walks.
 extension WindowHintTargets {
     /// The `ax` walk: the roles hint mode labels, text areas and menu items, with hint mode's page rule.
     static var oracleWalk: OracleAccessibilityWalk {

@@ -1,4 +1,4 @@
-/// Main-actor tasks that are part of a person's input or of the frame (p04-input-076): the
+/// Main-actor tasks that are part of a person's input or of the frame: the
 /// ``MainJobGate`` never holds their jobs, while it holds every other main-actor job behind
 /// pending input.
 ///

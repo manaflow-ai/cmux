@@ -289,7 +289,7 @@ class DaemonJudgeTests(unittest.TestCase):
                          [("ui-connection", 12), ("automation-class", 14)])
 
     def test_the_persons_local_connection_is_judged_by_the_class_its_lines_run_at(self):
-        # p01-process-203: a local connection holds no thread; `connections` gives its lines' class.
+        # A local connection holds no thread; `connections` gives its lines' class.
         app = dict(connection(1, "user", 900, "person"), lines_qos="user-interactive")
         attach = dict(connection(2, "agent", 900, "person"), lines_qos="user-initiated")
         cli = dict(connection(3, "agent", 4242, "automation"), lines_qos="utility")

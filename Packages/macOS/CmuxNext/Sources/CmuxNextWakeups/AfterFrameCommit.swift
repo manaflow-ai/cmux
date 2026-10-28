@@ -42,7 +42,7 @@ public struct AfterFrameCommit: Sendable {
 }
 
 /// A main run-loop turn of its own right after the current pass's commit, asked for once per frame:
-/// the budgeted batch's turn under the after-commit placement (p06-scheduler-201, ``BudgetedBatchPlacement``).
+/// the budgeted batch's turn under the after-commit placement (``BudgetedBatchPlacement``).
 /// ``request()`` adds a one-shot observer after every other observer of this pass's before-waiting
 /// phase (Core Animation's commit included); it queues the body on the main run loop and wakes it, so
 /// the body runs in the next pass, which the turn meter counts as a turn of its own. Requests made

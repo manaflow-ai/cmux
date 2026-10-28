@@ -225,9 +225,9 @@ impl IpcCapability {
 /// Which framed IPC capabilities have a transport in this daemon. One that
 /// has none is never advertised or granted: Mojo exposes an interface only
 /// once its implementation is bound. The task that lands a transport adds its
-/// capability to [`Self::BOUND`]: the frame reader (p05-ipc-061) `Frames`,
-/// streams and `cancel-stream` (p05-ipc-074) `AttachStreams`, attach frames
-/// `AttachFrames`, the ring (p05-ipc-111) `OutputRing`.
+/// capability to [`Self::BOUND`]: the frame reader `Frames`,
+/// streams and `cancel-stream` `AttachStreams`, attach frames
+/// `AttachFrames`, the ring `OutputRing`.
 pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {

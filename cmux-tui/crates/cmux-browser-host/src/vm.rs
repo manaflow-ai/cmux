@@ -5,6 +5,7 @@
 //! [`VmHost::driver_call`], where the host applies policy and resolves secret
 //! handles before any driver sees the call; the VM never holds a driver.
 
+use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use rquickjs::{Context, Ctx, Function, Object, Persistent, Promise, Runtime};
 use serde_json::{Value, json};
@@ -535,15 +536,15 @@ fn install(
                             .map(|bytes| crate::fs_sandbox::base64_encode(&host.mask_bytes(&bytes)))
                     };
                     if op == "writeFile"
-                        && let Some(encoded) = args["base64"].as_str().and_then(masked)
+                        && let Some(encoded) = args.field("base64").as_str().and_then(masked)
                     {
-                        args["base64"] = Value::String(encoded);
+                        args.insert("base64", Value::String(encoded));
                     }
                     let mut result = sandbox.call(&op, &args);
                     if op == "readFile"
-                        && let Some(encoded) = result["ok"].as_str().and_then(masked)
+                        && let Some(encoded) = result.field("ok").as_str().and_then(masked)
                     {
-                        result["ok"] = Value::String(encoded);
+                        result.insert("ok", Value::String(encoded));
                     }
                     result.to_string()
                 }
@@ -672,16 +673,20 @@ fn install(
             // session's fs sandbox, so its values never enter the VM.
             if name == "secrets"
                 && op == "load"
-                && let Some(path) = args["path"].as_str()
+                && let Some(path) = args.field("path").as_str()
             {
                 let read = sandbox.call("readFile", &json!({"path": path}));
-                let Some(text) = read["ok"]
+                let Some(text) = read
+                    .field("ok")
                     .as_str()
                     .and_then(crate::fs_sandbox::base64_decode)
                     .and_then(|bytes| String::from_utf8(bytes).ok())
                 else {
-                    let message =
-                        read["error"]["message"].as_str().unwrap_or("could not read the file");
+                    let message = read
+                        .field("error")
+                        .field("message")
+                        .as_str()
+                        .unwrap_or("could not read the file");
                     return answer(Err(("invalid", format!("secrets.load: {message}"))));
                 };
                 let Ok(object) = serde_json::from_str::<Value>(&text) else {

@@ -159,8 +159,7 @@ public final class DaemonService {
         }
     }
 
-    /// The app became active: with the App's presence the connection's heartbeat asks once
-    /// (p14-energy-064).
+    /// The app became active: with the App's presence the connection's heartbeat asks once.
     private func becameActive() {
         guard connectionPresence != nil else { return }
         connection?.heartbeat.activated()

@@ -22,19 +22,19 @@ extension AppDelegate {
                                    watchdog: control.watchdog, features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
-        // Before any window mounts a pane (p01-process-152); the ring and host takeover are stand-ins until 131 and 150 land.
+        // Before any window mounts a pane; the ring and host takeover are stand-ins until 131 and 150 land.
         services.crashRecovery.relaunchReattach(features: services.features).apply(steps: .unavailable,
             discardSavedFrames: { services.terminalLaunchFrames.discardLaunchRead() }, mark: { DebugTimings.markLaunch($0) })
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
-                                             work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
+                                             work: launchReads.work, mainWork: mainWork)  // On a lane
         TooltipPresenter.shared.follow(appEvents: services.appEvents, deadlines: .on(services.mainDeadlines))  // the app's one observer and wake-up queue
         CmuxToastCenter.shared.deadlines = .on(services.mainDeadlines)  // toasts' times are classed deadlines, behind input
         BrowserExternalApps.shared.queries = services.workspaceQueries  // a page's app links ask Launch Services on the system lane
-        let rateClasses = services.features.isEnabled(.frameRateClasses)  // links at their clients' rate, loops at 30 Hz (p03-rendering-013)
+        let rateClasses = services.features.isEnabled(.frameRateClasses)  // links at their clients' rate, loops at 30 Hz
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
         services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
-        // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
+        // VSyncHub: each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
         // The settle references, one closure each, before the daemon starts and the windows restore
@@ -50,7 +50,7 @@ extension AppDelegate {
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
-        // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
+        // Idle wakeups per inactive minute, once the launch's own work is done.
         order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
             guard let services else { return }
             services.startIdleWakeups(watchdog: control.watchdog, hiddenWorkspaceMemory: AppProcessRoot.shared.hangReports?.memory)
@@ -67,8 +67,8 @@ extension AppDelegate {
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, windows: services.windows, on: services.mainWork)
-        launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
-        if services.features.isEnabled(.hiddenPollPause) {  // before the local daemon's first connect (p14-energy-064)
+        launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)
+        if services.features.isEnabled(.hiddenPollPause) {  // before the local daemon's first connect
             let presence = DaemonPresenceFeed(windows: services.appVisibility.shownWindows)
             services.lifetimeFollowers.append(presence)
             services.machines.connectionPresence = presence.presence

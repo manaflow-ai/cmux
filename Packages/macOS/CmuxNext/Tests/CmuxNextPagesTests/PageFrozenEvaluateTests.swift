@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Native pushes to a frozen page (p13-webui-065, MQ12): a frozen page gets no script, the thaw runs
+/// Native pushes to a frozen page (MQ12): a frozen page gets no script, the thaw runs
 /// the latest held push of each kind once, before anything sent after it, and a push that thaws first
 /// (a command, a call that waits for the page's answer) thaws the page in the caller's turn, through
 /// the page lifecycle, which freezes it again one recently visible window later. Every step is a call

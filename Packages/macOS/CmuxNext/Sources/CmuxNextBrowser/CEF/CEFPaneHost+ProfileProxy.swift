@@ -1,7 +1,7 @@
 import Foundation
 
 /// Host mode: a pane's first window waits for the Chromium Host's verdict on its browser profile's
-/// proxy (#24432, task p01-process-021). In process the shim answers in `ensureCreated`'s call; the
+/// proxy (#24432). In process the shim answers in `ensureCreated`'s call; the
 /// host answers in a REPLY, and the window state says the pane is waiting
 /// (`WindowState.awaitingProfileProxy`), so a tab or a popup placeholder that asks meanwhile joins the
 /// wait as it joins a window being built.

@@ -1,5 +1,5 @@
-//! Setting, scoping and reading the crash keys allocates nothing
-//! (p10-stability-207): a hang reporter or a panic hook reads them on any
+//! Setting, scoping and reading the crash keys allocates nothing:
+//! a hang reporter or a panic hook reads them on any
 //! thread, even one whose allocator is what hung. A counting global
 //! allocator tallies this thread's allocations around the calls.
 

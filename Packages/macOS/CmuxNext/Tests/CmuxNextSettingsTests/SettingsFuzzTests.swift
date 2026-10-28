@@ -31,7 +31,7 @@ import Testing
 /// CMUX_SETTINGS_FUZZ=1 CMUX_FUZZ_DEADLINE=$(( $(date +%s) + 300 )) swift test --filter SettingsFuzzTests
 /// ```
 ///
-/// `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS` replay a failure (CmuxFuzzSupport, p10-stability-016). The suite
+/// `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS` replay a failure (CmuxFuzzSupport). The suite
 /// is serialized, so each of its ``runCount`` runs gets an equal share of a `CMUX_FUZZ_DEADLINE`.
 @MainActor
 @Suite(
@@ -65,8 +65,8 @@ struct SettingsFuzzTests {
         return FuzzRun(name, seed: seed, iterations: iterations, environment: environment)
     }
 
-    /// One input of the in-process properties, its choices read from `data` (the libFuzzer entry,
-    /// p10-stability-182). The controller run writes files and awaits loads, so it is not part of it.
+    /// One input of the in-process properties, its choices read from `data` (the libFuzzer entry).
+    /// The controller run writes files and awaits loads, so it is not part of it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(5) {

@@ -16,7 +16,7 @@ pub(super) enum HostedTransition {
         output: Vec<u8>,
         flow: u64,
         /// The host's PTY write and read of the press (trace clock ns, 0:
-        /// unknown), with `FLAG_INPUT_STAGES` (p04-input-094); `None` from a
+        /// unknown), with `FLAG_INPUT_STAGES`; `None` from a
         /// host that sends no stages.
         host_stages: Option<(u64, u64)>,
     },

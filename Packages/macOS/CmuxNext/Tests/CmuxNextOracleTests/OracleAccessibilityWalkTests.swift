@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextOracle
 import Testing
 
-/// The ax facet's walk (p15-oracle-216): the shown elements a person can act on and the focused one, in preorder
+/// The ax facet's walk: the shown elements a person can act on and the focused one, in preorder
 /// with depth counted over kept elements only; a page's subtree is left to the page; each element once, a sheet's
 /// too. Run: `swift test --filter OracleAccessibilityWalkTests`.
 @MainActor @Suite(.serialized) struct OracleAccessibilityWalkTests {

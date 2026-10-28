@@ -2,8 +2,8 @@
 //! disallowed (p02-threads task 210): the read loop a local PTY surface
 //! reads on, the sequenced pool's input workers its attach views drain on
 //! and the frame producer are registered at that class. Its attach views
-//! hold no thread (p01-process-125), and neither does a connection: the one
-//! `mux-io` loop reads and writes it (p01-process-203).
+//! hold no thread, and neither does a connection: the one
+//! `mux-io` loop reads and writes it.
 
 use std::time::{Duration, Instant};
 
@@ -54,11 +54,10 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
         client.request(json!({"cmd": "attach-surface", "surface": attached.id, "mode": "render"}));
     assert_eq!(render["ok"], true, "{render}");
 
-    // A local PTY reads on its owner's read loop, not a thread of its own
-    // (p07-memory-095).
+    // A local PTY reads on its owner's read loop, not a thread of its own.
     let reader = crate::mux::terminal_work::read_loop::READ_LOOP_THREAD;
     // The views' output is a drain on the sequenced pool's input workers,
-    // which keep the echo class, not a thread per view (p01-process-125).
+    // which keep the echo class, not a thread per view.
     for name in ["mux-seq-input", reader] {
         assert_rows(name, ECHO_PATH_QOS);
     }
@@ -71,7 +70,7 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
     mux.shutdown();
 }
 
-/// p01-process-203: an accepted connection starts no thread. The one
+/// An accepted connection starts no thread. The one
 /// `mux-io` loop, at user-initiated, reads and writes it; no `mux-conn` or
 /// `mux-line-out` thread exists.
 #[test]

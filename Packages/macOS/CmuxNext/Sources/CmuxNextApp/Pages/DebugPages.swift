@@ -48,7 +48,7 @@ extension AppControl {
         service?.router.register([
             .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
             // Every page, spare and Chromium helper process: state, keep reasons, pids and what reached
-            // hidden pages (p13-webui-001; keys in WebUICensus). `reset: true` zeroes the counters after
+            // hidden pages (keys in WebUICensus). `reset: true` zeroes the counters after
             // the read. The page walk runs in the automation work class, the helpers' argv off the main actor.
             .mainActor("debug.webui") { [weak services] call in
                 guard let services, let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
@@ -217,7 +217,7 @@ enum DebugPages {
     }
 }
 
-/// The oracle's `webviews` facet (p15-oracle-215): each page a person can reach (in a tab or a window, never a
+/// The oracle's `webviews` facet: each page a person can reach (in a tab or a window, never a
 /// parked spare) answers `cmux.page.oracle.state`, placed by the page or agent tab whose view holds it.
 extension AppServices {
     /// How long the facet waits for the pages' answers (they are asked together, so one deadline in all).

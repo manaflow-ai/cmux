@@ -181,7 +181,7 @@ final class TerminalEventQueue: Sendable {
     /// to the view's lane (`enqueue`, given the lane's wake). When the lane says it is above its capacity, the
     /// reader's next ``waitWhileFull()`` waits until the lane wakes it, the stream ends or the link detaches
     /// (``releaseLane(closing:)``). `enqueue` returns whether the reader must wait; the lane calls the wake exactly
-    /// once when it returned true. Never waits itself: the reader waits after it handed the line on (p05-ipc-144).
+    /// once when it returned true. Never waits itself: the reader waits after it handed the line on.
     func enqueueOnLane(_ enqueue: (_ wake: @escaping @Sendable () -> Void) -> Bool) {
         // Held before the enqueue, so a wake that comes before it returns is not lost; a detached link holds nothing.
         state.withLock { $0.laneHeld = !$0.laneClosed }
@@ -416,7 +416,7 @@ final class TerminalEventQueue: Sendable {
     }
 
     /// The stream ended after an overflow (``Backpressure/dropAndResync(_:)``: a byte attach over the bound, or
-    /// a resync that failed): an attach stream then tells the daemon with `cancel-stream` (p05-ipc-095).
+    /// a resync that failed): an attach stream then tells the daemon with `cancel-stream`.
     var endedAfterOverflow: Bool {
         state.withLock { $0.finished && $0.overflows > 0 }
     }

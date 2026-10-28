@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reload.sh --config asan|tsan|ubsan (chrome-parity p10-stability-012): the Release configuration with
+# reload.sh --config asan|tsan|ubsan: the Release configuration with
 # that sanitizer, symbols kept, under its own tag (the config is the suffix, so the bundle id ends in
 # .asan/.tsan/.ubsan). check-no-bench-hooks.sh, which the release, nightly and build-sign-upload
 # pipelines run on the app they ship, refuses a sanitizer app, and --expect-sanitizer requires the

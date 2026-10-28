@@ -104,7 +104,7 @@ code_of, escaped, enclosing_openers = swift_scope.code_of, swift_scope.escaped, 
 COMMENT_LINE, ATTRIBUTE, ATTRIBUTE_LINE = swift_scope.COMMENT_LINE, swift_scope.ATTRIBUTE, swift_scope.ATTRIBUTE_LINE
 
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
-# The linked packages (p02-threads-130): CmuxNext's Package.swift links Shared, macOS and iOS packages by path, and
+# The linked packages: CmuxNext's Package.swift links Shared, macOS and iOS packages by path, and
 # their code runs in the app, so the blocking rules and task-priority read their Sources too (LINKED_RULE_SCOPE).
 # LINKED_SOURCES is a rule scope entry that matches no path prefix: in_rule_scope() matches it to a file under the
 # Sources of a package in the closure load_linked_packages() read. Chrome's blocking rules hold in every component
@@ -247,7 +247,7 @@ class Rule:
     find: Callable[[list[FileChange], collections.Counter], list[Added]]  # (changed files, removed texts) -> hits
     scope: tuple[str, ...] = (SOURCES,)  # path prefixes the rule reads (most rules: Sources only)
     net: bool = False  # a count over the whole push (NetHit buckets), not per added line
-    # The local tier (p10-stability-199): judged only on the person's machine, never under GitHub Actions.
+    # The local tier: judged only on the person's machine, never under GitHub Actions.
     local_only: bool = False
 
 
@@ -1713,7 +1713,7 @@ def module_of(path: str) -> str:
     return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
 
 
-# ---- task-priority (PL-qos, p02-threads-011)
+# ---- task-priority (PL-qos)
 # Every off-main task, queue and thread states its priority on purpose (Lawrence's threading items 3 and 5,
 # plans/cmux-next/PATTERNS.md P14; Chromium base/task/task_traits.h: every posted task names its TaskPriority, and
 # base/threading/platform_thread.h: every thread is created with a ThreadType). Per form:
@@ -1976,7 +1976,7 @@ RULES = (
 )
 
 
-# ---------------------------------------------------------------- sync-layout (p03-rendering-066, PL-guardrails)
+# ---------------------------------------------------------------- sync-layout (PL-guardrails)
 # A forced layout or display pass, or a CATransaction flush, does on the caller's turn what the frame does once
 # per display refresh (plans/cmux-next/chrome-parity/p03-rendering.md R4, DC11). Blink names the reason of every
 # forced lifecycle update (`Document::UpdateStyleAndLayout(DocumentUpdateReason)`,
@@ -2002,7 +2002,7 @@ SYNC_LAYOUT_RULES = (
          matcher_rule(Matcher(SYNC_LAYOUT, SYNC_LAYOUT_ALLOW, code=lambda text: text, window=ratchet.allow_lines))),
 )
 RULES += SYNC_LAYOUT_RULES
-# ---------------------------------------------------------------- end of sync-layout (p03-rendering-066)
+# ---------------------------------------------------------------- end of sync-layout
 
 
 # ---------------------------------------------------------------- input-monitor (p04-input, PL-typing)
@@ -2071,7 +2071,7 @@ RULES += INPUT_RULES
 # ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
 
 
-# ---------------------------------------------------------------- target-settings (p10-stability-037)
+# ---------------------------------------------------------------- target-settings
 # Every Swift target of the app's package closure carries the shared compile-time safety settings
 # (plans/cmux-next/chrome-parity/p10-stability.md): `stabilitySwiftSettings`, directly or through a top-level
 # settings constant that appends it (CmuxNext's uiSwiftSettings and daemonSwiftSettings). Chromium gets this from
@@ -2291,10 +2291,10 @@ TARGET_SETTINGS_RULES = (
          scope=("/Package.swift",)),
 )
 RULES += TARGET_SETTINGS_RULES
-# ---------------------------------------------------------------- end of target-settings (p10-stability-037)
+# ---------------------------------------------------------------- end of target-settings
 
 
-# ---------------------------------------------------------------- safety-todo (p10-stability-211)
+# ---------------------------------------------------------------- safety-todo
 # `// SAFETY-TODO(p10)` marks an old unsafe site that the strict-memory-safety pass (apply-unsafe-fixits.py) found
 # when the check went on; the marks are the Q04 queue that module tasks 063-078 empty. Chromium's order
 # (docs/unsafe_buffers.md): UNSAFE_TODO() wraps only code that predates the check, and new code writes
@@ -2423,7 +2423,7 @@ SAFETY_TODO_RULES = (
          scope=("Packages/",)),
 )
 RULES += SAFETY_TODO_RULES
-# ---------------------------------------------------------------- end of safety-todo (p10-stability-211)
+# ---------------------------------------------------------------- end of safety-todo
 
 
 # ---------------------------------------------------------------- main-thread classes (p06-scheduler)
@@ -2707,7 +2707,7 @@ RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
-# ---------------------------------------------------------------- raw-continuation (p10-stability-083, 089)
+# ---------------------------------------------------------------- raw-continuation
 # A raw `with(Checked|Unsafe)(Throwing)?Continuation` traps on a second resume and leaks its task when the producer
 # drops it; CmuxSafeConcurrency's OnceContinuation resumes exactly once (a second resume is a no-op and a fault, a
 # drop throws `.abandoned`, cancellation only with `.cancellable`), as Chromium's base::OnceCallback runs once and
@@ -2750,10 +2750,10 @@ RAW_CONTINUATION_RULES = (
          scope=("Packages/",)),
 )
 RULES += RAW_CONTINUATION_RULES
-# ---------------------------------------------------------------- end of raw-continuation (p10-stability-083, 089)
+# ---------------------------------------------------------------- end of raw-continuation
 
 
-# ---------------------------------------------------------------- invariant-site (p10-stability-099, 199)
+# ---------------------------------------------------------------- invariant-site
 # Invariant.check traps in every build (Chromium's CHECK) and Invariant.dumpWillBeCheck reports for ever
 # (DUMP_WILL_BE_CHECK; base/check.h, docs/checks.md): each site is a reviewed decision, as Chromium reviews each new
 # CHECK. The classes are crash_ratchet.py's report-only invariant_check and dump_will_be_check (one definition); CI's
@@ -2818,10 +2818,10 @@ INVARIANT_SITE_RULES = (
          scope=("Packages/",)),
 )
 RULES += INVARIANT_SITE_RULES
-# ---------------------------------------------------------------- end of invariant-site (p10-stability-099, 199)
+# ---------------------------------------------------------------- end of invariant-site
 
 
-# ---------------------------------------------------------------- not-fatal-until-lowered (p10-stability-205)
+# ---------------------------------------------------------------- not-fatal-until-lowered
 # Invariant.notFatalUntil(cond, id, build: N) reports until build N, then traps, like Chromium's
 # base::NotFatalUntil::M<n> (base/check.h). A lower or removed N moves the day users crash, so it needs a reason. The
 # rules are crash_ratchet.py's lowered_not_fatal_until (one definition), judged over the push's changed Swift files on
@@ -2847,10 +2847,10 @@ NOT_FATAL_UNTIL_RULES = (
          scope=("Packages/",)),
 )
 RULES += NOT_FATAL_UNTIL_RULES
-# ---------------------------------------------------------------- end of not-fatal-until-lowered (p10-stability-205)
+# ---------------------------------------------------------------- end of not-fatal-until-lowered
 
 
-# ---------------------------------------------------------------- trap-api (p10-stability-092, 097, 098)
+# ---------------------------------------------------------------- trap-api
 # A standard-library call that traps on a bad argument: `uniqueKeysWithValues:` (a repeated key), an unguarded
 # `removeFirst()` / `removeLast()` (an empty collection), `(repeating:count:)` with a count that may be negative,
 # `index(_:offsetBy:)` without `limitedBy:` (past the end). The class and its guard exemptions are crash_ratchet.py's
@@ -2905,10 +2905,83 @@ TRAP_API_RULES = (
          scope=("Packages/",)),
 )
 RULES += TRAP_API_RULES
-# ---------------------------------------------------------------- end of trap-api (p10-stability-092, 097, 098)
+# ---------------------------------------------------------------- end of trap-api
 
 
-# ---------------------------------------------------------------- Rust stability rules (p10-stability-102)
+# ---------------------------------------------------------------- task ids in comments
+# A plan task id (`pNN-area-NNN`) in a code comment names where a change came from, which is the commit message's job:
+# `git log -S` and `git blame` find it there, and in the code it says nothing to a reader without the plan and goes
+# stale when the code moves on (the chrome-parity work left over 2000 of them). task_ids.py beside this file defines
+# what an id and a comment are, and strips the old ones (--strip); this rule refuses new ones. Like every rule here it
+# is a count ratchet: an added comment line whose ids the push also removes from a comment (an edit, a move) is not
+# new; the key is the bare id, so `cp/`, backticks or `(fixer)` around it do not make a kept id new.
+# It sees only the files check() diffs (Swift in Packages' Sources and Tests, the shipped crates' src, webviews/src and
+# the CEF shim's and Chromium host's src); comments elsewhere (crate tests/, the host's client/ and tests/, scripts)
+# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule open, not the hook.
+TASK_ID_SCOPE = ("Packages/", "cmux-tui/", "webviews/", "Native/", "cmux-next-ios/")
+
+
+@functools.cache
+def task_ids_module():
+    return load_sibling("cmux_next_task_ids", "task_ids.py")
+
+
+def task_id_lines(path: str, lines: list[str]) -> dict[int, set[str]]:
+    """1-based line -> the task ids a comment on that line names (a generated file or block names none)."""
+    task_ids = task_ids_module()
+    text = "\n".join(lines)
+    if not task_ids.ID_RE.search(text):
+        return {}
+    owned = task_ids.generated_ranges(text)
+    out: dict[int, set[str]] = {}
+    for a, b in task_ids.comment_spans(path, text):
+        if any(x <= a < y for x, y in owned):
+            continue
+        first = text.count("\n", 0, a)
+        for k, line in enumerate(text[a:b].split("\n")):
+            found = {re.search(task_ids.ID, m.group(0)).group(0) for m in task_ids.ID_RE.finditer(line)}
+            if found:
+                out.setdefault(first + k + 1, set()).update(found)
+    return out
+
+
+def task_id_comments(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added lines whose comment names a task id that no comment line the push removes names."""
+    removed_ids: collections.Counter = collections.Counter()
+    added: list[tuple[Added, set[str]]] = []
+    for change in changes:
+        if change.removed:
+            base = task_id_lines(change.path, change.base_lines)
+            for line in change.removed:
+                removed_ids.update(base.get(line.number, ()))
+        if change.added:
+            head = task_id_lines(change.path, change.head_lines)
+            added += [(line, head[line.number]) for line in change.added if line.number in head]
+    hits = []
+    for line, ids in added:
+        if all(removed_ids[i] > 0 for i in ids):
+            for i in ids:
+                removed_ids[i] -= 1
+        else:
+            hits.append(line)
+    return hits
+
+
+TASK_ID_RULES = (
+    Rule("task-id-comment", "A plan task id (`p04-input-053`, `cp/p10-stability-083`) in a new code comment",
+         "a comment says what the code does and why; where the change came from is the commit message's job, where "
+         "`git log` and `git blame` find it. In the code an id says nothing without the plan and goes stale",
+         "say the reason in words and put the task id in the commit message; strip old ones with "
+         "`scripts/cmux-next/task_ids.py --strip PATH`",
+         None,
+         task_id_comments,
+         scope=TASK_ID_SCOPE, local_only=True),
+)
+RULES += TASK_ID_RULES
+# ---------------------------------------------------------------- end of task ids in comments
+
+
+# ---------------------------------------------------------------- Rust stability rules
 # Syntax rules on the Rust a push adds in the shipped crates' src, run with the pinned ast-grep (lint-tools.lock;
 # the rules are ast-grep/rules/*.yml beside this file). No cargo build: the person's Mac never builds Rust. They are
 # the local tier's early warning (plans/cmux-next/chrome-parity/p10-stability.md, section E "Queues"); the fleet's
@@ -3107,10 +3180,10 @@ RUST_RULES = (
          rust_rule("rust-ffi-guard", "ffi-nopanic:"), scope=RUST_STABILITY_ROOTS, local_only=True),
 )
 RULES += RUST_RULES
-# ---------------------------------------------------------------- end of Rust stability rules (p10-stability-102)
+# ---------------------------------------------------------------- end of Rust stability rules
 
 
-# ---------------------------------------------------------------- decode-trap (p10-stability-093)
+# ---------------------------------------------------------------- decode-trap
 # Outside input never traps (p10-stability.md, section D): a file in decode-paths.json reads a peer's, a device's or
 # a file's bytes, and holds no index subscript and no trapping integer conversion, by the crash ratchet's own
 # definitions (crash_ratchet.py's index_subscript and int_conversion: one definition). Unlike a count ratchet this
@@ -3164,7 +3237,7 @@ DECODE_TRAP_RULES = (
          scope=("Packages/",)),
 )
 RULES += DECODE_TRAP_RULES
-# ---------------------------------------------------------------- end of decode-trap (p10-stability-093)
+# ---------------------------------------------------------------- end of decode-trap
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
@@ -3585,19 +3658,19 @@ SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
     r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run|ForReading|ForWriting|ForUpdating|SeekToEnd|Seek|"
     r"Synchronize|CanEvaluatePolicy)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|PosixSpawn"
-    # POSIX files, waitpid, ImageIO file I/O, SQLite, kernel and directory queries (p02-threads-127)
+    # POSIX files, waitpid, ImageIO file I/O, SQLite, kernel and directory queries
     r"|Open|Pread|Pwrite|Fsync|Flock|Ftruncate|Rename|Unlink|Stat|Lstat|Realpath|Access|Chmod|Mkdir|Rmdir|Waitpid|Waitid"
     r"|Sysctl|SysctlByName|ProcPidInfo|ProcPidPath|ProcPidFDInfo|ProcListPids|ProcPidRusage|Getpwuid|Getpwnam"
     r"|ImageSource|ImageSourceCount|ImageSourceCopyProperties|ImageSourceCreateImage|ImageSourceCreateThumbnail"
     r"|ImageDestination|ImageDestinationFinalize"
     r"|SQLiteOpen|SQLitePrepare|SQLiteStep|SQLiteExec|SQLiteClose|SQLiteCloseV2|SQLiteBackupStep)\(|\bblockingCall\("
-    # the system-call seams (p02-threads-003)
+    # the system-call seams
     r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
     r"|URLForApplication|URLsForApplications|Icon|SMAppService(Status|Register|Unregister)|AuthorizationCopyRights)\(")
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
-# sleep holds a thread to wait for time; `runModal(` spins a nested modal run loop on main until the person answers
-# (p02-threads-132). Chrome shows its dialogs window-modal, never in a nested loop: SelectFileDialogBridge begins its
+# sleep holds a thread to wait for time; `runModal(` spins a nested modal run loop on main until the person answers.
+# Chrome shows its dialogs window-modal, never in a nested loop: SelectFileDialogBridge begins its
 # panel with beginSheetModalForWindow (components/remote_cocoa/app_shim/select_file_dialog_bridge.mm). Use
 # beginSheetModal(for:), a panel's begin(completionHandler:) or a CmuxDialogSpec. NSPrintOperation's sheet form
 # `runModal(for: window, delegate:...)` returns at once, so a call with a `delegate:` is not one.
@@ -3847,7 +3920,7 @@ def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter
     return [WarnHit(h.path, h.number, h.text) for h in changed_debt(outside_seams(changes), judge)]
 
 
-# pool-blocking (p02-threads-010): a blocking call on a shared pool thread. Chrome's ThreadPool runs a task without
+# pool-blocking: a blocking call on a shared pool thread. Chrome's ThreadPool runs a task without
 # MayBlock() under ScopedDisallowBlocking (base/task/thread_pool/task_tracker.cc RunTask); cmux's pools are the Swift
 # cooperative pool (Task.detached, child tasks, `Task {` off any actor, default actor executors, @concurrent) and the
 # GCD root queues. One blocked pool thread is a whole core's worth of async work stalled (the pool has one per core).
@@ -4577,7 +4650,7 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
-# once-blocking (p02-threads-122): a blocking call in a static, lazy or global initializer. Swift runs such an
+# once-blocking: a blocking call in a static, lazy or global initializer. Swift runs such an
 # initializer once (swift_once), on whichever thread reads the value first, while every other first reader waits
 # on the once guard: its disk, kernel or process wait lands on an unknown thread, often the main thread, and no
 # seam can say which. Chromium keeps blocking work out of lazy singletons and static initializers for the same
@@ -4884,7 +4957,7 @@ RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
 
 
-# ---- awaited-low-priority (PL-qos, p02-threads-113)
+# ---- awaited-low-priority (PL-qos)
 # A task started below the person's priority (`Task(priority: .low|.utility|.background)`, `Task.detached(priority:`
 # the same, `work.task(.bestEffort|.idle)`) whose `.value` or `.result` main-actor code awaits is a latency inversion:
 # the task waits behind work nobody waits for until the await, and Swift's escalation only raises it from the await on

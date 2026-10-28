@@ -7,7 +7,7 @@ import CmuxNextPages
 import Foundation
 import Testing
 
-/// No New Tab page renderer before a New Tab page first shows (p07-memory-048, feature
+/// No New Tab page renderer before a New Tab page first shows (feature
 /// `pageRendererAtFirstShow`): the launch arms no spare warm; the first New Tab page of the session
 /// (``NewTabPreload/take(for:size:)``, which Cmd-T, Cmd-N and a restored page all call) arms it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))

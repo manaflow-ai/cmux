@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// Link clicks on Chromium pages hear the app's input tap (p04-input-018): one `.standard` intercept of
+/// Link clicks on Chromium pages hear the app's input tap: one `.standard` intercept of
 /// buttons and keys that always passes, where AppKit's local monitor ran. It records a page's mouse-up
 /// with its modifiers and reports a press on a page as a fresh user gesture, but only for input that
 /// reaches the page: a shortcut the key router takes or a click an earlier intercept consumes is

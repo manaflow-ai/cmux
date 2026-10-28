@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 import CmuxNextWakeups
 
-/// The attach decoder reads the key press an `output` event echoes (`flow`, p09-observability-018), so the
+/// The attach decoder reads the key press an `output` event echoes (`flow`), so the
 /// typing probe's decode mark names that press exactly.
 struct TerminalAttachmentFlowTests {
     private let surface = SurfaceID(rawValue: 3)
@@ -28,7 +28,7 @@ struct TerminalAttachmentFlowTests {
         #expect(decoded.event == .output(Data("a".utf8), colors: nil))
     }
 
-    /// p04-input-094: a daemon with key stages sends them with the echo; one from before them sends none, and the
+    /// A daemon with key stages sends them with the echo; one from before them sends none, and the
     /// echo still decodes with its flow (an older daemon with a newer app).
     @Test func anEchoCarriesTheDaemonsKeyStages() throws {
         let staged = try decode(

@@ -4,7 +4,7 @@ public import AppKit
 import AppKit
 #endif
 
-// Keys of a hosted page (p01-process-030). cmux's KeyRouter decides every key-down first, in
+// Keys of a hosted page. cmux's KeyRouter decides every key-down first, in
 // `CmuxApplication.sendEvent`: app shortcuts (new tab, close, the address bar) run there and never
 // reach the page. What it passes on is the page's. A Command or Control chord the page leaves
 // unhandled comes back from the host as KEY_UNHANDLED with the input seq of the frame that carried

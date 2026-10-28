@@ -71,7 +71,7 @@ struct SidebarSlideHoldsContentTests {
         root.layoutSubtreeIfNeeded()
     }
 
-    /// p12-perf-process-102: the hold is feature `sidebarSlideHoldsContent`, on by default on every channel.
+    /// The hold is feature `sidebarSlideHoldsContent`, on by default on every channel.
     @Test func holdingIsTheDefault() {
         for channel in [Feature.Channel.dev, .nightly, .release] {
             #expect(holds(channel, tunable: nil), "\(channel)")

@@ -19,7 +19,7 @@ use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{Actor, MuxEvent, resource_router};
 
 use super::envelope::error;
-pub(crate) use super::envelope::{answer, is_daemon_op, request};
+pub(crate) use super::envelope::{answer, error_answer, is_daemon_op, request};
 
 pub struct MuxRouter {
     mux: Weak<Mux>,
@@ -57,7 +57,7 @@ impl OpRouter for MuxRouter {
             &message,
             Actor::App { id: app.to_string() },
         )
-        .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
+        .map_err(|e| error_answer(&json!(e)))?;
         if resource_router::requires_connection_context(parsed.envelope.operation) {
             return Err(error(
                 "operation.unsupported",
@@ -65,7 +65,7 @@ impl OpRouter for MuxRouter {
             ));
         }
         let response = resource_router::handle_parsed_resource_request(&mux, parsed)
-            .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
+            .map_err(|e| error_answer(&json!(e)))?;
         answer(op, response)
     }
 

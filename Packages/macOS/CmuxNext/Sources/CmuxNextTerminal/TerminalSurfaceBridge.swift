@@ -216,7 +216,7 @@ nonisolated struct TerminalInputSink: Sendable {
         self.typingSurface = typingSurface
     }
 
-    /// Sends `data`; `keyFlow` is the latency slot flow of the key press it encodes (0: none, p04-input-094).
+    /// Sends `data`; `keyFlow` is the latency slot flow of the key press it encodes (0: none).
     func send(_ data: Data, keyFlow: UInt64 = 0) {
         lane.push(keyFlow == 0 ? .bytes(data) : .keyBytes(data, keyFlow: keyFlow))
     }

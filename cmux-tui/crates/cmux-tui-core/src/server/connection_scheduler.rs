@@ -1,7 +1,7 @@
 //! The per-connection surface scheduler: pending surface requests, the
 //! connection's cancellation token, clear-history barriers, the stream
 //! barrier, and the connection's control sequence on the daemon-wide
-//! sequenced pool (sequenced_pool.rs, p05-ipc-073) that runs queued surface
+//! sequenced pool (sequenced_pool.rs) that runs queued surface
 //! operations in order.
 //!
 //! The control sequence holds every request of the connection in arrival
@@ -30,7 +30,7 @@
 //! (`Command::is_input`) runs before other surfaces' queued requests, as
 //! Chrome's `kUserInput` queue outranks its other UI-thread queues
 //! (content/browser/scheduler/browser_task_queues.h); input never passes
-//! earlier input that can run, nor a request that names no surface (p04-input-085).
+//! earlier input that can run, nor a request that names no surface.
 //! A long read (`Command::is_long_read`) runs on a work item of the mux's Cpu
 //! lane (`Mux::work`), not on the control sequence and not on a thread of its
 //! own, so a later Send for another surface answers while it runs.
@@ -173,7 +173,7 @@ impl SequenceBudget for SurfaceOperationBudget {
 
 /// Any other line (a v2 operation, a feature route, a remote-relay line):
 /// its connection's caps only. These lines never met the daemon's budget
-/// before they were sequenced (p05-ipc-086), and one connection's large
+/// before they were sequenced, and one connection's large
 /// `fs-v1` write or transfer page must not refuse another connection's.
 pub(super) struct ConnectionBudget;
 
@@ -293,7 +293,7 @@ pub(super) struct ConnectionSurfaceState {
     /// The connection's control sequence on the mux's pool.
     pub(super) control: Option<Sequence>,
     /// Its requests' sequence on the pool's input workers while the
-    /// connection is the person's (p01-process-203): an agent's burst of
+    /// connection is the person's: an agent's burst of
     /// requests never queues ahead of a key. One pump exists at a time, so
     /// moving between the two keeps the requests in order.
     pub(super) input: Option<Sequence>,

@@ -380,7 +380,7 @@ import Testing
         var reports: [[UInt64]] = []
     }
 
-    /// The host reports when each input's frame was presented (task p04-input-066): the session hands the event time
+    /// The host reports when each input's frame was presented: the session hands the event time
     /// and the presentation time on, in order, and keeps a frame that failed to present to itself.
     @Test func hostPresentationReportsReachTheInputLatencySeam() async throws {
         let launcher = FakeLauncher()
@@ -406,7 +406,7 @@ import Testing
     }
 
     /// The session tells the tracker whether page slots can expect a report: what the host's `ready` announced, and
-    /// false once that host ended, so a page slot waits for a report only while one can come (task p04-input-066).
+    /// false once that host ended, so a page slot waits for a report only while one can come.
     @Test func theHostsReadyDecidesWhetherPageSlotsWaitForReports() async throws {
         let launcher = FakeLauncher()
         let seen = ReportsSeen()

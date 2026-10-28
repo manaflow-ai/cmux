@@ -32,7 +32,7 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
-    /// When a tab's origin lets it start Chromium during launch (p08-startup-040).
+    /// When a tab's origin lets it start Chromium during launch.
     let launchDeferral: CEFLaunchDeferral
     private(set) lazy var loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start: its load, then CefInitialize on a picked turn (built on first use, as the runtime)
 
@@ -226,7 +226,7 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// Whether spare windows hold a renderer-less placeholder where the fork makes one (the
-    /// `rendererlessSpareWindow` feature, p13-webui-019); off, a spare holds a frozen about:blank
+    /// `rendererlessSpareWindow` feature); off, a spare holds a frozen about:blank
     /// page. Set before the first ``prepareSpareWindow(pages:)``; a spare already built keeps its kind.
     public func setRendererlessSpareWindows(_ on: Bool) {
         CEFRuntime.shared.spareWindow.rendererlessPlaceholders = on

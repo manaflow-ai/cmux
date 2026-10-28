@@ -3071,7 +3071,7 @@ fn run_machine_client(
     owner_mux: Arc<Mux>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
+    let active = runtime.initial_key()?;
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let session = connections.connect(active)?;
     run_machine_client_with_hub(runtime, session, connections, Some(owner_mux), config, None)
@@ -3084,7 +3084,7 @@ fn run_machine_client_with_initial(
     config: config::StartupConfigSnapshot,
     host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
+    let active = runtime.initial_key()?;
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
@@ -3099,7 +3099,7 @@ fn run_machine_client_with_hub(
     config: config::StartupConfigSnapshot,
     host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
+    let active = runtime.initial_key()?;
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let mut machine_ui = runtime.ui_state(active);
     machine_ui.set_connection_phases(connections.phases());

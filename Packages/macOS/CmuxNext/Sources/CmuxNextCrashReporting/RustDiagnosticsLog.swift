@@ -3,7 +3,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 public import Foundation
 
-/// One family of JSONL files a cmux Rust process writes for the app to forward (p09-observability-075): where
+/// One family of JSONL files a cmux Rust process writes for the app to forward: where
 /// they are, which process wrote them, and whether each line is a panic (`cmux-panic-log`) or a hang
 /// (`cmux-hang-watch`'s `hangs-<pid>.jsonl`, schema 1).
 ///

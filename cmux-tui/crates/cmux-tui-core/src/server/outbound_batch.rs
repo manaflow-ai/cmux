@@ -1,4 +1,4 @@
-//! Write batching of the line writer (p05-ipc-088): the writer thread takes
+//! Write batching of the line writer: the writer thread takes
 //! every ready item, in write order, up to [`WRITE_BATCH_BYTES`] and writes
 //! them with one `writev` of their buffers, headers and payloads
 //! unconcatenated, as Mojo's `ChannelPosix::WriteOutgoingMessagesWithWritev`
@@ -6,8 +6,7 @@
 //! early does not change their order: the batch holds them as single pops
 //! would have returned them. A batch ends after a chunk of a frame longer
 //! than the chunk size (BULK_FRAME_MAX), so a reply queued while a 32 MiB
-//! snapshot leaves waits for at most one chunk of it, as with single pops
-//! (p05-ipc-072).
+//! snapshot leaves waits for at most one chunk of it, as with single pops.
 
 use super::{BoundedOutbound, BoundedOutboundState, OutboundItem};
 use crate::diagnostics::IpcStats;
@@ -190,7 +189,7 @@ fn write_gathered<W: Write + ?Sized>(
 
 /// Writes what is left of a turn past its first `*written` bytes to a
 /// socket that does not block (the mux-io loop's): `rest`, the tail of a
-/// message an inline write began (p05-ipc-140), then the batch `items`.
+/// message an inline write began, then the batch `items`.
 /// `Ok(true)` once all of it is written and its flush (a batch's last item)
 /// answered, `Ok(false)` when the socket is full, with `*written` counting
 /// what went.

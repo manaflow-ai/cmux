@@ -66,7 +66,7 @@ enum WatchdogReporting {
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass),
                                 startup: HangSample.Startup(stallPhase: hang.startupPhase, task: hang.startupTask))
         }
-        // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
+        // A watched thread still in its hang-watch scope 2 s past its budget: a crash report
         // tagged hang.thread and a hang-report entry, at most once per registration name per report interval.
         watchdog.onThreadHang = { hang in
             reporter.reportThreadHang(ThreadHangEvent(thread: hang.name, threadKind: hang.kindName, threadName: hang.threadName,
@@ -74,14 +74,14 @@ enum WatchdogReporting {
             collector?.noteThreadHang(durationNanos: Self.nanos(hang.overrun), addresses: hang.addresses,
                                       thread: HangSample.WatchedThread(name: hang.name, kind: hang.kindName))
         }
-        // The Chromium Host's UI hangs of 250 ms and up (feature chromiumHostHangBanner, p01-process-084): opt-in hang
+        // The Chromium Host's UI hangs of 250 ms and up (feature chromiumHostHangBanner): opt-in hang
         // reports only, tagged chromium-host.ui; the host keeps its own dump of one that reaches 10 s.
         services.chromiumRuntime.source.onHostHang = { hang in
             if hang.isFirstReport { collector?.noteHostHang(durationNanos: Self.nanos(hang.duration)) }
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
-        // A hang the app does not survive (p09-observability-110): the previous run's record goes out now. This run's is
+        // A hang the app does not survive: the previous run's record goes out now. This run's is
         // kept on disk while each hang lasts by the sink set before Sentry started (WatchdogHangSinks).
         let bundleID = services.environment.launch.bundleID, markerFolder = AppRunMarker.standardDirectory(bundleID: bundleID)
         let fatalHangReports = services.features.isEnabled(.fatalHangReports)

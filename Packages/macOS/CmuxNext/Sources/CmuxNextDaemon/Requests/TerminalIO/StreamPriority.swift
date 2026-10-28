@@ -1,5 +1,5 @@
 /// How one terminal view's attach stream competes with the others on its connection
-/// (`set-stream-priority`, p05-ipc-142; cmux-tui/spec/commands.md). As Chrome ranks a renderer by its
+/// (`set-stream-priority`; cmux-tui/spec/commands.md). As Chrome ranks a renderer by its
 /// widgets' visibility (`RenderWidgetHostImpl::WasShown`/`WasHidden`): the focused view's output rides the
 /// input lane, a visible one the bulk lane, and a hidden snapshot view gets no output until it shows, then
 /// one READY if its terminal printed meanwhile.

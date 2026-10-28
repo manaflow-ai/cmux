@@ -45,7 +45,7 @@ public final class RemoteBrowserContentView: NSView, KeyEquivalentOwningSurface 
     public override var acceptsFirstResponder: Bool { true }
 
     /// The page's cursor (`rb.cursor`), shown over the whole page area: set when the pointer enters
-    /// (the hover area's `.cursorUpdate`, p04-input-090) and when the page changes it under the pointer.
+    /// (the hover area's `.cursorUpdate`) and when the page changes it under the pointer.
     public var pageCursor: NSCursor = .arrow {
         didSet {
             guard pageCursor !== oldValue else { return }

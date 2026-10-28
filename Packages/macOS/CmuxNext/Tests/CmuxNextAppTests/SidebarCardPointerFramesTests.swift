@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The sidebar cards' per-event pointer sites on frame-aligned input (p04-input-089): the Now Playing
+/// The sidebar cards' per-event pointer sites on frame-aligned input: the Now Playing
 /// scrubber's drag (`pointerFrameDrags`) and the Update Ready card's moves (`pointerFrameHover`) act on a
 /// frame interval's first event and once more at the frame, at the latest point, as Chromium delivers
 /// rAF-aligned moves; a press or a release lands the pending point first.

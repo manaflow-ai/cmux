@@ -4,7 +4,7 @@ import CmuxNextFocusUI
 import CmuxNextInputCore
 import Testing
 
-/// The latency HUD's input rows (p04-input-009): a reader on the input feed only while the HUD is
+/// The latency HUD's input rows: a reader on the input feed only while the HUD is
 /// shown, the newest 16 events first with their longest stage interval, the ones over one 120 Hz
 /// frame in the danger color, in catalog words (not enum case names), stale rows dropped on a new
 /// show, both readers stopped by the title bar button, and no input section without a feed. Run:

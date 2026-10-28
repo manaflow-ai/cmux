@@ -9,7 +9,7 @@ import CoreFoundation
 import Darwin
 import Testing
 
-/// InputLatencyTracker (p04-input-004): stage order through a fake commit boundary and presentation clock, one
+/// InputLatencyTracker: stage order through a fake commit boundary and presentation clock, one
 /// boundary per turn, a terminal key that closes at its own content frame, the no-echo deadline, the estimate's basis
 /// and variable-refresh label, missed commits, refused late marks, the half-ring batch, and no allocation per event
 /// with the real boundary and PresentationClock.

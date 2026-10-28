@@ -76,10 +76,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
-    /// `keyStamps`: takes the daemon's stages of each key echo (p04-input-094); only for a daemon on this Mac, whose
+    /// `keyStamps`: takes the daemon's stages of each key echo; only for a daemon on this Mac, whose
     /// clock they are on.
-    /// `connection`: the machine connection each attach streams on, or reaches its endpoint from (p05-ipc-098).
-    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane (p05-ipc-142).
+    /// `connection`: the machine connection each attach streams on, or reaches its endpoint from.
+    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
@@ -198,8 +198,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///
     /// While the terminal is still being created its bytes go by id, one awaited send at a time; the lane holds
     /// every later record meanwhile, and a chunk the daemon refused goes by the attachment on `queue` before the
-    /// lane resumes, so no record passes it. A key's bytes carry its latency slot's flow to the link
-    /// (p04-input-094); by id they go without it.
+    /// lane resumes, so no record passes it. A key's bytes carry its latency slot's flow to the link;
+    /// by id they go without it.
     static func inputDrain<Link: TerminalAttachLink>(on queue: DispatchQueue, driver: TerminalAttachDriver<Link>,
                                                      creating: (any CreatingTerminalInputSending)?) -> TerminalInputDrain {
         TerminalInputDrain(queue: queue) { record, resume in

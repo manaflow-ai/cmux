@@ -43,7 +43,7 @@ final class CrashRecoveryService {
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
-    /// This launch's one reattach decision (p01-process-152), from the run marker and feature `relaunchReattach`, which
+    /// This launch's one reattach decision, from the run marker and feature `relaunchReattach`, which
     /// do not change while the app runs: the terminal frames' discard (`AppDelegate`) and the window picture's refusal
     /// (`LaunchSnapshotWindow`) both take it from here.
     func relaunchReattach(features: FeatureList) -> RelaunchReattach {

@@ -4,7 +4,7 @@ import CmuxNextTrace
 public import CmuxNextWakeups
 import GhosttyNextKit
 
-/// cmux's end of ghostty-next's trace hook (p09-observability-048, -049): the renderer's own frames in the
+/// cmux's end of ghostty-next's trace hook: the renderer's own frames in the
 /// app's trace ring and the frame marks of its key echoes, in Release builds too.
 ///
 /// Ghostty keeps one process-wide pointer to an embedder-owned record `{callback, ctx}`
@@ -20,7 +20,7 @@ import GhosttyNextKit
 /// - `frame.gpu_done` (instant) from the frame's Metal completion handler, arg0 the surface, arg1 its seq;
 /// - the first `CONTENTS_SET` of each frame: the surface's ``TerminalEchoStage/contentsSet()`` while the
 ///   contents gate is open, and the probe's ``TypingLatencyProbe/Mark/contents`` for the surface's parsed
-///   presses (key.echo_frame's sample end, p09-observability-054). Once the app gave the hook its presents
+///   presses (key.echo_frame's sample end). Once the app gave the hook its presents
 ///   (``connect(on:presents:)``), a frame handed over before its GPU work ended marks its commit
 ///   `awaitsGPU`, and its completion posts those flows to ``FramePresentEstimate/gpuDidFinish(flow:atNanos:)``.
 ///

@@ -89,7 +89,7 @@ impl Surface {
 
     /// [`Self::write_bytes_flow`] of a key press the daemon received at
     /// `received_ns` (trace clock; 0: unknown): the terminal's stage ring
-    /// (p04-input-094) records the receive before the write, since the echo
+    /// records the receive before the write, since the echo
     /// can be read before the write returns, and the PTY write after it.
     /// Tests only: `send` writes its parts in one turn ([`Self::write_key_flow_in`]).
     #[cfg(test)]
@@ -124,13 +124,13 @@ impl Surface {
         result
     }
 
-    /// The terminal's key-stage ring (p04-input-094); `None` for a browser surface.
+    /// The terminal's key-stage ring; `None` for a browser surface.
     pub(crate) fn input_stages(&self) -> Option<Arc<crate::input_stages::InputStageRing>> {
         self.as_pty().map(|pty| pty.input_stages.clone())
     }
 
-    /// [`Self::write_bytes`] of the key press `flow` (0: none,
-    /// p09-observability-018). The PTY owner's first read after the bytes
+    /// [`Self::write_bytes`] of the key press `flow` (0: none).
+    /// The PTY owner's first read after the bytes
     /// reached the PTY echoes it, and that read's `output` event carries
     /// `flow`, once: a hosted terminal's host stamps its read
     /// (`FLAG_INPUT_FLOW`); a master the daemon writes itself, its reader's

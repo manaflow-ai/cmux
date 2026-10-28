@@ -1,4 +1,4 @@
-// The agent pane's handshake backoff rests while the page is hidden (p13-webui-069, MQ4b): a pane
+// The agent pane's handshake backoff rests while the page is hidden (MQ4b): a pane
 // whose host has no daemon asks Swift for a handshake again only while it is shown. Hidden for a
 // minute it asks nothing; the show asks once, at once (retryBackoff.ts).
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";

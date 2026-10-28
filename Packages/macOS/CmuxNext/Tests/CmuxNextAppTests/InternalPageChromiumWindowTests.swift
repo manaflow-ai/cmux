@@ -24,7 +24,7 @@ private final class PanePlacedPage: InternalPageProvider {
     }
 }
 
-/// p13-webui-063, the app side: the pane that shows a page tab names its Chromium window on the tab's page
+/// The app side: the pane that shows a page tab names its Chromium window on the tab's page
 /// (``PageWebView/chromiumWindow``), so the page tabs of one pane share one window and a tab shown in another pane
 /// moves its page there. Behind `pageTabsShareChromiumWindow` (``InternalPageTabStore/sharesChromiumWindows``).
 @MainActor @Suite(.serialized)

@@ -4,7 +4,7 @@ import CmuxNextOracle
 import CmuxNextSettings
 import Testing
 
-/// `debug.oracle.snapshot` (p15-oracle-030): a DEV router lists every facet with its task and answers the
+/// `debug.oracle.snapshot`: a DEV router lists every facet with its task and answers the
 /// facets a case names, not-comparable when the build has no provider; the main-actor and background
 /// facets answer in one reply; a typo is `invalid_params`, a failing provider `internal_error` naming its
 /// facet; a Release router lists no oracle method and answers `not_allowed`, not `method_not_found`. Run: `swift test --filter OracleControlTests`.

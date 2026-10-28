@@ -127,7 +127,7 @@ final class AppResourceSource: ResourceSampleSource {
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
-            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per sample; no walk, no observation
+            // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per sample; no walk, no observation
             guard let (tab, pane) = services.locateTab(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
             resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in

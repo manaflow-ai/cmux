@@ -4,8 +4,8 @@ public import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
-/// The host half of the page call behind the refactor oracle's `webviews` facet (p15-oracle-215,
-/// webviews/src/protocol/oracle-state.ts). A DEV or bench build installs ``PageWebView/oracleStateScript`` at
+/// The host half of the page call behind the refactor oracle's `webviews` facet
+/// (webviews/src/protocol/oracle-state.ts). A DEV or bench build installs ``PageWebView/oracleStateScript`` at
 /// document start, so only there does a page register `cmux.page.oracle.state`; a Release build compiles none of
 /// this and its pages never serve the op.
 extension PageRouter {

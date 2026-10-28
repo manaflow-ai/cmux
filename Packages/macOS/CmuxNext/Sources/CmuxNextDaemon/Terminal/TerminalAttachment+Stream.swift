@@ -4,7 +4,7 @@ public import CmuxNextWakeups
 public import Foundation
 import os
 
-/// A terminal view as a client-minted stream on the app's control connection (attach-streams-v1, p05-ipc-095;
+/// A terminal view as a client-minted stream on the app's control connection (attach-streams-v1;
 /// cmux-tui/spec/events.md "Attach streams"). Chrome runs every interface of a renderer over one message pipe
 /// as associated endpoints: the side that associates one picks its id, the endpoint is bound before its first
 /// message can arrive, and closing it sends the peer a notification after its last message
@@ -22,7 +22,7 @@ extension TerminalAttachment {
     /// A streaming connection that is not ready (before its first connect, while it reconnects) is waited for
     /// (``TerminalStreamCarrier/route(for:within:)``), never left for a connection of its own.
     /// `clientName`, `device`, `hangs` and `inputQueue` are that own connection's; a stream uses the
-    /// control connection's. `keyStamps` takes each key echo's daemon stages (p04-input-094) on either path.
+    /// control connection's. `keyStamps` takes each key echo's daemon stages on either path.
     /// The returned channel behaves the same either way.
     public static func attach(
         on connection: DaemonConnection,
@@ -165,7 +165,7 @@ extension TerminalAttachment {
         let control: ControlBox
         let resolvedSurface: SurfaceBox
         let decoder: WireDecoder
-        /// Takes each key echo's daemon stages (p04-input-094), or nil.
+        /// Takes each key echo's daemon stages, or nil.
         let keyStamps: (any TerminalKeyStampSink)?
 
         init(queue: TerminalEventQueue, router: TerminalEchoRouter, control: ControlBox, resolvedSurface: SurfaceBox,
@@ -178,7 +178,7 @@ extension TerminalAttachment {
             self.keyStamps = keyStamps
         }
 
-        /// How the reader hands this view's lines to its connection's decode lane (p05-ipc-144): a snapshot, a
+        /// How the reader hands this view's lines to its connection's decode lane: a snapshot, a
         /// replay or a large line always decodes on the lane, small output inline while the lane is idle; after
         /// each line the reader waits for the view (its queue's bound, its output lane, a held marker), so a lane
         /// item never waits on it.
@@ -200,7 +200,7 @@ extension TerminalAttachment {
             guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)
             else { return }
             // A key echo's daemon stages go to its latency slot as it is decoded, before the router
-            // hands the output to the lane or the stream (p04-input-094).
+            // hands the output to the lane or the stream.
             if let keyStamps, let flow = decoded.flow, let stamps = decoded.keyStamps {
                 keyStamps.keyEchoStamped(flow: flow, stamps, decodedAt: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
             }

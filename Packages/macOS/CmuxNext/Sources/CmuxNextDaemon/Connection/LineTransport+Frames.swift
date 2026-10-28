@@ -1,7 +1,7 @@
 import CmuxNextIPC
 import Foundation
 
-/// The framed half of the transport (p05-ipc-092): what the handshake granted, and the reader's routing of
+/// The framed half of the transport: what the handshake granted, and the reader's routing of
 /// REPLY and ERROR frames. Requests become frames in ``LineTransport/submit(_:deadline:framed:_:)``.
 extension LineTransport {
     /// What the handshake granted; ``DaemonWireGrants/linesOnly`` until it ends and on a daemon that offers
@@ -81,7 +81,7 @@ extension LineTransport {
         let call = FramedRequests.call(of: header)
         let line = Data(frame.payload)
         let id = state.withLock { FramedRequests.requestID(low: call.requestID, next: $0.nextID) }
-        // An ERROR's body is decoded once, on the lane, for the fields that fail its waiter (p05-ipc-144: the
+        // An ERROR's body is decoded once, on the lane, for the fields that fail its waiter (the
         // reader decodes nothing a handler reads).
         let envelope = Envelope(id: id, ok: ok, event: nil, type: nil, streamID: nil, cause: nil)
         resolveReply(envelope, line: line, parsed: false, decoder: decoder)

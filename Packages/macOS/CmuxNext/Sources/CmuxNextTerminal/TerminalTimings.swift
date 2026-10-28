@@ -63,7 +63,7 @@ public struct TerminalTimings {
         report(.nanoseconds(Int64(clamping: elapsed)))
     }
 
-    /// Begins and ends `ghostty_init`'s always-on launch interval (`launch.ghostty_init`, p08-startup-068).
+    /// Begins and ends `ghostty_init`'s always-on launch interval (`launch.ghostty_init`).
     nonisolated static func ghosttyInitBegan() { LaunchSignposts().begin(.ghosttyInit) }
     nonisolated static func ghosttyInitEnded() { LaunchSignposts().end(.ghosttyInit) }
 
@@ -101,8 +101,8 @@ public struct TerminalTimings {
 }
 
 /// Splits the cost of a runtime's first terminal surface into ``TerminalTimings/RuntimePhase`` phases: the
-/// `ghostty_surface_new` call itself (`launch.first_surface_new`), then the view's setup, first fit and first state
-/// (p08-startup-091). Each phase goes where the runtime's start phases go (`debug.timings`' `ghostty_runtime_ms`, a
+/// `ghostty_surface_new` call itself (`launch.first_surface_new`), then the view's setup, first fit and first state.
+/// Each phase goes where the runtime's start phases go (`debug.timings`' `ghostty_runtime_ms`, a
 /// `stall.ghostty_runtime_phase` event). Only the first surface pays the font discovery and the Metal device's first
 /// use, so later surfaces are not split. One per runtime (``GhosttyRuntime/firstSurfaceSplit``).
 ///

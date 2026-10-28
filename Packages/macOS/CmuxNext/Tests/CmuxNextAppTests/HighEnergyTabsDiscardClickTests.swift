@@ -6,7 +6,7 @@ import CmuxNextInput
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p14-energy-125: Discard in a high-energy tab's card runs when the person clicks it. The press goes through the app's
+/// Discard in a high-energy tab's card runs when the person clicks it. The press goes through the app's
 /// input tap first, where the card's dismissal observer hears every press before AppKit hands it on: a press on a card
 /// that takes clicks must leave the card up, so AppKit hands it to Discard, whose action discards the tab and ends the
 /// card. With motion off, a card the observer dismissed is already ordered out when AppKit would hand on the press.

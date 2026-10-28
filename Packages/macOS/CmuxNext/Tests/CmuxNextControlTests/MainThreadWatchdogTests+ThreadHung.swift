@@ -6,7 +6,7 @@ import CoreFoundation
 import Foundation
 import Testing
 
-/// `hang.thread_hung.<lane>` (p09-observability-067): each lane's hangs in the 30 s of active time they happen in, as
+/// `hang.thread_hung.<lane>`: each lane's hangs in the 30 s of active time they happen in, as
 /// a rate per hour (each hang 120), one sample per lane that hung, recorded into a test's own store.
 extension MainThreadWatchdogTests {
     /// A store for the field histograms, and the runtime that records into it.

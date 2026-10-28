@@ -1,7 +1,7 @@
 import Foundation
 
 // The type grammar of cmux-tui/spec/sdk-schema.json (sdk-schema.schema.json
-// `typeExpr`, `field`, `command`) as TypeEmitter reads it (p05-ipc-020). The
+// `typeExpr`, `field`, `command`) as TypeEmitter reads it. The
 // codegen validator (cmux-tui/bindings/codegen/validate.py) owns the full rule
 // set; TypeSchemaParser refuses only what the Swift emitter cannot write.
 

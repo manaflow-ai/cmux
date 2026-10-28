@@ -5,7 +5,7 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Testing
 
-/// A native choice grants the agent pane a gesture only from the event it answers (p04-input-067): a script or
+/// A native choice grants the agent pane a gesture only from the event it answers: a script or
 /// socket run right after the person's key or click is not the person, though AppKit still keeps that event as its
 /// current one. A file drop, which no dispatch carries, is the person's when the person's hand ended the drag.
 @MainActor @Suite(.serialized)

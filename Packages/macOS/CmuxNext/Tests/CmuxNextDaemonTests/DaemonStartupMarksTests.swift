@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p08-startup-093: the daemon's own start (`identify {startup_marks: true}`, `startup-marks-v1`) decodes into
+/// The daemon's own start (`identify {startup_marks: true}`, `startup-marks-v1`) decodes into
 /// `daemon.<step>` launch marks at the daemon's times, tolerates older and newer daemons, and is asked for only with
 /// the flag the daemon reads.
 struct DaemonStartupMarksTests {

@@ -1,5 +1,5 @@
 //! The provider handshake: `hello` in, `hello.ack` out; or the app's
-//! Chromium Host's `relay.hello` (p01-process-233), answered by the relay.
+//! Chromium Host's `relay.hello`, answered by the relay.
 
 use super::*;
 use crate::provider::{MAX_HELLO_BYTES, ProviderSecret, read_frame_limited};

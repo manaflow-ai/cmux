@@ -25,7 +25,7 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
     case input(event: DriverJSON)
     /// Whether agents may drive a CEF tab (app -> host; interim extension rule).
     case tabAccess(targetID: String, extensionHostAccess: Bool, userOverride: Bool, extensions: [String])
-    /// Make a CEF tab agent-ready for the Chromium Host's relay link (host -> app; p01-process-233): the app
+    /// Make a CEF tab agent-ready for the Chromium Host's relay link (host -> app): the app
     /// answers with the event `tab.relay.direct` or `tab.relay.failed`, and relays no CDP of the tab itself.
     case cdpPrepare(targetID: String)
     /// A capture command went straight to the Chromium Host (host -> app): the tab's capture vote starts or

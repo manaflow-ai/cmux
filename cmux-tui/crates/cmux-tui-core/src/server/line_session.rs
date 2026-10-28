@@ -1,4 +1,4 @@
-//! A connection's line sequence (p01-process-203): the messages its reader
+//! A connection's line sequence: the messages its reader
 //! cut wait in an inbox and are handled one at a time, in arrival order, by
 //! the connection's session on a sequence of the daemon's sequenced pool.
 //! The person's connection drains on the pool's input workers, every other

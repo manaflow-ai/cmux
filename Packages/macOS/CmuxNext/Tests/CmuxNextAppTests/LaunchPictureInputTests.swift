@@ -11,7 +11,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Keys while a window shows its launch picture (p08-startup-061). A key changes only the model in its turn: an
+/// Keys while a window shows its launch picture. A key changes only the model in its turn: an
 /// action runs (a Command chord, a Control chord, a chord's leader and the key after it), a key the window cannot
 /// decide yet waits whole and goes through the router again once it can, and typing for a terminal that is still a
 /// picture waits in that terminal's stand-in buffer, which raises the pane's slice to the next frame and reaches the

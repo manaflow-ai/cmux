@@ -2,7 +2,7 @@
 public import AppKit
 public import CmuxNextWakeups
 
-/// `debug.scroll_frames` (p03-rendering-110): a list's visible rows as the window server composited them,
+/// `debug.scroll_frames`: a list's visible rows as the window server composited them,
 /// frame after frame, read off the main actor, so a proof sees whether the list kept scrolling while the main
 /// thread was stalled (scripts/cmux-next/responsive-scroll-live.py).
 ///

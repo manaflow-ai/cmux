@@ -9,7 +9,7 @@
 //! allowlist as every other tool.
 //!
 //! An entry with a `socket` is a tool set the acpmux daemon serves itself
-//! (acpmux `subsession_mcp::DaemonTools`, p07-memory-092): this server dials
+//! (acpmux `subsession_mcp::DaemonTools`): this server dials
 //! that socket and sends the entry's `initializeMeta` with its `initialize`,
 //! which proves the session, so the tools run with no process of their own.
 //! Its command (the acpmux relay) is for a `cmux mcp serve` that reads no

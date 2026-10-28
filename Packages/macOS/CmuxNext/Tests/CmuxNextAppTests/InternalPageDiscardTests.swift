@@ -11,7 +11,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Page tab discards (`memoryDiscardInternalPages`, p07-memory-022): a page tab hidden past its
+/// Page tab discards (`memoryDiscardInternalPages`): a page tab hidden past its
 /// provider's policy lets its view go through the content lifecycle (`hibernate` and its
 /// `release` effect) and keeps the tab; its next show makes the view again (`restore`), under its
 /// last picture, with its route and scroll put back. A keep reason holds it, a provider that

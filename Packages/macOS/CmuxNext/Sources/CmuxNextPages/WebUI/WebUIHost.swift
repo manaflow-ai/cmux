@@ -29,26 +29,26 @@ public final class WebUIHost {
     /// WebKit page starts a process of its own, as before the groups (a test host that reads no groups).
     public let processGroups: WebProcessGroups?
     /// The daemon relay channels of the pages (one per daemon page id), kept here instead of a
-    /// static (p13-webui-066): each closes its daemon connection when idle.
+    /// static: each closes its daemon connection when idle.
     public let relayChannels = PageRelayChannels()
     /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
     /// The frame every page this host opens delivers its router envelopes on, one script per page
-    /// per frame (``PageWebView/deliverOnFrames(_:)``, p06-scheduler-222). Nil while
+    /// per frame (``PageWebView/deliverOnFrames(_:)``). Nil while
     /// `pageScriptFrames` is off: each envelope is its own script, as before. The composition root sets it.
     package var scriptFrames: PageScriptFrame?
-    /// Where the WebKit content-process ends of the pages this host opens go as stability events (p09-observability-108).
+    /// Where the WebKit content-process ends of the pages this host opens go as stability events.
     /// Nil records none; the composition root sets the app's one.
     package var rendererStability: RendererStability?
     /// The app's one preloaded page (p13-webui.md 3.D); the host's memory registration
     /// (`preloadMemory`) drops it at any level but normal. Nil until the composition root installs it
-    /// with the app's deadline scheduler (p13-webui-044, 045); installing it hands it the current level.
+    /// with the app's deadline scheduler; installing it hands it the current level.
     package var preload: PagePreloadSlot? {
         didSet { preloadLevelDidChange() }
     }
-    /// The preload slot's place in the app's one memory pressure path (p13-webui-047): a spare
+    /// The preload slot's place in the app's one memory pressure path: a spare
     /// consumer of the memory coordinator, as Chromium's spare windows are (`ChromiumWarmup`). The
     /// coordinator hands every spare the level in the level's own turn, the debug override included,
     /// and runs the critical urgent discard pass over tabs, chats and pages (`BrowserHibernation`) on a
@@ -69,7 +69,7 @@ public final class WebUIHost {
     /// A page starts its document, and its renderer, at its first show, not when it opens
     /// (feature `pageRendererAtFirstShow`, PageWebView+FirstShow.swift).
     public let startsPagesAtFirstShow: Bool
-    /// Ends closed pages after the close's turn (``close(_:)``, p13-webui-064); the agent tabs retire
+    /// Ends closed pages after the close's turn (``close(_:)``); the agent tabs retire
     /// their panes on it too, so the app has one teardown deadline.
     public let retirer: PageRetirer
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -88,7 +88,7 @@ public final class WebUIHost {
     /// updates): it asks the page before it reloads it (``WebBundleSafePoint``). Set before the first open.
     package weak var bundleSafePoint: (any WebBundleSafePoint)?
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
+    /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
     public let oracleChanges = PageOracleChangeFeed()
     /// The engine page closes of this host's pages (`debug.webui` `retire`): a close in ``close(_:)``'s turn
@@ -213,7 +213,7 @@ public final class WebUIHost {
 extension WebUIHost: WebBundleHost {
     /// Every live WebKit page of the host's registry (``PageWebView/bundleServedByOverlay``), which
     /// lists the pages it opened and, in the app, the views made outside it while the static
-    /// forwarders remain (p13-webui-010), the preload slot's parked page included. With
+    /// forwarders remain, the preload slot's parked page included. With
     /// ``bundleReloadsOnShow``, not the preloaded page, which nobody sees and the swap makes again.
     package var webBundlePages: [any WebBundlePage] {
         let preloaded = bundleReloadsOnShow ? preload?.page?.preloadView : nil

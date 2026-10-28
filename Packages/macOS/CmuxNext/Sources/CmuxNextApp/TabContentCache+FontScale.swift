@@ -17,7 +17,7 @@ extension TabContentCache {
                                       mainWork: mainWork, node: tabNode, gpuResidency: gpuResidency,
                                       externalCursor: terminalExternalCursor,
                                       lowersHiddenOutput: streamFocus != nil)
-        // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
+        // It lays out after a Ghostty config change only while its tab is visible.
         session.view.followConfig(tabNode, on: mainWork)
         fontScaleWaits[key] = nil
         if daemon.store.session.known {

@@ -1,4 +1,4 @@
-// TypeEmitter's untagged unions (p05-ipc-020). The variants are named types,
+// TypeEmitter's untagged unions. The variants are named types,
 // tried in schema order. An object variant is a candidate for a value when the
 // value has every required member of it and every literal member it has holds
 // the variant's constant (`dead: true`). A candidate that does not decode fails

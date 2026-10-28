@@ -5,7 +5,7 @@ import QuartzCore
 import Testing
 import WebKit
 
-/// The cold-open stand-in (p13-webui-048, feature `pageStandIn`): a page shows its theme's background
+/// The cold-open stand-in (feature `pageStandIn`): a page shows its theme's background
 /// and its title from the open's turn, the first paint takes it off in that callback's turn, and
 /// neither showing, resizing, repainting nor removing it ever adds an animation (p13-webui.md 4.5).
 @MainActor

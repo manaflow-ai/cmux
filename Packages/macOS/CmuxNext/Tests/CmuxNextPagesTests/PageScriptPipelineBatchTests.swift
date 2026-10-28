@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Frame delivery (p06-scheduler-222): on frames, the router's envelopes reach the page as one
+/// Frame delivery: on frames, the router's envelopes reach the page as one
 /// script per frame; a hidden page takes none until it shows, then the latest state of each stream
 /// in one script; a page message's reply keeps its turn (the envelopes before it go at once, the
 /// ones after it wait for it).

@@ -1,5 +1,5 @@
-//! The `idleHelperBackgroundPriority` feature's wiring in the daemon
-//! (p14-energy-038): idle helpers run best-effort, as Chromium runs its
+//! The `idleHelperBackgroundPriority` feature's wiring in the daemon:
+//! idle helpers run best-effort, as Chromium runs its
 //! spare and hidden renderers (`RenderProcessHostImpl::UpdateProcessPriority`).
 //!
 //! - A pooled agent's host and harness groups once it is ready

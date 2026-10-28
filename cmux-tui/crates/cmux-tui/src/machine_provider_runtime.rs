@@ -121,31 +121,27 @@ impl ProviderNoticeIdentity {
             #[cfg(test)]
             Self::Ephemeral(consumer_id) => Ok(consumer_id),
             Self::Persisted { state_root, lease } => {
-                if lease.is_none() {
+                let identity = if let Some(identity) = lease.take() {
+                    identity
+                } else {
                     let message =
                         localization::catalog().sidebar.provider_notice_identity_unavailable;
                     let state_root = state_root.as_deref().ok_or_else(|| {
                         anyhow::anyhow!("cannot determine durable state directory").context(message)
                     })?;
-                    let acquired =
-                        crate::provider_notice_identity::acquire(state_root).map_err(|error| {
-                            let message = if error
-                                .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
-                                .is_some()
-                            {
-                                localization::catalog()
-                                    .sidebar
-                                    .provider_connection_already_running
-                            } else {
-                                localization::catalog()
-                                    .sidebar
-                                    .provider_notice_identity_unavailable
-                            };
-                            error.context(message)
-                        })?;
-                    *lease = Some(acquired);
-                }
-                Ok(lease.as_ref().expect("notice identity lease was initialized").consumer_id())
+                    crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                        let message = if error
+                            .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
+                            .is_some()
+                        {
+                            localization::catalog().sidebar.provider_connection_already_running
+                        } else {
+                            localization::catalog().sidebar.provider_notice_identity_unavailable
+                        };
+                        error.context(message)
+                    })?
+                };
+                Ok(lease.insert(identity).consumer_id())
             }
         }
     }
@@ -704,8 +700,11 @@ impl ProviderMachineRuntime {
             MachineRequest::CreateFrom { .. } => {
                 anyhow::bail!(localization::catalog().sidebar.machine_creation_source_unavailable)
             }
-            MachineRequest::Connect { .. } => {
-                unreachable!("external connect requests are routed by ProviderMachineController")
+            MachineRequest::Connect { target, route: MachineConnectRoute::Provider } => {
+                self.perform_external_connect(target)
+            }
+            MachineRequest::Connect { route: MachineConnectRoute::Local, .. } => {
+                anyhow::bail!(localization::catalog().sidebar.client_machine_unavailable)
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -1000,7 +999,7 @@ impl ProviderMachineRuntime {
                     Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                 }))
             }
-            MachineRequest::ReconnectProvider => unreachable!("handled before refresh"),
+            MachineRequest::ReconnectProvider => self.reconnect_session(),
         }
     }
 
@@ -2601,13 +2600,13 @@ mod tests {
 
     static NEXT_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
 
-    struct TestProviderSocket {
-        path: PathBuf,
+    pub(super) struct TestProviderSocket {
+        pub(super) path: PathBuf,
         listener: UnixListener,
     }
 
     impl TestProviderSocket {
-        fn bind() -> Self {
+        pub(super) fn bind() -> Self {
             let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir()
                 .join(format!("cmux-provider-runtime-{}-{id}.sock", std::process::id()));
@@ -2616,7 +2615,7 @@ mod tests {
             Self { path, listener }
         }
 
-        fn listener(&self) -> UnixListener {
+        pub(super) fn listener(&self) -> UnixListener {
             self.listener.try_clone().unwrap()
         }
     }
@@ -2660,7 +2659,7 @@ mod tests {
         protocol::OpaqueId::new(value).unwrap()
     }
 
-    fn token() -> protocol::BearerToken {
+    pub(super) fn token() -> protocol::BearerToken {
         protocol::BearerToken::new("runtime-test-token").unwrap()
     }
 
@@ -2746,7 +2745,7 @@ mod tests {
         }
     }
 
-    fn serve_initial_snapshot(
+    pub(super) fn serve_initial_snapshot(
         listener: &UnixListener,
         snapshot: protocol::SnapshotResult,
     ) -> (UnixStream, BufReader<UnixStream>) {
@@ -2988,7 +2987,7 @@ mod tests {
         }
     }
 
-    fn provider_managed_snapshot(revision: u64) -> protocol::SnapshotResult {
+    pub(super) fn provider_managed_snapshot(revision: u64) -> protocol::SnapshotResult {
         let mut catalog = snapshot(revision, "Machine", protocol::MachineStatus::Running);
         catalog.machines[0].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
             default_mode: protocol::WorkspaceCreateMode::Isolated,
@@ -2997,7 +2996,7 @@ mod tests {
         catalog
     }
 
-    fn active_workspace_snapshot(revision: u64) -> protocol::WorkspaceSnapshotResult {
+    pub(super) fn active_workspace_snapshot(revision: u64) -> protocol::WorkspaceSnapshotResult {
         protocol::WorkspaceSnapshotResult {
             revision,
             machine_id: id("machine-1"),
@@ -3018,7 +3017,7 @@ mod tests {
         }
     }
 
-    fn serve_workspace_snapshot(
+    pub(super) fn serve_workspace_snapshot(
         stream: &mut UnixStream,
         reader: &mut BufReader<UnixStream>,
         snapshot: &protocol::WorkspaceSnapshotResult,
@@ -3032,7 +3031,7 @@ mod tests {
         write_frame(stream, &protocol::ResponseEnvelope::success(request.id, snapshot.clone()));
     }
 
-    fn serve_runtime_refresh(
+    pub(super) fn serve_runtime_refresh(
         stream: &mut UnixStream,
         reader: &mut BufReader<UnixStream>,
         catalog: &protocol::SnapshotResult,
@@ -6563,3 +6562,7 @@ mod tests {
         server.join().unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "machine_provider_runtime_connect_tests.rs"]
+mod connect_tests;

@@ -252,7 +252,7 @@ mod tests {
         crate::parse_args(argv.iter().map(|arg| (*arg).to_string()))
     }
 
-    /// p02-threads-207: the headless owner's main thread waits as the
+    /// The headless owner's main thread waits as the
     /// `main` row at UserInitiated, and a thread it starts during setup
     /// (`owner_start::prepare`, then the mux workers) does not run at that
     /// class. On Linux the class is nice 0, which a thread started at a

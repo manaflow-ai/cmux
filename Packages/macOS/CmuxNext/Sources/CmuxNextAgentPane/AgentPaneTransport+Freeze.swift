@@ -6,8 +6,8 @@ extension AgentPaneTransport {
     /// event it has, with no "disconnected" frame and no fresh handshake.
     public static let pageFrozenCloseReason = "cmux.page-frozen"
 
-    /// The page lifecycle froze the pane's page and nothing on the connection waits for it (no turn runs,
-    /// p13-webui-080): the connection closes, so a frozen chat holds no acpmux socket and acpmux sends it
+    /// The page lifecycle froze the pane's page and nothing on the connection waits for it (no turn runs):
+    /// the connection closes, so a frozen chat holds no acpmux socket and acpmux sends it
     /// nothing. Chrome keeps no live WebSocket for a page it puts away either: a page with one stays out
     /// of the back-forward cache (`WebSchedulerTrackedFeature::kWebSocket`,
     /// third_party/blink/public/common/scheduler/web_scheduler_tracked_feature.h).

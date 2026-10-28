@@ -1,7 +1,7 @@
 import CmuxNextInputCore
 import Testing
 
-/// A terminal key's latency slot as its daemon `send`'s flow (p04-input-094): the flow names the slot again, is never
+/// A terminal key's latency slot as its daemon `send`'s flow: the flow names the slot again, is never
 /// 0, and never equals a typing-probe flow (a pid in bits 32-62).
 struct InputLatencyTokenKeyFlowTests {
     @Test func aSlotsFlowNamesItAgain() {

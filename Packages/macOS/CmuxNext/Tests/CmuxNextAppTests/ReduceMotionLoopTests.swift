@@ -123,7 +123,7 @@ import Testing
     }
 
     /// The vendored views add no observer of the display-options notice: the app's one is
-    /// ``AppearanceSignals``' (p06-scheduler-043).
+    /// ``AppearanceSignals``'.
     @Test func homesViewsAddNoDisplayOptionsObserver() {
         let signals = DesignSettings.shared.signals
         _ = HomeSidebarView(frame: .zero) // the host's one subscription (once per process)

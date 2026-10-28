@@ -461,7 +461,7 @@ fn settled_wakeups(mux: &Mux) -> u64 {
     }
 }
 
-/// p01-process-203: a connection holds no thread. Its replies leave on the
+/// A connection holds no thread. Its replies leave on the
 /// mux-io loop, its requests run on the pool, and once idle it wakes the
 /// request watchdog 0 times and records no hang.
 #[test]
@@ -517,7 +517,7 @@ fn wait_for_clear_to_run(mux: &Mux) {
 /// blocked does not wait for that request: after
 /// `CONNECTION_SURFACE_SHUTDOWN_TIMEOUT` its client is gone, its socket
 /// closed and its connection permit released, with the request still
-/// blocked (p01-process-203: the close is a delayed task on the line
+/// blocked (the close is a delayed task on the line
 /// sequence, not a wait).
 #[test]
 fn line_connection_a_dropped_connection_ends_after_the_shutdown_timeout() {

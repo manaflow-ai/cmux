@@ -180,7 +180,7 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
-    /// Runs the drain's tail (``DrainTail``, p06-scheduler-223): the app's ``MainWorkScheduler`` while
+    /// Runs the drain's tail (``DrainTail``): the app's ``MainWorkScheduler`` while
     /// feature `drainCauseSplit` is on. nil: each frame drain applies its whole batch. A connection
     /// reads it when it starts.
     @ObservationIgnored public var drainTailScheduler: (any DrainTailScheduler)?

@@ -149,7 +149,7 @@ class LinuxRunCase(unittest.TestCase):
         lib = repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
         lib.parent.mkdir(parents=True)
         lib.write_text("pub fn index(i: usize) -> usize {\n    i\n}\n")
-        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule (p15-oracle-208).
+        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule.
         git("submodule", "add", "-q", str(ghostty), "ghostty", cwd=repo)
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "tag", cwd=repo)
@@ -163,7 +163,7 @@ class LinuxRunCase(unittest.TestCase):
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "head", cwd=repo)
         cls.head_sha = git("rev-parse", "HEAD", cwd=repo)
-        # Seeded daemon mutants as tests/oracle/mutants/ holds them (p15-oracle-026), left untracked.
+        # Seeded daemon mutants as tests/oracle/mutants/ holds them, left untracked.
         mutants = repo / "tests" / "oracle" / "mutants"
         cls.mutant = cls.write_mutant(mutants / "daemon" / "index-off-by-one.patch", "    i\n", "    i + 1\n")
         cls.stale_mutant = cls.write_mutant(mutants / "daemon" / "stale-context.patch", "    i\n", "    i - 1\n",

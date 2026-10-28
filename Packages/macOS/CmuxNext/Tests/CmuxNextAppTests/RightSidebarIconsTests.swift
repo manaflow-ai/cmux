@@ -7,7 +7,7 @@ import Testing
 
 /// The right sidebar's section icons are made off the main thread: opening it (Focus Right Sidebar) made each
 /// SF Symbol image in the action's turn, CoreUI's vector decode included (47 ms main-thread stall, light
-/// session, macOS 27 sweep). The services build the sections on first use (p08-startup-022); the icon build is
+/// session, macOS 27 sweep). The services build the sections on first use; the icon build is
 /// a cpu-lane post of the launch's scheduler, after startup from the launch's prewarm, right after the first
 /// frame when a panel is built first. A panel shows empty buttons until the images land, so no main turn,
 /// the launch window's build included, decodes a symbol.

@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p01-process-233: the supervisor hands each Chromium Host the browser host's relay link
+/// The supervisor hands each Chromium Host the browser host's relay link
 /// (``ChromiumHostAgentRelaying``). The host start observes it: a link known before the attach reaches the
 /// remote shim once at that attach, a later change reaches it at once, and the next host after a host end
 /// gets it again at its own attach. A page is named to the browser host (``CEFAgentRelay/directTarget``)

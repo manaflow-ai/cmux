@@ -69,10 +69,10 @@ pub(crate) struct HostShared {
     pub(crate) next_client: AtomicU64,
     /// The flow of the newest key press an `Input` with `FLAG_INPUT_FLOW`
     /// wrote (0: none since the last read took it): the reader's next PTY
-    /// read carries it, once (p09-observability-018).
+    /// read carries it, once.
     pub(crate) last_input_flow: crate::input_flow::InputFlowSlot,
-    /// The host's PTY write and echo read of each key press with a flow
-    /// (p04-input-094): the reader's Output frame carries them
+    /// The host's PTY write and echo read of each key press with a flow:
+    /// the reader's Output frame carries them
     /// (`FLAG_INPUT_STAGES`).
     pub(crate) input_stages: crate::input_stages::InputStageRing,
     pub(crate) dead: AtomicBool,
@@ -106,7 +106,7 @@ pub(crate) struct HostShared {
     pub(crate) trace_control: super::host_trace::HostTraceQueue,
     /// The class the PTY reader and parser threads run at, set by the
     /// daemon's `SetThreadQos` and applied by each thread after its next
-    /// wake (p02-threads-236).
+    /// wake.
     pub(crate) thread_qos: cmux_threads::DesiredQos,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,

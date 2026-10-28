@@ -1,6 +1,5 @@
 //! The surfaces a frontend does not show, in its subscription's mailbox
-//! (`frontend.visibility.set`, server/frontend_visibility.rs,
-//! p06-scheduler-227).
+//! (`frontend.visibility.set`, server/frontend_visibility.rs).
 //!
 //! A hidden surface's field events (its title, agent, program status, output
 //! and scroll slots) wait in held slots, still coalesced per

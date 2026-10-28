@@ -35,7 +35,7 @@ public struct PageOpenRequest {
     /// own. The pane that shows a page tab sets it when it shows the tab, so an opener may leave it nil.
     public var chromiumWindow: PageChromiumWindow?
     /// Who asks for the page: a person (the default) or automation start its Chromium page at once; the launch's
-    /// restore (``PageOpenOrigin/launchRestore``) follows the launch order (p08-startup-041).
+    /// restore (``PageOpenOrigin/launchRestore``) follows the launch order.
     public var origin: PageOpenOrigin
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
@@ -87,7 +87,7 @@ extension PageWebView {
         let parkedOwner = request.parked ? PagePooledOwner() : nil
         let handler = parkedOwner.map { Self.parkedSchemeHandler(page: request.descriptor, root: root, owner: $0) }
             ?? PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
-        // Only a page WebKit shows joins: a Chromium page has no WebKit process to share (p13-webui-041).
+        // Only a page WebKit shows joins: a Chromium page has no WebKit process to share.
         // A parked page joins its group as a cold open of it does: the slot never retargets it to another page.
         let showsInWebKit = Self.engineDecision(for: request.descriptor, options: request.options, hosting: chromium).engine == .webKit
         let group = showsInWebKit ? processGroups.flatMap { groups in

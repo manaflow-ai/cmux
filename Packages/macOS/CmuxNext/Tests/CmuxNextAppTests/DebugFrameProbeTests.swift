@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// `debug.frames` (p03-rendering-001): the render counters add `render_armed` to every reply and their
+/// `debug.frames`: the render counters add `render_armed` to every reply and their
 /// keys only after a counting pass; the frame keys stay as they were.
 @MainActor
 struct DebugFrameProbeTests {
@@ -35,7 +35,7 @@ struct DebugFrameProbeTests {
         #expect(members["render_armed"] == .bool(false))
     }
 
-    /// The run's cap is read on the probes' own frames, with no expiry timer (p06-scheduler-307, recipe R-timer):
+    /// The run's cap is read on the probes' own frames, with no expiry timer (recipe R-timer):
     /// a frame within ``DebugFrameProbe/maximumRun`` of the run's start is kept, the first one past it ends the run.
     @Test func theFirstFramePastTheRunCapEndsTheRun() {
         let probe = DebugFrameProbe(render: RenderFrameLog(stats: RenderStats(), windows: { [] }))

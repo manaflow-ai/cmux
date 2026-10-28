@@ -5,10 +5,10 @@ import Foundation
 @testable import CmuxNextWakeups
 import Testing
 
-/// The claim's fallback is a ``MainDeadline`` on the page's deadline scheduler (p06-scheduler-336): a person waits on
+/// The claim's fallback is a ``MainDeadline`` on the page's deadline scheduler: a person waits on
 /// the claimed page (opening Settings), so the fallback is visible work at its due time, and a claim the document never
 /// answers reloads when that deadline's task runs, not before. The claimed page is a preload of the app's one preload
-/// slot (p13-webui-045), on a Chromium page whose document the test answers for.
+/// slot, on a Chromium page whose document the test answers for.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PageClaimDeadlineTests {
     @Test func anUnansweredClaimReloadsInTheVisibleTaskOfItsDeadline() async throws {

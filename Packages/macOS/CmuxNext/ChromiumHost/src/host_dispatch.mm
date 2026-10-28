@@ -1165,8 +1165,8 @@ void HostContext::Bad(const std::string& what) {
 // pushed (cmux_shim_set_window_request_policy) and reports it as
 // CMUX_SHIM_WINDOW_REQUEST_RESULT, with the id the host mints for an
 // INSERT's tab (task 031). No focus handler: the shim grants a focus request
-// only for a page cmux marked embedder-active (task p01-process-032,
-// CEFShim/src/embedder_focus_policy.h), so the focused pane's page keeps
+// only for a page cmux marked embedder-active
+// (CEFShim/src/embedder_focus_policy.h), so the focused pane's page keeps
 // Chromium's focus after its own loads and a background pane's load takes none.
 void HostContext::InstallHostPolicies() {
   cmux_shim_set_focus_request_handler(nullptr);

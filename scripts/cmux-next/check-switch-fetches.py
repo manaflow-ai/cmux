@@ -52,6 +52,10 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
+    (f"{ACPMUX}/clock.ts", "visibilitychange"): "the shared minute clock stops its timer while the page "
+    "is hidden and reads the minute once on show (p13-webui-035); reads no data",
+    (f"{ACPMUX}/chips/referenceExistence.ts", "visibilitychange"): "its retry waits count only shown time "
+    "(startPageTimeout) and a hidden page's first round waits once (p13-webui-069); no read on show itself",
     (f"{ACPMUX}/Composer.tsx", "visibilitychange"): "flushes a new chat's waiting unsent draft to the host "
     "when the page hides (unsentDraftThrottle.ts); a write, reads no data",
     (f"{ACPMUX}/MarkdownField.tsx", "focus"): "puts back the prompt's selection, which WebKit moves "

@@ -410,7 +410,7 @@ pub(super) struct ServedSession {
 impl ServedSession {
     /// Serve one accepted connection (bounded by the session's connection
     /// permits): the mux-io loop reads and writes it and its line sequence
-    /// handles its messages, so it starts no thread (p01-process-203).
+    /// handles its messages, so it starts no thread.
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
         let Some(permit) = claim_connection(self.mux.connection_stats()) else {
             refuse_busy(stream);

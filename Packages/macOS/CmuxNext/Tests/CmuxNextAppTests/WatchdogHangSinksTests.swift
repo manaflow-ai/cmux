@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p09-observability-076, p14-energy-101: Sentry's app-hang tracker is off wherever the watchdog's sinks are set (the
+/// Sentry's app-hang tracker is off wherever the watchdog's sinks are set (the
 /// watchdog is the process's one hang watcher), and the watchdog's hang sinks are set before Sentry starts. Before
 /// this, they were set in `WatchdogReporting.install`, well after the start, so a launch hang in between had no
 /// report from either side.

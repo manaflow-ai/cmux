@@ -438,7 +438,7 @@ pub(super) fn start_detached(socket: &Path) -> i32 {
 pub(super) fn run(socket: &Path) -> i32 {
     let _ = crate::restore_default_termination_signals();
     // The host serves every relayed client, so its panics go to the same
-    // `mcp-panics.jsonl` as an in-process `serve` (p09-observability-099).
+    // `mcp-panics.jsonl` as an in-process `serve`.
     super::panic_log::install();
     let _lock = match take_lock(socket) {
         Ok(Some(lock)) => lock,

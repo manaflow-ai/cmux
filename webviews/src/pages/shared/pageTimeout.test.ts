@@ -1,5 +1,5 @@
 // A page timeout (a retry backoff, a bounded poll's next round) rests while the page is hidden,
-// frozen or parked (p13-webui-069, MQ4b): no timer is armed, and on show it runs at once ("check")
+// frozen or parked (MQ4b): no timer is armed, and on show it runs at once ("check")
 // or counts its whole period again ("wait").
 import { describe, expect, test } from "bun:test";
 import { FakeLifecycleDocument, FakePollClock } from "../../../test/support/pagePollFakes";

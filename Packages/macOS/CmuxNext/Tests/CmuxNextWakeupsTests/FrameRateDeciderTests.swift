@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// Frame rate classes (p03-rendering-013): a display's link runs at the highest ``FrameRate`` its
+/// Frame rate classes: a display's link runs at the highest ``FrameRate`` its
 /// armed clients ask for, as Chrome's viz picks the display interval from its frame sinks'
 /// preferred intervals (components/viz/service/display/frame_rate_decider.cc).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameRateDeciderTests {

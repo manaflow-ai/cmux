@@ -1,4 +1,4 @@
-// A page poll rests while the page is hidden, frozen or parked (p13-webui-069, MQ4b): it arms no
+// A page poll rests while the page is hidden, frozen or parked (MQ4b): it arms no
 // timer and runs nothing, and on show it checks once ("check") or waits one period ("wait"). A
 // poll's reads never overlap: the next period starts when the last read settles.
 import { describe, expect, test } from "bun:test";

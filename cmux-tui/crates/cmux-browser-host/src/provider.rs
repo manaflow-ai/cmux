@@ -35,7 +35,7 @@ impl ProviderSecret {
         a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
     }
 
-    /// The credential of the Chromium Host's relay link (p01-process-233):
+    /// The credential of the Chromium Host's relay link:
     /// HMAC-SHA256 of [`RELAY_CREDENTIAL_CONTEXT`] keyed by this secret's
     /// UTF-8 bytes, as 64 lowercase hex digits. The app derives it from the
     /// daemon-minted secret and hands only it to its Chromium Host, so the
@@ -43,6 +43,10 @@ impl ProviderSecret {
     /// refused, and the secret never leaves the app.
     pub fn relay_credential(&self) -> ProviderSecret {
         use hmac::{Hmac, Mac};
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: HMAC takes a key of any length (RFC 2104)"
+        )]
         let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(self.0.as_bytes())
             .expect("HMAC takes any key length");
         mac.update(RELAY_CREDENTIAL_CONTEXT);
@@ -230,7 +234,7 @@ pub enum Frame {
         extensions: Vec<String>,
     },
     /// Makes a CEF tab agent-ready without relaying it through the app
-    /// (host -> app; p01-process-233): the app marks and prepares the page as
+    /// (host -> app): the app marks and prepares the page as
     /// for `cdp.attach`, then answers with the event `tab.relay.direct`
     /// (`targetId`, `browser`, `link`: the link id it gave its Chromium Host)
     /// or `tab.relay.failed` (`targetId`, `reason`). Sent only while a
@@ -451,12 +455,18 @@ pub fn read_frame(reader: &mut impl Read) -> Result<Option<Frame>, CodecError> {
 /// [`read_frame`] with a smaller size limit (use [`MAX_HELLO_BYTES`] until `hello`).
 pub fn read_frame_limited(reader: &mut impl Read, max: usize) -> Result<Option<Frame>, CodecError> {
     let mut header = [0u8; 4];
-    let mut filled = 0;
-    while filled < header.len() {
-        match reader.read(&mut header[filled..]) {
-            Ok(0) if filled == 0 => return Ok(None),
+    let mut unfilled = header.as_mut_slice();
+    while !unfilled.is_empty() {
+        let at_boundary = unfilled.len() == 4;
+        match reader.read(unfilled) {
+            Ok(0) if at_boundary => return Ok(None),
             Ok(0) => return Err(CodecError::Truncated),
-            Ok(n) => filled += n,
+            // A reader that claims more bytes than it was given broke the
+            // `Read` contract; the header it wrote is not trusted.
+            Ok(n) => {
+                unfilled =
+                    std::mem::take(&mut unfilled).get_mut(n..).ok_or(CodecError::Truncated)?;
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(CodecError::Io(error)),
         }
@@ -466,11 +476,16 @@ pub fn read_frame_limited(reader: &mut impl Read, max: usize) -> Result<Option<F
         return Err(CodecError::TooLarge(len));
     }
     let mut body = vec![0u8; len];
-    reader.read_exact(&mut body).map_err(|error| match error.kind() {
+    reader.read_exact(&mut body).map_err(truncated_or_io)?;
+    serde_json::from_slice(&body).map(Some).map_err(CodecError::Json)
+}
+
+/// An end of stream inside a frame is [`CodecError::Truncated`].
+fn truncated_or_io(error: io::Error) -> CodecError {
+    match error.kind() {
         io::ErrorKind::UnexpectedEof => CodecError::Truncated,
         _ => CodecError::Io(error),
-    })?;
-    serde_json::from_slice(&body).map(Some).map_err(CodecError::Json)
+    }
 }
 
 /// Incremental decoder for non-blocking readers.
@@ -486,19 +501,17 @@ impl FrameDecoder {
 
     /// The next complete frame, if the buffer holds one.
     pub fn next_frame(&mut self) -> Result<Option<Frame>, CodecError> {
-        if self.buffer.len() < 4 {
+        let Some((header, rest)) = self.buffer.split_first_chunk::<4>() else {
             return Ok(None);
-        }
-        let len =
-            u32::from_be_bytes([self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3]])
-                as usize;
+        };
+        let len = u32::from_be_bytes(*header) as usize;
         if len > MAX_FRAME_BYTES {
             return Err(CodecError::TooLarge(len));
         }
-        if self.buffer.len() < 4 + len {
+        let Some(body) = rest.get(..len) else {
             return Ok(None);
-        }
-        let frame = serde_json::from_slice(&self.buffer[4..4 + len]).map_err(CodecError::Json);
+        };
+        let frame = serde_json::from_slice(body).map_err(CodecError::Json);
         self.buffer.drain(..4 + len);
         frame.map(Some)
     }
@@ -640,6 +653,37 @@ mod tests {
         let mut reader: &[u8] = &bytes[..bytes.len() - 1];
         assert!(matches!(read_frame(&mut reader), Err(CodecError::Truncated)));
         let mut reader: &[u8] = &bytes[..2];
+        assert!(matches!(read_frame(&mut reader), Err(CodecError::Truncated)));
+    }
+
+    /// A reader that hands out one byte per read, or claims more than it got.
+    struct Trickle {
+        bytes: Vec<u8>,
+        at: usize,
+        overclaim: bool,
+    }
+
+    impl Read for Trickle {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.overclaim {
+                return Ok(buffer.len() + 1);
+            }
+            let Some(&byte) = self.bytes.get(self.at) else { return Ok(0) };
+            buffer[0] = byte;
+            self.at += 1;
+            Ok(1)
+        }
+    }
+
+    #[test]
+    fn a_header_read_a_byte_at_a_time_is_whole_and_a_lying_reader_is_an_error() {
+        let frame = Frame::UserInput { target_id: "t".into() };
+        let bytes = encode(&frame).unwrap();
+        let mut reader = Trickle { bytes: bytes.clone(), at: 0, overclaim: false };
+        assert_eq!(read_frame(&mut reader).unwrap(), Some(frame));
+        assert!(read_frame(&mut reader).unwrap().is_none());
+
+        let mut reader = Trickle { bytes, at: 0, overclaim: true };
         assert!(matches!(read_frame(&mut reader), Err(CodecError::Truncated)));
     }
 

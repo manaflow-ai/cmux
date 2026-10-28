@@ -11,6 +11,7 @@
 //! cancelled, a tool call still running shown failed. The chat is not touched.
 
 use super::*;
+use crate::no_panic::{JsonExt, LockExt};
 use std::sync::atomic::Ordering;
 
 /// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.
@@ -308,13 +309,13 @@ impl Hub {
         };
         let new = self.make_session(meta);
         match made {
-            Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
+            Made::ClaudeResume => *new.fork_from.lock_or_recover() = Some(sid.clone()),
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
             Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
             Made::Copy(_) | Made::Agent(..) => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
-        self.sessions.lock().unwrap().insert(id.clone(), new.clone());
+        self.sessions.lock_or_recover().insert(id.clone(), new.clone());
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[
@@ -390,12 +391,12 @@ impl Hub {
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": fork_seq});
         if running.is_some() {
-            forked["midTurn"] = json!(true);
+            forked.set("midTurn", json!(true));
         }
         if let Some(note) = &note {
-            forked["note"] = json!(note);
-            forked["from"] = json!("transcript");
-            forked["harness"] = json!(parent_meta.harness);
+            forked.set("note", json!(note));
+            forked.set("from", json!("transcript"));
+            forked.set("harness", json!(parent_meta.harness));
         }
         self.append(&new, "mux", "forked", forked);
         self.append(session, "mux", "fork_child", json!({"childId": id}));

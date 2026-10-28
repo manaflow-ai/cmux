@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// The launch mark and the status glyphs are Foundation geometry in DesignTokens (``OutlinePath``), so
-/// their shapes build and are checked without CoreGraphics (p15-oracle-131).
+/// their shapes build and are checked without CoreGraphics.
 @Suite struct GlyphOutlineTests {
     @Test func theLaunchMarkIsTheChevronFittedAndCenteredYUp() {
         // The chevron's box is 88 by 126: a 44 by 126 rect fits it at scale 0.5, centered at (22, 63) in y-up space.

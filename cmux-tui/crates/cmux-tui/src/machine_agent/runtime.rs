@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use cmux_threads::sync::Condvar;
 use cmux_tui_machine_agent_protocol as protocol;
 use protocol::{
     AgentVersion, DataPayload, DrainComplete, Envelope, ErrorCode, GenerationReady,
@@ -16,8 +15,10 @@ use protocol::{
 };
 use zeroize::Zeroize;
 
+use super::error_code::AgentErrorCode;
 use super::identity::MachineIdentity;
 use super::protocol_io::{self, FrameReadError};
+use super::stream_flow::{StreamFlow, bounded_local_read, payload_len};
 use super::transport::{
     CloudConnector, ConnectionControl, DuplexConnection, LocalSessionConnector,
 };
@@ -216,7 +217,12 @@ impl MachineAgent {
                             worker_id,
                             WorkerCommand::ResumeMigration {
                                 generation: request.generation,
-                                code: error_code(if replayed { "replay" } else { "downgrade" }),
+                                code: if replayed {
+                                    AgentErrorCode::Replay
+                                } else {
+                                    AgentErrorCode::Downgrade
+                                }
+                                .wire(),
                             },
                         );
                         continue;
@@ -227,7 +233,7 @@ impl MachineAgent {
                             worker_id,
                             WorkerCommand::ResumeMigration {
                                 generation: request.generation,
-                                code: error_code("migration_in_progress"),
+                                code: AgentErrorCode::MigrationInProgress.wire(),
                             },
                         );
                         continue;
@@ -252,7 +258,7 @@ impl MachineAgent {
                                     worker_id,
                                     WorkerCommand::ResumeMigration {
                                         generation: request.generation,
-                                        code: error_code("invalid_migration"),
+                                        code: AgentErrorCode::InvalidMigration.wire(),
                                     },
                                 );
                                 self.reporter
@@ -280,7 +286,7 @@ impl MachineAgent {
                                 worker_id,
                                 WorkerCommand::ResumeMigration {
                                     generation: request.generation,
-                                    code: error_code("generation_mismatch"),
+                                    code: AgentErrorCode::GenerationMismatch.wire(),
                                 },
                             );
                             self.reporter
@@ -293,7 +299,7 @@ impl MachineAgent {
                                 worker_id,
                                 WorkerCommand::ResumeMigration {
                                     generation: request.generation,
-                                    code: error_code("migration_failed"),
+                                    code: AgentErrorCode::MigrationFailed.wire(),
                                 },
                             );
                             self.reporter.diagnostic(
@@ -550,7 +556,7 @@ fn random_connection_nonce() -> anyhow::Result<OpaqueId> {
     encoded.push_str("connection-");
     use std::fmt::Write as _;
     for byte in &bytes {
-        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+        write!(&mut encoded, "{byte:02x}")?;
     }
     bytes.zeroize();
     OpaqueId::new(encoded).map_err(Into::into)
@@ -804,7 +810,11 @@ fn spawn_local_connectors(
             cmux_threads::ThreadQos::UserInitiated,
             move || {
                 loop {
-                    let request = cmux_blocking::sync::recv(&receiver.lock().unwrap());
+                    // The lock only serializes `recv` on a Receiver, which a
+                    // panicking holder cannot leave half-updated.
+                    let request = cmux_blocking::sync::recv(
+                        &receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+                    );
                     let Ok(request) = request else { break };
                     let connection = local.open();
                     if let Err(error) = request.sender.send(WorkerInput::LocalOpenCompleted {
@@ -909,7 +919,7 @@ impl GenerationState {
                 if self.migration_pending || self.draining {
                     self.send(Message::GenerationRejected(GenerationRejected {
                         generation: request.generation,
-                        code: error_code("busy"),
+                        code: AgentErrorCode::Busy.wire(),
                     }))?;
                 } else {
                     self.migration_pending = true;
@@ -957,7 +967,7 @@ impl GenerationState {
                 }
                 self.migration_pending = false;
                 self.draining = true;
-                self.reject_pending_opens("migrating")?;
+                self.reject_pending_opens(AgentErrorCode::Migrating)?;
                 let _ = acknowledgment.try_send(true);
                 Ok(false)
             }
@@ -972,21 +982,21 @@ impl GenerationState {
 
     fn open_stream(&mut self, open: OpenStream) -> anyhow::Result<()> {
         if self.migration_pending || self.draining {
-            return self.reject(open.stream_id, "migrating");
+            return self.reject(open.stream_id, AgentErrorCode::Migrating);
         }
         if open.stream_id == 0
             || open.initial_window == 0
             || open.initial_window > protocol::MAX_STREAM_WINDOW_BYTES
         {
-            return self.reject(open.stream_id, "invalid_open");
+            return self.reject(open.stream_id, AgentErrorCode::InvalidOpen);
         }
         if self.streams.contains_key(&open.stream_id)
             || self.pending_opens.contains_key(&open.stream_id)
         {
-            return self.reject(open.stream_id, "stream_replay");
+            return self.reject(open.stream_id, AgentErrorCode::StreamReplay);
         }
         if self.streams.len() + self.pending_opens.len() >= protocol::MAX_ACTIVE_STREAMS {
-            return self.reject(open.stream_id, "stream_limit");
+            return self.reject(open.stream_id, AgentErrorCode::StreamLimit);
         }
         let new_open = self
             .recent_opens
@@ -994,11 +1004,11 @@ impl GenerationState {
             .map_err(|_| anyhow::anyhow!("machine-agent replay cache is poisoned"))?
             .insert(open.open_id);
         if !new_open {
-            return self.reject(open.stream_id, "replay");
+            return self.reject(open.stream_id, AgentErrorCode::Replay);
         }
         let instance_id = self.next_stream_instance_id;
         let Some(next_instance_id) = instance_id.checked_add(1) else {
-            return self.reject(open.stream_id, "stream_limit");
+            return self.reject(open.stream_id, AgentErrorCode::StreamLimit);
         };
         self.next_stream_instance_id = next_instance_id;
         let request = LocalOpenRequest {
@@ -1007,7 +1017,7 @@ impl GenerationState {
             sender: self.inputs.clone(),
         };
         if self.local_opens.try_send(request).is_err() {
-            return self.reject(open.stream_id, "local_unavailable");
+            return self.reject(open.stream_id, AgentErrorCode::LocalUnavailable);
         }
         self.pending_opens.insert(
             open.stream_id,
@@ -1041,7 +1051,7 @@ impl GenerationState {
         }
         let connection = match connection {
             Ok(connection) => connection,
-            Err(_) => return self.reject(stream_id, "local_unavailable"),
+            Err(_) => return self.reject(stream_id, AgentErrorCode::LocalUnavailable),
         };
         let DuplexConnection { reader, writer, control } = connection;
         let flow = Arc::new(StreamFlow::new(pending.initial_window));
@@ -1055,7 +1065,7 @@ impl GenerationState {
             Ok(writes) => writes,
             Err(_) => {
                 control.close();
-                return self.reject(stream_id, "local_unavailable");
+                return self.reject(stream_id, AgentErrorCode::LocalUnavailable);
             }
         };
         if spawn_local_reader(
@@ -1070,7 +1080,7 @@ impl GenerationState {
         {
             drop(writes);
             control.close();
-            return self.reject(stream_id, "local_unavailable");
+            return self.reject(stream_id, AgentErrorCode::LocalUnavailable);
         }
         self.streams.insert(
             stream_id,
@@ -1090,21 +1100,20 @@ impl GenerationState {
 
     fn write_local(&mut self, data: StreamData) -> anyhow::Result<()> {
         let stream_id = data.stream_id;
-        let length =
-            u32::try_from(data.payload.as_bytes().len()).expect("protocol payload length fits u32");
+        let length = payload_len(&data.payload);
         if length == 0 {
-            return self.close_stream(stream_id, Some("flow_control"));
+            return self.close_stream(stream_id, Some(AgentErrorCode::FlowControl));
         }
         let Some(stream) = self.streams.get_mut(&stream_id) else {
-            return self.reject(stream_id, "unknown_stream");
+            return self.reject(stream_id, AgentErrorCode::UnknownStream);
         };
         if length > stream.receive_remaining {
-            self.close_stream(stream_id, Some("flow_control"))?;
+            self.close_stream(stream_id, Some(AgentErrorCode::FlowControl))?;
             return Ok(());
         }
         stream.receive_remaining -= length;
         if stream.writes.try_send(data.payload).is_err() {
-            self.close_stream(stream_id, Some("local_write"))?;
+            self.close_stream(stream_id, Some(AgentErrorCode::LocalWrite))?;
         }
         Ok(())
     }
@@ -1134,10 +1143,10 @@ impl GenerationState {
             return Ok(());
         }
         let Some(receive_remaining) = stream.receive_remaining.checked_add(bytes) else {
-            return self.close_stream(stream_id, Some("flow_control"));
+            return self.close_stream(stream_id, Some(AgentErrorCode::FlowControl));
         };
         if receive_remaining > protocol::MAX_STREAM_WINDOW_BYTES {
-            return self.close_stream(stream_id, Some("flow_control"));
+            return self.close_stream(stream_id, Some(AgentErrorCode::FlowControl));
         }
         stream.receive_remaining = receive_remaining;
         self.send(Message::Window(StreamWindow { stream_id, bytes }))
@@ -1145,31 +1154,35 @@ impl GenerationState {
 
     fn fail_local_write(&mut self, stream_id: u32, instance_id: u64) -> anyhow::Result<()> {
         if self.streams.get(&stream_id).is_some_and(|stream| stream.instance_id == instance_id) {
-            self.close_stream(stream_id, Some("local_write"))?;
+            self.close_stream(stream_id, Some(AgentErrorCode::LocalWrite))?;
         }
         Ok(())
     }
 
     fn add_window(&mut self, window: StreamWindow) -> anyhow::Result<()> {
         if window.bytes == 0 {
-            return self.close_stream(window.stream_id, Some("flow_control"));
+            return self.close_stream(window.stream_id, Some(AgentErrorCode::FlowControl));
         }
         let Some(stream) = self.streams.get(&window.stream_id) else {
-            return self.reject(window.stream_id, "unknown_stream");
+            return self.reject(window.stream_id, AgentErrorCode::UnknownStream);
         };
         if !stream.flow.add_credit(window.bytes) {
-            return self.close_stream(window.stream_id, Some("flow_control"));
+            return self.close_stream(window.stream_id, Some(AgentErrorCode::FlowControl));
         }
         Ok(())
     }
 
-    fn close_stream(&mut self, stream_id: u32, notify: Option<&str>) -> anyhow::Result<()> {
+    fn close_stream(
+        &mut self,
+        stream_id: u32,
+        notify: Option<AgentErrorCode>,
+    ) -> anyhow::Result<()> {
         self.pending_opens.remove(&stream_id);
         if let Some(stream) = self.streams.remove(&stream_id) {
             stream.close();
         }
         if let Some(code) = notify {
-            self.send(Message::Close(StreamClosed { stream_id, code: error_code(code) }))?;
+            self.send(Message::Close(StreamClosed { stream_id, code: code.wire() }))?;
         }
         Ok(())
     }
@@ -1184,12 +1197,12 @@ impl GenerationState {
             .collect::<Vec<_>>();
         for stream_id in expired {
             self.pending_opens.remove(&stream_id);
-            self.reject(stream_id, "local_unavailable")?;
+            self.reject(stream_id, AgentErrorCode::LocalUnavailable)?;
         }
         Ok(())
     }
 
-    fn reject_pending_opens(&mut self, code: &str) -> anyhow::Result<()> {
+    fn reject_pending_opens(&mut self, code: AgentErrorCode) -> anyhow::Result<()> {
         let stream_ids = self.pending_opens.keys().copied().collect::<Vec<_>>();
         self.pending_opens.clear();
         for stream_id in stream_ids {
@@ -1212,8 +1225,8 @@ impl GenerationState {
         Ok(())
     }
 
-    fn reject(&mut self, stream_id: u32, code: &str) -> anyhow::Result<()> {
-        self.send(Message::Reject(StreamRejected { stream_id, code: error_code(code) }))
+    fn reject(&mut self, stream_id: u32, code: AgentErrorCode) -> anyhow::Result<()> {
+        self.send(Message::Reject(StreamRejected { stream_id, code: code.wire() }))
     }
 
     fn send(&mut self, message: Message) -> anyhow::Result<()> {
@@ -1245,76 +1258,8 @@ struct ActiveStream {
 
 impl ActiveStream {
     fn close(self) {
-        self.flow.close("closed");
+        self.flow.close(AgentErrorCode::Closed);
         self.control.close();
-    }
-}
-
-struct StreamFlow {
-    state: Mutex<StreamFlowState>,
-    available: Condvar,
-}
-
-struct StreamFlowState {
-    credit: u32,
-    closed: bool,
-    reader_result: Option<&'static str>,
-}
-
-impl StreamFlow {
-    fn new(credit: u32) -> Self {
-        Self {
-            state: Mutex::new(StreamFlowState { credit, closed: false, reader_result: None }),
-            available: Condvar::new(),
-        }
-    }
-
-    fn reserve(&self) -> Option<usize> {
-        let mut state = self.state.lock().ok()?;
-        while state.credit == 0 && !state.closed {
-            state = self.available.wait(state).ok()?;
-        }
-        if state.closed {
-            return None;
-        }
-        let reserved = state.credit.min(protocol::MAX_DATA_BYTES as u32);
-        state.credit -= reserved;
-        Some(reserved as usize)
-    }
-
-    fn return_credit(&self, bytes: u32) {
-        if let Ok(mut state) = self.state.lock() {
-            state.credit =
-                state.credit.saturating_add(bytes).min(protocol::MAX_STREAM_WINDOW_BYTES);
-            self.available.notify_all();
-        }
-    }
-
-    fn add_credit(&self, bytes: u32) -> bool {
-        let Ok(mut state) = self.state.lock() else { return false };
-        let Some(total) = state.credit.checked_add(bytes) else { return false };
-        if total > protocol::MAX_STREAM_WINDOW_BYTES || state.closed {
-            return false;
-        }
-        state.credit = total;
-        self.available.notify_all();
-        true
-    }
-
-    fn mark_reader_done(&self, code: &'static str) {
-        if let Ok(mut state) = self.state.lock() {
-            state.closed = true;
-            state.reader_result.get_or_insert(code);
-            self.available.notify_all();
-        }
-    }
-
-    fn close(&self, code: &'static str) {
-        self.mark_reader_done(code);
-    }
-
-    fn reader_result(&self) -> Option<&'static str> {
-        self.state.lock().ok()?.reader_result
     }
 }
 
@@ -1337,14 +1282,14 @@ fn spawn_local_reader(
                     Ok(0) => {
                         payload.zeroize();
                         flow.return_credit(reserved as u32);
-                        flow.mark_reader_done("eof");
+                        flow.mark_reader_done(AgentErrorCode::Eof);
                         let _ = sender.try_send(WorkerInput::LocalWake);
                         break;
                     }
                     Ok(read) => {
                         payload.truncate(read);
                         flow.return_credit((reserved - read) as u32);
-                        let payload = DataPayload::new(payload).expect("bounded local read");
+                        let payload = bounded_local_read(payload);
                         match sender.try_send(WorkerInput::LocalData {
                             stream_id,
                             instance_id,
@@ -1352,7 +1297,7 @@ fn spawn_local_reader(
                         }) {
                             Ok(()) => {}
                             Err(TrySendError::Full(_)) => {
-                                flow.mark_reader_done("queue_overflow");
+                                flow.mark_reader_done(AgentErrorCode::QueueOverflow);
                                 control.close();
                                 break;
                             }
@@ -1362,7 +1307,7 @@ fn spawn_local_reader(
                     Err(_) => {
                         payload.zeroize();
                         flow.return_credit(reserved as u32);
-                        flow.mark_reader_done("local_read");
+                        flow.mark_reader_done(AgentErrorCode::LocalRead);
                         let _ = sender.try_send(WorkerInput::LocalWake);
                         break;
                     }
@@ -1387,8 +1332,8 @@ fn spawn_local_writer(
         cmux_threads::ThreadQos::UserInitiated,
         move || {
             while let Ok(payload) = cmux_blocking::sync::recv(&receiver) {
+                let length = payload_len(&payload);
                 let mut bytes = payload.into_bytes();
-                let length = u32::try_from(bytes.len()).expect("protocol payload length fits u32");
                 let result = writer.write_all(&bytes).and_then(|()| writer.flush());
                 bytes.zeroize();
                 let event = if result.is_ok() {
@@ -1428,15 +1373,13 @@ impl RecentOpenIds {
     }
 }
 
-fn error_code(value: &str) -> ErrorCode {
-    ErrorCode::new(value).expect("static machine-agent error code is valid")
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    use cmux_threads::sync::Condvar;
 
     use protocol::{MachineSecret, MigrationToken, PairingCode};
 
@@ -1657,7 +1600,10 @@ mod tests {
         assert!(!try_send_worker_command(
             &workers,
             7,
-            WorkerCommand::ResumeMigration { generation: 2, code: error_code("migration_failed") },
+            WorkerCommand::ResumeMigration {
+                generation: 2,
+                code: AgentErrorCode::MigrationFailed.wire()
+            },
         ));
         assert!(control.0.load(Ordering::Acquire));
     }

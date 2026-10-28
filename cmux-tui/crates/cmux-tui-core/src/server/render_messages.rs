@@ -57,8 +57,8 @@ pub(super) fn write_pending_sequence_json(
     writer.write_all(b"\"")
 }
 
-/// `,"flow":N` of an `output` event that echoes key press `flow`
-/// (p09-observability-018); nothing for 0.
+/// `,"flow":N` of an `output` event that echoes key press `flow`;
+/// nothing for 0.
 pub(super) fn write_output_flow_json(
     writer: &mut BudgetedJsonWriter,
     flow: u64,
@@ -69,8 +69,8 @@ pub(super) fn write_output_flow_json(
     write!(writer, ",\"flow\":{flow}")
 }
 
-/// `,"key_stages":{...}` of an `output` event that echoes a key press
-/// (p04-input-094): the daemon's receive, the PTY write and the echo's read
+/// `,"key_stages":{...}` of an `output` event that echoes a key press:
+/// the daemon's receive, the PTY write and the echo's read
 /// ([`crate::input_stages::KeyStages`]) and `sent`, when this event was
 /// encoded, all trace-clock ns (`CLOCK_UPTIME_RAW`, the app's
 /// `NSEvent.timestamp` clock); a stage not reached is 0. `lost`: the presses

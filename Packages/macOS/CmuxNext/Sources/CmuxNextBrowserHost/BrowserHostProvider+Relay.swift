@@ -9,8 +9,8 @@ struct RelaySession {
         /// `cdp.attach` arrived; the app makes the page agent-ready first.
         case preparing
         case relaying
-        /// The Chromium Host relays the tab's CDP to the browser host itself (`cdp.prepare`, task
-        /// p01-process-233): the app keeps only the tab's agent-ready state and capture votes.
+        /// The Chromium Host relays the tab's CDP to the browser host itself (`cdp.prepare`):
+        /// the app keeps only the tab's agent-ready state and capture votes.
         case direct
         /// The page could not be made ready in time: commands get errors.
         case failed(String)

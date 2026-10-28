@@ -13,7 +13,7 @@ import Testing
 /// stall timeout while the display sleeps); the review-1 fix handles each frame as it is read. The
 /// provider dials a stand-in host here: a call's reply leaves with no display frame.
 ///
-/// p06-scheduler-036: each frame is one task of the automation class on the injected scheduler, so a
+/// Each frame is one task of the automation class on the injected scheduler, so a
 /// command read while the person's input is pending runs after that input; it runs on the next run
 /// loop turn even while frames run. The tab list is read only in automation tasks, never in the
 /// person's turn. Turns and frames fire by hand (the stall clock never moves): the tests await the

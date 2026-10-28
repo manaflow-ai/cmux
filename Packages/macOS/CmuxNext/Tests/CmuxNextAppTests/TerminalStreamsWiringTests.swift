@@ -4,7 +4,7 @@
 import CmuxNextFeatures
 import Testing
 
-/// The production wiring of `terminalStreams` (p05-ipc-095): on, the local daemon's connection streams its
+/// The production wiring of `terminalStreams`: on, the local daemon's connection streams its
 /// terminal views, echoes the grant and joins shared sizing as this Mac; off (`CMUX_DISABLE_FEATURES`, and Release
 /// by default), it asks for none.
 struct TerminalStreamsWiringTests {

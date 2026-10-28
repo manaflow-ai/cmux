@@ -442,7 +442,7 @@ impl RenderService {
     }
 
     /// [`Self::serialize_attach_frame`] with the daemon stages of the key
-    /// press an output frame echoes (p04-input-094), sent now.
+    /// press an output frame echoes, sent now.
     #[cfg(test)]
     pub(super) fn serialize_attach_frame_with_stages(
         &self,
@@ -455,7 +455,7 @@ impl RenderService {
     }
 
     /// An attach frame in `shape` for client `stream`; an output frame that
-    /// echoes a key press carries that press's `key_stages` (p04-input-094).
+    /// echoes a key press carries that press's `key_stages`.
     pub(super) fn serialize_attach_frame_for(
         &self,
         surface: SurfaceId,

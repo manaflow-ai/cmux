@@ -23,8 +23,8 @@ public enum TerminalChannelEvent: Sendable, Hashable {
     case snapshot(TerminalSnapshotFrame)
     /// Live PTY bytes in order. Apply `colors` with this chunk when present.
     case output(Data, colors: TerminalColors?)
-    /// The `output` before this one carries the echo of key press `flow`: the daemon named it
-    /// (p09-observability-018), so the typing probe marks that press when the session and the lane
+    /// The `output` before this one carries the echo of key press `flow`: the daemon named it,
+    /// so the typing probe marks that press when the session and the lane
     /// take that chunk. Only while the probe records.
     case inputEcho(flow: UInt64)
     /// Live output waits behind the events before this one: resume the marker once they are applied, and

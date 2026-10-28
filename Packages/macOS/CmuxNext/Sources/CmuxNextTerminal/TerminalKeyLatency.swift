@@ -2,7 +2,7 @@ public import CmuxNextInput
 public import CmuxNextInputCore
 public import CmuxNextWakeups
 
-/// The app's input latency tracker as the terminals see it (p04-input-094): the echo stages' sink (p04-input-006)
+/// The app's input latency tracker as the terminals see it: the echo stages' sink
 /// and the daemon attachments' key stamp sink. The composition root installs it before the first terminal
 /// (``TerminalEchoStages/install(_:)``) and hands it to each local daemon terminal.
 ///

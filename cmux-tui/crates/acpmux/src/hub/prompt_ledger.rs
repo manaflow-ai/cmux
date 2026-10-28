@@ -1,6 +1,7 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
 use super::{Hub, PromptOutcome, Session};
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 
@@ -80,7 +81,7 @@ impl Hub {
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
                         && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
                 {
-                    turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                    turn_id = rec.msg.field("joinedTurnId").as_str().map(str::to_owned);
                 }
                 _ => {}
             }

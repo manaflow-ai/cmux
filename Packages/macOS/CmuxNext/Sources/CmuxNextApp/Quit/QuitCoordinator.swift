@@ -291,7 +291,7 @@ final class QuitCoordinator {
         }
     }
 
-    /// Each open window's picture (p08-startup-057), from the pane pictures this quit took already, so nothing is
+    /// Each open window's picture, from the pane pictures this quit took already, so nothing is
     /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
     /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],

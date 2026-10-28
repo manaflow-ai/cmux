@@ -3,7 +3,7 @@ import CmuxNextOracle
 import Foundation
 import Testing
 
-/// The webviews facet (p15-oracle-215): each page's answer to `cmux.page.oracle.state` with the host's place for
+/// The webviews facet: each page's answer to `cmux.page.oracle.state` with the host's place for
 /// it, in the schema's shape; an answer of another shape or an unhashed draft fails the snapshot; a loaded page
 /// that does not serve the op makes the facet not-comparable, never a list that lacks it.
 /// Run: `swift test --filter OracleWebviewsFacetTests`.

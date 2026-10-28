@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CoreGraphics
 import Testing
 
-/// The CPU's record of a pane's or divider's render-server springs (p03-rendering-022b): what shows at any
+/// The CPU's record of a pane's or divider's render-server springs: what shows at any
 /// time without reading `presentation()`, so a change landing mid-motion starts from what shows.
 @MainActor
 struct RenderSpringTrackTests {

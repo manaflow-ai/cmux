@@ -45,7 +45,7 @@ struct AppRunMarkerBootSessionTests {
         #expect(run.uncleanExit(bootSession: nil) == .killed)
     }
 
-    /// p01-process-152: a power loss or a reboot left no daemon to reattach, so its launch keeps the saved terminal frames
+    /// A power loss or a reboot left no daemon to reattach, so its launch keeps the saved terminal frames
     /// and window picture through the cold daemon start; a kill or a crash in this boot left it running, so they go.
     @Test func onlyAnEndInThisBootReattaches() throws {
         let shutdown = try Self.previous(boot: Self.earlierBoot, survived: false).uncleanExit(bootSession: Self.thisBoot)

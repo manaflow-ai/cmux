@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! Views hold no thread (p05-ipc-079, p01-process-125): 50 byte views, 50
+//! Views hold no thread: 50 byte views, 50
 //! render views and 50 snapshot views attached as client-minted streams
 //! (attach-streams-v1) on one connection of a real daemon socket, and the
 //! same views (10 of the render views) as legacy attaches (no stream id) on

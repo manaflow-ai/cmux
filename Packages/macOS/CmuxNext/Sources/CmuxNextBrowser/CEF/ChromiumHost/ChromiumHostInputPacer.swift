@@ -2,7 +2,7 @@
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 
 /// Ack-based pacing of one page's input to the Chromium Host
-/// (plans/cmux-next/chrome-parity/p01-process.md 3.1, Coalescing; task p01-process-042).
+/// (plans/cmux-next/chrome-parity/p01-process.md 3.1, Coalescing).
 ///
 /// A pointer move or a wheel tick leaves at once when none of its kind is in
 /// flight, so the first wheel tick of a gesture leaves in the event's own turn.

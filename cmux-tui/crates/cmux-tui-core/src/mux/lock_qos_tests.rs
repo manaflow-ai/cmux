@@ -1,5 +1,5 @@
 //! Every ranked lock raises an automation request's thread before it waits
-//! for the lock and while it holds it (p06-scheduler-035, crate::lock_rank
+//! for the lock and while it holds it (crate::lock_rank
 //! `raises_holder`, cmux_tui_platform::qos). Where the platform cannot take
 //! UTILITY back (Linux without `RLIMIT_NICE`) nothing is lowered and nothing
 //! is raised.

@@ -5,8 +5,8 @@
 //!
 //! Every view, legacy or on a client-minted attach stream, is a stream of
 //! its connection's bounded outbound queue, fed by a drain on the
-//! daemon-wide sequenced pool: no view holds a thread (stream_attach_out.rs;
-//! p05-ipc-079, p01-process-125). Chrome binds each Mojo receiver to a
+//! daemon-wide sequenced pool: no view holds a thread (stream_attach_out.rs).
+//! Chrome binds each Mojo receiver to a
 //! sequence, not a thread (docs/threading_and_tasks.md "Prefer sequences to
 //! threads").
 
@@ -452,7 +452,7 @@ fn attach_view(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
-    // The terminal's key presses: each echo goes out with its stages (p04-input-094).
+    // The terminal's key presses: each echo goes out with its stages.
     let key_stages = surface.input_stages();
     let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
     StreamView { mux, client, surface: surface_id, writer, stream: &outbound_stream, commit }

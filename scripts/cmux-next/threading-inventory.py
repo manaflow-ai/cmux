@@ -182,7 +182,7 @@ def cpu_intensive(changes: list, moved: collections.Counter) -> list:
     return g.changed_debt(in_main_actor, judge)
 
 
-# sync-inversion (p02-threads-035): a thread waits for a serial queue (`queue.sync {`, `queue.blockingSync {`,
+# sync-inversion: a thread waits for a serial queue (`queue.sync {`, `queue.blockingSync {`,
 # `asyncAndWait`) that runs below the waiter's QoS, so the waiter's frame or reply sits behind everything queued there
 # at a lower class. Main-thread waits must be donating ones only (p02-threads.md D): a Mutex, or `blockingSync` onto a
 # serial queue of greater or equal QoS; Chrome's UI thread never waits on a lower-priority sequence
@@ -1183,7 +1183,7 @@ def group_by_root(tree: Tree, hits: list[Hit], max_hits: int) -> list[tuple[str,
     return out
 
 
-# ---------------------------------------------------------------- task graph (p02-threads-110)
+# ---------------------------------------------------------------- task graph
 #
 # --task-graph reads the plan's tasks (design-result.json), expands each file list at REV and orders the tasks that
 # share a file so that every file has one owner per wave. A wave is a dependency level: a task runs once everything

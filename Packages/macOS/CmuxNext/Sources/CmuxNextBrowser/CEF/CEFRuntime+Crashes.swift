@@ -2,7 +2,7 @@ import Foundation
 
 /// Renderer and helper process failures: the tab-level record from CEF and
 /// the process-level record from `CEFChildProcessMonitor` in process, or from the Chromium Host's
-/// HELPER_EXIT in host mode (its helpers are the host's children; task p01-process-225). Each abnormal end is one
+/// HELPER_EXIT in host mode (its helpers are the host's children). Each abnormal end is one
 /// `cef.helper_exit` sample (``CEFHelperExitMetric``), the same in both roles: a page renderer
 /// from Chromium's termination status once per process, every other helper from the monitor;
 /// and one helper-exit report with its pid (``CEFHelperExitReports``).

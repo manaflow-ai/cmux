@@ -7,7 +7,7 @@ import ObjectiveC
 /// The usual key, `private var key: UInt8 = 0` passed as `&key`, is a mutable global, so Swift 6 needs
 /// `nonisolated(unsafe)` on it. The runtime compares only the key's address, so an immutable `Sendable`
 /// object serves with no unsafe annotation, and the two runtime calls (which take the key as a raw
-/// pointer) are made here only, with their SAFETY argument (p10-stability-073):
+/// pointer) are made here only, with their SAFETY argument:
 ///
 /// ```swift
 /// private let redrawKey = AssociationKey()

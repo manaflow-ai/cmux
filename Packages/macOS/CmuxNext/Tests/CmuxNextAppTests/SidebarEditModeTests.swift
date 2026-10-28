@@ -101,8 +101,8 @@ import Testing
         #expect(still.layer?.animation(forKey: SidebarItemRowView.wiggleKey) == nil, "an item wiggles under Reduce Motion")
     }
 
-    /// Edit mode is a mode the person entered and the wiggle is its sign, so Energy Saver leaves it
-    /// (p14-energy-027); a motion change in the mode (Reduce Motion here) starts or stops it at once,
+    /// Edit mode is a mode the person entered and the wiggle is its sign, so Energy Saver leaves it;
+    /// a motion change in the mode (Reduce Motion here) starts or stops it at once,
     /// through the edit bar's one subscription.
     @Test func theWiggleKeepsItsSaverAndFollowsAMotionChangeInEditMode() throws {
         let design = DesignSettings.shared

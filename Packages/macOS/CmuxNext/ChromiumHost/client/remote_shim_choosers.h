@@ -1,5 +1,5 @@
 // The remote shim's color chooser, device chooser and screen-share picker
-// handlers (task p01-process-228; wire in ../src/host_choosers.h): the local
+// handlers (wire in ../src/host_choosers.h): the local
 // exports cmux_shim_set_color_chooser_handler, _set_device_chooser_handler and
 // _set_desktop_media_handler. The client keeps cmux's fn, tells the host only
 // whether one is set, and calls it on the main thread with the fork's struct

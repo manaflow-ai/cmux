@@ -207,7 +207,7 @@ fn read_reply(websocket: &mut WebSocket<TcpStream>, id: &Value) -> Value {
 
 /// The WebSocket listener: the accept loop, the connection thread and its
 /// writer run at UserInitiated; a subscription is a pump on the sequenced
-/// pool, not an events writer thread (p01-process-203). The connection
+/// pool, not an events writer thread. The connection
 /// thread disallows blocking and hands a v2 resource line to the
 /// connection's request sequence, so the registry read of `workspace.list`
 /// (under resource_router/) is no blocking site on it.

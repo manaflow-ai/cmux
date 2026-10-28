@@ -6,8 +6,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The CmuxNextUpdater, WebUpdates, Settings and DesignTokens sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
-/// task p06-scheduler-338): one case per migrated owner class. Update checks wake on the app's hidden wakes; the
+/// The CmuxNextUpdater, WebUpdates, Settings and DesignTokens sweep (plans/cmux-next/chrome-parity/p06-scheduler.md):
+/// one case per migrated owner class. Update checks wake on the app's hidden wakes; the
 /// install click's deadline, which a person waits on, never does; a feed read's result lands as one visible task in
 /// its frame; the updater's card deadlines are classed `MainDeadline`s; a recovery draft's debounce is a background
 /// deadline; the WebKit probe's answer and timeout are background tasks.

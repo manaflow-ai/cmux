@@ -1,5 +1,5 @@
 //! A view's drain on the sequenced pool never holds a worker the echo path
-//! shares (p05-ipc-079): its end does not wait for room on a full
+//! shares: its end does not wait for room on a full
 //! connection and each item is an echo hang scope. Bulk work runs off the
 //! drain (snapshot_attach_out_tests.rs).
 
