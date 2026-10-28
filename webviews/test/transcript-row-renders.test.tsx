@@ -163,10 +163,12 @@ for (const pixels of [1, 2, 4])
         const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
         let physical = Math.round(scroller.scrollTop);
+        let clampReads = false;
         // Match Chromium/WebKit DPR1 readback: layout may use quarters while scrollTop is integral.
         Object.defineProperty(scroller, "scrollTop", {
           configurable: true,
-          get: () => physical,
+          get: () =>
+            clampReads ? Math.min(physical, Math.max(0, parseFloat(spacer.style.height) - VIEWPORT)) : physical,
           set: (value: number) => {
             physical = Math.round(value);
           },
@@ -219,6 +221,16 @@ for (const pixels of [1, 2, 4])
           await frame();
         });
         expect(parseFloat(anchor.style.top) - logical()).toBe(beforeVisual + pixels);
+        if (position === "end") {
+          // The upward input has now been acknowledged. A later native clamp while a row
+          // shrinks must apply its height change once, without reusing that old input marker.
+          clampReads = true;
+          await act(async () => {
+            drawnHeights.set(above.dataset.rowId!, drawnHeight(above.dataset.rowId!) - 20);
+            observers.get(above)!([{ target: above }]);
+          });
+          expect(parseFloat(anchor.style.top) - logical()).toBe(beforeVisual + pixels);
+        }
       } finally {
         await act(async () => root.unmount());
         for (const entry of history) drawnHeights.delete(entry.id);
