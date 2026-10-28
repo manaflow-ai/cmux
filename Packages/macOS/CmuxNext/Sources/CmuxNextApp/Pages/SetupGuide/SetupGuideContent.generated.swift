@@ -14,7 +14,7 @@ enum SetupGuideContent {
                 String(localized: "setupGuide.accounts.2", defaultValue: "If the command or browser reports offline, reconnect before retrying. If Cloud is unavailable, retry when the service returns; local work can continue.", table: "SetupGuide", bundle: .module),
             ]),
             SetupGuideSection(id: "cloud_machine", title: String(localized: "setupGuide.cloud_machine.title", defaultValue: "Use another machine", table: "SetupGuide", bundle: .module), steps: [
-                String(localized: "setupGuide.cloud_machine.0", defaultValue: "For a Cloud machine, sign in to cmux first, then run cmux setup cloud-machine --dry-run. Creating a machine costs money; confirm the card only when you want it.", table: "SetupGuide", bundle: .module),
+                String(localized: "setupGuide.cloud_machine.0", defaultValue: "For a Cloud machine, sign in to cmux, then preview with cmux setup cloud-machine --dry-run. To proceed, run cmux setup cloud-machine without --dry-run. Creating a machine costs money; confirm the request only when you want it.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.cloud_machine.1", defaultValue: "For an existing SSH machine, run cmux setup machine HOST. If the connection fails, use the SSH command it reports. Do not enter a password into an agent chat.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.cloud_machine.2", defaultValue: "Run cmux setup status for the current checks and recovery steps. A detected credential is not proof that it is valid or belongs to the intended account.", table: "SetupGuide", bundle: .module),
             ]),

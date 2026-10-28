@@ -212,7 +212,7 @@ const TASKS: &[Task] = &[
         guide: Some(HumanGuide {
             title: "Use another machine",
             steps: &[
-                "For a Cloud machine, sign in to cmux first, then run cmux setup cloud-machine --dry-run. Creating a machine costs money; confirm the card only when you want it.",
+                "For a Cloud machine, sign in to cmux, then preview with cmux setup cloud-machine --dry-run. To proceed, run cmux setup cloud-machine without --dry-run. Creating a machine costs money; confirm the request only when you want it.",
                 "For an existing SSH machine, run cmux setup machine HOST. If the connection fails, use the SSH command it reports. Do not enter a password into an agent chat.",
                 "Run cmux setup status for the current checks and recovery steps. A detected credential is not proof that it is valid or belongs to the intended account.",
             ],

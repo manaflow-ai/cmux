@@ -15,6 +15,6 @@
 
 ## Use another machine
 
-1. For a Cloud machine, sign in to cmux first, then run cmux setup cloud-machine --dry-run. Creating a machine costs money; confirm the card only when you want it.
+1. For a Cloud machine, sign in to cmux, then preview with cmux setup cloud-machine --dry-run. To proceed, run cmux setup cloud-machine without --dry-run. Creating a machine costs money; confirm the request only when you want it.
 2. For an existing SSH machine, run cmux setup machine HOST. If the connection fails, use the SSH command it reports. Do not enter a password into an agent chat.
 3. Run cmux setup status for the current checks and recovery steps. A detected credential is not proof that it is valid or belongs to the intended account.
