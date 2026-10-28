@@ -5910,8 +5910,12 @@ function AcpmuxPane() {
   /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
   /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
   /// refusal said here. The host says its own progress and failures (toasts).
-  const cloudPicked = sandboxOffered && sandbox.mode === "cloud";
+  /// Cloud picked but not offered now (as `sandboxPickedNotOffered`): a send is refused, never sent
+  /// as a chat here instead.
+  const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
+    if (!sandboxOffered) return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     const refused = cloudPageRefusal(attachmentCount);
     if (refused) return translate("composer.cloudAttachments");
     void startCloudChat(callNative, { task: text, ...start }).then((answer) => {
@@ -9278,7 +9282,7 @@ function AcpmuxPane() {
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
-              if (cloudPicked && !snapshot.sessionId) {
+              if (cloudPicked) {
                 const refused = sendToCloud(text, chips?.length ?? 0, {
                   ...(projectDraft ? { cwd: projectDraft } : {}),
                   ...heldPick(composerSnapshot),
@@ -9804,7 +9808,7 @@ function AcpmuxPane() {
                 heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                 setSandboxDraftMoved(true);
               }}
-              {...(sandboxOffered || sandboxPickedNotOffered
+              {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                 ? {
                     runMode: sandboxModeRows,
                     // A page-side refusal goes to the chat view, which says why (SandboxRunView), with

@@ -13,7 +13,7 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
-import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
+import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
@@ -465,6 +465,18 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
+  // machine picked before, so the folder it sends is the one the chip names.
+  const runMode = props.runMode && {
+    ...props.runMode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        saved.pick(undefined);
+        setMachine(undefined);
+      }
+      props.runMode?.onMode(mode);
+    },
+  };
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -1189,7 +1201,7 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
-        {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
+        {...(props.environments && runMode ? { runMode } : {})}
         {...(saved.on
           ? {
               saved: {

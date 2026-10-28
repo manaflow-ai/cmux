@@ -395,8 +395,9 @@ export function EnvironmentPicker({
     if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
     close();
     if (value === CLOUD_RUN) {
-      if (clouded) focusPrompt();
-      else runMode?.onMode("cloud");
+      // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
+      if (!clouded) runMode?.onMode("cloud");
+      focusPrompt();
       return;
     }
     if (value === ACTION + "cloud" && sandboxFace) {
