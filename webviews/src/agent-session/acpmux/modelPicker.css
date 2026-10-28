@@ -569,10 +569,6 @@
   background: none;
   box-shadow: inset 0 -2px var(--agent-text);
 }
-.acpmux-quick-menu:has(.acpmux-quick-efforts) {
-  width: min(680px, var(--available-width, calc(100vw - 24px)));
-  max-width: min(680px, var(--available-width, calc(100vw - 24px)));
-}
 .acpmux-quick-menu:has(.acpmux-quick-efforts) .acpmux-quick-rail { flex-basis: 28%; }
 .acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-efforts) .acpmux-quick-rail {
   flex-basis: 76px;
