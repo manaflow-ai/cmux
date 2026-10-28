@@ -67,7 +67,9 @@ extension WorkstreamPersistence {
         for chunk in chunks.reversed() {
             tail.append(chunk)
         }
+        try checkReadDeadline(deadlineNanoseconds)
         var lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
+        try checkReadDeadline(deadlineNanoseconds)
         // A window that starts away from byte zero may contain only the tail
         // of an oversized unterminated row. Inspect the byte immediately
         // before the window to distinguish that case from an exact row
