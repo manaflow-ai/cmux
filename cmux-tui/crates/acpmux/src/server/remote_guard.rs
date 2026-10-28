@@ -89,6 +89,80 @@ use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
 
+/// Metadata carried only on a policy change forwarded by a local connection
+/// that already proved the person. The peer token authenticates the daemon
+/// hop; this marker preserves the stronger local-person decision across it.
+const OWNER_POLICY_GRANT: &str = "ownerPolicyGrant";
+const OWNER_POLICY_HOST: &str = "ownerPolicyHost";
+
+fn owner_policy_meta(params: &Value) -> Option<&serde_json::Map<String, Value>> {
+    params.pointer("/_meta/acpmux").and_then(Value::as_object)
+}
+
+fn valid_owner_host(host: &str) -> bool {
+    (1..=128).contains(&host.len())
+        && host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+}
+
+/// Whether this request carries the owner grant for a remote policy raise.
+/// This reuses the VM-boundary owner proof: only a peer-token connection
+/// serving itself, never a Web or paired-device forwarding, may consume it.
+pub(super) fn owner_policy_grant(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+) -> bool {
+    if origin != super::Origin::Peer
+        || !crate::hub::vm_boundary::owner(auth, control_of(origin, auth, params), params)
+    {
+        return false;
+    }
+    let Some(meta) = owner_policy_meta(params) else { return false };
+    meta.get(OWNER_POLICY_GRANT) == Some(&Value::Bool(true))
+        && meta.get(OWNER_POLICY_HOST).and_then(Value::as_str).is_some_and(valid_owner_host)
+}
+
+/// The source host recorded with an owner grant.
+pub(super) fn owner_policy_host(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+) -> Option<String> {
+    owner_policy_grant(origin, auth, params).then(|| {
+        owner_policy_meta(params)
+            .and_then(|meta| meta.get(OWNER_POLICY_HOST))
+            .and_then(Value::as_str)
+            .expect("owner_policy_grant validates the host")
+            .to_owned()
+    })
+}
+
+/// Mark a policy request forwarded from a local person connection. Any
+/// caller-supplied grant is removed first, so a remote client cannot smuggle
+/// the marker through the forwarding daemon.
+pub(super) fn mark_policy_forwarded(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    person: bool,
+    params: &Value,
+    forwarded: &mut Value,
+) {
+    mark_forwarded(origin, auth, params, forwarded);
+    if let Some(meta) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        meta.remove(OWNER_POLICY_GRANT);
+        meta.remove(OWNER_POLICY_HOST);
+    }
+    if person && matches!(origin, super::Origin::Local | super::Origin::LocalApp) {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({
+                OWNER_POLICY_GRANT: true,
+                OWNER_POLICY_HOST: crate::hub::host_label(),
+            }),
+        );
+    }
+}
+
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
 /// the stop of a running background subagent (no params that spawn or read).
@@ -308,7 +382,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer) {
+        match web_only(m, params, peer, owner_policy_grant(origin, auth, params)) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -664,7 +738,7 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
 /// skips asking.
-fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
+fn web_only(m: &str, params: &Value, peer: bool, owner_grant: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -716,6 +790,7 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
         {
             Err(policy_refused())
         }
+        method::MUX_SET_POLICY if peer && owner_grant => Ok(()),
         method::MUX_SET_POLICY | "_acpmux/set_default_policy"
             if !policy_ok(params.get("policy")) =>
         {
@@ -1096,4 +1171,33 @@ async fn canonical_dir(path: &str) -> Option<String> {
         .ok()?
         .is_dir()
         .then(|| canonical.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod owner_policy_tests {
+    use super::{owner_policy_grant, owner_policy_host};
+    use crate::server::{ConnAuth, Origin};
+    use serde_json::json;
+
+    #[test]
+    fn owner_grant_requires_the_peer_owner_proof_and_host() {
+        let params = json!({
+            "_meta": {"acpmux": {
+                "ownerPolicyGrant": true,
+                "ownerPolicyHost": "owner-host"
+            }}
+        });
+        assert!(owner_policy_grant(Origin::Peer, ConnAuth::PeerToken, &params));
+        assert_eq!(
+            owner_policy_host(Origin::Peer, ConnAuth::PeerToken, &params).as_deref(),
+            Some("owner-host")
+        );
+        assert!(!owner_policy_grant(Origin::Peer, ConnAuth::Device, &params));
+        assert!(!owner_policy_grant(Origin::Web, ConnAuth::ListenerToken, &params));
+        assert!(!owner_policy_grant(
+            Origin::Peer,
+            ConnAuth::PeerToken,
+            &json!({"_meta": {"acpmux": {"ownerPolicyGrant": true, "ownerPolicyHost": ""}}})
+        ));
+    }
 }

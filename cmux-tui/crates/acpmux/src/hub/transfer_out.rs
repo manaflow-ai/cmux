@@ -322,6 +322,21 @@ impl Hub {
         Ok(())
     }
 
+    /// The same moving-chat fence for a policy raise authorized by the
+    /// owner's local person connection on another daemon.
+    pub async fn set_policy_unless_moving_from_owner(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        policy: crate::config::PermissionPolicy,
+        host: &str,
+    ) -> Result<(), RpcError> {
+        if session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
+        self.set_policy_from_owner(session, policy, host).await;
+        Ok(())
+    }
+
     /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says
     /// why when the source ended it itself (`transfer_watch.rs`). A policy that changed while it
     /// moved (a deny-all default skips a moving chat, `policy_mode.rs`) is followed now.

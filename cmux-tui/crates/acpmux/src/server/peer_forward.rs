@@ -132,7 +132,17 @@ async fn forward_inner(
         if let Some(object) = forwarded.as_object_mut() {
             object.insert("sessionId".into(), Value::String(id));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        if m == method::MUX_SET_POLICY {
+            super::remote_guard::mark_policy_forwarded(
+                conn.origin,
+                conn.auth,
+                conn.is_person(),
+                params,
+                &mut forwarded,
+            );
+        } else {
+            super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        }
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -219,7 +229,17 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        if m == method::MUX_SET_POLICY {
+            super::remote_guard::mark_policy_forwarded(
+                conn.origin,
+                conn.auth,
+                conn.is_person(),
+                params,
+                &mut p,
+            );
+        } else {
+            super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        }
         bound_page(m, params, &mut p);
         // A peer's handles are this connection's own here (`media_forward.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {

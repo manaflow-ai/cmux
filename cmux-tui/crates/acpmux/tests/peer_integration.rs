@@ -257,6 +257,43 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     assert_eq!(st["peers"][0]["connected"], true);
 }
 
+#[tokio::test]
+async fn a_person_proven_local_policy_raise_reaches_the_owned_peer() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client(b.clone()).await;
+    let created = cb
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "owner-policy"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let remote_id = created["sessionId"].as_str().unwrap().to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "owner-policy").await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let result = ca
+        .call(method::MUX_SET_POLICY, json!({"session": "b/owner-policy", "policy": "approve-all"}))
+        .await
+        .unwrap();
+    assert_eq!(result["policy"], "approve-all", "{result}");
+    let meta = b.resolve(&remote_id).unwrap().meta();
+    assert_eq!(meta.permission_policy.as_deref(), Some("approve-all"));
+    assert!(
+        meta.policy_source.as_deref().is_some_and(|source| source.starts_with("owner:")),
+        "owner policy source should identify the approving host: {:?}",
+        meta.policy_source
+    );
+}
+
 /// An agent on A reports to a chat on B through A's peer link (`acpmux send b/chat` in an acpmux
 /// session): B records it as that agent's message. B sees neither A's session nor its caller
 /// proof, so A names the sender; the person's prompt through A names no one (claude-sr2,

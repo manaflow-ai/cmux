@@ -916,6 +916,7 @@ impl Hub {
         remote_authenticated: bool,
         caller: Option<&str>,
         starts_modes: bool,
+        owner_policy_grant: bool,
         m: &str,
         params: &Value,
     ) -> Result<PersonVerdict, RpcError> {
@@ -929,9 +930,16 @@ impl Hub {
             // handler forwards it and never handles it here.
             return Ok(PersonVerdict::PeerOnly);
         }
-        self.person_check_local(remote_authenticated, caller, starts_modes, m, params)
-            .await
-            .map(|()| PersonVerdict::Handle)
+        self.person_check_local(
+            remote_authenticated,
+            caller,
+            starts_modes,
+            owner_policy_grant,
+            m,
+            params,
+        )
+        .await
+        .map(|()| PersonVerdict::Handle)
     }
 
     /// `person_check` for a request this daemon handles itself.
@@ -940,6 +948,7 @@ impl Hub {
         remote_authenticated: bool,
         caller: Option<&str>,
         starts_modes: bool,
+        owner_policy_grant: bool,
         m: &str,
         params: &Value,
     ) -> Result<(), RpcError> {
@@ -1000,7 +1009,9 @@ impl Hub {
                 _ => Err(person_required("allowing a permission group")),
             },
             method::MUX_SET_POLICY | "_acpmux/set_default_policy" => {
-                if asking_policy_value(params.get("policy")) {
+                if (m == method::MUX_SET_POLICY && owner_policy_grant)
+                    || asking_policy_value(params.get("policy"))
+                {
                     Ok(())
                 } else {
                     Err(person_required("a permission policy other than ask or deny-all"))

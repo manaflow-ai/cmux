@@ -444,6 +444,7 @@ async fn dispatch_brief(
         remote_authenticated,
         conn.caller(),
         !conn.origin.web_class(),
+        false,
         method::SESSION_NEW,
         &new_params,
     )
@@ -622,12 +623,15 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
+    let owner_policy_grant =
+        super::remote_guard::owner_policy_grant(conn.origin, conn.auth, &params);
     let verdict = hub
         .person_check(
             conn.is_person(),
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
+            owner_policy_grant,
             m,
             &params,
         )
@@ -1966,7 +1970,13 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
-            hub.set_policy_unless_moving(&s, policy).await?;
+            if let Some(host) =
+                super::remote_guard::owner_policy_host(conn.origin, conn.auth, &params)
+            {
+                hub.set_policy_unless_moving_from_owner(&s, policy, &host).await?;
+            } else {
+                hub.set_policy_unless_moving(&s, policy).await?;
+            }
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {
