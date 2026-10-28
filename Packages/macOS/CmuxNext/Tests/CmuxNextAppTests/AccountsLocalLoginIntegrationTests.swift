@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAccounts
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCodeRouter
 import CmuxNextDaemon
@@ -9,6 +10,22 @@ import Testing
 /// Accounts must open its provider command even when no existing window has a local pane.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
 struct AccountsLocalLoginIntegrationTests {
+    @Test func thePaletteAndCLIReachTheLoginWithNoMainWindow() async {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]))
+        AppActions.bind(services)
+        var work: [ActionWork] = []
+        let refusal = services.registry.capturingRefusal {
+            work = services.registry.capturingWork {
+                _ = services.registry.perform("accounts.reauthenticate", invocation: ActionInvocation(
+                    arguments: ["provider": .string("codex")], origin: .cli))
+            }
+        }
+        #expect(refusal == nil)
+        #expect(!work.isEmpty, "the action refused before the model could choose a local workspace")
+        for task in work { #expect(await task.value == nil) }
+    }
+
     @Test(arguments: [false, true])
     func aProviderLoginCreatesALocalWorkspaceWhenNoWindowCanTakeIt(page: Bool) async throws {
         try await PinnedPageTests.withApp { services, _ in
