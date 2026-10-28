@@ -131,3 +131,55 @@ test("the current model's inline effort pick returns focus to the prompt through
   expect(effortPicks).toEqual(["low"]);
   expect(document.activeElement).toBe(prompt);
 });
+
+test.each([
+  { capability: "absent", inline: true },
+  { capability: "empty", inline: true },
+  { capability: "absent", inline: false },
+  { capability: "empty", inline: false },
+])("ModelPicker preserves $capability efforts with inline=$inline", async ({ capability, inline }) => {
+  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  const model = {
+    id: "claude-haiku-5-5",
+    name: "Haiku 5.5",
+    ...(capability === "empty" ? { efforts: [] as string[] } : {}),
+  };
+  root = (await import("react-dom/client")).createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ModelPicker
+        catalog={[{ id: "claude", name: "Claude Code", models: [model] }]}
+        harness="claude"
+        model={model.id}
+        label={model.name}
+        efforts={[]}
+        recents={[]}
+        quick={{
+          effort: {
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+              { id: "ultracode", name: "Ultracode" },
+            ],
+            current: "high",
+            onPick: () => undefined,
+          },
+        }}
+        harnessFixed
+        onCombo={inline ? () => undefined : undefined}
+        onLand={() => undefined}
+        onEffort={() => undefined}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(
+    capability === "absent" && inline ? 3 : 0,
+  );
+  const effortSubmenu = [...document.querySelectorAll(".acpmux-quick-sub")].find((row) =>
+    row.textContent?.startsWith("Effort"),
+  );
+  expect(Boolean(effortSubmenu)).toBe(capability === "absent" && !inline);
+});
