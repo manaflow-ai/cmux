@@ -363,7 +363,7 @@ impl Drop for KeptWorktree {
     fn drop(&mut self) {
         if !self.kept {
             let (folder, made) = (self.folder.clone(), self.made.clone());
-            std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
+            crate::subsession_worktree::remove_worktree_in_background(folder, made);
         }
     }
 }
