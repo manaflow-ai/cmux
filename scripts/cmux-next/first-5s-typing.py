@@ -259,6 +259,7 @@ def photon_ms(frames, key_ns, next_cap_ns, big_area):
 class NextApp:
     family = "next"
     enable_features = ""
+    commit_probe = False
 
     def __init__(self, app, zdot, out):
         self.app, self.out = app, out
@@ -326,6 +327,8 @@ class NextApp:
 
         def send(rid, key, mods, when):
             params = {"key": key, "timestamp": when / 1e9}
+            if rid > 0 and self.commit_probe:  # a key into a text field or page: the probe row closes at its commit
+                params["probe"] = "commit"
             if mods:
                 params["modifiers"] = list(mods)
             conn.sendall((json.dumps({"id": rid, "method": "debug.key", "params": params}) + "\n").encode())
@@ -359,6 +362,13 @@ class NextApp:
 
     def hangs_clear(self):
         self.control.rpc("debug.hangs", {"clear": True}, timeout=20)
+        self.control.rpc("debug.input", {"action": "reset"}, timeout=20)
+
+    def tracker_slots(self):
+        """The app's own key latency tracker: one row per closed key since the reset (kind, target, total_ms,
+        stages_ms; dispatch_start is the event -> dispatch wait)."""
+        reply = self.control.rpc("debug.input", {"action": "slots"}, timeout=30) or {}
+        return reply.get("slots") if isinstance(reply, dict) else None
 
     def journal_mark(self, marker):
         self.control.rpc("debug.journal", {"marker": marker, "last": 1}, timeout=20)
@@ -559,6 +569,9 @@ class ClassicApp:
     def hangs_clear(self):
         pass
 
+    def tracker_slots(self):
+        return None
+
     def journal_mark(self, marker):
         pass
 
@@ -625,6 +638,7 @@ def main_thread_tree(path, min_share=0.02, limit=260):
 
 def run_round(app, scenario, index, sampled):
     name, modifiers = (CLASSIC_OPEN_KEYS if app.family == "classic" else OPEN_KEYS)[scenario]
+    app.commit_probe = scenario in ("newtab", "browser")
     nkeys = int(round(opts.seconds / opts.interval))
     rows_before = app.probe_rows()
     base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
@@ -648,6 +662,10 @@ def run_round(app, scenario, index, sampled):
     end_ns = NOW_NS()
     line = app.line()
     hangs = app.hangs(open_ns, end_ns)
+    try:
+        slots = app.tracker_slots()
+    except Exception as error:
+        slots = {"error": repr(error)}
     try:
         journal = app.journal_since(marker)
     except Exception as error:
@@ -686,12 +704,12 @@ def run_round(app, scenario, index, sampled):
     first_big = next(((ns - open_ns) / 1e6 for ns, _c, _x, _y, w, h in frames if ns > open_ns and w * h >= big), None)
     first_any = next(((ns - open_ns) / 1e6 for ns, *_ in frames if ns > open_ns), None)
     ok = line.rstrip().endswith(typed[-12:])
-    rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
+    rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms, "open_ns": open_ns,
            "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok,
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal}
+           "frames": frames, "journal": journal, "tracker_slots": slots}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
         tree = (rec["sample"] or {}).get("tree") or []
@@ -800,6 +818,13 @@ def measure(app_path, zdot, result, family, features=""):
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
             print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
             print_send_late(entry["app"], scenario, rounds)
+            tb, targets = tracker_buckets(rounds)
+            entry["scenarios"][scenario]["tracker_buckets"] = tb
+            note(f"FIRST5S-TRACKER {entry['app']} {scenario}: the app's key tracker, targets {targets}; per bucket total and dispatch_start n/p50/p95/max")
+            for row in tb:
+                tt, ds = row["total"], row["dispatch_start"]
+                note(f"   {row['from_ms']:5d}  total {tt.get('n', 0):3d} {tt.get('p50', '-')} {tt.get('p95', '-')} {tt.get('max', '-')}"
+                     f"   dispatch_start {ds.get('n', 0):3d} {ds.get('p50', '-')} {ds.get('p95', '-')} {ds.get('max', '-')}")
             save(result)
     finally:
         if getattr(app, "photon", None):
@@ -816,6 +841,33 @@ def print_table(name, scenario, data):
             return f"{d.get('n', 0):3d} {d.get('p50', '-'):>7} {d.get('p95', '-'):>7} {d.get('max', '-'):>7}" if d.get("n") else "  0       -       -       -"
         note(f"   {p['from_ms']:5d}-{p['to_ms']:<5d} {cell(p)}    {cell(f)}    {h['delay_ms']} {h['dispatch_end_ms']} {h['io_write_ms']} "
              f"{h['output_received_ms']} {h['contents_ms']}")
+
+
+def tracker_buckets(rounds):
+    """The tracker's key slots per 500 ms after the open (its generated_ns against the open key's): total_ms and
+    dispatch_start, p50/p95/max, and the target the tracker named."""
+    width = opts.bucket_ms
+    edges = int(opts.seconds * 1000 // width) + 1
+    rows = [[] for _ in range(edges)]
+    targets = {}
+    for r in rounds:
+        if r["sampled"] or not isinstance(r.get("tracker_slots"), list):
+            continue
+        open_ns = r.get("open_ns")
+        for slot in r["tracker_slots"]:
+            if slot.get("kind") != "keyPress" or open_ns is None:
+                continue
+            t = (int(slot.get("generated_ns") or 0) - open_ns) / 1e6
+            b = int(t // width)
+            if 0 <= b < edges and t >= 1:
+                rows[b].append(slot)
+                targets[slot.get("target")] = targets.get(slot.get("target"), 0) + 1
+    out = []
+    for b, slots in enumerate(rows):
+        total = typing_report.distribution([s.get("total_ms") for s in slots], mean=False) or {"n": 0}
+        start = typing_report.distribution([(s.get("stages_ms") or {}).get("dispatch_start") for s in slots], mean=False) or {"n": 0}
+        out.append({"from_ms": int(b * width), "total": total, "dispatch_start": start})
+    return out, targets
 
 
 def print_send_late(name, scenario, rounds):
