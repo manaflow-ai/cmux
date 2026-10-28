@@ -694,14 +694,7 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
-                // An app-launched daemon inherits the app's matching CLI path.
-                // The standalone acpmux CLI uses it for app actions even when
-                // the caller's shell has no CMUX_* variables.
-                "cliPath": (conn.origin == Origin::Local)
-                    .then(|| std::env::var(crate::login_env::BUNDLED_CLI_ENV).ok()
-                        .filter(|path| std::path::Path::new(path).is_absolute()))
-                    .flatten(), "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -730,6 +723,18 @@ async fn dispatch_request(
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE], "trustGate": true}}
             });
+            // Only a local client can use the app launcher's bundled CLI.
+            if conn.origin == Origin::Local
+                && let Ok(path) = std::env::var(crate::login_env::BUNDLED_CLI_ENV)
+                && std::path::Path::new(&path).is_absolute()
+            {
+                reply["_meta"]["acpmux"]["cliPath"] = json!(path);
+            }
+            if let Some(extensions) =
+                reply.pointer_mut("/_meta/acpmux/extensions").and_then(Value::as_array_mut)
+            {
+                extensions.push(json!(method::MUX_KEEP));
+            }
             // Advertised only where they work; other builds answer `not_built`.
             #[cfg(all(unix, feature = "tailnet"))]
             if let Some(extensions) =
@@ -1866,6 +1871,12 @@ async fn dispatch_request(
             crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
             hub.rename(&s, name.to_owned()).await?;
             Ok(hub.session_summary(&s))
+        }
+        method::MUX_KEEP => {
+            let id = str_param(&params, "sessionId")
+                .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+            super::ephemeral::keep(conn, id)?;
+            Ok(json!({"sessionId": id, "ephemeral": false}))
         }
         method::MUX_KILL => {
             let s = hub.resolve(session_key(&params)?)?;

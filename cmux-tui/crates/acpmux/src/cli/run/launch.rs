@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
 use crate::cli::command::NewArgs;
@@ -318,15 +318,16 @@ pub(super) fn show_in_group(
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = std::process::Command::new(&cli).args(args).output().with_context(|| {
-        format!(
-            "session {session_name} was created, but --group could not run cmux; put the running Mac app's \
+    let out = std::process::Command::new(&cli).args(args).output().map_err(|error| {
+        anyhow::anyhow!(
+            "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
              bundled CLI on PATH, then retry on that Mac: {command}"
         )
     })?;
     if !out.status.success() {
         bail!(
-            "session {session_name} was created, but the cmux app did not show it: {command}: {}",
+            "session {session_name} was created, but the cmux app did not show it ({}): {}; retry only the open: {command}",
+            out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }

@@ -529,7 +529,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                                     "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
-                                    "reason": "peer_unreachable",
+                                    "reason": "peer_probing",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
                                     "detail": "the peer was saved and is probing in the background"
                                 }),
@@ -540,7 +540,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                                     "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
                                 ),
                                 json!({
-                                    "reason": "peer_unreachable",
+                                    "reason": "peer_probing",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
                                     "detail": "the peer was saved and is probing in the background"
                                 }),
@@ -551,7 +551,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                                     "peer {name} was saved and is probing in the background; run `acpmux host ls` and retry after it shows connected"
                                 ),
                                 json!({
-                                    "reason": "peer_unreachable",
+                                    "reason": "peer_probing",
                                     "try": "acpmux host ls",
                                     "detail": "the peer was saved and is probing in the background"
                                 }),

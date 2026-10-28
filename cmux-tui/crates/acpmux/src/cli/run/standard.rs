@@ -363,15 +363,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let probe = std::env::var("ACPMUX_SESSION_ID").is_ok_and(|id| !id.is_empty())
                 && crate::probe_prompt::is_probe(&args.prompt.join(" "));
             let ephemeral = one_shot && (args.ephemeral || (probe && args.name.is_none()));
-            // Keep a grouped one-shot session durable until its sidebar open
-            // succeeds. If the app is unavailable, the error's retry command
-            // must still be able to open the session that received the prompt.
-            let grouped_ephemeral = ephemeral && args.group.is_some();
             // The daemon purges an ephemeral session when this connection ends
             // (`server/ephemeral.rs`), however the CLI exits: killed during the
             // turn, by a caller's timeout, or a lost connection. The kill after
             // the reply below stays the normal path.
-            if ephemeral && !grouped_ephemeral {
+            if ephemeral {
                 meta["ephemeral"] = json!(true);
             }
             if let Some((w, _)) = &launch.worktree {
@@ -401,8 +397,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let v = match reused.clone() {
                 Some(info) => info,
-                None => match if (ephemeral && !grouped_ephemeral) || (probe && !grouped_ephemeral)
-                {
+                None => match if ephemeral || probe {
                     client.request_parentless(method::SESSION_NEW, p).await
                 } else {
                     client.request(method::SESSION_NEW, p).await
@@ -437,19 +432,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .to_owned();
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
+            let daemon_cli_path = client.daemon_cli_path();
             let show = || -> Result<()> {
                 if let Some(group) = &args.group {
                     // Only explicit names opt into the app's predecessor-row reuse.
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    launch::show_in_group(
-                        &id,
-                        &name,
-                        title,
-                        group,
-                        client.daemon_cli_path().as_deref(),
-                    )?;
+                    launch::show_in_group(&id, &name, title, group, daemon_cli_path.as_deref())?;
                 }
                 Ok(())
             };
@@ -492,6 +482,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return Ok(());
             }
             let first = launch.first_prompt(&args, &v);
+            if let Err(open_error) = show() {
+                if ephemeral && host.is_none() {
+                    client.request(method::MUX_KEEP, json!({"sessionId": id})).await
+                        .map_err(|error| anyhow!("app open failed and the ephemeral session could not be retained: {error}; retry the launch without --ephemeral"))?;
+                }
+                if let Some(text) = &first {
+                    let prompt = PromptId::new(args.prompt_id.clone());
+                    queue_prompt(client, &id, text, false, None, &prompt).await.map_err(
+                        |error| anyhow!("{open_error}; first prompt was not confirmed: {error}"),
+                    )?;
+                }
+                return Err(open_error);
+            }
             if json_out && !one_shot {
                 let mut info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
@@ -532,22 +535,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         retries: args.retries,
                         steer: false,
                     };
-                    // Opening the app is best effort for prompt delivery: the
-                    // session must still receive its first prompt when the
-                    // local app is unavailable. Report the open failure after
-                    // the turn so the session can be opened by retrying the
-                    // exact command in the error.
-                    let show_error = show().err();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
-                    if ephemeral && (!grouped_ephemeral || show_error.is_none()) {
+                    if ephemeral {
                         let _ = client
                             .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
                             .await;
                     }
                     let r = outcome?;
-                    if let Some(error) = show_error {
-                        return Err(error);
-                    }
                     if json_out {
                         let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
                         if let Some(a) = v.pointer("/_meta/acpmux/admission") {
@@ -560,13 +554,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     return Ok(());
                 }
                 if args.detach {
-                    // The prompt is queued before the sidebar step, so a
-                    // session never runs without its instructions.
+                    // Return once the daemon has accepted the prompt.
                     let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
                     if !json_out {
                         warn_host_pressure(&accepted);
                     }
-                    show()?;
                     return Ok(());
                 }
                 let opts = CollectOpts {
@@ -576,8 +568,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     retries: args.retries,
                     steer: false,
                 };
-                let show_error = show().err();
-                let streamed = stream_prompt(
+                return stream_prompt(
                     client,
                     &id,
                     &text,
@@ -589,15 +580,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     &prompt,
                 )
                 .await;
-                if let Err(error) = streamed {
-                    return Err(error);
-                }
-                if let Some(error) = show_error {
-                    return Err(error);
-                }
-                return Ok(());
             }
-            show()?;
             if args.detach || json_out {
                 return Ok(());
             }

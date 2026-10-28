@@ -144,3 +144,172 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn grouped_open_failure_reports_retry_and_keeps_first_prompt() {
+    let root = std::env::temp_dir().join(format!("amx-grp-fail-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("empty")).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let local = hub(&root);
+    let socket = root.join("a.sock");
+    let listener = bind_unix(&socket).await.unwrap();
+    let local_server = tokio::spawn(serve_unix(local.clone(), listener));
+
+    let cmux = root.join("empty/cmux");
+    for (name, flags) in [
+        ("missing", vec!["-d"]),
+        ("failed-stream", vec![]),
+        ("failed-quiet", vec!["--quiet"]),
+        ("failed-ephemeral", vec!["--ephemeral"]),
+    ] {
+        if name != "missing" {
+            std::fs::write(&cmux, "#!/bin/sh\necho 'no reachable app' >&2\nexit 7\n").unwrap();
+            std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let mut command = daemon_env::tokio_command(&root, daemon_env::Agents::StandIn);
+        command
+            .env("ACPMUX_SOCKET", &socket)
+            .env("PATH", root.join("empty"))
+            .current_dir(&root)
+            .args(["new", "-m", "fake", "--name", name, "--group", "remote-audit"])
+            .args(flags)
+            .arg("do it");
+        let output =
+            tokio::time::timeout(Duration::from_secs(20), command.kill_on_drop(true).output())
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(!output.status.success(), "group open must fail without the app: {name}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(&format!("session {name} was created")), "{stderr}");
+        assert!(stderr.contains("cmux agent open"), "{stderr}");
+        assert!(stderr.contains("--group remote-audit"), "{stderr}");
+        if name != "missing" {
+            assert!(stderr.contains("no reachable app"), "{stderr}");
+        }
+        assert!(!stderr.contains("first prompt was not confirmed"), "{stderr}");
+        let session = local.resolve(name).expect("failed open keeps session");
+        assert!(stderr.contains(&session.id), "retry names the exact session: {stderr}");
+        let summary = local.session_summary(&session);
+        assert!(
+            summary["queued"].as_u64().unwrap_or(0) >= 1
+                || summary["turnCount"].as_u64().unwrap_or(0) >= 1,
+            "first prompt was not accepted: {summary}"
+        );
+    }
+
+    // A successful grouped ephemeral run still follows the normal cleanup
+    // path after its reply; only the failed app-open path is retained.
+    let cmux = root.join("empty/cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut ephemeral = daemon_env::tokio_command(&root, daemon_env::Agents::StandIn);
+    ephemeral
+        .env("ACPMUX_SOCKET", &socket)
+        .env("PATH", root.join("empty"))
+        .current_dir(&root)
+        .args([
+            "new",
+            "-m",
+            "fake",
+            "--name",
+            "ephemeral-group",
+            "--group",
+            "remote-audit",
+            "--ephemeral",
+            "--quiet",
+            "do it",
+        ]);
+    let success =
+        tokio::time::timeout(Duration::from_secs(20), ephemeral.kill_on_drop(true).output())
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(success.status.success(), "{}", String::from_utf8_lossy(&success.stderr));
+    assert!(local.resolve("ephemeral-group").is_err(), "successful ephemeral run was retained");
+
+    local.end_agents_at_shutdown(Default::default()).unwrap();
+    local.shutdown_all().await;
+    local_server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn ephemeral_keep_is_limited_to_the_creating_client() {
+    let root = std::env::temp_dir().join(format!("amx-keep-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let local = hub(&root);
+    let socket = root.join("a.sock");
+    let listener = bind_unix(&socket).await.unwrap();
+    let server = tokio::spawn(serve_unix(local.clone(), listener));
+    let owner = acpmux::client::Client::connect(&socket).await.unwrap();
+    let other = acpmux::client::Client::connect(&socket).await.unwrap();
+    let created = owner
+        .request(
+            method::SESSION_NEW,
+            json!({"mcpServers": [], "_meta": {"acpmux": {"ephemeral": true, "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    let refused = other.request("_acpmux/keep", json!({"sessionId": id})).await;
+    assert!(refused.is_err(), "a different client cannot retain an ephemeral session");
+    let retained = owner.request("_acpmux/keep", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(retained["ephemeral"], false);
+    assert!(local.resolve(&id).is_ok(), "the retained session remains available");
+    local.end_agents_at_shutdown(Default::default()).unwrap();
+    local.shutdown_all().await;
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn interrupted_grouped_ephemeral_is_purged_after_successful_open() {
+    let root = std::env::temp_dir().join(format!("amx-interrupt-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let local = hub(&root);
+    let socket = root.join("a.sock");
+    let listener = bind_unix(&socket).await.unwrap();
+    let server = tokio::spawn(serve_unix(local.clone(), listener));
+    let cmux = root.join("bin/cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut child = daemon_env::tokio_command(&root, daemon_env::Agents::StandIn);
+    child
+        .env("ACPMUX_SOCKET", &socket)
+        .env("PATH", root.join("bin"))
+        .current_dir(&root)
+        .args(["new", "-m", "fake", "--group", "g", "--ephemeral", "until-cancel"])
+        .kill_on_drop(true);
+    let mut events = local.subscribe();
+    let mut process = child.spawn().unwrap();
+    let created = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.kind == "turn_started" {
+                break event.session_id;
+            }
+        }
+    })
+    .await
+    .expect("grouped ephemeral turn did not start after opening the app");
+    let _ = process.kill().await;
+    let _ = process.wait().await;
+    let purged = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.kind == "purged" && event.session_id == created {
+                break event.session_id;
+            }
+        }
+    })
+    .await
+    .expect("interrupted grouped ephemeral was not purged");
+    assert!(local.resolve(&purged).is_err());
+    local.end_agents_at_shutdown(Default::default()).unwrap();
+    local.shutdown_all().await;
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+}
