@@ -10,11 +10,14 @@ import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
 import { GuestPage } from "./GuestPage";
 import { attemptId, joinedAs, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
 import { followBrowserTheme } from "./theme";
+import { installGuestHost } from "./guestHost";
 
 // The built page loads its strings from locales/ before this module (the build script's loader);
 // the dev server has none and reads the whole table.
 if (import.meta.env.DEV) globalThis.__cmuxPaneStrings ??= (await import("../acpmux/generated/strings.json")).default;
 
+// No owner host, before anything can ask one (guestHost.ts).
+installGuestHost();
 AcpmuxDirectClient.scheduleFrame = nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "guest-page";
 followBrowserTheme();

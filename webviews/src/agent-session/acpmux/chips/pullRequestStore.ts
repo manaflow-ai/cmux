@@ -14,6 +14,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { HeaderPullRequest } from "../header/headerState";
 import { callChipHost } from "./host";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /** One file of a pull request, for the card's by-kind breakdown of its `+/−`. */
 export type PullRequestFile = {
@@ -149,7 +150,9 @@ export function subscribePullRequests(listener: () => void): () => void {
  * What the host has for the pull request at `url`; asks while `open` (a shown card), and again
  * while the host says it is reading. Undefined before the first answer.
  */
-export function usePullRequestAnswer(url: string | undefined, open: boolean): PullRequestAnswer | undefined {
+export function usePullRequestAnswer(given: string | undefined, open: boolean): PullRequestAnswer | undefined {
+  // Read only (a guest), the owner's host is never asked about a pull request.
+  const url = useTranscriptReadOnly() ? undefined : given;
   // The snapshot is the answer itself, not a version counter: a counter leaves the map read
   // outside React's view, and the React Compiler then memoizes a stale answer forever (the card
   // stayed empty in the gallery build). An unchanged link keeps the same object, so this

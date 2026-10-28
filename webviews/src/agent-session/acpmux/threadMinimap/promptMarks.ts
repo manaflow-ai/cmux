@@ -24,10 +24,10 @@ export function usePromptMarks(sessionId: string | undefined): {
   can: (prompt: MarkedPrompt) => boolean;
   toggle: (prompt: MarkedPrompt) => void;
 } {
-  const session = markedSession(sessionId);
-  const { marks, toggle } = useBookmarks(session);
-  // Read only (a guest), marks are the owner's: none can be set.
+  // Read only (a guest), marks are the owner's: none are read or set.
   const readOnly = useTranscriptReadOnly();
+  const session = markedSession(sessionId);
+  const { marks, toggle } = useBookmarks(session, readOnly);
   const can = (prompt: MarkedPrompt) => !readOnly && session !== undefined && markSeq(prompt.id) !== undefined;
   return {
     has: (prompt) => {

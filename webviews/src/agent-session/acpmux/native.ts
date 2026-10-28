@@ -7,9 +7,18 @@ import { translate } from "./i18n";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
 
+/// A page that is not the app's pane (the guest page, guest/guestHost.ts) puts its own host in front
+/// of every route: no page host, no WebKit handler, whatever the browser it runs in offers.
+type NativeHost = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+let nativeHost: NativeHost | undefined;
+export function setNativeHost(next: NativeHost | undefined): void {
+  nativeHost = next;
+}
+
 /// Posts `method` to the native host. Rejects with a `NativeError` carrying the host's message and
 /// error fields when it refuses, and when the page runs outside the app.
 export function postNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  if (nativeHost) return nativeHost(method, params) as Promise<T>;
   const page = pageHostClient();
   if (page) return callPageHost<T>(page, method, params);
   const handler = window.webkit?.messageHandlers?.agentSession;

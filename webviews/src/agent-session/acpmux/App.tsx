@@ -267,7 +267,8 @@ import {
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
-import { TranscriptReadOnly, useTranscriptReadOnly } from "./conversation/readOnly";
+import { useTranscriptReadOnly } from "./conversation/readOnly";
+import { GuestActionsBoundary } from "./conversation/GuestActionsBoundary";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -2033,32 +2034,24 @@ function JumpToLatest({
   );
 }
 
-const NO_TURN_ACTIONS: TurnActions = {};
+/// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
+function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
+  return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
+}
 /// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
 /// button, the session its marks key into (threadMinimap/promptMarks.ts).
 function TranscriptContext({
   find,
   sessionId,
-  readOnly,
   children,
 }: {
   find: React.ContextType<typeof FindReveal>;
   sessionId?: string;
-  readOnly: boolean;
   children: React.ReactNode;
 }) {
   return (
     <FindReveal.Provider value={find}>
-      <PromptMarksSession.Provider value={sessionId ?? ""}>
-        <TranscriptReadOnly.Provider value={readOnly}>
-          {/* Read only, no turn action reaches a row (retry, fork, edit, branches, resume, restart, sign in, queue). */}
-          {readOnly ? (
-            <TurnActionsContext.Provider value={NO_TURN_ACTIONS}>{children}</TurnActionsContext.Provider>
-          ) : (
-            children
-          )}
-        </TranscriptReadOnly.Provider>
-      </PromptMarksSession.Provider>
+      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
     </FindReveal.Provider>
   );
 }
@@ -3411,8 +3404,12 @@ export function VirtualTranscript({
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
   const pacing = useMemo(
-    () => new ScrollPacing((intervals) => void reportScrollPacing(intervals, callNative, renderRate)),
-    [renderRate],
+    // Read only (a guest), the owner's host takes no pacing reports.
+    () =>
+      new ScrollPacing((intervals) => {
+        if (!readOnly) void reportScrollPacing(intervals, callNative, renderRate);
+      }),
+    [renderRate, readOnly],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
   // Find in Chat: a new current match scrolls its row in (it may not be mounted), then, once its
@@ -4041,11 +4038,13 @@ export function VirtualTranscript({
   const behind = !seeking && !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
-    <>
+    <ReadOnlyBoundary readOnly={readOnly}>
       <div
         ref={ref}
         className="acpmux-scroll"
         role="feed"
+        // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
+        data-read-only-transcript={readOnly ? "" : undefined}
         // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
         {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
         aria-label={t("transcript.label")}
@@ -4069,25 +4068,23 @@ export function VirtualTranscript({
         style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
       >
         {showMinimap && (
-          <TranscriptReadOnly.Provider value={readOnly}>
-            <ThreadMinimap
-              rows={rows}
-              sessionId={sessionId}
-              layout={layout}
-              scroller={ref}
-              scrollTop={renderScroll.top}
-              // Above the room under the last row, so a composer that grows while the reader is scrolled
-              // up leaves the map as it was, as it does the scrollbar.
-              viewportHeight={height - room}
-              // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
-              // rail's rows stay above its bottom band.
-              foot={height - dockSpace}
-              scrolls={layout.totalHeight - height > 0.5}
-              width={width}
-              placed={minimapPlaced}
-              change={rowsChange.current}
-            />
-          </TranscriptReadOnly.Provider>
+          <ThreadMinimap
+            rows={rows}
+            sessionId={sessionId}
+            layout={layout}
+            scroller={ref}
+            scrollTop={renderScroll.top}
+            // Above the room under the last row, so a composer that grows while the reader is scrolled
+            // up leaves the map as it was, as it does the scrollbar.
+            viewportHeight={height - room}
+            // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+            // rail's rows stay above its bottom band.
+            foot={height - dockSpace}
+            scrolls={layout.totalHeight - height > 0.5}
+            width={width}
+            placed={minimapPlaced}
+            change={rowsChange.current}
+          />
         )}
         {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
         <ChatMinimap
@@ -4103,7 +4100,7 @@ export function VirtualTranscript({
           change={rowsChange.current}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId} readOnly={readOnly}>
+        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div
             className="acpmux-spacer"
             style={{ height: layout.totalHeight, width: lane > 0 ? `calc(100% + ${lane}px)` : undefined }}
@@ -4204,7 +4201,7 @@ export function VirtualTranscript({
           needsYou={needsYou}
         />
       )}
-    </>
+    </ReadOnlyBoundary>
   );
 }
 

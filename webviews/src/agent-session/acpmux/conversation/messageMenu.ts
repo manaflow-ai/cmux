@@ -245,6 +245,7 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 /// opens, with the same report, shown under `anchor`. False when the row is not a message or no
 /// host shows the menu.
 export function openMessageMenu(rowId: string, anchor: Element): boolean {
+  if (anchor.closest("[data-read-only-transcript]")) return false;
   const message = source?.(rowId);
   const handler = menuHandler();
   if (!message || !handler) return false;
@@ -286,6 +287,8 @@ export function installMessageMenuReporter(
   menuHandler = handler;
   const report = (event: Event) => {
     const target = event.target as Element | null;
+    // A read-only transcript (a guest's) has no owner menu: nothing is reported from inside it.
+    if (target?.closest?.("[data-read-only-transcript]")) return;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;

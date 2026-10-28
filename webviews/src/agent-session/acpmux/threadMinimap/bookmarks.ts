@@ -150,10 +150,15 @@ export function markSeq(rowId: string): number | undefined {
 }
 
 /// The session's marks and their toggle; the caller re-renders when they change.
-export function useBookmarks(sessionId: string | undefined): {
+export function useBookmarks(
+  given: string | undefined,
+  readOnly = false,
+): {
   marks: ReadonlySet<number>;
   toggle: (seq: number) => void;
 } {
+  // Read only (a guest), no session: nothing is loaded from acpmux, migrated or set.
+  const sessionId = readOnly ? undefined : given;
   const connected = useSyncExternalStore(subscribe, currentVersion, currentVersion);
   useEffect(() => {
     if (sessionId) load(sessionId);
