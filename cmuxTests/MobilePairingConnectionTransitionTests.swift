@@ -1,4 +1,3 @@
-import CmuxCloud
 import CMUXMobileCore
 import Foundation
 import Testing
@@ -61,8 +60,12 @@ struct MobilePairingConnectionTransitionTests {
         let components = try #require(URLComponents(string: ready.attachURL))
         let ticket = try CmxPairingQRCode().decode(components)
         #expect(ticket.routes.map(\.endpoint) == [route.endpoint])
-        #expect(ticket.macDeviceID == MobileHostIdentity.deviceID())
-        #expect(ticket.macDisplayName == MobileHostIdentity.instanceDisplayName())
+        // The compatibility grammar intentionally defers device identity to
+        // authenticated host status; it must not require identity before dialing.
+        #expect(ticket.macDeviceID.isEmpty)
+        #expect(ticket.macDisplayName == nil)
+        #expect(ticket.macPairingCompatibilityVersion == CmxMobileDefaults.pairingCompatibilityVersion)
+        #expect(ticket.expiresAt == nil)
         #expect(ticket.authToken == nil)
 
         status.tailscaleIsRunning = false

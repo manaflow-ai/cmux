@@ -1,4 +1,3 @@
-import CmuxCloud
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -370,16 +369,15 @@ final class MobilePairingModel {
         _ status: MobileHostServiceStatus,
         baselineConnectionCount: Int,
         macUserID: String? = nil,
-        macDeviceID: String = MobileHostIdentity.deviceID(),
-        macDisplayName: String? = MobileHostIdentity.instanceDisplayName(),
         pairingURLScheme: CmxPairingURLScheme? = CmxPairingURLSchemeResolver().resolved
     ) -> State {
+        // The v2 Tailscale grammar carries routes and account preflight metadata.
+        // Device identity is learned from authenticated host status after dialing.
         if status.tailscaleIsRunning,
            let plan = PairingRoutePlan.make(routes: status.tailscaleRoutes),
            let routes = try? MobileAttachTarget.canonicalTailscaleRoutes(from: status.tailscaleRoutes),
            let ticket = try? CmxAttachTicket(
-               workspaceID: "", terminalID: nil, macDeviceID: macDeviceID,
-               macDisplayName: macDisplayName,
+               workspaceID: "", terminalID: nil, macDeviceID: "", macDisplayName: nil,
                macUserID: macUserID,
                macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
                routes: routes, expiresAt: nil, authToken: nil

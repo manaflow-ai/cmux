@@ -872,7 +872,7 @@ final class MobileHostService {
         guard (1...65535).contains(port) else { return .invalid }
         defaults.set(port, forKey: Self.portDefaultsKey)
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        if pairingRuntime.isNetworkingAllowed, tailscaleIsRunning, tailscalePort == port {
+        if tailscaleIsRunning, tailscalePort == port {
             return .applied(port)
         }
         return .savedForLater
@@ -940,24 +940,34 @@ final class MobileHostService {
         }
     }
 
-    /// Waits for the IROH owner's actual readiness, with a bounded UI wait.
+    /// Waits for either listener to become ready, or for both startup attempts
+    /// to settle, within the existing bounded UI wait.
     func ensureListeningAndReady(timeout: Duration = .seconds(6)) async -> MobileHostServiceStatus {
         let runtime = pairingRuntime
         if !runtime.isNetworkingAllowed { runtime.prepareForStop() }
         await runtime.applyManagedNetworkingPolicy()
-        let tailscaleEnabled = Self.isListeningEnabled(defaults: defaults)
-        if tailscaleEnabled {
+        if Self.isListeningEnabled(defaults: defaults) {
             // A Tailscale bind failure is independent of Iroh readiness. An
             // explicit pairing refresh is the user's retry action, so retry
             // the TCP listener even when the Iroh endpoint is already settled.
             startTailscaleListenerIfNeeded()
+        } else {
+            stopTailscaleListener()
         }
-        guard runtime.isNetworkingAllowed, !runtime.listenerState.isSettled else { return statusSnapshot() }
+        guard !pairingStartupIsSettled else { return statusSnapshot() }
         let updates = runtime.listenerStateUpdates()
+        let hostUpdates = statusUpdates()
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                for await state in updates {
-                    if Task.isCancelled || state.isSettled { return }
+                for await _ in updates {
+                    if Task.isCancelled { return }
+                    if await self.pairingStartupIsSettled { return }
+                }
+            }
+            group.addTask {
+                for await _ in hostUpdates {
+                    if Task.isCancelled { return }
+                    if await self.pairingStartupIsSettled { return }
                 }
             }
             group.addTask { try? await Task.sleep(for: timeout) }
@@ -967,30 +977,43 @@ final class MobileHostService {
         return statusSnapshot()
     }
 
+    private var pairingStartupIsSettled: Bool {
+        let runtime = pairingRuntime
+        if tailscaleIsRunning || (runtime.isNetworkingAllowed && runtime.listenerState.isRunning) {
+            return true
+        }
+        let tailscaleStarting = tailscaleListener != nil && tailscaleFailureDescription == nil
+        return !tailscaleStarting && (!runtime.isNetworkingAllowed || runtime.listenerState.isSettled)
+    }
+
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let runtime = pairingRuntime
         let state = runtime.isNetworkingAllowed ? runtime.listenerState : MobileHostListenerState()
         let desiredPort = Self.configuredPort(defaults: defaults)
+        let tailscaleAllowed = !isSigningOut && Self.isListeningEnabled(defaults: defaults)
+        let tcpRunning = tailscaleAllowed && tailscaleIsRunning
+        let tcpPort = tcpRunning ? tailscalePort : nil
+        let tcpRoutes = tcpRunning ? tailscaleRoutes : []
         return MobileHostServiceStatus(
-            isRunning: state.isRunning || tailscaleIsRunning,
-            port: tailscalePort,
+            isRunning: state.isRunning || tcpRunning,
+            port: tcpPort,
             configuredPort: desiredPort,
             usesEphemeralFallback: false,
-            routes: state.isRunning || tailscaleIsRunning ? routes : [],
+            routes: routes.filter { $0.kind == .iroh ? state.isRunning : tcpRunning },
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: state.failureDescription,
             irohPort: state.boundPort,
             irohLocalSocketAddresses: state.localSocketAddresses,
-            pendingPortChange: tailscaleIsRunning && tailscalePort != desiredPort,
-            localSocketAddresses: tailscaleRoutes.compactMap { route in
+            pendingPortChange: tcpRunning && tcpPort != desiredPort,
+            localSocketAddresses: tcpRoutes.compactMap { route in
                 guard case let .hostPort(host, port) = route.endpoint else { return nil }
                 return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
             },
             isPairingReady: state.isRunning && state.hasAuthenticatedRegistration,
-            tailscaleIsRunning: tailscaleIsRunning,
-            tailscalePort: tailscalePort,
-            tailscaleFailureDescription: tailscaleFailureDescription,
-            tailscaleRoutes: tailscaleRoutes
+            tailscaleIsRunning: tcpRunning,
+            tailscalePort: tcpPort,
+            tailscaleFailureDescription: tailscaleAllowed ? tailscaleFailureDescription : nil,
+            tailscaleRoutes: tcpRoutes
         )
     }
 
@@ -1021,17 +1044,7 @@ final class MobileHostService {
         guard !isSigningOut, auth == nil || auth?.authenticatedTeamScope != nil,
               Self.isListeningEnabled(defaults: defaults), tailscaleListener == nil else { return }
         let configuredPort = Self.configuredPort(defaults: defaults)
-        guard let port = NWEndpoint.Port(rawValue: UInt16(configuredPort)) else {
-            tailscaleFailureDescription = listenerFailureDescription(
-                port: configuredPort,
-                error: String(
-                    localized: "mobile.pairing.error.invalidPort",
-                    defaultValue: "The Tailscale pairing port is invalid. Choose a port from 1 to 65535."
-                )
-            )
-            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-            return
-        }
+        let port = NWEndpoint.Port(integerLiteral: UInt16(configuredPort))
         let generation = UUID()
         tailscaleListenerGeneration = generation
         tailscaleAdmissionGeneration = MobileHostConnectionRegistry.shared.currentStackBearerGeneration()

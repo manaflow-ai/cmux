@@ -204,7 +204,37 @@ struct MobileHostV2LifecycleTests {
             #expect(status.tailscalePort == 52_075)
             #expect(status.irohPort == nil)
             #expect(!status.isPairingReady)
+            #expect(await service.applyConfiguredPort(52_075) == .applied(52_075))
 
+            defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            let hidden = service.statusSnapshot()
+            #expect(!hidden.isRunning)
+            #expect(!hidden.tailscaleIsRunning)
+            #expect(hidden.tailscalePort == nil)
+            #expect(hidden.tailscaleRoutes.isEmpty)
+            #expect(hidden.routes.isEmpty)
+            #expect(await service.ensureListeningAndReady().tailscaleIsRunning == false)
+        }
+    }
+
+    @Test("Pairing refresh returns TCP readiness without waiting for Iroh", arguments: [false, true])
+    func refreshWaitsForTailscaleReadiness(irohAllowed: Bool) async throws {
+        try await withDefaults { defaults in
+            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            let port = irohAllowed ? 52_077 : 52_076
+            defaults.set(port, forKey: MobileHostService.portDefaultsKey)
+            let runtime = MobileHostRuntimeProbe(allowed: irohAllowed)
+            let service = MobileHostService(defaults: defaults, runtime: runtime)
+            defer { service.stop() }
+
+            // Do not pre-start or independently wait for the listener: this is
+            // the exact entrypoint used when the user opens the pairing sheet.
+            let status = await service.ensureListeningAndReady()
+            #expect(status.isRunning)
+            #expect(status.tailscaleIsRunning)
+            #expect(status.tailscalePort == port)
+            #expect(!status.isPairingReady)
+            #expect(runtime.listenerState.phase == (irohAllowed ? .starting : .stopped))
         }
     }
 
