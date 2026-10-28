@@ -99,8 +99,11 @@ public final class CmuxDialogView: NSView {
     }
 
     private func moveFocus(backward: Bool) {
-        guard let next = CmuxDialogKeys.focus(after: focusedIndex, count: focusables.count, backward: backward) else { return }
-        window?.makeFirstResponder(focusables[next])
+        let available = focusables.filter { !$0.isHiddenOrHasHiddenAncestor && (($0 as? NSControl)?.isEnabled ?? true) }
+        let responder = window?.firstResponder as? NSView
+        let current = available.firstIndex { view in responder.map { $0 === view || $0.isDescendant(of: view) } ?? false }
+        guard let next = CmuxDialogKeys.focus(after: current, count: available.count, backward: backward) else { return }
+        window?.makeFirstResponder(available[next])
     }
 
     public override var acceptsFirstResponder: Bool { true }

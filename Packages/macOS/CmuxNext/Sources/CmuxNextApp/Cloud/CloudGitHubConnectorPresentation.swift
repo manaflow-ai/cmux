@@ -34,8 +34,12 @@ final class CloudGitHubConnectorPresentation {
         card.onSelectRepository = { [weak self] repo in
             guard let self, self.isCurrent(), let id = self.dialogID else { return }
             self.center.setValue(.text(repo.spec), for: "repository", in: id)
-            if self.center.record(id)?.values["source"]?.text != "newEnvironment" {
-                self.center.setValue(.text("repository"), for: "source", in: id)
+            if let record = self.center.record(id), record.values["source"]?.text != "newEnvironment" {
+                for case .choice("source", _, let choices, _) in record.spec.fields {
+                    let selected = choices.first { $0.value == "repository" && $0.isEnabled }
+                        ?? choices.first { $0.value == "newEnvironment" && $0.isEnabled }
+                    if let selected { self.center.setValue(.text(selected.value), for: "source", in: id) }
+                }
             }
         }
         return await withTaskCancellationHandler {

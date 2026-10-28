@@ -174,7 +174,7 @@ public final class CloudGitHubConnectorCard: NSView, NSSearchFieldDelegate {
         let working = busy || model.isRefreshing || model.isLoadingRepositories
         if working && window != nil { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
         connect.title = model.state == .installed ? CloudGitHubConnectorStrings.manage : CloudGitHubConnectorStrings.connect
-        connect.isEnabled = !working
+        connect.isEnabled = !working && model.error != .unavailable
         refresh.isEnabled = !working
         more.isEnabled = !working && model.repositoryCursor != nil
         search.isEnabled = model.state == .installed

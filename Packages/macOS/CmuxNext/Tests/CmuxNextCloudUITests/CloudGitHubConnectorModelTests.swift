@@ -35,7 +35,7 @@ struct CloudGitHubConnectorModelTests {
                 [CloudConnectorStatus(provider: "github", state: .needsAuth)],
                 [CloudConnectorStatus(provider: "github", state: .installed)]
             ],
-            install: URL(string: "https://github.com/apps/cmux/installations/new")!)
+            install: URL(string: "https://github.com/apps/cmux/installations/new") ?? URL(fileURLWithPath: "/"))
         let recorder = Recorder()
         let model = CloudGitHubConnectorModel(client: fake,
             openInstallURL: { url in await recorder.open(url) },
@@ -49,7 +49,7 @@ struct CloudGitHubConnectorModelTests {
 
     @MainActor
     @Test func failedInstallDoesNotOpenOrRetry() async {
-        let fake = FakeConnector(install: URL(string: "https://evil.example/install")!)
+        let fake = FakeConnector(install: URL(string: "https://evil.example/install") ?? URL(fileURLWithPath: "/"))
         let recorder = Recorder()
         let model = CloudGitHubConnectorModel(client: fake,
             openInstallURL: { url in await recorder.open(url) },
@@ -143,7 +143,7 @@ struct CloudGitHubConnectorModelTests {
         var pages: [String: CloudGitHubRepositoryPage]
 
         init(statuses: [[CloudConnectorStatus]] = [[]],
-             install: URL = URL(string: "https://github.com/apps/cmux/installations/new")!,
+             install: URL = URL(string: "https://github.com/apps/cmux/installations/new") ?? URL(fileURLWithPath: "/"),
              pages: [String: CloudGitHubRepositoryPage] = [:]) {
             self.statuses = statuses
             self.install = install
@@ -158,7 +158,7 @@ struct CloudGitHubConnectorModelTests {
         func installURL() async throws -> URL { install }
 
         func repositories(query: String, cursor: String?) async throws -> CloudGitHubRepositoryPage {
-            pages[cursor ?? ""] ?? CloudGitHubRepositoryPage()
+            pages[cursor ?? ""] ?? CloudGitHubRepositoryPage(repos: [])
         }
     }
 }

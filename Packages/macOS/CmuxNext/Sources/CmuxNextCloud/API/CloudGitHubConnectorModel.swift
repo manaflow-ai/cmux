@@ -60,7 +60,7 @@ import Observation
             }
             let next = statuses.first { $0.provider.caseInsensitiveCompare("github") == .orderedSame }?.state
             state = next
-            if next != .installed { repositories = []; repositoryCursor = nil }
+            if next != .installed { clearRepositories() }
             error = nil
         } catch {
             guard !Task.isCancelled, generation == refreshGeneration, scopeIsCurrent() else {
@@ -68,7 +68,7 @@ import Observation
                 return nil
             }
             state = nil
-            repositories = []; repositoryCursor = nil
+            clearRepositories()
             error = Self.classify(error)
         }
         return state
@@ -94,7 +94,7 @@ import Observation
     /// Opens C1's GitHub App install page. The URL is checked before it reaches the browser.
     /// The caller invokes `resumeAfterInstall()` when the app receives the browser return.
     public func connect() async {
-        guard scopeIsCurrent(), !connectInFlight else { return }
+        guard scopeIsCurrent(), !connectInFlight, !installResumeInFlight else { return }
         // A new click starts a fresh browser handoff, even if the previous page was dismissed.
         installReturnPending = false
         connectInFlight = true
@@ -184,10 +184,17 @@ import Observation
 
     private func invalidateScope() {
         state = nil
-        repositories = []
-        repositoryCursor = nil
+        clearRepositories()
         error = nil
         installReturnPending = false
+    }
+
+    private func clearRepositories() {
+        repositoryGeneration += 1
+        repositoryRequestID += 1
+        repositories = []
+        repositoryCursor = nil
+        isLoadingRepositories = false
     }
 
     private nonisolated static func classify(_ error: Error) -> CloudGitHubConnectorClientError {
