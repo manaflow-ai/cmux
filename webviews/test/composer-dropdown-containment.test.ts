@@ -74,7 +74,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         }
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
-        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup, height > 180);
+        if (height > 180) await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup);
         await contained(page, popup);
         expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
       } finally {
