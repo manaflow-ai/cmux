@@ -1016,6 +1016,10 @@ export function ModelPicker(props: ModelPickerProps) {
       else focusRail(activeHarness);
     } else if (event.key === "Enter") {
       event.preventDefault();
+      if (activeHarness === addRailIndex && onAddAgent) {
+        addHarness();
+        return;
+      }
       const model = visible[active];
       if (model) selectModel(model);
       else return;
