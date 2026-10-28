@@ -31,8 +31,8 @@ final class MobilePairingModel {
         /// Carries the state to restore when the connection count falls back to
         /// the baseline.
         indirect case connected(from: State)
-        /// Compatibility state retained for old callers while the v2 window is
-        /// active. The v2 path does not publish direct or Tailscale routes.
+        /// Compatibility state retained for old callers that still present
+        /// transport guidance separately from the ready state.
         case needsReachableTransport(reachableViaIroh: Bool)
         /// The listener could not be started.
         case failed(String)
@@ -41,15 +41,16 @@ final class MobilePairingModel {
     /// Pairing status. Tailscale carries a QR and manual address; an Iroh-only
     /// host leaves those fields empty and uses account discovery.
     struct Ready: Equatable {
-        /// Legacy attach URL. Empty for v2.
+        /// Legacy attach URL when a Tailscale route is available; empty for
+        /// Iroh-only pairing.
         let attachURL: String
-        /// Legacy Tailscale routes. Empty for v2.
+        /// Tailscale routes used for the compatibility QR and manual entry.
         let tailscaleLines: [String]
         /// Legacy manual route. `nil` for v2.
         let manualEntry: CmxManualPairingEntry?
         /// Whether this Mac's IROH endpoint is ready for the signed-in iPhone.
         let reachableViaIroh: Bool
-        /// v2 pairing uses the authenticated IROH bootstrap and has no QR.
+        /// True when only authenticated Iroh discovery is available.
         let v2Only: Bool
 
         init(
