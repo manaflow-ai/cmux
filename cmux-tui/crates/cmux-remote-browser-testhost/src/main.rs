@@ -18,6 +18,8 @@
 //! `--frames N` stops after N frames (0 = until the viewer leaves);
 //! `--once` exits after the first viewer.
 
+#![forbid(unsafe_code)]
+
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::process::ExitCode;

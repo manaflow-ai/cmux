@@ -93,13 +93,11 @@ pub(super) fn start(
     watches.rearm(&files).map_err(notify::Error::io)?;
     let (stop, stopped) = UnixStream::pair().map_err(notify::Error::io)?;
     // supervise-allow: owned by Handle, which keeps it and joins it at drop; a panic ends config change hints only, and the loaded config stays in effect.
-    let thread = std::thread::Builder::new()
-        .name("cmux-config-watch".to_string())
-        .spawn(move || {
-            on_hint();
-            run(&mut watches, &stopped, &files, &mut on_hint);
-        })
-        .map_err(notify::Error::io)?;
+    let thread = cmux_threads::spawn("cmux-config-watch", super::WATCH_THREAD_QOS, move || {
+        on_hint();
+        run(&mut watches, &stopped, &files, &mut on_hint);
+    })
+    .map_err(notify::Error::io)?;
     Ok(Handle { stop: Some(stop), thread: Some(thread) })
 }
 

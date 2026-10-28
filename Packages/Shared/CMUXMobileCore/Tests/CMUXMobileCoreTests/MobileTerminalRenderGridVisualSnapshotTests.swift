@@ -137,3 +137,27 @@ import Testing
     #expect(try snapshot(text: " ", foreground: "#FFFFFF", inverse: true)
         != snapshot(text: " ", foreground: "#FDFFF1", inverse: true))
 }
+
+/// A frame from the Mac may repeat a style id. The snapshot keeps the last one, as the
+/// replay does, instead of trapping (p10-stability-096).
+@Test func renderGridVisualSnapshotKeepsTheLastOfARepeatedStyleID() throws {
+    func frame(_ styles: [MobileTerminalRenderGridFrame.Style]) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-a",
+            stateSeq: 1,
+            columns: 4,
+            rows: 1,
+            styles: styles,
+            rowSpans: [.init(row: 0, column: 0, styleID: 1, text: "x")]
+        )
+    }
+    let base = MobileTerminalRenderGridFrame.Style(id: 0, foreground: "#FFFFFF", background: "#000000")
+    let green = MobileTerminalRenderGridFrame.Style(id: 1, foreground: "#00FF00", background: "#000000")
+    let red = MobileTerminalRenderGridFrame.Style(id: 1, foreground: "#FF0000", background: "#000000")
+
+    let repeated = try #require(MobileTerminalRenderGridVisualSnapshot(fullFrame: frame([base, green, red])))
+    let last = try #require(MobileTerminalRenderGridVisualSnapshot(fullFrame: frame([base, red])))
+    let first = try #require(MobileTerminalRenderGridVisualSnapshot(fullFrame: frame([base, green])))
+    #expect(repeated == last)
+    #expect(repeated != first)
+}

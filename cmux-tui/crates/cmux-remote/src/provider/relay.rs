@@ -210,7 +210,7 @@ impl fmt::Debug for RelayCredential {
 
 async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    cmux_blocking::spawn_blocking(move || {
         crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
     })
     .await

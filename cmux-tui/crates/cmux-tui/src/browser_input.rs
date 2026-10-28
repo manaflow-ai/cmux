@@ -568,10 +568,13 @@ impl BrowserInputScheduler {
         for worker_index in 0..worker_count {
             let worker = scheduler.clone();
             // supervise-allow: one of the scheduler's worker_count workers, stopped by its shutdown; process_one catches a panic in an event's dispatch, so the worker releases that event and keeps serving.
-            if let Err(error) = std::thread::Builder::new()
-                .name(format!("mux-browser-input-{worker_index}"))
-                .spawn(move || worker.run())
-            {
+            if let Err(error) = cmux_threads::spawn(
+                format!("mux-browser-input-{worker_index}"),
+                cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
+                move || {
+                    worker.run();
+                },
+            ) {
                 scheduler.shutdown();
                 return Err(error);
             }

@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `layout.stripScrollbar` in cmux.json: "system" (default: follow the macOS
 /// "Show scroll bars" setting), "auto", "always" or "off"; `true` means "auto"

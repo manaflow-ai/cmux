@@ -16,6 +16,9 @@ no network but `net::EmbeddedTestServer` on loopback, and no background fetches
   core.hooksPath, no signing, only the file transport, a fixed identity and dates, and a local bare
   origin for every generated repository (`local_bare_origin`); `require_local_remote` refuses any
   other remote, for the generators (gen_daemon_ops.py, p15-oracle-060);
+- the one harness name a case keeps: LLVM_PROFILE_FILE, where an instrumented build writes its counters
+  (linux_run.sh run --coverage, p15-oracle-190; Chromium's testing/test_env.py hands it to every test
+  process). It changes where counters go, never what the binary does;
 - on Linux, every process of a case runs in its own network namespace with only loopback up: `unshare
   -rn` brings `lo` up as namespace root, then a nested user namespace maps the caller's uid and gid
   back, so the daemon runs as the same uid as without isolation (its /tmp/cmux-hd-<uid> and
@@ -239,6 +242,20 @@ def git_env() -> Dict[str, str]:
     }
 
 
+# Where an instrumented binary writes its counters; the only name a case takes from the harness.
+PROFILE_FILE_VAR = "LLVM_PROFILE_FILE"
+
+
+def profile_env(environ: Mapping[str, str] = os.environ) -> Dict[str, str]:
+    """The harness's LLVM_PROFILE_FILE for a coverage run (linux_run.sh run --coverage), else nothing."""
+    value = environ.get(PROFILE_FILE_VAR, "")
+    if not value:
+        return {}
+    if not os.path.isabs(value):
+        raise HermeticError(f"{PROFILE_FILE_VAR}={value!r} is not absolute: a case runs in its own root")
+    return {PROFILE_FILE_VAR: value}
+
+
 # The account-name variables. A daemon case gets fixed ones; the app keeps bench_launch's.
 ACCOUNT_IDENTITY = ("USER", "LOGNAME")
 
@@ -373,6 +390,7 @@ def daemon_case(
         **identity_env(),
         **quiet_env(),
         **git_env(),
+        **profile_env(),
     }
     if seed is not None:
         env["CMUX_TUI_ORACLE_SEED"] = seed

@@ -51,8 +51,8 @@ public protocol PreloadParking: AnyObject {
 /// areas ignore alpha and hit testing), never hit by the mouse, and out of the accessibility tree.
 /// Add it to the window's content view; a claim reparents its page out of it.
 ///
-/// The one parking of the program: p13-webui-044 and 045 move the New Tab and page spares onto the
-/// slot and delete `NewTabSpareParking` and `PageHostParking` with their pools.
+/// The one parking of the program: the Settings, History and Cloud preload waits here (045 deleted
+/// PageHostPool and its parking), and p13-webui-044 moves the New Tab spare here from `NewTabSpareParking`.
 public final class PagePreloadParkingView: NSView, PreloadParking {
     /// The parking's frame in its superview's `bounds`: `size`, far outside the content.
     public static func frame(in bounds: NSRect, size: NSSize) -> NSRect {

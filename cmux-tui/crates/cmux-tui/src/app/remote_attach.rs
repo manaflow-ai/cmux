@@ -314,9 +314,10 @@ impl RemoteSurfaceAttachExecutor {
         for worker in 0..REMOTE_ATTACH_WORKER_LIMIT {
             let worker_shared = shared.clone();
             // supervise-allow: one of REMOTE_ATTACH_WORKER_LIMIT pool workers owned by the executor and stopped with it; run_on_worker settles a panicking job as a failed attach, so the worker releases its background slot and takes the next job.
-            let spawned = std::thread::Builder::new()
-                .name(format!("surface-attach-{worker}"))
-                .spawn(move || {
+            let spawned = cmux_threads::spawn(
+                format!("surface-attach-{worker}"),
+                cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
+                move || {
                     loop {
                         let (job, background) = {
                             let (queue, ready) = &*worker_shared;
@@ -350,7 +351,8 @@ impl RemoteSurfaceAttachExecutor {
                             ready.notify_all();
                         }
                     }
-                });
+                },
+            );
             match spawned {
                 Ok(_) => worker_count += 1,
                 Err(error) if worker_count == 0 => return Err(error),

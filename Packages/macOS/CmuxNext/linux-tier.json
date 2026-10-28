@@ -9,6 +9,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux"
     ],
@@ -89,6 +90,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux",
       "CmuxNextActions",
@@ -123,6 +125,7 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
+      "CmuxNextInputModel",
       "CZlib"
     ],
     "testTargets": [
@@ -230,7 +233,6 @@
     },
     "absent": [
       "CmuxNextOracle",
-      "CmuxNextInputModel",
       "OracleReplay",
       "OracleInputWalk",
       "OracleConfigDump",

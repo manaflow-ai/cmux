@@ -87,6 +87,8 @@ public final class HandsService {
         switch event {
         case .connected:
             reads?.cancel()
+            // task-owner: `reads`; one list read per subscribe; the next subscribe and stop() cancel it
+            // main-hop-allow: refresh is the service's main-actor HTTP read (its awaits are the requests); it writes the hands model the banners read
             reads = Task { [weak self] in await self?.refresh() }
         case let .pending(approval):
             add(approval)

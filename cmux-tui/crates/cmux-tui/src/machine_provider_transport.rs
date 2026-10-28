@@ -581,10 +581,12 @@ struct ProcessCleanup {
 impl ProcessCleanup {
     fn signal_group(&self, signal: libc::c_int) {
         // `spawn_command` creates a dedicated group whose ID is the direct child PID.
+        // SAFETY: kill takes no pointer and has no memory-safety precondition.
         let _ = unsafe { libc::kill(-self.process_group, signal) };
     }
 
     fn group_is_alive(&self) -> bool {
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         let result = unsafe { libc::kill(-self.process_group, 0) };
         result == 0 || io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied
     }
@@ -966,6 +968,7 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
+            // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
             let alive = unsafe { libc::kill(pid, 0) } == 0;
             if !alive {
                 break;
@@ -995,6 +998,7 @@ mod tests {
             .expect("read descendant pid")
             .parse::<i32>()
             .expect("parse descendant pid");
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         assert_eq!(unsafe { libc::kill(descendant, 0) }, 0, "provider descendant must be alive");
 
         let (finished_tx, finished_rx) = mpsc::sync_channel(1);
@@ -1004,6 +1008,7 @@ mod tests {
         });
         let completed = finished_rx.recv_timeout(Duration::from_secs(2)).is_ok();
         if !completed {
+            // SAFETY: kill takes no pointer and has no memory-safety precondition.
             let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
             finished_rx
                 .recv_timeout(Duration::from_secs(5))
@@ -1013,6 +1018,7 @@ mod tests {
 
         assert!(completed, "provider cleanup blocked on a descendant-owned diagnostic pipe");
         let deadline = Instant::now() + Duration::from_secs(5);
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         while unsafe { libc::kill(descendant, 0) } == 0 {
             assert!(Instant::now() < deadline, "provider descendant {descendant} survived cleanup");
             thread::sleep(Duration::from_millis(10));
@@ -1024,6 +1030,7 @@ mod tests {
         let Some(pid_path) = std::env::var_os("CMUX_TEST_DETACHED_STDERR_HOLDER") else {
             return;
         };
+        // SAFETY: setsid takes no arguments and has no memory-safety precondition.
         let session = unsafe { libc::setsid() };
         assert!(session > 0, "detach provider test descendant");
         fs::write(pid_path, std::process::id().to_string())
@@ -1067,6 +1074,7 @@ mod tests {
             .expect("read detached descendant pid")
             .parse::<i32>()
             .expect("parse detached descendant pid");
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         assert_eq!(unsafe { libc::kill(descendant, 0) }, 0, "detached descendant must be alive");
 
         let (finished_tx, finished_rx) = mpsc::sync_channel(1);
@@ -1076,6 +1084,7 @@ mod tests {
         });
         let completed = finished_rx.recv_timeout(Duration::from_secs(2)).is_ok();
         if !completed {
+            // SAFETY: kill takes no pointer and has no memory-safety precondition.
             let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
             finished_rx
                 .recv_timeout(Duration::from_secs(5))
@@ -1083,6 +1092,7 @@ mod tests {
         }
         cleanup.join().expect("join provider cleanup");
 
+        // SAFETY: kill takes no pointer and has no memory-safety precondition.
         let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
         assert!(completed, "provider cleanup waited for detached descendant diagnostics");
     }
