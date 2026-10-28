@@ -5372,22 +5372,25 @@ function AcpmuxPane() {
     /// The palette's Commit or Push for the open view (DiffPanel `gitIntent`).
     gitIntent?: { op: GitWriteOp; nonce: number };
   }>();
-  const toggleInspector = useCallback((open?: boolean) => {
-    if (inspectorHiddenSurfaceRef.current) {
-      inspectorOpenRef.current = false;
-      setInspectorOpen(false);
-      return false;
-    }
-    const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
-    inspectorOpenRef.current = next;
-    if (next) {
-      clearWorkflowSideTab();
-      setDiffView(undefined);
-      inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    }
-    setInspectorOpen(next);
-    return next;
-  }, [clearWorkflowSideTab]);
+  const toggleInspector = useCallback(
+    (open?: boolean) => {
+      if (inspectorHiddenSurfaceRef.current) {
+        inspectorOpenRef.current = false;
+        setInspectorOpen(false);
+        return false;
+      }
+      const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
+      inspectorOpenRef.current = next;
+      if (next) {
+        clearWorkflowSideTab();
+        setDiffView(undefined);
+        inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+      }
+      setInspectorOpen(next);
+      return next;
+    },
+    [clearWorkflowSideTab],
+  );
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does

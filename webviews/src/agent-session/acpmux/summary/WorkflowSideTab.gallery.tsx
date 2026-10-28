@@ -13,7 +13,12 @@ function GalleryWorkflowSideTab({ stage, layout }: Props) {
   if (!node) return null;
   return (
     <div className="acpmux-shell">
-      <WorkflowSideTab workflow={workflowOf(node, "gallery")} layout={layout} onClose={() => undefined} onStop={async () => undefined} />
+      <WorkflowSideTab
+        workflow={workflowOf(node, "gallery")}
+        layout={layout}
+        onClose={() => undefined}
+        onStop={async () => undefined}
+      />
     </div>
   );
 }

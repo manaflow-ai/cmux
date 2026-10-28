@@ -50,9 +50,10 @@
 .acpmux-workflow-side-tab__lane { flex: 0 0 260px; min-height: calc(5 * var(--ds-space-5)); padding: calc(var(--ds-space-2) + 2px); border: var(--cmux-hairline, .5px) solid var(--agent-border); border-radius: 8px; scroll-snap-align: start; }
 .acpmux-workflow-side-tab__lane header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--agent-text); font-size: var(--text-detail); }
 .acpmux-workflow-side-tab__lane header span:last-child { color: var(--agent-muted); }
-.acpmux-workflow-side-tab__table { display: grid; gap: 0; font-size: var(--text-detail); }
+.acpmux-workflow-side-tab__table { display: grid; gap: 0; width: 100%; font-size: var(--text-detail); }
+.acpmux-workflow-side-tab__table thead, .acpmux-workflow-side-tab__table tbody { display: contents; }
 .acpmux-workflow-side-tab__table-head, .acpmux-workflow-side-tab__table-row { display: grid; grid-template-columns: minmax(80px,.7fr) minmax(150px,1.7fr) minmax(64px,.7fr); align-items: center; min-width: 0; padding: calc(var(--ds-space-1) + 2px) var(--ds-space-1); border-bottom: var(--cmux-hairline, .5px) solid var(--agent-border); }
 .acpmux-workflow-side-tab__table-head { color: var(--agent-muted); font-size: var(--text-detail); font-weight: 600; }
-.acpmux-workflow-side-tab__table-row > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.acpmux-workflow-side-tab__table-head th, .acpmux-workflow-side-tab__table-row td { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .acpmux-workflow-side-tab__table-row .acpmux-workflow-agent { min-width: 0; }
 .acpmux-workflow-side-tab[data-layout="table"] .acpmux-workflow-side-tab__body { padding-inline: calc(var(--ds-space-1) + 2px); }

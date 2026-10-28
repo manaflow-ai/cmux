@@ -46,8 +46,10 @@ function phaseLabel(t: ReturnType<typeof useT>, phase: WorkflowPhase): string {
 }
 
 function elapsedFor(workflow: WorkflowSummary, now: number): number | undefined {
-  return workflow.elapsedMs ??
-    (running(workflow) && workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
+  return (
+    workflow.elapsedMs ??
+    (running(workflow) && workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined)
+  );
 }
 
 function PhaseAgents({ workflow, phase, now }: { workflow: WorkflowSummary; phase: WorkflowPhase; now: number }) {
@@ -70,12 +72,28 @@ function Timeline({ workflow, now }: { workflow: WorkflowSummary; now: number })
         return (
           <li key={phase.id} className="acpmux-workflow-side-tab__phase" data-state={phase.state}>
             <div className="acpmux-workflow-side-tab__phase-marker" aria-hidden="true">
-              {phase.state === "running" ? <Spinner size={10} loading /> : <Icon name={phase.state === "completed" ? "status.complete" : phase.state === "failed" ? "status.error" : "agent.session"} size={11} row />}
+              {phase.state === "running" ? (
+                <Spinner size={10} loading />
+              ) : (
+                <Icon
+                  name={
+                    phase.state === "completed"
+                      ? "status.complete"
+                      : phase.state === "failed"
+                        ? "status.error"
+                        : "agent.session"
+                  }
+                  size={11}
+                  row
+                />
+              )}
             </div>
             <div className="acpmux-workflow-side-tab__phase-body">
               <div className="acpmux-workflow-side-tab__phase-head">
                 <strong>{phaseLabel(t, phase)}</strong>
-                <span>{counts.done}/{counts.total}</span>
+                <span>
+                  {counts.done}/{counts.total}
+                </span>
               </div>
               <PhaseAgents workflow={workflow} phase={phase} now={now} />
             </div>
@@ -92,7 +110,10 @@ function Lanes({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
     <div className="acpmux-workflow-side-tab__lanes">
       {workflow.phases.map((phase) => (
         <section key={phase.id} className="acpmux-workflow-side-tab__lane" data-state={phase.state}>
-          <header><span>{phaseLabel(t, phase)}</span><span>{stateLabel(t, phase.state)}</span></header>
+          <header>
+            <span>{phaseLabel(t, phase)}</span>
+            <span>{stateLabel(t, phase.state)}</span>
+          </header>
           <PhaseAgents workflow={workflow} phase={phase} now={now} />
         </section>
       ))}
@@ -103,20 +124,30 @@ function Lanes({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
 function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
   const t = useT();
   return (
-    <div className="acpmux-workflow-side-tab__table" role="table" aria-label={t("workflow.phases")}>
-      <div className="acpmux-workflow-side-tab__table-head" role="row">
-        <div role="columnheader">{t("workflow.phases")}</div>
-        <div role="columnheader">{t("summary.subagents.active", { n: workflow.agents.length })}</div>
-        <div role="columnheader">State</div>
-      </div>
-      {workflow.phases.flatMap((phase) => phaseAgents(workflow, phase).map((agent) => (
-        <div className="acpmux-workflow-side-tab__table-row" role="row" key={agent.id}>
-          <div role="cell">{phaseLabel(t, phase)}</div>
-          <div role="cell"><ul className="acpmux-workflow-side-tab__agents"><WorkflowAgentRow agent={agent} now={now} variant="grid" /></ul></div>
-          <div role="cell">{stateLabel(t, agent.state)}</div>
-        </div>
-      )))}
-    </div>
+    <table className="acpmux-workflow-side-tab__table" aria-label={t("workflow.phases")}>
+      <thead>
+        <tr className="acpmux-workflow-side-tab__table-head">
+          <th scope="col">{t("workflow.phases")}</th>
+          <th scope="col">{t("summary.subagents.active", { n: workflow.agents.length })}</th>
+          <th scope="col">State</th>
+        </tr>
+      </thead>
+      <tbody>
+        {workflow.phases.flatMap((phase) =>
+          phaseAgents(workflow, phase).map((agent) => (
+            <tr className="acpmux-workflow-side-tab__table-row" key={agent.id}>
+              <td>{phaseLabel(t, phase)}</td>
+              <td>
+                <ul className="acpmux-workflow-side-tab__agents">
+                  <WorkflowAgentRow agent={agent} now={now} variant="grid" />
+                </ul>
+              </td>
+              <td>{stateLabel(t, agent.state)}</td>
+            </tr>
+          )),
+        )}
+      </tbody>
+    </table>
   );
 }
 
@@ -133,23 +164,43 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
           <span>{t("workflow.kind")}</span>
           <strong title={workflow.title}>{workflow.title}</strong>
         </div>
-        <button type="button" className="acpmux-workflow-side-tab__close" aria-label={t("chatInspector.close")} title={t("chatInspector.close")} onClick={onClose}>
+        <button
+          type="button"
+          className="acpmux-workflow-side-tab__close"
+          aria-label={t("chatInspector.close")}
+          title={t("chatInspector.close")}
+          onClick={onClose}
+        >
           <Icon name="action.close" size={12} />
         </button>
       </header>
       <div className="acpmux-workflow-side-tab__body">
         <div className="acpmux-workflow-side-tab__summary">
           <span className="acpmux-workflow-side-tab__state" data-state={workflow.state}>
-            {workflow.state === "running" ? <Spinner size={11} loading /> : <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={11} row />}
+            {workflow.state === "running" ? (
+              <Spinner size={11} loading />
+            ) : (
+              <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={11} row />
+            )}
             {stateLabel(t, workflow.state)}
           </span>
           {elapsed !== undefined && <time>{formatDuration(elapsed)}</time>}
-          <span>{counts.done}/{counts.total} {t("subagents.pill", { n: counts.total })}</span>
-          {workflow.tokens !== undefined && <span>{t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}</span>}
+          <span>
+            {counts.done}/{counts.total} {t("subagents.pill", { n: counts.total })}
+          </span>
+          {workflow.tokens !== undefined && (
+            <span>{t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}</span>
+          )}
           {running(workflow) && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} />}
         </div>
         {workflow.description && <p className="acpmux-workflow-side-tab__description">{workflow.description}</p>}
-        {layout === "lanes" ? <Lanes workflow={workflow} now={now} /> : layout === "table" ? <Table workflow={workflow} now={now} /> : <Timeline workflow={workflow} now={now} />}
+        {layout === "lanes" ? (
+          <Lanes workflow={workflow} now={now} />
+        ) : layout === "table" ? (
+          <Table workflow={workflow} now={now} />
+        ) : (
+          <Timeline workflow={workflow} now={now} />
+        )}
       </div>
     </aside>
   );
