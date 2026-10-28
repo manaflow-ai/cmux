@@ -1,8 +1,6 @@
-import CmuxNextBridge
 import CmuxNextDaemon
-import CmuxNextInputModel
+package import CmuxNextFocus
 import Foundation
-import CmuxNextFocus
 
 /// Deterministic replay of an input journal against the pure reducers
 /// (plans/cmux-next/input-spec.md section 5). Each window's focus machine
@@ -12,9 +10,18 @@ import CmuxNextFocus
 /// transition, routing and attach invariants, and reports the first
 /// divergence. Run it on a desync report to see whether the current
 /// reducers still produce the recorded (bad) outcome.
-nonisolated enum InputReplay {
-    struct Divergence: Hashable, Sendable, Codable {
-        enum Kind: String, Hashable, Sendable, Codable {
+///
+/// The replay is a value over the entries it is given (the app's ring, a
+/// desync report's journal or a saved file): it reads no journal itself, so
+/// `debug.replay` and an offline replayer give the same `Result` for the
+/// same entries and rules.
+///
+/// The key routing (K) rules ask the App's `KeyRouter`, which this module
+/// cannot see, so the caller passes them as `focusRules`; the model (F) and
+/// transition (T) rules run here for every caller.
+package nonisolated struct InputReplay: Sendable {
+    package struct Divergence: Hashable, Sendable, Codable {
+        package enum Kind: String, Hashable, Sendable, Codable {
             /// The reducer produced a different outcome than recorded.
             case outcome
             /// A checkpoint disagrees with the replayed state.
@@ -23,25 +30,25 @@ nonisolated enum InputReplay {
             case invariant
         }
 
-        var kind: Kind
-        var seq: UInt64
-        var window: String?
-        var event: String
-        var recorded: String?
-        var replayed: String?
-        var violations: [InputViolation] = []
+        package var kind: Kind
+        package var seq: UInt64
+        package var window: String?
+        package var event: String
+        package var recorded: String?
+        package var replayed: String?
+        package var violations: [InputViolation] = []
     }
 
-    struct Result: Hashable, Sendable, Codable {
-        var focusEvents = 0
-        var attachEvents = 0
-        var windows: [String] = []
+    package struct Result: Hashable, Sendable, Codable {
+        package var focusEvents = 0
+        package var attachEvents = 0
+        package var windows: [String] = []
         /// Focus events before a window's first checkpoint (not replayable).
-        var skippedFocusEvents = 0
+        package var skippedFocusEvents = 0
         /// Attach events of terminals whose `start` the ring overwrote.
-        var skippedAttachEvents = 0
-        var firstDivergence: Divergence?
-        var divergences = 0
+        package var skippedAttachEvents = 0
+        package var firstDivergence: Divergence?
+        package var divergences = 0
     }
 
     private struct Terminal {
@@ -50,7 +57,21 @@ nonisolated enum InputReplay {
         var chunk: UInt8 = 0
     }
 
-    static func replay(_ entries: [InputJournalEntry]) -> Result {
+    /// Extra rules checked on each focus state a reduction produces, after
+    /// the model and transition rules (the App passes its key routing rules).
+    package typealias FocusRules = @Sendable (_ state: FocusState, _ window: String?) -> [InputViolation]
+
+    /// The journal to replay, oldest first.
+    package var entries: [InputJournalEntry]
+    package var focusRules: FocusRules
+
+    package init(_ entries: [InputJournalEntry], focusRules: @escaping FocusRules = { _, _ in [] }) {
+        self.entries = entries
+        self.focusRules = focusRules
+    }
+
+    /// Reduces every entry in order and reports what it found.
+    package func run() -> Result {
         var result = Result()
         var machines: [String: (machine: FocusMachine, state: FocusState)] = [:]
         var terminals: [String: Terminal] = [:]
@@ -87,7 +108,8 @@ nonisolated enum InputReplay {
                     diverge(Divergence(kind: .outcome, seq: entry.seq, window: window, event: String(describing: event),
                                        recorded: String(describing: recorded), replayed: String(describing: digest)))
                 }
-                let violations = InputInvariants.step(from: state, event, to: next, window: window)
+                let violations = InputInvariants.reduction(from: state, event, to: next, window: window)
+                    + focusRules(next, window)
                 if !violations.isEmpty {
                     diverge(Divergence(kind: .invariant, seq: entry.seq, window: window, event: String(describing: event),
                                        violations: violations))
@@ -95,7 +117,7 @@ nonisolated enum InputReplay {
                 machines[window] = (machine, next)
             case .attach(let record):
                 if record.event == "start" { terminals[record.surface] = Terminal() }
-                guard var terminal = terminals[record.surface], let event = attachEvent(record, chunk: &terminal.chunk) else {
+                guard var terminal = terminals[record.surface], let event = Self.attachEvent(record, chunk: &terminal.chunk) else {
                     result.skippedAttachEvents += 1
                     continue
                 }
@@ -145,8 +167,8 @@ nonisolated enum InputReplay {
         case "takeOver": return .takeOver(setLatest: false)
         case "takeOver:latest": return .takeOver(setLatest: true)
         default:
-            if let size = cellSize(event, prefix: "resize:") { return .resize(size) }
-            if let size = cellSize(event, prefix: "grid:") { return record.link.map { .gridAnnounced($0, size) } }
+            if let size = Self.cellSize(event, prefix: "resize:") { return .resize(size) }
+            if let size = Self.cellSize(event, prefix: "grid:") { return record.link.map { .gridAnnounced($0, size) } }
             return nil
         }
     }
@@ -156,5 +178,14 @@ nonisolated enum InputReplay {
         guard event.hasPrefix(prefix) else { return nil }
         let parts = event.dropFirst(prefix.count).split(separator: "x").compactMap { Int($0) }
         return parts.count == 2 ? CellSize(cols: parts[0], rows: parts[1]) : nil
+    }
+}
+
+extension InputInvariants {
+    /// The model and transition checks for one replayed reduction; `InputReplay`
+    /// adds its caller's `focusRules` (the App's key routing rules).
+    nonisolated static func reduction(from old: FocusState, _ event: FocusEvent, to new: FocusState,
+                                      window: String?) -> [InputViolation] {
+        model(new, window: window) + transition(from: old, event, to: new, window: window)
     }
 }

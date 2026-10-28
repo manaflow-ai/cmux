@@ -1,4 +1,5 @@
 public import CmuxNextAgentPane
+public import CmuxNextCompat
 public import Foundation
 
 /// The pane host of a tab whose record names a Chief home other than the app's (#25262): its chat
@@ -40,8 +41,8 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         try await resolved().putFile(sessionId: sessionId, name: name, data: data)
     }
 
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        try await resolved().putFile(sessionId: sessionId, name: name, file: file)
+    public func putFile(sessionId: String, name: String, file: URL, runner: any MayBlockRunner) async throws -> String {
+        try await resolved().putFile(sessionId: sessionId, name: name, file: file, runner: runner)
     }
 
     /// Restart acpmux replaces this Mac's daemon only (as ``AcpmuxChiefSessionRouter``).

@@ -274,13 +274,13 @@ struct AgentPaneRemoteChatPathTests {
             defer { try? FileManager.default.removeItem(at: rig.folder) }
             let shot = rig.project.appendingPathComponent("shot.png")
             try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).write(to: shot)
-            rig.model.replyLinks.readLocalImage = { _ in .success(picture) }
+            rig.model.replyLinks.readLocalImage = { _, _ in .success(picture) }
             let local = await Self.ask(rig.model, "image.load", ["src": shot.path])
             #expect((local["value"] as? [String: Any])?["src"] as? String == picture, "\(wireOnly): \(local)")
 
             let model = rig.model
             let opened = Opened()
-            rig.model.replyLinks.readLocalImage = { _ in
+            rig.model.replyLinks.readLocalImage = { _, _ in
                 await Self.turnRemote(model, wireOnly: wireOnly, into: opened)
                 return .success(picture)
             }
@@ -299,14 +299,14 @@ struct AgentPaneRemoteChatPathTests {
         let notes = rig.project.appendingPathComponent("notes.md")
         try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
         var copied = 0
-        #expect(await AgentPaneFileRows(copyItem: { _ in copied += 1; return true }).copy(notes))
+        #expect(await AgentPaneFileRows(copyItem: { _ in copied += 1; return true }, runner: BackgroundWork(label: "test.file-rows")).copy(notes))
         #expect(copied == 1)
         // Local when the row runs, remote once the read is done.
         var checks = 0
         let rows = AgentPaneFileRows(copyItem: { _ in copied += 1; return true }, allowed: {
             checks += 1
             return checks == 1
-        })
+        }, runner: BackgroundWork(label: "test.file-rows"))
         #expect(await rows.copy(notes) == false)
         #expect(copied == 1)
     }
@@ -356,14 +356,14 @@ struct AgentPaneRemoteChatPathTests {
             rig.model.replyLinks.mouseHeld = { true }
             rig.model.replyLinks.startDrag = { dragged.append($0); return true }
             rig.model.replyLinks.imageFolder = rig.folder.appendingPathComponent("copies", isDirectory: true)
-            rig.model.replyLinks.rebuildCopy = { _, _ in true }
+            rig.model.replyLinks.rebuildCopy = { _, _, _ in true }
             let local = await Self.ask(rig.model, "file.drag", ["path": drawing.path])
             #expect(Self.errorCode(local) == nil, "\(wireOnly): \(local)")
             #expect(dragged.count == 1, "\(wireOnly): a local chat's SVG drags its copy")
 
             let model = rig.model
             let opened = Opened()
-            rig.model.replyLinks.rebuildCopy = { _, _ in
+            rig.model.replyLinks.rebuildCopy = { _, _, _ in
                 await Self.turnRemote(model, wireOnly: wireOnly, into: opened)
                 return true
             }

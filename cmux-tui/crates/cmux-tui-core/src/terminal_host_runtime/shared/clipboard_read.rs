@@ -228,7 +228,13 @@ impl ClipboardClock for SystemClock {
         state: MutexGuard<'a, ClipboardReadState>,
         timeout: Duration,
     ) -> MutexGuard<'a, ClipboardReadState> {
-        changed.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0
+        // The wake goes on wake::deadline's grid, never before the timeout, so it can share a wake
+        // with others; run_timer reads the clock again and refuses the read only once it is due.
+        let now = crate::wake::Ticks::now();
+        let wait = crate::wake::deadline(now, timeout, crate::wake::Policy::FlexibleNoSooner)
+            .wait_from(now);
+        // wakeup-allow: deadline the caller's one timeout, aligned by wake::deadline; a notify ends it first
+        changed.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0
     }
 }
 
@@ -535,6 +541,7 @@ impl ClipboardReadsShared {
             };
             let now = self.clock.now();
             if now < deadline {
+                // wakeup-allow: deadline the open read's one deadline; with no read open the timer waits in clock.wait
                 state = self.clock.wait_timeout(&self.changed, state, deadline - now);
                 continue;
             }

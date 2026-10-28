@@ -27,7 +27,8 @@ extension AgentPaneView {
         // An SVG leaves the pane only as its rebuilt copy (``AgentPaneImageCopies/handedOut(_:in:)``),
         // made when a row is chosen; Open in Text Editor and Copy Path keep the file itself.
         let out = AgentPaneImageCopies.handedOut(file, in: model.replyLinks.imageFolder)
-        let handOut: ([NSMenuItem]) -> [NSMenuItem] = { out == file ? $0 : AgentPaneImageCopies.rebuildingFirst($0, file, to: out) }
+        let runner = model.runner
+        let handOut: ([NSMenuItem]) -> [NSMenuItem] = { out == file ? $0 : AgentPaneImageCopies.rebuildingFirst($0, file, to: out, runner: runner) }
         var outMenu = menu
         outMenu.filledItems = handOut  // an Open With that fills in later hands out the rebuilt copy too
         let rows = menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }.flatMap { row in
@@ -36,7 +37,8 @@ extension AgentPaneView {
         // A file (a chip, a video, an audio clip) leads with Copy and Save As…; a folder has neither.
         let fileRows = AgentPaneFileRows(copyItem: { [weak model] in model?.replyLinks.copyItem($0) ?? false },
                                          save: { [weak model] in model?.replyLinks.savePathFile($0, $1, allowed) },
-                                         allowed: allowed)
+                                         allowed: allowed,
+                                         runner: runner)
         let items = resolved.isFolder ? rows : handOut(fileRows.items(for: out)) + [.separator()] + rows
         // The gate wraps the SVG rebuild, so a row checks before the rebuild and again when it acts.
         Self.gate(items, allowed: allowed)

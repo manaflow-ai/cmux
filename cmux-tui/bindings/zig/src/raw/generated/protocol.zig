@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962";
+pub const ir_sha256 = "675272f7be4ce79ca46ddc8570ba6fdd78511f3a0e61a3814f327319f19d9cb3";
 
 pub const AccessRequestKind = enum {
     file,
@@ -794,6 +794,10 @@ pub const BookmarkImportNode = struct {
         "created_ms",
         "url",
     };
+};
+
+pub const BridgeHelloResult = struct {
+    features: []const []const u8,
 };
 
 pub const BrowserFrame = struct {
@@ -5750,6 +5754,23 @@ pub fn bindConversationTabSession(client: anytype, request: BindConversationTabS
             .authority = "control",
             .since = 12,
             .capability = "agent-session-tabs-v1",
+        },
+        request,
+    );
+}
+
+pub const BridgeHelloRequest = struct {
+    features: []const []const u8,
+};
+
+pub fn bridgeHello(client: anytype, request: BridgeHelloRequest) !wire.Decoded(BridgeHelloResult) {
+    return client.callTyped(
+        BridgeHelloResult,
+        .{
+            .name = "bridge-hello",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "bridge-hello-v1",
         },
         request,
     );
@@ -15132,7 +15153,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 366;
+pub const command_count: usize = 367;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15188,6 +15209,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "apps-unmount", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
+    .{ .name = "bridge-hello", .authority = "local-admin", .since = 12, .capability = "bridge-hello-v1", .stream = null },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-back", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-forward", .authority = "frontend", .since = 6, .capability = null, .stream = null },

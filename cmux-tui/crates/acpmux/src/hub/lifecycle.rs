@@ -543,6 +543,8 @@ impl Hub {
         if self.end_if_runs_full_access(session, off.off()).await == FullAccessEnd::StillRunning {
             return Err(super::start_mode::full_access_off());
         }
+        // An agent started below inherits the daemon's priority: normal first.
+        self.clients.foreground();
         let live = session.child.lock().await.clone();
         if let Some(child) = live
             && child.is_alive().await

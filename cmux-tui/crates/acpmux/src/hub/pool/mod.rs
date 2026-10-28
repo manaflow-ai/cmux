@@ -30,6 +30,13 @@
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 //!
+//! Priority (p14-energy-038, the `idleHelperBackgroundPriority` feature): an
+//! entry's host and harness run best-effort from the moment it is ready
+//! until a `session/new` claims it, as Chromium runs its spare
+//! renderer at `kBestEffort` (`RenderProcessHostImpl::UpdateProcessPriority`).
+//! The claim puts it back first and serves only an entry that came back; an
+//! entry that did not is ended and the session starts cold.
+//!
 //! Known gap (recorded, not for now): over a socket, a `session/new` is
 //! never cancelled. Requests run as spawned tasks and `$/cancel_request`
 //! is accepted but does nothing, so a client that gives up on a create
@@ -40,12 +47,15 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
+use cmux_tui_platform::process_priority::{PriorityError, ProcessPriority};
 use std::hash::{Hash, Hasher};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 mod auth;
 mod held;
 pub(crate) mod policy;
+mod priority;
 mod reaper;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
@@ -79,6 +89,11 @@ const CLAIM_PROBE: Duration = Duration::from_secs(5);
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
 
+/// Sets the priority of the process group a pooled host or harness leads
+/// (`cmux_tui_platform::process_priority::set_group`).
+pub type GroupPriority =
+    Arc<dyn Fn(u32, ProcessPriority) -> Result<(), PriorityError> + Send + Sync>;
+
 /// The pool on the hub.
 pub(crate) struct PoolState {
     pool: StdMutex<Pool<Pooled>>,
@@ -101,6 +116,12 @@ pub(crate) struct PoolState {
     starting: StdMutex<HashMap<String, HostRecord>>,
     /// Keys whose session alone is over the RSS cap: never started again.
     oversize: StdMutex<std::collections::HashSet<PoolKey>>,
+    /// Ready entries run best-effort until claimed; unset, they keep their
+    /// priority (`set_pool_priority`).
+    priority: OnceLock<GroupPriority>,
+    /// Pooled starts under way (`priority::StartInFlight`): the daemon stays
+    /// at its normal priority while one forks.
+    in_flight: std::sync::atomic::AtomicUsize,
 }
 
 type Spec = (String, Option<String>);
@@ -120,6 +141,8 @@ impl PoolState {
             rss: StdMutex::new(Arc::new(tree_rss_bytes)),
             starting: StdMutex::new(HashMap::new()),
             oversize: StdMutex::new(Default::default()),
+            priority: OnceLock::new(),
+            in_flight: Default::default(),
         }
     }
 
@@ -148,6 +171,8 @@ pub(super) struct Pooled {
     target: Option<oneshot::Sender<mpsc::Sender<Inbound>>>,
     rss: u64,
     parked: bool,
+    /// Its host and harness run best-effort (`PoolState::priority`).
+    background: bool,
     /// Whether it was started with OpenCode asked to ask (`opencode_ask.rs`).
     opencode_asks: bool,
     /// The question preview format its command was pinned to at prewarm
@@ -271,6 +296,12 @@ impl Hub {
     /// Measure pooled hosts with `probe` instead of `ps` (tests).
     pub fn set_pool_rss_probe(&self, probe: RssProbe) {
         *lock(&self.pool.rss) = probe;
+    }
+
+    /// Run ready pooled entries best-effort through `set_group` until a
+    /// session claims them. Once per hub; false when one was set before.
+    pub fn set_pool_priority(&self, set_group: GroupPriority) -> bool {
+        self.pool.priority.set(set_group).is_ok()
     }
 
     /// The pool as it is now (`_acpmux/status` `pool`). Never lists ids.
@@ -502,8 +533,14 @@ impl Hub {
         crate::hub::full_access_bound::POOL_STARTS.send_modify(|n| *n += 1);
         let hub = self.clone();
         self.supervise("hub.pool-start", Fatal, ShutdownBehavior::Skip, async move {
+            // Counted, then the daemon at its normal priority: the host forked
+            // below inherits it.
+            let _in_flight = hub.pool_start_in_flight();
             match hub.spawn_pooled(&spec, &off).await {
                 Ok(p) => {
+                    // Best-effort before it is in the pool, so no claim finds
+                    // it while the change is under way.
+                    let p = hub.pool_background_async(p).await;
                     let id = p.session_id.clone();
                     let back = if hub.pool.stopping.load(Ordering::SeqCst) {
                         Some(p)
@@ -596,6 +633,9 @@ impl Hub {
             self.pool_discard(vec![p]);
             return;
         }
+        // Best-effort again before it is back where a claim finds it: a few
+        // priority calls (this runs in a drop, so in place).
+        let p = self.pool_background(p);
         let now = lock(&self.clock).now();
         let key = p.key.clone();
         let restored = {
@@ -730,10 +770,12 @@ impl Hub {
                         signal_harness(&p.record, libc::SIGCONT);
                         p.parked = false;
                     }
+                    // In `claimed` while it comes back to its normal priority,
+                    // where `stop_pool` finds it; served only once it is back.
                     let id = p.session_id.clone();
                     p.claimed_under = Some(off.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
-                    return Some(id);
+                    return self.pool_foreground(&id).await.then_some(id);
                 }
                 Take::Discard(old) => {
                     tracing::info!(harness = %spec.key.harness, "pooled session discarded: its key changed");

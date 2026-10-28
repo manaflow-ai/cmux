@@ -60,6 +60,7 @@ final class HomeService {
             return host
         },
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) },
+        runner: work,
         // The default Chief is this Mac's while its brain runs, so a brain that
         // just started or died re-runs the Chief tab check (HomeService+ChiefRoster).
         hostChanged: { [weak self] _ in self?.localChiefHostChanged() })

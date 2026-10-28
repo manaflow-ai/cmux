@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// A file's own rows ahead of its path menu in an agent chat (a file chip, a video, an audio
 /// clip): Copy (the file, as Finder's Copy, and an image's bytes) and Save As… (the save panel
@@ -14,6 +15,8 @@ struct AgentPaneFileRows {
     /// Whether the rows may still touch the file; Copy checks it before its read and again
     /// before the pasteboard (a path menu's: the chat is still on this Mac).
     var allowed: @MainActor () -> Bool = { true }
+    /// The app's blocking-work lanes: Copy reads an image's bytes there.
+    let runner: any MayBlockRunner
 
     /// Copy and Save As… for `file`.
     func items(for file: URL) -> [NSMenuItem] {
@@ -34,7 +37,7 @@ struct AgentPaneFileRows {
     /// Copy: `file` (and an image's bytes) on the pasteboard.
     func copy(_ file: URL) async -> Bool {
         guard allowed() else { return false }
-        let image = await AgentPaneImageCopies.pasteboardImage(file)
+        let image = await AgentPaneImageCopies.pasteboardImage(file, runner: runner)
         guard allowed() else { return false }
         return copyItem(AgentPaneImageCopies.pasteboardItem(file, image: image))
     }

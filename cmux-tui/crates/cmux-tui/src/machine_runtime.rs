@@ -1,10 +1,11 @@
 //! Config-backed machine catalog and transport connectors.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
+
+use cmux_threads::sync::Condvar;
 
 use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
 use crate::machine::{
@@ -361,11 +362,11 @@ impl SshConfigDiscovery<'_> {
         {
             return;
         }
-        let identity = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let identity = cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         if !self.visited.insert(identity) {
             return;
         }
-        let Ok(contents) = fs::read_to_string(path) else { return };
+        let Ok(contents) = cmux_blocking::fs::read_to_string(path) else { return };
         let mut includes = Vec::new();
         for (keyword, values) in contents.lines().filter_map(ssh_config_line) {
             match keyword.as_str() {
@@ -1105,6 +1106,8 @@ fn local_hostname() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]

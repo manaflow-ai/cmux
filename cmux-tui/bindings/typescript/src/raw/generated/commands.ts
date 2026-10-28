@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962. */
+/* cmux-tui mux protocol 12, IR 675272f7be4ce79ca46ddc8570ba6fdd78511f3a0e61a3814f327319f19d9cb3. */
 
 
 import type * as T from "./types.js";
@@ -634,6 +634,12 @@ export type BindConversationTabSessionResult = {
   "replayed": boolean;
   "surface": T.Id;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface BridgeHelloRequest extends CmuxRequestBase {
+  cmd: "bridge-hello";
+  "features": Array<string>;
+}
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -3737,6 +3743,7 @@ export type CmuxRequest =
   | AppsUnmountRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
+  | BridgeHelloRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -4482,6 +4489,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "agent-session-tabs-v1";
+    stream: null;
+  };
+  "bridge-hello": {
+    request: BridgeHelloRequest;
+    result: T.BridgeHelloResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "bridge-hello-v1";
     stream: null;
   };
   "browser-activate": {

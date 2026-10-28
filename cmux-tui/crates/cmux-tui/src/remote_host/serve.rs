@@ -52,9 +52,9 @@ impl Host {
         let result = config::ensure_dir().and_then(|dir| {
             let path = dir.join(ACTIVE_FILE);
             let tmp = dir.join(format!(".{ACTIVE_FILE}.{}", std::process::id()));
-            std::fs::write(&tmp, serde_json::to_vec(&list)?)?;
+            cmux_blocking::fs::write(&tmp, serde_json::to_vec(&list)?)?;
             cmux_tui_core::platform::restrict_file(&tmp)?;
-            std::fs::rename(&tmp, &path)?;
+            cmux_blocking::fs::rename(&tmp, &path)?;
             Ok(())
         });
         if let Err(e) = result {
@@ -414,7 +414,7 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
             bail!("`daemon ensure` did not finish within {}s", ENSURE_BOUND.as_secs());
         }
     };
-    let out = reader.join().unwrap_or_default();
+    let out = crate::blocking::thread::join(reader).unwrap_or_default();
     if !status.success() {
         bail!("`daemon ensure` failed: {}", String::from_utf8_lossy(&out).trim());
     }

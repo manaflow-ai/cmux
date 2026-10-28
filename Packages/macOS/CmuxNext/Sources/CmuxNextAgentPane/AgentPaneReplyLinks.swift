@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextSettings
 public import Foundation
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextRemoteFetch
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
@@ -44,18 +44,20 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var savePathFile: @MainActor (_ file: URL, _ name: String, _ allowed: @escaping @MainActor () -> Bool) -> Void = {
         AgentPaneImageCopies.askToSave($0, name: $1, allowed: $2)
     }
-    /// Reads a local reply image off the main actor (``AgentPaneReplyImages/local(_:)``); tests
-    /// stand in for it.
-    public var readLocalImage: @Sendable (_ path: String) async -> Result<String, AgentPaneReplyError> = {
-        await AgentPaneReplyImages.local($0)
+    /// Reads a local reply image on the app's blocking-work lanes (``AgentPaneReplyImages/local(_:runner:)``);
+    /// tests stand in for it.
+    public var readLocalImage: @Sendable (_ path: String, _ runner: any MayBlockRunner) async -> Result<String, AgentPaneReplyError> = {
+        await AgentPaneReplyImages.local($0, runner: $1)
     }
     /// Reads a path chip's text preview off the main actor (``AgentPaneReplyTextPreview/read(_:accept:)``);
     /// tests stand in for it.
     var readTextPreview: @Sendable (_ path: String, _ accept: @Sendable (String) -> Bool) async
         -> Result<AgentPaneReplyTextPreview, AgentPaneReplyError> = { await AgentPaneReplyTextPreview.read($0, accept: $1) }
-    /// Writes a dragged SVG's rebuilt copy off the main actor (``AgentPaneImageCopies/rebuild(_:to:)``);
-    /// tests stand in for it.
-    var rebuildCopy: @Sendable (_ file: URL, _ copy: URL) async -> Bool = { await AgentPaneImageCopies.rebuild($0, to: $1) }
+    /// Writes a dragged SVG's rebuilt copy on the app's blocking-work lanes
+    /// (``AgentPaneImageCopies/rebuild(_:to:runner:)``); tests stand in for it.
+    var rebuildCopy: @Sendable (_ file: URL, _ copy: URL, _ runner: any MayBlockRunner) async -> Bool = {
+        await AgentPaneImageCopies.rebuild($0, to: $1, runner: $2)
+    }
     /// Quick Look on a file (the system's preview panel).
     public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
@@ -332,7 +334,7 @@ extension AgentPaneModel {
         case .root:
             // The read runs off the main actor, right after the check above; a chat that turned
             // remote while it ran gets none of its bytes (cx-k21v).
-            let image = await replyLinks.readLocalImage(resolved.path)
+            let image = await replyLinks.readLocalImage(resolved.path, runner)
             guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
             return Self.replyImage(image)
         case .denied: return Self.replyFailure(.pathDenied)

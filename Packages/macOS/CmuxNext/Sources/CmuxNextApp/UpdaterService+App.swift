@@ -26,7 +26,7 @@ extension UpdaterService {
             services?.quit.onQuitRefused = { behind.quitRefused() }
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork, runner: services.work)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)

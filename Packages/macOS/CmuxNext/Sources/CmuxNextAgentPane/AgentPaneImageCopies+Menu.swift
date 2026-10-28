@@ -4,14 +4,14 @@ import UniformTypeIdentifiers
 
 /// The context menu's Copy Image, Save Image As… and Quick Look on an image in an agent chat (the
 /// user, 2026-10-21: "right click any image/video etc 'copy'"). Each acts on the image's named copy
-/// (``AgentPaneImageCopies/copy(_:name:in:)``), so the pasteboard, the saved file and the preview
+/// (``AgentPaneImageCopies/copy(_:name:in:runner:)``), so the pasteboard, the saved file and the preview
 /// all get a real file with its type's extension.
 extension AgentPaneImageCopies {
     /// Spends the person's gesture, makes `src`'s copy and runs `action` on it.
     @MainActor static func withCopy(_ src: String, name: String, in model: AgentPaneModel,
                                     _ action: @MainActor (URL) async -> Void) async -> [String: Any] {
         guard model.transport.gestures.consume() else { return AgentPaneModel.replyFailure(.gestureRequired) }
-        switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
+        switch await copy(src, name: name, in: model.replyLinks.imageFolder, runner: model.runner) {
         case .success(let file):
             await action(file)
             return AgentPaneReply.success()
@@ -42,11 +42,14 @@ extension AgentPaneImageCopies {
         return item
     }
 
-    /// An image file's bytes and their TIFF, read and made off the main actor; nil for another type or a failed read.
-    @concurrent static func pasteboardImage(_ file: URL) async -> AgentPanePasteboardImage? {
-        guard let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image),
-              let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
-        return AgentPanePasteboardImage(data, type: type)
+    /// An image file's bytes and their TIFF, read and made on `runner`'s files lane at userBlocking (the person
+    /// waits for the Copy); nil for another type, a failed read or a refused item.
+    static func pasteboardImage(_ file: URL, runner: any MayBlockRunner) async -> AgentPanePasteboardImage? {
+        guard let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image) else { return nil }
+        return try? await runner.runFiles(.userBlocking) { () -> AgentPanePasteboardImage? in
+            guard let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return nil }
+            return AgentPanePasteboardImage(data, type: type)
+        }
     }
 
     /// The name Save Image As… offers: the image's name with its copy's extension (no hash), or the

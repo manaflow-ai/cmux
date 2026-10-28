@@ -1393,7 +1393,7 @@ impl Hub {
             }
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
-            self.care_status(status);
+            self.status_changed(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
             if status == SessionStatus::Closed {

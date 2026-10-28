@@ -268,6 +268,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The kernel's memory pressure reaches the hub's consumers (`memory.rs`),
     // with the `memoryAcpmuxPressure` feature on.
     hub.memory().watch_if_enabled();
+    // Pooled agents and this daemon run best-effort while nobody needs them,
+    // with the `idleHelperBackgroundPriority` feature on.
+    let idle_priority = crate::daemon_lifecycle::idle_priority::install(&hub).await;
     // Temporary folders of sessions this daemon no longer has, before the
     // socket serves (`agent/session_tmp.rs`).
     #[cfg(unix)]
@@ -523,6 +526,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(t) = ws_task {
         t.abort();
     }
+    // The shutdown's own work runs at the daemon's normal priority.
+    if let Some(t) = idle_priority {
+        t.abort();
+    }
+    hub.clients.foreground();
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {

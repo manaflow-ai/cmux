@@ -96,7 +96,7 @@ pub(crate) fn load() -> anyhow::Result<Config> {
 }
 
 pub(crate) fn load_from(path: &Path) -> anyhow::Result<Config> {
-    match std::fs::read(path) {
+    match cmux_blocking::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .with_context(|| format!("{} is not valid", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
@@ -151,7 +151,7 @@ fn commit_with(
 /// Whether `remote.json` exists (an error when its directory cannot be found), for readers that
 /// skip a machine that never enabled hosting.
 pub(crate) fn exists() -> anyhow::Result<bool> {
-    Ok(path()?.exists())
+    Ok(cmux_blocking::fs::metadata(path()?).is_ok())
 }
 
 /// Where `remote.json` is, for `status` to show; never for writing it (only [`commit`] writes).
@@ -171,11 +171,12 @@ fn save(config: &Config, _held: &ConfigLock) -> anyhow::Result<()> {
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
+        let mut file = crate::blocking::fs::open_with(&options, &tmp)?;
         file.write_all(&serde_json::to_vec_pretty(config)?)?;
     }
     cmux_tui_core::platform::restrict_file(&tmp)?;
-    std::fs::rename(&tmp, &path).with_context(|| format!("cannot write {}", path.display()))?;
+    cmux_blocking::fs::rename(&tmp, &path)
+        .with_context(|| format!("cannot write {}", path.display()))?;
     Ok(())
 }
 
@@ -202,7 +203,8 @@ pub(crate) fn lock() -> anyhow::Result<ConfigLock> {
 /// Creates the state directory owner-only (config, pid lock and log).
 pub(crate) fn ensure_dir() -> anyhow::Result<PathBuf> {
     let dir = dir()?;
-    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    cmux_blocking::fs::create_dir_all(&dir)
+        .with_context(|| format!("cannot create {}", dir.display()))?;
     cmux_tui_core::platform::restrict_directory(&dir)?;
     Ok(dir)
 }

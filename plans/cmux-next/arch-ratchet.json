@@ -803,6 +803,12 @@
       "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
     },
     {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p06-scheduler-202: MainExecutorHook.installedBits (CmuxNextWakeups), the one word through which the priority-ordered main executor reaches its queues. swift_task_enqueueMainExecutor_hook is a thin function with no context argument, so the hook the composition root makes (MainWorkScheduler.installMainExecutorHook) is published here once (a compare-exchange from 0; a second install is refused). Off unless the mainExecutorHook feature or CMUX_MAIN_EXECUTOR_HOOK=1 asks. The same shape as GlobalJobCensus.installedBits (p08-startup-082); Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
       "date": "2026-10-28",
       "row": "blocking_allow_escapes",
       "allow": 4,

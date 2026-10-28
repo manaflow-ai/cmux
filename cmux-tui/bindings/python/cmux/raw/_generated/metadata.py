@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962'
+IR_SHA256 = '675272f7be4ce79ca46ddc8570ba6fdd78511f3a0e61a3814f327319f19d9cb3'
 
 
 @dataclass(frozen=True)
@@ -750,6 +750,17 @@ COMMANDS = {
             'harness': CommandFieldMetadata(None, None),
             'session': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'bridge-hello': CommandMetadata(
+        'bridge-hello',
+        'local-admin',
+        12,
+        'bridge-hello-v1',
+        ('local-admin',),
+        None,
+        {
+            'features': CommandFieldMetadata(None, None),
         },
     ),
     'browser-activate': CommandMetadata(

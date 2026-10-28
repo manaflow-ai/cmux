@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962.
+// cmux-tui mux protocol 12, IR 675272f7be4ce79ca46ddc8570ba6fdd78511f3a0e61a3814f327319f19d9cb3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -840,6 +840,12 @@ pub struct BindConversationTabSessionResult {
     pub conversation: T::ConversationTabRecord,
     pub replayed: bool,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgeHelloRequest {
+    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]
@@ -5459,6 +5465,10 @@ impl CmuxClient {
 
     pub fn bind_conversation_tab_session(&mut self, request: BindConversationTabSessionRequest) -> Result<BindConversationTabSessionResult> {
         self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
+    }
+
+    pub fn bridge_hello(&mut self, request: BridgeHelloRequest) -> Result<T::BridgeHelloResult> {
+        self.execute(&BRIDGE_HELLO_METADATA, &request)
     }
 
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {

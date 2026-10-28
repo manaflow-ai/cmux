@@ -497,7 +497,7 @@ fn show_audit(args: &[String]) -> anyhow::Result<()> {
         None => 50,
     };
     let path = audit_path()?;
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let text = cmux_blocking::fs::read_to_string(&path).unwrap_or_default();
     let entries: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let start = entries.len().saturating_sub(limit);
     let recent: Vec<Value> = entries[start..].iter().rev().cloned().collect();

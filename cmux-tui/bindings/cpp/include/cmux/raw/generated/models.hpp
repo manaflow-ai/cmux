@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962";
+inline constexpr std::string_view kProtocolIrSha256 = "675272f7be4ce79ca46ddc8570ba6fdd78511f3a0e61a3814f327319f19d9cb3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -71,6 +71,7 @@ struct Base64;
 struct Bookmark;
 struct BookmarkChangeResult;
 struct BookmarkImportNode;
+struct BridgeHelloResult;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
@@ -406,6 +407,7 @@ struct AppsUnmountRequest;
 struct AttachSurfaceRequest;
 struct BindConversationTabSessionRequest;
 struct BindConversationTabSessionResult;
+struct BridgeHelloRequest;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -2065,6 +2067,16 @@ struct BookmarksChangedEvent {
     std::string browser_profile_id{};
     std::optional<EventCause> cause{};
     friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
+};
+
+struct BridgeHelloRequest {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloRequest&, const BridgeHelloRequest&) = default;
+};
+
+struct BridgeHelloResult {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloResult&, const BridgeHelloResult&) = default;
 };
 
 struct BrowserActivateRequest {
@@ -8233,6 +8245,12 @@ struct Codec<BookmarkImportNode> {
 };
 
 template <>
+struct Codec<BridgeHelloResult> {
+    static Result<Json> encode(const BridgeHelloResult& value);
+    static Result<BridgeHelloResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
@@ -10240,6 +10258,12 @@ template <>
 struct Codec<BindConversationTabSessionResult> {
     static Result<Json> encode(const BindConversationTabSessionResult& value);
     static Result<BindConversationTabSessionResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<BridgeHelloRequest> {
+    static Result<Json> encode(const BridgeHelloRequest& value);
+    static Result<BridgeHelloRequest> decode(const Json& value);
 };
 
 template <>

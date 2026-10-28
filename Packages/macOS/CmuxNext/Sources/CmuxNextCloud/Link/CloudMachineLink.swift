@@ -15,6 +15,14 @@ import os
 /// Its later snapshots drive ``redial`` while the client redials (cx-z5oif). R-hop: each ``redial`` change is
 /// one visible task posted on the app's scheduler, in the order the link reports them.
 public actor CloudMachineLink {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.cloud.machine-link`): its socket and binary checks block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.cloud.machine-link
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.cloud.machine-link", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public nonisolated let machineID: String
     /// Whether the running link redials, from its later snapshots.
     public nonisolated let redial = CloudLinkRedial()

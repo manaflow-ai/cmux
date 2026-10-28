@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Testing
 
 /// cx-ro17i: `cmux chief shutdown` stopped the brain and the app started a
@@ -333,7 +334,7 @@ import Testing
         }
         #expect(HomeBrainHost.canStart(), "the ask reaches the replacement")
         let keeper = ChiefBrainKeeper(home: home, connection: { nil }, resolveHost: { _ in nil },
-                                      mint: { _ in "" }, watch: replaced)
+                                      mint: { _ in "" }, runner: BackgroundWork(label: "test.chief-brain-keeper"), watch: replaced)
         #expect(!keeper.ensure(asked: true), "no connection: the start does nothing")
         #expect(keeper.watch == nil, "the watch is replaced")
         #expect(replaced.isStopped, "and stopped on its way out, so its descriptors are closed")

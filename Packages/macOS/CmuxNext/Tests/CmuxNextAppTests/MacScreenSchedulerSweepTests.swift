@@ -68,7 +68,7 @@ struct MacScreenSchedulerSweepTests {
 
     private static func pages(_ deadlines: MainDeadlineScheduler, events: AppEvents) -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), deadlines: deadlines, appEvents: events, work: BackgroundWork())
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen"), removeLinkPairings: {}), deadlines: deadlines, appEvents: events, work: BackgroundWork())
     }
 
     /// R-appear: a theme change while the view is hidden repaints nothing until it shows, then once.

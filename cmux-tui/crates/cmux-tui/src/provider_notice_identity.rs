@@ -55,13 +55,15 @@ impl ProviderNoticeIdentityLease {
 impl IdentityLeaseLock {
     fn acquire(identity_path: &Path) -> anyhow::Result<Self> {
         let lock_path = state_parent(identity_path)?.join(LOCK_FILE);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(lock_path)?;
+        let file = crate::blocking::fs::open_with(
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+            lock_path,
+        )?;
         verify_private_file(&file, "provider notice identity lock")?;
         loop {
             // SAFETY: `file` is open for the call and flock takes no pointer.
@@ -100,7 +102,7 @@ pub(super) fn acquire(state_root: &Path) -> anyhow::Result<ProviderNoticeIdentit
     let path = identity_path(state_root);
     ensure_private_parent(&path)?;
     let lock = IdentityLeaseLock::acquire(&path)?;
-    let consumer_id = match fs::symlink_metadata(&path) {
+    let consumer_id = match cmux_blocking::fs::symlink_metadata(&path) {
         Ok(_) => {
             remove_orphaned_temporary_links(&path)?;
             load(&path)
@@ -120,7 +122,7 @@ pub(super) fn identity_parent(state_root: &Path) -> PathBuf {
 }
 
 fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
-    let target = fs::symlink_metadata(path)?;
+    let target = cmux_blocking::fs::symlink_metadata(path)?;
     if !target.file_type().is_file()
         || target.uid() != cmux_tui_core::platform::effective_uid()
         || target.permissions().mode() & 0o777 != 0o600
@@ -134,7 +136,7 @@ fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
     let prefix = format!(".{}.", file_name.to_string_lossy());
     let suffix = ".tmp";
     let mut removed = false;
-    for entry in fs::read_dir(parent)? {
+    for entry in cmux_blocking::fs::read_dir(parent)? {
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -144,12 +146,12 @@ fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
         {
             continue;
         }
-        let candidate = fs::symlink_metadata(entry.path())?;
+        let candidate = cmux_blocking::fs::symlink_metadata(entry.path())?;
         if candidate.file_type().is_file()
             && candidate.dev() == target.dev()
             && candidate.ino() == target.ino()
         {
-            match fs::remove_file(entry.path()) {
+            match cmux_blocking::fs::remove_file(entry.path()) {
                 Ok(()) => removed = true,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
@@ -192,21 +194,23 @@ fn create(path: &Path) -> anyhow::Result<OpaqueId> {
     encoded.push(b'\n');
     let temporary = temporary_path(path)?;
     let write_result = (|| -> anyhow::Result<bool> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&temporary)?;
+        let mut file = crate::blocking::fs::open_with(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+            &temporary,
+        )?;
         verify_private_file(&file, "temporary provider notice identity")?;
         file.write_all(&encoded)?;
-        file.sync_all()?;
-        match fs::hard_link(&temporary, path) {
+        crate::blocking::fs::sync_all(&file)?;
+        match crate::blocking::fs::hard_link(&temporary, path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(error.into()),
         }
-        match fs::remove_file(&temporary) {
+        match cmux_blocking::fs::remove_file(&temporary) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
@@ -216,7 +220,7 @@ fn create(path: &Path) -> anyhow::Result<OpaqueId> {
     })();
     encoded.zeroize();
     if !matches!(write_result, Ok(true)) {
-        let _ = fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     if write_result? {
         let loaded = load(path)?;
@@ -230,22 +234,25 @@ fn create(path: &Path) -> anyhow::Result<OpaqueId> {
 }
 
 fn open_no_follow(path: &Path) -> io::Result<File> {
-    OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)
+    crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+        path,
+    )
 }
 
 fn ensure_private_parent(path: &Path) -> anyhow::Result<()> {
     let parent = state_parent(path)?;
-    match fs::symlink_metadata(parent) {
+    match cmux_blocking::fs::symlink_metadata(parent) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let mut builder = DirBuilder::new();
             builder.recursive(true).mode(0o700);
-            builder.create(parent)?;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+            crate::blocking::fs::create_dir_with(&builder, parent)?;
+            crate::blocking::fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
         }
         Err(error) => return Err(error.into()),
     }
-    let metadata = fs::symlink_metadata(parent)?;
+    let metadata = cmux_blocking::fs::symlink_metadata(parent)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         anyhow::bail!("provider notice identity directory must be a real directory");
     }
@@ -284,7 +291,7 @@ fn temporary_path(path: &Path) -> anyhow::Result<PathBuf> {
     for _ in 0..16 {
         let candidate =
             path.with_file_name(format!(".{}.{}.tmp", file_name.to_string_lossy(), random_hex(8)?));
-        if !candidate.exists() {
+        if cmux_blocking::fs::metadata(&candidate).is_err() {
             return Ok(candidate);
         }
     }
@@ -313,7 +320,7 @@ fn random_hex(length: usize) -> anyhow::Result<String> {
 }
 
 fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
+    crate::blocking::fs::sync_all(&cmux_blocking::fs::open(path)?)
 }
 
 #[cfg(test)]
