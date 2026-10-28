@@ -60,6 +60,131 @@
         }
       }
     },
+    "cli.feed.clear.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not clear Feed history. Check cmux permissions and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Feed-Verlauf konnte nicht gelöscht werden. Prüfe die Berechtigungen von cmux und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’effacer l’historique du flux. Vérifiez les autorisations de cmux et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر مسح سجل الموجز. تحقّق من أذونات cmux وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo borrar el historial del feed. Comprueba los permisos de cmux e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法清除動態記錄。請檢查 cmux 的權限，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法清除动态记录。请检查 cmux 的权限，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드 기록을 지울 수 없습니다. cmux 권한을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィード履歴を消去できませんでした。cmux のアクセス権を確認して、もう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće obrisati historiju feeda. Provjerite dozvole za cmux i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke rydde feedhistorikken. Kontrollér tilladelserne for cmux, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cancellare la cronologia del feed. Controlla le autorizzazioni di cmux e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចសម្អាតប្រវត្តិព័ត៌មានបានទេ។ សូមពិនិត្យសិទ្ធិរបស់ cmux ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke tømme feedhistorikken. Kontroller tillatelsene til cmux, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można wyczyścić historii kanału. Sprawdź uprawnienia cmux i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível limpar o histórico do feed. Verifique as permissões do cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось очистить историю ленты. Проверьте разрешения cmux и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถล้างประวัติฟีดได้ ตรวจสอบสิทธิ์ของ cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akış geçmişi temizlenemedi. cmux izinlerini kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося очистити історію стрічки. Перевірте дозволи cmux і спробуйте ще раз."
+          }
+        }
+      }
+    },
     "cli.remotes.error.invalidArguments": {
       "extractionState": "manual",
       "localizations": {

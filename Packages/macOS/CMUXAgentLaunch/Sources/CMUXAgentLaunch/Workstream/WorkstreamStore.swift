@@ -36,10 +36,12 @@ public final class WorkstreamStore {
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
     /// Non-fatal startup evidence for diagnosing bounded persistence loads.
-    public private(set) var lastPersistenceDiagnostic: WorkstreamPersistence.StartupDiagnostics?
+    private(set) var lastPersistenceDiagnostic: WorkstreamPersistence.StartupDiagnostics?
     /// A persistence error never prevents the live transport from starting,
     /// but remains observable instead of being silently treated as empty state.
-    public private(set) var lastPersistenceError: String?
+    private(set) var lastPersistenceError: PersistenceFailure?
+
+    enum PersistenceFailure: Equatable { case startupRead }
 
     /// Monotonic generation bumped on every item mutation (ingest, resolve,
     /// expire, history load). It starts from the journal's byte-count
@@ -69,7 +71,7 @@ public final class WorkstreamStore {
     private let startupBudgetNanoseconds: UInt64?
     private let startupHardBudgetNanoseconds: UInt64?
     private let clock: @Sendable () -> Date
-    private let titleProvider: (WorkstreamEvent) -> String?
+    let titleProvider: (WorkstreamEvent) -> String?
     /// App-owned migration hook for versioned workstream identities.
     let workstreamIDNormalizer: @Sendable (String, String) -> String
     private var oldestLoadedPersistenceOffset: UInt64?
@@ -172,7 +174,7 @@ public final class WorkstreamStore {
                 rebuildContextIndex()
                 bumpRevision()
             } catch {
-                lastPersistenceError = String(describing: error)
+                lastPersistenceError = .startupRead
                 if let persistedRevision = try? await persistence.loadRevision() {
                     revision = max(revision, persistedRevision)
                 }
@@ -221,7 +223,7 @@ public final class WorkstreamStore {
             }
 
             let existingIds = Set(items.map(\.id))
-            let olderItems = latestItems(in: page.items)
+            let olderItems = page.latestItems
                 .map(normalizedWorkstreamItem)
                 .filter { !existingIds.contains($0.id) }
             if !olderItems.isEmpty {
@@ -339,12 +341,6 @@ public final class WorkstreamStore {
     }
 
     // MARK: - Private helpers
-
-    /// Keeps the newest journal row for each event UUID while preserving page order.
-    private func latestItems(in pageItems: [WorkstreamItem]) -> [WorkstreamItem] {
-        var seen = Set<UUID>()
-        return Array(pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed())
-    }
 
     private func bumpRevision() {
         revision = revision == Int.max ? Int.max : revision + 1
@@ -520,107 +516,6 @@ public final class WorkstreamStore {
         #endif
     }
 
-    private func decode(
-        event: WorkstreamEvent,
-        source: WorkstreamSource
-    ) -> (WorkstreamKind, WorkstreamPayload) {
-        let toolInput = event.toolInputJSON ?? "{}"
-        switch event.hookEventName {
-        case .permissionRequest:
-            return (
-                .permissionRequest,
-                .permissionRequest(
-                    requestId: event.requestId ?? event.sessionId,
-                    toolName: event.toolName ?? "unknown",
-                    toolInputJSON: toolInput,
-                    pattern: nil
-                )
-            )
-        case .askUserQuestion:
-            let parsed = WorkstreamQuestionPrompt.parse(toolInputJSON: event.toolInputJSON)
-            return (
-                .question,
-                .question(
-                    requestId: event.requestId ?? event.sessionId,
-                    questions: parsed
-                )
-            )
-        case .exitPlanMode:
-            return (
-                .exitPlan,
-                .exitPlan(
-                    requestId: event.requestId ?? event.sessionId,
-                    plan: toolInput,
-                    defaultMode: .manual
-                )
-            )
-        case .preToolUse:
-            return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
-        case .postToolUse:
-            return (
-                .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
-            )
-        case .postToolUseFailure:
-            return (
-                .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: true)
-            )
-        case .preCompact:
-            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
-        case .postCompact:
-            return (
-                .toolResult,
-                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
-            )
-        case .subagentStart:
-            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
-        case .subagentStop:
-            return (
-                .toolResult,
-                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
-            )
-        case .userPromptSubmit:
-            let prompt = Self.promptText(from: event.toolInputJSON)
-            return (
-                .userPrompt,
-                .userPrompt(text: prompt.isEmpty ? (event.context?.lastUserMessage ?? "") : prompt)
-            )
-        case .sessionStart:
-            return (.sessionStart, .sessionStart)
-        case .sessionEnd:
-            return (.sessionEnd, .sessionEnd)
-        case .stop:
-            return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
-        case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
-        case .notification:
-            return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
-        }
-    }
-
-    private func defaultTitle(for event: WorkstreamEvent) -> String? {
-        if let tool = event.toolName, !tool.isEmpty {
-            return tool
-        }
-        return titleProvider(event)
-    }
-
-    private static func jsonObject(from json: String?) -> Any? {
-        guard let json, let data = json.data(using: .utf8) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-    }
-
-    private static func promptText(from json: String?) -> String {
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            return (dict["prompt"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["message"] as? String)
-                ?? ""
-        }
-        return json ?? ""
-    }
-
     private func rebuildContextIndex() {
         lastContextByWorkstream.removeAll(keepingCapacity: true)
         for item in items.sorted(by: { $0.createdAt < $1.createdAt }) {
@@ -689,46 +584,5 @@ public final class WorkstreamStore {
         return carried.isEmpty ? nil : carried
     }
 
-    private static func stopReason(from json: String?) -> String? {
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            return (dict["reason"] as? String)
-                ?? (dict["message"] as? String)
-                ?? (dict["cause"] as? String)
-        }
-        return nil
-    }
 
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
-        let rawTodos: [Any]
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            rawTodos = dict["todos"] as? [Any] ?? []
-        } else {
-            rawTodos = jsonObject(from: json) as? [Any] ?? []
-        }
-        return rawTodos.enumerated().compactMap { idx, raw in
-            guard let dict = raw as? [String: Any] else { return nil }
-            let content = (dict["content"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["title"] as? String)
-                ?? ""
-            guard !content.isEmpty else { return nil }
-            let rawState = (dict["state"] as? String)
-                ?? (dict["status"] as? String)
-                ?? "pending"
-            let state: WorkstreamTaskTodo.State
-            switch rawState {
-            case "completed", "done":
-                state = .completed
-            case "inProgress", "in_progress", "active":
-                state = .inProgress
-            default:
-                state = .pending
-            }
-            return WorkstreamTaskTodo(
-                id: (dict["id"] as? String) ?? "todo\(idx)",
-                content: content,
-                state: state
-            )
-        }
-    }
 }
