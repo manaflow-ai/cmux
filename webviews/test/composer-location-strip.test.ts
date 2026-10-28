@@ -561,8 +561,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   test("Escape from a pinned project action closes and restores trigger focus", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
     const popup = page.locator(".acpmux-folder-popover");
-    await popup.locator(".ui-combobox-pinned button").first().focus();
-    await page.keyboard.press("Escape");
+    const option = popup.locator(".ui-combobox-pinned [role=option]").first();
+    expect(await option.count()).toBe(1);
+    await popup.locator('input[role="combobox"]').press("Escape");
     await popup.waitFor({ state: "detached" });
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
     await page.close();
@@ -572,8 +573,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
     const popup = page.locator(".acpmux-folder-popover");
     const actions = popup.locator(".ui-combobox-pinned");
-    const action = actions.locator("button").first();
-    expect(await action.getAttribute("data-press-pick")).not.toBeNull();
+    const action = actions.locator("[role=option]").first();
+    expect(await action.count()).toBe(1);
     expect(await action.evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe("0px");
     const thumb = popup.locator(".cmux-scrollbar-thumb").first();
     await thumb.waitFor({ state: "visible" });
