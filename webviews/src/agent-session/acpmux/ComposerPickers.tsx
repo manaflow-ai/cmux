@@ -232,7 +232,7 @@ export function ComposerPickers({
   holdsModePick = false,
 }: Props) {
   const t = useT();
-  const lastFastValue = useRef<string | undefined>(undefined);
+  const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
@@ -436,10 +436,6 @@ export function ComposerPickers({
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
   const fastCurrentValue = fastMode?.currentValue;
   const fastOffValue = fastMode?.offValue;
-  useEffect(() => {
-    if (fastCurrentValue === undefined || fastCurrentValue === fastOffValue) return;
-    lastFastValue.current = fastCurrentValue;
-  }, [fastCurrentValue, fastOffValue]);
   // Fast mode is a row in the model menu for every harness. The picker owns the toggle;
   // the composer never renders a separate lightning button.
   const model = models.find((choice) => choice.id === summary?.model);
@@ -613,6 +609,14 @@ export function ComposerPickers({
   // picker's first installed, pickable one, the one the model picker's face draws (a bundled
   // harness acpmux does not have can come first in `pickerEntries`); else the catalog's first.
   const chipHarness = harness ?? pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id;
+  // Preserve an on tier only for this chat and option. ComposerPickers stays mounted when
+  // the person switches chats, so a plain/off chat must not inherit another chat's tier.
+  const fastScope = `${summary?.sessionId ?? `new:${chipHarness ?? ""}`}\u0000${chipHarness ?? ""}\u0000${fastOption?.id ?? ""}`;
+  const rememberedFastValue = lastFastValue.current?.scope === fastScope ? lastFastValue.current.value : undefined;
+  useEffect(() => {
+    if (fastCurrentValue === undefined || fastCurrentValue === fastOffValue) return;
+    lastFastValue.current = { scope: fastScope, value: fastCurrentValue };
+  }, [fastScope, fastCurrentValue, fastOffValue]);
   const chipEntry = pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness);
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
@@ -902,9 +906,7 @@ export function ComposerPickers({
       ? {
           checked: fastModeIsOn(fastMode),
           onChange: (on) =>
-            fastMode.onPick(
-              on ? nextFastModeValue(fastMode, lastFastValue.current, fastMode.values) : fastMode.offValue,
-            ),
+            fastMode.onPick(on ? nextFastModeValue(fastMode, rememberedFastValue, fastMode.values) : fastMode.offValue),
         }
       : undefined;
   const quick: QuickMenuExtras = {
@@ -951,9 +953,7 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          {...(fastMode
-            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? lastFastValue.current } }
-            : {})}
+          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"

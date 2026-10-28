@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { ComponentType } from "react";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -142,6 +143,8 @@ function snapshot(
 
 const sent: string[] = [];
 let client: import("@tanstack/react-query").QueryClient;
+let Chips: ComponentType<{ snapshot: Snapshot }> | undefined;
+let renderOptions: { catalog?: boolean } = {};
 
 /// The composer with the real chips. `catalog`: the chips read the joined model catalog, as the app's
 /// do, so a model's catalog row decides whether it offers fast mode.
@@ -152,12 +155,13 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   client ??= new QueryClient();
-  const Chips = ({ snapshot: chipSnapshot }: { snapshot: Snapshot }) => {
+  renderOptions = options;
+  Chips ??= ({ snapshot: chipSnapshot }: { snapshot: Snapshot }) => {
     const picker = usePickerCatalog(chipSnapshot.catalog, { harness: chipSnapshot.summary?.harness }, []);
     return (
       <ComposerPickers
         snapshot={chipSnapshot}
-        {...(options.catalog ? { pickerCatalog: picker.catalog } : {})}
+        {...(renderOptions.catalog ? { pickerCatalog: picker.catalog } : {})}
         onModel={() => undefined}
         onMode={() => undefined}
         onEffort={(configId, value) => sent.push(`${configId}=${value}`)}
@@ -172,7 +176,7 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
       <QueryClientProvider client={client}>
         <Composer
           snapshot={shot}
-          chips={Chips}
+          chips={Chips!}
           onSend={() => undefined}
           onStop={() => undefined}
           accessory={<button type="button" className="acpmux-mic" aria-label="Dictation" />}
@@ -241,7 +245,7 @@ test("Codex: Fast mode uses the same picker row and has no composer bolt", async
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("a tiered Fast option toggles off and uses its plain tier when newly enabled", async () => {
+test("a tiered Fast option restores its tier when toggled off and on in one chat", async () => {
   sent.length = 0;
   await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
   await open();
@@ -252,7 +256,26 @@ test("a tiered Fast option toggles off and uses its plain tier when newly enable
   await open();
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
-  expect(sent).toEqual(["fast-mode=standard", "fast-mode=fast"]);
+  expect(sent).toEqual(["fast-mode=standard", "fast-mode=ultrafast"]);
+});
+
+test("a mounted composer does not carry a remembered Fast tier into another chat", async () => {
+  sent.length = 0;
+  const a = snapshot({ options: threeTier, current: "ultrafast" }, codex);
+  a.summary!.sessionId = "chat-a";
+  await render(a);
+  await open();
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
+  const mountedChip = chip();
+
+  const b = snapshot({ options: threeTier, current: "standard" }, codex);
+  b.summary!.sessionId = "chat-b";
+  await render(b);
+  expect(chip()).toBe(mountedChip);
+  await open();
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
+  await toggleFast();
+  expect(sent).toEqual(["fast-mode=fast"]);
 });
 
 // #20946 brought a separate effort chip back beside the model button; #22800 took it out again.
