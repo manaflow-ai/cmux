@@ -9883,10 +9883,13 @@ function AcpmuxPane() {
                 heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                 setSandboxDraftMoved(true);
               }}
+              // Auto may send to Cloud only while Cloud is offered, and sends nothing while a start is out,
+              // whatever Run as shows.
+              {...(sandboxOffered ? { cloudOffered: true } : {})}
+              {...(cloudStarting ? { cloudStarting } : {})}
               {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                 ? {
                     runMode: sandboxModeRows,
-                    ...(cloudStarting ? { cloudStarting } : {}),
                     // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                     // the prompt and attachments put back in its composer.
                     onCloud: (

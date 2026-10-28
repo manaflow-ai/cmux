@@ -149,3 +149,11 @@ test("an incidental local is no destination: the named machine or cloud ask wins
     ).toBe("cloud");
   }
 });
+
+test("a machine name may end the sentence, but not be the start of a longer host name", () => {
+  expect(where(chooseAutoEnvironment({ prompt: "Run the tests on gpu-box.", environments }))).toBe("gpu-box");
+  expect(where(chooseAutoEnvironment({ prompt: "Run the tests on gpu-box. Then fix them", environments }))).toBe(
+    "gpu-box",
+  );
+  expect(where(chooseAutoEnvironment({ prompt: "Run the tests on gpu-box.example.com", environments }))).toBe("local");
+});

@@ -99,7 +99,12 @@ export function chooseAutoEnvironment({
 
 function containsMachineReference(prompt: string, label: string): boolean {
   const escaped = label.toLocaleLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b(?:on|to|using|use)\\s+(?:the\\s+)?${escaped}(?=$|[^\\p{L}\\p{N}_.-])`, "u").test(prompt);
+  // The name ends the word: at the end, before a non-name character, or before a full stop that
+  // ends the sentence ("on gpu-box."), never one inside a longer host name ("gpu-box.example.com").
+  return new RegExp(
+    `\\b(?:on|to|using|use)\\s+(?:the\\s+)?${escaped}(?=$|[^\\p{L}\\p{N}_.-]|\\.(?:$|\\s))`,
+    "u",
+  ).test(prompt);
 }
 
 function normalizePath(path?: string): string | undefined {

@@ -109,8 +109,14 @@ async function mount({
   runMode,
   cloudRefusal,
   cloudStarting,
+  cloudFolder,
+  notOffered,
 }: {
+  /// Run as shows (a Cloud pick App refuses), but Cloud is not offered now.
+  notOffered?: boolean;
   cloudStarting?: boolean;
+  /// A folder whose newest chat went to Cloud (runLocationDefault.ts): its run location is Cloud.
+  cloudFolder?: string;
   /// The Run as mode App holds (its folder default or a pick); calls record `runMode.*` and Cloud starts.
   runMode?: "persistent" | "cloud" | "sandboxed";
   /// What App's Cloud start says when it refuses (attachments, Cloud not offered now).
@@ -150,7 +156,22 @@ async function mount({
     }
   };
   const noop = () => {};
+  const { cloudFolders } = await import("../src/agent-session/acpmux/runLocationDefault");
+  // The folder's copy on a Cloud machine, as a Cloud start makes it.
+  const cloudHistory = cloudFolder
+    ? [
+        {
+          sessionId: "cloud-history",
+          cwd: [...cloudFolders(cloudFolder)][0]!,
+          host: "cloud-1",
+          hostKind: "cloud" as const,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ]
+    : [];
   const runRows = runMode && {
+    cloudOffered: !notOffered,
     runMode: {
       mode: runMode,
       onMode: (mode: string) => calls.push({ method: "runMode.pick", params: { mode } }),
@@ -178,7 +199,7 @@ async function mount({
   await act(async () =>
     root!.render(
       <NewTabScreen
-        snapshot={noChat([], {
+        snapshot={noChat(cloudHistory, {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
         })}
@@ -579,7 +600,7 @@ test.each([false, true])("Auto cancels a pending saved worktree launch (reject: 
 // The fold of #26151 into the run location (#26920): Auto is the folder's run location (App's Run as
 // mode under no pick), and only a prompt that asks for a destination moves it.
 test("Auto with the folder's Cloud default sends an ordinary prompt to Cloud, even one that says here", async () => {
-  const calls = await mount({ tabCwd: APP, runMode: "cloud" });
+  const calls = await mount({ tabCwd: APP, runMode: "cloud", cloudFolder: APP });
   await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "Fix the bug here");
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
     `${t("composer.environment")}: ${t("composer.auto")} · ${t("composer.cloud")}`,
@@ -593,7 +614,7 @@ test.each([
   ["Run the tests on devbox", "devbox"],
   ["Run the tests locally", undefined],
 ])("Auto with the folder's Cloud default: %p goes where it asks, not to Cloud", async (prompt, peer) => {
-  const calls = await mount({ tabCwd: APP, runMode: "cloud" });
+  const calls = await mount({ tabCwd: APP, runMode: "cloud", cloudFolder: APP });
   await ask(prompt);
   expect(calls.some((call) => call.method === "cloud.start")).toBe(false);
   expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBe(peer);
@@ -679,9 +700,30 @@ test("This Mac picked under Auto is a pick: Run as becomes a Persistent pick and
 });
 
 test("while a Cloud start from the page is out, no send goes anywhere else", async () => {
-  const calls = await mount({ tabCwd: APP, runMode: "cloud", cloudStarting: true });
+  const calls = await mount({ tabCwd: APP, runMode: "cloud", cloudFolder: APP, cloudStarting: true });
   await ask("Run the tests locally");
   expect(started(calls)).toEqual([]);
   expect(calls.some((call) => call.method === "cloud.start")).toBe(false);
   expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("Run the tests locally");
+});
+
+test("Auto reads the folder picked on the page: picking one whose last chat went to Cloud sends there", async () => {
+  const calls = await mount({ tabCwd: APP, runMode: "persistent", cloudFolder: API });
+  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "Fix the button");
+  expect(environmentButton()?.getAttribute("aria-label")).not.toContain(t("composer.cloud"));
+  await click(folderButton());
+  await click($$(".acpmux-folder-popover .acpmux-menu-item").find((item) => item.textContent?.includes("api")));
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.auto")} · ${t("composer.cloud")}`,
+  );
+  await ask("Fix the button");
+  expect(calls.find((call) => call.method === "cloud.start")?.params).toMatchObject({ cwd: API });
+  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
+});
+
+test("without Cloud offered, a cloud ask under Auto takes a listed Cloud machine instead", async () => {
+  const calls = await mount({ tabCwd: APP, runMode: "persistent", notOffered: true });
+  await ask("Run the tests in the cloud");
+  expect(calls.some((call) => call.method === "cloud.start")).toBe(false);
+  expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBe("cloud-1");
 });
