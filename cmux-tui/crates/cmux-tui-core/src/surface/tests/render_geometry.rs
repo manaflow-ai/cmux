@@ -251,6 +251,48 @@ fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
     );
 }
 
+/// A byte mirror that keeps up with steady output still gets its resize
+/// replay: it is due once the frames queued before the resize are taken,
+/// not when the queue is first found empty (H10 review: steady output kept
+/// the replay waiting until the mirror overflowed).
+#[test]
+fn a_mirror_under_steady_output_gets_its_resize_replay_after_the_earlier_frames() {
+    let mux = Mux::new_for_test("resize-replay-steady-output", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_stream().unwrap();
+    while attach.stream.try_recv().is_ok() {}
+    // Output queued before the resize.
+    pty.broadcast_attach_output(b"before");
+    surface.resize(100, 30).unwrap();
+    let mut seen: Vec<String> = Vec::new();
+    for round in 0..50 {
+        // Steady output: one more chunk between every two frames taken.
+        pty.broadcast_attach_output(format!("after-{round}").as_bytes());
+        match attach.stream.try_recv() {
+            Ok(AttachFrame::ResizedWithColors { cols: 100, rows: 30, .. }) => {
+                // The frame queued before the resize (later output may merge
+                // into it) comes first; the replay is queued behind frames
+                // already waiting when it is built, so it lands within a
+                // few rounds, not after the output stops.
+                assert!(
+                    seen.first().is_some_and(|first| first.starts_with("before")),
+                    "the replay came before the frame queued ahead of the resize: {seen:?}"
+                );
+                assert!(round < 5, "the replay waited {round} rounds behind later output");
+                return;
+            }
+            Ok(AttachFrame::Output(bytes)) => {
+                seen.push(String::from_utf8_lossy(&bytes).into_owned())
+            }
+            Ok(other) => panic!("unexpected frame {other:?}"),
+            Err(error) => panic!("the mirror ran dry without a replay: {error:?}"),
+        }
+    }
+    panic!("steady output kept the resize replay waiting: {seen:?}");
+}
+
 #[test]
 fn resize_replay_preserves_a_valid_large_inflight_kitty_upload() {
     const OLD_VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;

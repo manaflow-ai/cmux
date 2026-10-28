@@ -10,8 +10,9 @@
 //!
 //! A replay viewer (a byte mirror) learns of a geometry change by pull: the
 //! commit only marks its queue (`needs_replay`), and when the viewer has
-//! taken every frame queued until then, one replay of the terminal at that
-//! later cut, taken under the terminal lock, is queued for it
+//! taken every frame queued before the mark (output queued after it does not
+//! hold the replay back), one replay of the terminal at that later cut,
+//! taken under the terminal lock, is queued for it
 //! (`PtyTerminalRuntime::deliver_pending_replays_locked`). A burst of resize
 //! steps then costs at most one replay per time the viewer catches up, and
 //! none on the commit itself.
@@ -79,6 +80,7 @@ pub struct AttachFrameReceiver {
 impl AttachFrameReceiver {
     fn pop_item(queue: &mut AttachTapQueue) -> Option<QueuedFrame> {
         let item = queue.frames.pop_front()?;
+        queue.popped += 1;
         queue.retained_bytes = queue.retained_bytes.saturating_sub(item.retained_bytes());
         Some(item)
     }
@@ -98,13 +100,17 @@ impl AttachFrameReceiver {
     }
 
     /// The replay a geometry change asked this replay viewer for, once it
-    /// has taken every frame queued before it and no build of it is out.
-    /// The caller releases the queue lock before it builds the replay.
+    /// has taken every frame queued before the change (frames queued after
+    /// it do not hold the replay back: a viewer that keeps up with steady
+    /// output would otherwise never find its queue empty) and no build of it
+    /// is out. The replay is built at a later cut and queued behind the
+    /// frames still waiting, which it replaces. The caller releases the
+    /// queue lock before it builds the replay.
     fn take_due_replay(&self, queue: &mut AttachTapQueue) -> Option<PendingReplay> {
         if !queue.needs_replay
             || queue.replay_building
             || !queue.sender_alive
-            || !queue.frames.is_empty()
+            || queue.popped < queue.replay_after
         {
             return None;
         }
@@ -115,15 +121,17 @@ impl AttachFrameReceiver {
     pub fn recv(&self) -> Result<AttachFrame, RecvError> {
         let mut queue = self.state.queue.lock().recover_poison();
         loop {
-            if let Some(frame) = Self::pop(&mut queue) {
-                drop(queue);
-                return Ok(frame.into_frame());
-            }
+            // A due replay first: once the frames before the change are
+            // taken, later frames must not keep it waiting.
             if let Some(replay) = self.take_due_replay(&mut queue) {
                 drop(queue);
                 replay.build();
                 queue = self.state.queue.lock().recover_poison();
                 continue;
+            }
+            if let Some(frame) = Self::pop(&mut queue) {
+                drop(queue);
+                return Ok(frame.into_frame());
             }
             if !queue.sender_alive {
                 return Err(RecvError);
@@ -136,15 +144,17 @@ impl AttachFrameReceiver {
         let started = Instant::now();
         let mut queue = self.state.queue.lock().recover_poison();
         loop {
-            if let Some(frame) = Self::pop(&mut queue) {
-                drop(queue);
-                return Ok(frame.into_frame());
-            }
+            // A due replay first: once the frames before the change are
+            // taken, later frames must not keep it waiting.
             if let Some(replay) = self.take_due_replay(&mut queue) {
                 drop(queue);
                 replay.build();
                 queue = self.state.queue.lock().recover_poison();
                 continue;
+            }
+            if let Some(frame) = Self::pop(&mut queue) {
+                drop(queue);
+                return Ok(frame.into_frame());
             }
             if !queue.sender_alive {
                 return Err(RecvTimeoutError::Disconnected);
@@ -180,15 +190,17 @@ impl AttachFrameReceiver {
     ) -> Result<AttachFrame, RecvTimeoutError> {
         let mut queue = self.state.queue.lock().recover_poison();
         loop {
-            if let Some(frame) = Self::pop(&mut queue) {
-                drop(queue);
-                return Ok(frame.into_frame());
-            }
+            // A due replay first: once the frames before the change are
+            // taken, later frames must not keep it waiting.
             if let Some(replay) = self.take_due_replay(&mut queue) {
                 drop(queue);
                 replay.build();
                 queue = self.state.queue.lock().recover_poison();
                 continue;
+            }
+            if let Some(frame) = Self::pop(&mut queue) {
+                drop(queue);
+                return Ok(frame.into_frame());
             }
             if !queue.sender_alive {
                 return Err(RecvTimeoutError::Disconnected);
@@ -225,11 +237,13 @@ impl AttachFrameReceiver {
     /// builds off its own worker ([`PendingReplay::build`]).
     pub(crate) fn try_byte_view_event(&self) -> Result<ByteViewEvent, TryRecvError> {
         let mut queue = self.state.queue.lock().recover_poison();
-        if let Some(frame) = Self::pop(&mut queue) {
+        // A due replay first: once the frames before the change are taken,
+        // later frames must not keep it waiting (steady output would).
+        if let Some(replay) = self.take_due_replay(&mut queue) {
+            Ok(ByteViewEvent::ReplayDue(replay))
+        } else if let Some(frame) = Self::pop(&mut queue) {
             drop(queue);
             Ok(ByteViewEvent::Frame(frame.into_frame()))
-        } else if let Some(replay) = self.take_due_replay(&mut queue) {
-            Ok(ByteViewEvent::ReplayDue(replay))
         } else if queue.sender_alive {
             Err(TryRecvError::Empty)
         } else {
@@ -287,6 +301,7 @@ impl Drop for AttachFrameReceiver {
         let mut queue = self.state.queue.lock().recover_poison();
         queue.receiver_alive = false;
         queue.frames.clear();
+        queue.popped = queue.pushed;
         queue.retained_bytes = 0;
         drop(queue);
         self.lifecycle.cancel();
@@ -601,6 +616,13 @@ pub(super) struct AttachTapQueue {
     needs_replay: bool,
     /// A [`PendingReplay`] of this viewer is out.
     replay_building: bool,
+    /// Items ever queued and ever taken. A queued item that later output
+    /// merges into is one item.
+    pushed: u64,
+    popped: u64,
+    /// `pushed` when `needs_replay` was set: the replay is due once `popped`
+    /// reaches it.
+    replay_after: u64,
 }
 
 impl AttachTapQueue {
@@ -609,6 +631,7 @@ impl AttachTapQueue {
     /// dropped bytes and every byte offered until then.
     fn fall_behind(&mut self) {
         self.frames.clear();
+        self.popped = self.pushed;
         self.retained_bytes = 0;
         if !self.needs_snapshot {
             self.needs_snapshot = true;
@@ -744,6 +767,7 @@ impl AttachFrameReceiver {
     pub(crate) fn finish_snapshot_locked(&self) {
         let mut queue = self.state.queue.lock().recover_poison();
         queue.frames.clear();
+        queue.popped = queue.pushed;
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
         queue.snapshot_deferred = false;
@@ -754,6 +778,7 @@ impl AttachFrameReceiver {
     pub(crate) fn defer_snapshot(&self) {
         let mut queue = self.state.queue.lock().recover_poison();
         queue.frames.clear();
+        queue.popped = queue.pushed;
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
         queue.snapshot_deferred = true;
@@ -832,6 +857,9 @@ impl AttachTap {
                 local_history: false,
                 needs_replay: false,
                 replay_building: false,
+                pushed: 0,
+                popped: 0,
+                replay_after: 0,
             }),
             ready: Condvar::new(),
             ready_hook: Default::default(),
@@ -877,6 +905,7 @@ impl AttachTap {
             return true;
         }
         queue.needs_replay = true;
+        queue.replay_after = queue.pushed;
         drop(queue);
         self.state.wake_one();
         true
@@ -945,6 +974,7 @@ impl AttachTap {
         }
         queue.retained_bytes = queue.retained_bytes.saturating_add(item_bytes);
         queue.frames.push_back(item);
+        queue.pushed += 1;
         drop(queue);
         self.state.wake_one();
         true
