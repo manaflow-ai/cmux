@@ -133,13 +133,20 @@ struct MobileSSHConnectionAttemptTests {
                 },
                 discard: { discarded.append($0) },
                 connected: { published.append($0) },
-                failed: { _ in failedHosts.append(targetID) }
+                failed: { error in
+                    #expect(error is CancellationError)
+                    failedHosts.append(targetID)
+                }
             )
         }
         await starts.next()
         attempts.cancel(hostID: jumpID)
         gate.complete(1)
-        await expectSuperseded(target)
+        do {
+            _ = try await target.value
+            Issue.record("Expected the dependent connection to be canceled")
+        } catch is CancellationError {
+        }
         #expect(!attempts.isConnecting(hostID: jumpID))
         #expect(!attempts.isConnecting(hostID: targetID))
         #expect(failedHosts == [targetID])

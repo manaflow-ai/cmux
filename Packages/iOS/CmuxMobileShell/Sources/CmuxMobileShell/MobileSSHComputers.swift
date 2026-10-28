@@ -115,7 +115,7 @@ public final class MobileSSHComputers {
     /// Bumped per listing started, so only the newest listing publishes.
     @ObservationIgnored private var refreshGenerations: [UUID: UInt64] = [:]
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
-    @ObservationIgnored private var attachTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var attachTasks: [String: Task<Void, Never>] = [:]
     /// Identifies the attach request that currently owns a surface. A canceled
     /// request can still return from a provider, so its completion and event
     /// callback must never clear or publish through a newer request.
@@ -127,7 +127,7 @@ public final class MobileSSHComputers {
     /// seed) waits for the first real grid instead of opening at a guess.
     @ObservationIgnored private var attachAwaitingGrid: Set<String> = []
     /// The last queued resize or geometry release per surface.
-    @ObservationIgnored private var sizingTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var sizingTasks: [String: Task<Void, Never>] = [:]
     /// Input typed while a surface's attach is in flight.
     @ObservationIgnored private var pendingInputBySurface: [String: Data] = [:]
     /// Fixed grids of surfaces that do not own their PTY size (tmux panes).
@@ -684,9 +684,11 @@ public final class MobileSSHComputers {
     /// Runs a surface's resizes and geometry releases in call order: a
     /// quick leave-and-return must end claimed, never released.
     private func enqueueSizing(_ surfaceID: String, _ operation: @escaping @MainActor () async -> Void) {
+        guard let generation = attachGenerations[surfaceID] else { return }
         let previous = sizingTasks[surfaceID]
-        sizingTasks[surfaceID] = Task { @MainActor in
+        sizingTasks[surfaceID] = Task { @MainActor [weak self] in
             await previous?.value
+            guard !Task.isCancelled, self?.attachGenerations[surfaceID] == generation else { return }
             await operation()
         }
     }
@@ -900,14 +902,8 @@ public final class MobileSSHComputers {
                 self.restoreBrowserProxy(hostID: hostID)
             },
             failed: { error in
-                // This callback runs only while the attempt owns the host. A
-                // canceled jump-host attempt also releases its dependent host.
-                if error is MobileSSHConnectionAttemptSuperseded {
-                    self.statusByHost[hostID] = .idle
-                    self.publish(host: host)
-                } else {
-                    self.fail(hostID: hostID, error)
-                }
+                // Jump-host failures must update that host as well as its caller.
+                self.fail(hostID: hostID, error)
             }
         )
         // Disconnect can run after publication but before a waiter resumes.

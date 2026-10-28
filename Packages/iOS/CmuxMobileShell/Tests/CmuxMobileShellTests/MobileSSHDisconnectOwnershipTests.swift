@@ -27,6 +27,14 @@ struct MobileSSHDisconnectOwnershipTests {
         computers.input(Data("queued".utf8), surfaceID: surface)
         old.finishAttach()
         await written.next() // The production attach path has installed the handle.
+        await computers.attachTasks[surface]?.value
+
+        var resizing = old.resizing.makeAsyncIterator()
+        computers.viewportChanged(surfaceID: surface, columns: 81, rows: 24)
+        await resizing.next()
+        computers.viewportReleased(surfaceID: surface)
+        computers.viewportChanged(surfaceID: surface, columns: 82, rows: 24)
+        let queuedSizing = try #require(computers.sizingTasks[surface])
 
         let disconnect = Task { await computers.disconnect(hostID: host.id) }
         await detaching.next()
@@ -37,6 +45,10 @@ struct MobileSSHDisconnectOwnershipTests {
         #expect(computers.statusByHost[host.id] == .connected)
         old.finishDetach()
         await disconnect.value
+        old.finishResize()
+        await queuedSizing.value
+        #expect(old.sizes == [81])
+        #expect(old.geometryReleases == 0)
 
         #expect(computers.statusByHost[host.id] == .connected)
         await computers.refreshWorkspaces(hostID: host.id)

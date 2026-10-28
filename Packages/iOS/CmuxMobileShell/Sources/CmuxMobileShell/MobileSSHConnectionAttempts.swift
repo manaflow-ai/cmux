@@ -38,8 +38,12 @@ final class MobileSSHConnectionAttempts<Connection: Sendable> {
                     connection = try await connect()
                 } catch {
                     guard !Task.isCancelled else { throw MobileSSHConnectionAttemptSuperseded() }
-                    failed(error)
-                    throw error
+                    // A revoked dependency (a jump host) cancels this still-
+                    // current attempt. Report that cancellation to its owner;
+                    // never leak our internal supersession marker to the UI.
+                    let failure: any Error = error is MobileSSHConnectionAttemptSuperseded ? CancellationError() : error
+                    failed(failure)
+                    throw failure
                 }
                 guard !Task.isCancelled else {
                     await discard(connection)
