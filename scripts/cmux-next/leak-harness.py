@@ -172,6 +172,24 @@ def marker_pids(table, marker):
     return [pid for pid, _ppid, _stat, command in table if marker in command]
 
 
+def orphans_of(table, marker, tag_pids, own_pid):
+    """[(pid, command)] of the processes carrying `marker` (a terminal's background job or server) whose ancestry
+    reaches no process of the tag: their terminal is gone but they run on, re-parented to launchd. A marked process
+    under a live terminal's shell is not an orphan (the tag's rule stops at the shells, so lineage is walked here)."""
+    parent = {pid: ppid for pid, ppid, _stat, _command in table}
+    found = []
+    for pid, _ppid, _stat, command in table:
+        if marker not in command or pid == own_pid or "leak-harness" in command:
+            continue
+        seen, node = set(), pid
+        while node in parent and node not in seen and node not in tag_pids and node > 1:
+            seen.add(node)
+            node = parent[node]
+        if node not in tag_pids:
+            found.append((pid, command[:120]))
+    return found
+
+
 def zombies_of(table, parents):
     return [pid for pid, ppid, stat, _command in table if stat.startswith("Z") and ppid in parents]
 
@@ -202,6 +220,8 @@ def self_test():
     assert abs(parsed["App-Specific Tag 14"]["dirty_mb"] - 354.1) < 0.01, parsed
     table = [(10, 1, "S", "sleep 7 leakmark-x"), (11, 9, "Z", "(sh)"), (12, 9, "S", "zsh")]
     assert marker_pids(table, "leakmark-x") == [10] and zombies_of(table, {9}) == [11]
+    tree = [(5, 1, "S", "holder"), (6, 5, "S", "zsh"), (7, 6, "S", "sleep leakmark-y"), (8, 1, "S", "sleep leakmark-y")]
+    assert orphans_of(tree, "leakmark-y", {5}, 0) == [(8, "sleep leakmark-y")]
     topo = {"windows": [{"key": "w"}], "workspaces": [{"id": "a", "screens": [{"panes": [{"tabs": [{}, {}]}]}]}]}
     assert model_counts(topo) == {"windows": 1, "workspaces": 1, "screens": 1, "panes": 1, "tabs": 2}
     print("leak-harness: self-test passed")
@@ -359,8 +379,7 @@ class Harness:
             entry["threads"] += thread_count(pid) or 0
             entry["fds"] += fd_count(pid) or 0
         sample = {"label": label, "time": round(time.time(), 1), "groups": groups,
-                  "orphans": [(pid, cmd[:120]) for pid, _p, _s, cmd in table
-                              if self.marker in cmd and pid not in tag and "leak-harness" not in cmd],
+                  "orphans": orphans_of(table, self.marker, set(tag), os.getpid()),
                   "zombies": zombies_of(table, set(tag))}
         memory = self.rpc("debug.memory", timeout=60)
         if isinstance(memory, dict) and not memory.get("error"):
@@ -391,8 +410,8 @@ class Harness:
         deadline = now() + seconds
         while now() < deadline:
             table = process_rows()
-            orphans = marker_pids(table, self.marker)
-            if not [p for p in orphans if p != os.getpid()]:
+            tag = {pid for pid, _cmd in self.teardown.processes()}
+            if not orphans_of(table, self.marker, tag, os.getpid()):
                 count = len(self.teardown.processes())
                 base = sum(v for k, v in baseline_flat.items() if k.startswith("processes."))
                 if count <= base:
@@ -459,7 +478,8 @@ class Harness:
                     self.use_terminal(tabs[0]["id"], index)
             elif kind == "screen":
                 before = {s.get("id") for s in (self.stress.workspace(workspace) or {}).get("screens") or []}
-                self.action("screen.new", target=f"workspace:{workspace}")
+                # screen.new takes a pane or tab target (a workspace target falls back to the focused one)
+                self.action("screen.new", target=f"pane:{pane}")
                 self.st.wait(lambda: len((self.stress.workspace(workspace) or {}).get("screens") or []) > len(before),
                              20, step=0.05)
                 made += [s["id"] for s in (self.stress.workspace(workspace) or {}).get("screens") or []
