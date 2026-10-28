@@ -195,6 +195,26 @@ test("the first child tool after a reply settles its Sources", () => {
   ]);
 });
 
+test("a running tool update keeps a settled child reply in Sources", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(
+    fold,
+    { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read guide", status: "in_progress" },
+    { subagent: "a" },
+  );
+  feed(fold, say("Read https://example.com/guide"), { subagent: "a" });
+  const settled = sessionSummary(fold.views().a!, "acme/app");
+  feed(
+    fold,
+    { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "Read guide", status: "in_progress" },
+    { subagent: "a" },
+  );
+  const afterUpdate = sessionSummary(fold.views().a!, "acme/app");
+  expect(afterUpdate.sources).toEqual([{ url: "https://example.com/guide", label: "example.com/guide", kind: "url" }]);
+  expect(afterUpdate).not.toBe(settled);
+});
+
 test("nested renaming and completion invalidate the parent summary revision", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Parent" }] });

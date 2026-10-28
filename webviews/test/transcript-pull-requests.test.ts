@@ -544,11 +544,11 @@ test("issue commands do not hide unrelated references on the same shell line", (
 });
 
 test("PR body payloads do not become separate activity", () => {
+  const rows = toolsRows(shell("gh pr comment 41 -R acme/app --body 'see https://github.com/acme/other/pull/9'"));
   expect(
-    transcriptPullRequests(
-      toolsRows(shell("gh pr comment 41 -R acme/app --body https://github.com/acme/other/pull/9")),
-    ),
+    transcriptPullRequests(rows),
   ).toMatchObject([{ repo: "acme/app", number: 41, changed: true }]);
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
 
 test("brokered PR lifecycle writes settle the same record", () => {

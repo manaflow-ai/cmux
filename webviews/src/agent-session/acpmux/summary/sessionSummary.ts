@@ -6,7 +6,12 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
-import { transcriptPullRequests, transcriptSummaryVersion, type SummaryPullRequest } from "./transcriptPullRequests";
+import {
+  pullRequestSourceCommand,
+  transcriptPullRequests,
+  transcriptSummaryVersion,
+  type SummaryPullRequest,
+} from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
@@ -140,20 +145,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     if (!prior || (source.kind === "pullRequest" && prior.source.kind !== "pullRequest"))
       seen.set(key, { source, order, sequence: sequence++ });
   };
-  for (const pr of pullRequests)
-    if (!pr.changed && !pr.opened) {
-      const ambiguous = pr.mentioned && !pr.kind;
-      add(
-        {
-          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
-          url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
-          label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
-          kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
-        },
-        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
-      );
-    }
+  // Match canonical GitHub links after removing query and fragment suffixes. Keep a separate
+  // identity set so an issue-form link for a PR the chat changed cannot resurrect it as a Source.
   const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
+  const changedIdentities = new Set(
+    pullRequests
+      .filter((pr) => (pr.changed || pr.opened) && pr.kind !== "issue")
+      .map((pr) => `${pr.repo.toLowerCase()}#${pr.number}`),
+  );
   const addUrls = (text: string, order: number) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
@@ -163,15 +162,15 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (reference) {
         const [, owner, repo, path, number] = reference;
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
+        const identity = `${owner}/${repo}`.toLowerCase() + `#${number}`;
         const known =
-          knownPullRequests.get(canonical) ??
-          knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
-        if (known?.changed || known?.opened) continue;
+          knownPullRequests.get(canonical) ?? knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
+        if (known?.changed || known?.opened || (path === "issues" && changedIdentities.has(identity))) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(
           {
             url: pr ? (known?.url ?? canonical) : canonical,
-            label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
+            label: pr || known?.kind === "issue" ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
             kind: pr ? "pullRequest" : "issue",
           },
           order,
@@ -185,7 +184,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
-      const text = `${item.title} ${item.inputSummary ?? ""} ${item.output ?? ""}`;
+      const inputFields = input(item);
+      const inputCommand = field(inputFields.command);
+      const command = item.command ? pullRequestSourceCommand(item.command) : inputCommand ?? "";
+      const title = item.command || inputCommand ? pullRequestSourceCommand(item.command ?? inputCommand ?? item.title) : item.title;
+      // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
+      // --body/--body-file payloads that the command sanitizer intentionally removed.
+      const inputText = inputCommand ? "" : item.inputSummary ?? "";
+      const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
       addUrls(text, rowIndex);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, rowIndex);
@@ -196,6 +202,29 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   // Producer revisions keep streamed replies out of this settled scan.
   for (const [rowIndex, row] of rows.entries())
     if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "", rowIndex);
+  // Add shorthand-only references after transcript URLs have been encountered, so a URL earlier
+  // in the same reply keeps its position while PR evidence still promotes an issue-form link.
+  for (const pr of pullRequests)
+    if (!pr.changed && !pr.opened) {
+      const ambiguous = pr.mentioned && !pr.kind;
+      add(
+        {
+          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
+          url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+          label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+          kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+        },
+        (() => {
+          const order = pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER;
+          const sourceKeyValue = sourceKey({
+            url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+            label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+            kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+          });
+          return seen.has(sourceKeyValue) || pr.kind !== "pullRequest" ? order : order - 0.0001;
+        })(),
+      );
+    }
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
 }
 
