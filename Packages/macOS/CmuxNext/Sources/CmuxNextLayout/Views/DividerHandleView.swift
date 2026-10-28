@@ -13,10 +13,15 @@ final class DividerHandleView: NSView {
         case rowEdge(ColumnID, RowID)
     }
 
+    /// Every pointer event carries the modifier keys held (resize-modifiers.md).
     enum DragEvent {
-        case began(NSPoint)
-        case moved(NSPoint)
-        case ended(NSPoint)
+        case began(NSPoint, NSEvent.ModifierFlags)
+        case moved(NSPoint, NSEvent.ModifierFlags)
+        case ended(NSPoint, NSEvent.ModifierFlags)
+        /// A modifier key went down or up mid-drag, with no pointer move.
+        case modifiersChanged(NSEvent.ModifierFlags)
+        /// Escape mid-drag: the drag goes back to where it began; the release that follows is ignored.
+        case cancelled
         case doubleClick
     }
 
@@ -49,6 +54,9 @@ final class DividerHandleView: NSView {
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
     private var trackingArea: NSTrackingArea?
+    /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
+    /// would hear neither. Installed on the press, removed when the drag ends.
+    private var keyMonitor: Any?
 
     init(kind: Kind, axis: SplitAxis) {
         self.kind = kind
@@ -192,6 +200,7 @@ final class DividerHandleView: NSView {
         if newSuperview == nil {
             isDragging = false
             isHovered = false
+            stopKeyMonitor()
         }
     }
 
@@ -207,18 +216,52 @@ final class DividerHandleView: NSView {
             return
         }
         isDragging = true
-        onDrag?(.began(event.locationInWindow))
+        startKeyMonitor()
+        onDrag?(.began(event.locationInWindow, event.modifierFlags))
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
-        onDrag?(.moved(event.locationInWindow))
+        onDrag?(.moved(event.locationInWindow, event.modifierFlags))
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isDragging else { return }
         isDragging = false
-        onDrag?(.ended(event.locationInWindow))
+        stopKeyMonitor()
+        onDrag?(.ended(event.locationInWindow, event.modifierFlags))
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isDragging else { return super.flagsChanged(with: event) }
+        onDrag?(.modifiersChanged(event.modifierFlags))
+    }
+
+    /// Escape mid-drag (the key monitor; tests call it directly).
+    override func cancelOperation(_ sender: Any?) {
+        guard isDragging else { return }
+        isDragging = false
+        stopKeyMonitor()
+        onDrag?(.cancelled)
+    }
+
+    private func startKeyMonitor() {
+        stopKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self, self.isDragging else { return event }
+            if event.type == .flagsChanged {
+                self.flagsChanged(with: event)
+                return event
+            }
+            // Escape cancels the drag and goes no further; other keys go on as usual.
+            if event.keyCode == 53 { self.cancelOperation(nil) }
+            return event.keyCode == 53 ? nil : event
+        }
+    }
+
+    private func stopKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
     }
 
     override func viewDidChangeEffectiveAppearance() {

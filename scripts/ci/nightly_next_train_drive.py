@@ -379,7 +379,9 @@ def main(argv: list[str] | None = None) -> int:
                     outcome.shipped = False
                     outcome.reason = f"shipped nothing: nightly-next moved from {parent[:12]} to {now[:12]} during the train; the next tick starts a new one"
                 else:
-                    gh("workflow", "run", "nightly.yml", "--repo", args.repo, "--ref", "main", "-f", f"promote_nightly_next_sha={outcome.commit}")
+                    # "tick:": main admits only the 30-minute tick's promotions (promote-nightly-next.mjs decideRequest),
+                    # and a train is the tick's (or a person's) one promotion, so it carries the mark.
+                    gh("workflow", "run", "nightly.yml", "--repo", args.repo, "--ref", "main", "-f", f"promote_nightly_next_sha=tick:{outcome.commit}")
                     outcome.reason += f"; promotion of {outcome.commit} requested"
             builder.cleanup(keep)
             why = {cid: f"quarantined with {outcome.with_[cid]}" for cid in outcome.with_}

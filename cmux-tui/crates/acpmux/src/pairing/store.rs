@@ -24,6 +24,9 @@ pub struct TicketRecord {
     pub id: String,
     /// SHA-256 (hex) of the ticket's secret.
     pub hash: String,
+    /// The acpmux daemon run that minted this ticket.
+    #[serde(default)]
+    pub identity: String,
     pub role: Role,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -191,6 +194,7 @@ impl Store {
         &mut self,
         secret: &str,
         role: Role,
+        identity: String,
         ttl_secs: u64,
         label: Option<String>,
         now_ms: u64,
@@ -204,6 +208,7 @@ impl Store {
         let record = TicketRecord {
             id: new_id("tk")?,
             hash: hash(secret),
+            identity,
             role,
             label: label.filter(|l| !l.trim().is_empty()),
             created_ms: now_ms,
@@ -237,13 +242,14 @@ impl Store {
     /// from it leaves the ticket open.
     pub fn redeem(
         &mut self,
-        secret: &str,
+        ticket: (&str, &str),
         name: &str,
         token: &str,
         device_id: &str,
         now_ms: u64,
         check: impl FnOnce(Role) -> Result<(), RpcError>,
     ) -> Result<Redeemed, RpcError> {
+        let (secret, identity) = ticket;
         crate::session_name::validate(name).map_err(|e| {
             RpcError::invalid_params(format!("the machine name: {e}"))
                 .with_data(json!({"reason": "bad_name"}))
@@ -252,6 +258,11 @@ impl Store {
             .find_open(secret, now_ms)
             .map(|t| (t.id.clone(), t.role))
             .ok_or_else(ticket_refused)?;
+        if let Some(ticket) = self.tickets.iter().find(|t| t.id == id)
+            && (!ticket.identity.is_empty() && ticket.identity != identity)
+        {
+            return Err(ticket_refused());
+        }
         if self.devices.iter().any(|d| d.revoked_ms.is_none() && d.name == name) {
             return Err(name_taken(name));
         }

@@ -620,8 +620,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
    * Posts the run's reply as the chief. Returns when to try again (the loop guard's agent_rate, or no
    * answer), or null when done; done acks the wakes.
    */
-  async post(id: string): Promise<number | null> {
-    return turnLoop.post(this, id)
+  async post(id: string, admission?: Promise<Admission>): Promise<number | null> {
+    return turnLoop.post(this, id, admission)
   }
 
   /** Typing off and the wake cursor moved past the run's messages. */

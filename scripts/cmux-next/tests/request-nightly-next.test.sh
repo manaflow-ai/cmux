@@ -128,7 +128,7 @@ request() { # <args...> -> output in $out, exit in $status
   status=0
   : > "$TMP/gh.log"
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/bin:$PATH" \
-    RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" \
+    RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" NIGHTLY_NEXT_PROMOTE="${PROMOTE-1}" \
     bash scripts/cmux-next/request-nightly-next.sh --repo o/r "$@" 2>&1) || status=$?
 }
 mkdir -p "$TMP/runner"
@@ -144,10 +144,21 @@ request --sha "$head" --release-compile-green
 ! dispatched "$head" || fail "a commit whose tree is not published must not be promoted:" "$(cat "$TMP/gh.log")"
 grep -q "not published" <<<"$out" || fail "the skip must say the tree is not published:" "$out"
 
-# Once the tree publishes, the same green commit is promoted.
+# Once the tree publishes, the same green commit is promotable. Landings (cmux-next.yml,
+# cmux-tui-artifacts.yml) only report it: N of them within one window dispatch nothing,
+# and the 30-minute tick, the one caller that sets NIGHTLY_NEXT_PROMOTE=1, promotes once.
 publish "$head"
+for landing in 1 2 3; do
+  PROMOTE="" request --sha "$head" --release-compile-green
+  [[ "$status" == 0 ]] || fail "a landing's request must not fail (exit $status):" "$out"
+  ! grep -q "workflow run nightly.yml" "$TMP/gh.log" || fail "a landing must not promote (landing $landing):" "$(cat "$TMP/gh.log")"
+  grep -q "^promotable ${head:0:12}: .*30-minute nightly-next tick" <<<"$out" || fail "the landing must name the tick:" "$out"
+done
+PROMOTE=0 request --sha "$head" --release-compile-green
+! grep -q "workflow run nightly.yml" "$TMP/gh.log" || fail "only NIGHTLY_NEXT_PROMOTE=1 promotes:" "$(cat "$TMP/gh.log")"
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
 
 # A later app-only commit shares the published tree (the key is content-addressed).
 echo app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app only"
@@ -251,7 +262,7 @@ STUB
 chmod +x "$TMP/gitbin/git"
 : > "$TMP/git.log"; : > "$TMP/gh.log"
 status=0
-out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/gitbin:$TMP/bin:$PATH" \
+out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/gitbin:$TMP/bin:$PATH" NIGHTLY_NEXT_PROMOTE=1 \
   bash scripts/cmux-next/request-nightly-next.sh --repo o/r --tree-ready "$head" 2>&1) || status=$?
 [[ "$status" == 0 ]] && dispatched "$app" || fail "a shallow checkout must still promote the newest green commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 fetches=$(grep -c . "$TMP/git.log" || true)
