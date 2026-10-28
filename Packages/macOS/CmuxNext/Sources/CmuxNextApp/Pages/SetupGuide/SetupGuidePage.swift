@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
-import SwiftUI
 
 extension InternalPageID {
     static let setupGuide = InternalPageID(rawValue: "setup-guide")
@@ -22,7 +21,7 @@ final class SetupGuidePage: InternalPageProvider {
     static var pageTitle: String { String(localized: "setupGuide.title", defaultValue: "Setup Guide", table: "SetupGuide", bundle: .module) }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        NSHostingView(rootView: SetupGuideView())
+        SetupGuideView()
     }
 
     static func bind(into registry: ActionRegistry, services: AppServices) {
@@ -36,37 +35,60 @@ final class SetupGuidePage: InternalPageProvider {
     }
 }
 
-/// The same unboxed reading layout as the native Todo page; no status indicators or automatic actions.
-struct SetupGuideView: View {
-    // The gallery compares the existing spacing scale; the shipped reading layout uses 24/680.
-    var sectionSpacing: CGFloat = 24
-    var readingWidth: CGFloat = 680
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: sectionSpacing) {
-                Text(SetupGuidePage.pageTitle).font(Font(Typography.title))
-                    .accessibilityAddTraits(.isHeader)
-                ForEach(SetupGuideContent.sections) { section in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(section.title).font(Font(Typography.bodyEmphasized))
-                            .accessibilityAddTraits(.isHeader)
-                        ForEach(Array(section.steps.enumerated()), id: \.offset) { index, step in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text(verbatim: "\(index + 1).")
-                                    .foregroundStyle(.secondary).accessibilityHidden(true)
-                                Text(step).frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("setup-guide-\(section.id)")
-                }
+/// Static, selectable instructions with native scrolling; no credential reads or automatic actions.
+final class SetupGuideView: NSView {
+    private final class Document: NSView { override var isFlipped: Bool { true } }
+    private let scroll = NSScrollView()
+    private let document = Document()
+    private var lines: [(label: ThemedLabel, gap: CGFloat)] = []
+    private let readingWidth: CGFloat
+
+    init(sectionSpacing: CGFloat = Metrics.space5, readingWidth: CGFloat = 680) {
+        self.readingWidth = readingWidth
+        super.init(frame: .zero)
+        setAccessibilityIdentifier("setup-guide")
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        SystemScrollers.followThin(scroll)
+        scroll.documentView = document
+        addSubview(scroll)
+        add(SetupGuidePage.pageTitle, font: Typography.title, gap: 0, id: "setup-guide-title")
+        for section in SetupGuideContent.sections {
+            add(section.title, font: Typography.bodyEmphasized, gap: sectionSpacing, id: "setup-guide-\(section.id)")
+            for (index, step) in section.steps.enumerated() {
+                add("\(index + 1). \(step)", font: Typography.body, gap: Metrics.space3,
+                    id: "setup-guide-\(section.id)-\(index)")
             }
-            .font(Font(Typography.body))
-            .textSelection(.enabled)
-            .padding(24)
-            .frame(maxWidth: readingWidth, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .accessibilityIdentifier("setup-guide")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private func add(_ text: String, font: NSFont, gap: CGFloat, id: String) {
+        let label = ThemedLabel(wrappingLabelWithString: text)
+        label.font = font
+        label.isSelectable = true
+        label.focusRingType = .none
+        label.setAccessibilityIdentifier(id)
+        document.addSubview(label)
+        lines.append((label, gap))
+    }
+
+    override func layout() {
+        super.layout()
+        scroll.frame = bounds
+        let available = scroll.contentSize.width
+        let width = min(readingWidth, max(1, available - 2 * Metrics.space5))
+        var y = Metrics.space5
+        for (label, gap) in lines {
+            y += gap
+            let height = ceil(label.attributedStringValue.boundingRect(
+                with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
+            label.frame = NSRect(x: max(0, (available - width) / 2), y: y, width: width, height: height)
+            y += height
+        }
+        document.frame = NSRect(x: 0, y: 0, width: available, height: max(scroll.contentSize.height, y + Metrics.space5))
     }
 }

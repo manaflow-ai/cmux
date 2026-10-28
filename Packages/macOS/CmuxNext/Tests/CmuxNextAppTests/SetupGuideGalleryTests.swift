@@ -1,11 +1,33 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
+import CmuxTheme
 import ImageIO
-import SwiftUI
 import Testing
 
 /// Three quiet reading layouts, using the actual TASKS-derived guide and existing spacing scale.
 @MainActor @Suite(.serialized) struct SetupGuideGalleryTests {
+    @Test func instructionsWrapWhenPaneNarrows() throws {
+        let view = SetupGuideView()
+        var wideHeight: CGFloat = 0
+        for width in [680.0, 280.0] {
+            view.frame = NSRect(x: 0, y: 0, width: width, height: 400)
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+            let scroll = try #require(view.subviews.first as? NSScrollView)
+            let document = try #require(scroll.documentView)
+            let labels = document.subviews.compactMap { $0 as? NSTextField }
+            #expect(labels.count == 12)
+            for (first, second) in zip(labels, labels.dropFirst()) {
+                #expect(first.frame.maxY <= second.frame.minY)
+            }
+            #expect(labels.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= document.bounds.width })
+            #expect(try #require(labels.last).frame.maxY <= document.bounds.height)
+            if width == 680 { wideHeight = document.bounds.height }
+            else { #expect(document.bounds.height > wideHeight) }
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         _ = NSApplication.shared
@@ -20,8 +42,14 @@ import Testing
                 window.isReleasedWhenClosed = false
                 window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 defer { window.close() }
-                let view = NSHostingView(rootView: SetupGuideView(sectionSpacing: spacing, readingWidth: width))
+                let view = SetupGuideView(sectionSpacing: spacing, readingWidth: width)
                 window.contentView = view
+                let theme = dark ? "Soft Blue" : "Soft Blue Light"
+                let scope = ThemeScope(level: .room)
+                scope.setOverride(ThemeSpec(theme), input: try AANestedGroupsGalleryTests.input(theme), animated: false)
+                scope.root(view)
+                view.wantsLayer = true
+                view.layer?.backgroundColor = scope.perform { Palette.windowBackground }.cgColor
                 window.orderFrontRegardless()
                 view.layoutSubtreeIfNeeded()
                 view.displayIfNeeded()

@@ -12,7 +12,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"設定指南"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"设置指南"}},
         "ko": {"stringUnit":{"state":"translated","value":"설정 안내"}},
-        "ja": {"stringUnit":{"state":"translated","value":"セットアップガイド"}}
+        "ja": {"stringUnit":{"state":"translated","value":"セットアップガイド"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Vodič za postavljanje"}},
+        "da": {"stringUnit":{"state":"translated","value":"Installationsvejledning"}},
+        "it": {"stringUnit":{"state":"translated","value":"Guida alla configurazione"}},
+        "km": {"stringUnit":{"state":"translated","value":"មគ្គុទ្ទេសក៍ដំឡើង"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Installasjonsveiledning"}},
+        "pl": {"stringUnit":{"state":"translated","value":"Przewodnik konfiguracji"}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Guia de configuração"}},
+        "ru": {"stringUnit":{"state":"translated","value":"Руководство по настройке"}},
+        "th": {"stringUnit":{"state":"translated","value":"คู่มือการตั้งค่า"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Kurulum Kılavuzu"}},
+        "uk": {"stringUnit":{"state":"translated","value":"Посібник із налаштування"}},
+        "vi": {"stringUnit":{"state":"translated","value":"Hướng dẫn thiết lập"}}
       }
     },
     "setupGuide.harness.title": {
@@ -26,7 +38,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"在這部 Mac 上啟動代理程式"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"在此 Mac 上启动代理"}},
         "ko": {"stringUnit":{"state":"translated","value":"이 Mac에서 에이전트 시작"}},
-        "ja": {"stringUnit":{"state":"translated","value":"この Mac でエージェントを開始"}}
+        "ja": {"stringUnit":{"state":"translated","value":"この Mac でエージェントを開始"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Pokreni agenta na ovom Macu"}},
+        "da": {"stringUnit":{"state":"translated","value":"Start en agent på denne Mac"}},
+        "it": {"stringUnit":{"state":"translated","value":"Avvia un agente su questo Mac"}},
+        "km": {"stringUnit":{"state":"translated","value":"ចាប់ផ្ដើមភ្នាក់ងារនៅលើ Mac នេះ"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Start en agent på denne Mac-en"}},
+        "pl": {"stringUnit":{"state":"translated","value":"Uruchom agenta na tym Macu"}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Iniciar um agente neste Mac"}},
+        "ru": {"stringUnit":{"state":"translated","value":"Запустить агента на этом Mac"}},
+        "th": {"stringUnit":{"state":"translated","value":"เริ่มเอเจนต์บน Mac เครื่องนี้"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Bu Mac’te aracı başlat"}},
+        "uk": {"stringUnit":{"state":"translated","value":"Запустити агента на цьому Mac"}},
+        "vi": {"stringUnit":{"state":"translated","value":"Khởi chạy tác nhân trên máy Mac này"}}
       }
     },
     "setupGuide.harness.0": {
@@ -40,7 +64,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"開啟模型選擇器並選取 + 以查看 Harness。安裝提供者，然後使用「登入」並完成瀏覽器或終端機中的指示。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"打开模型选择器并选择 + 以查看 Harness。安装一个提供方，然后选择“登录”，完成浏览器或终端中的说明。"}},
         "ko": {"stringUnit":{"state":"translated","value":"모델 선택기를 열고 +를 선택해 Harness를 확인하세요. 제공자를 설치한 다음 ‘로그인’을 사용하고 브라우저 또는 터미널의 안내를 완료하세요."}},
-        "ja": {"stringUnit":{"state":"translated","value":"モデルピッカーを開き、+ を選択して Harness を表示します。プロバイダーをインストールし、「サインイン」を使ってブラウザーまたはターミナルの指示を完了します。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"モデルピッカーを開き、+ を選択して Harness を表示します。プロバイダーをインストールし、「サインイン」を使ってブラウザーまたはターミナルの指示を完了します。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Otvori birač modela i izaberi + da vidiš Harnesses. Instaliraj dobavljača, zatim izaberi „Prijavi se“ i dovrši uputstva u pregledaču ili terminalu."}},
+        "da": {"stringUnit":{"state":"translated","value":"Åbn modelvælgeren, og vælg + for at se Harnesses. Installer en udbyder, brug derefter \"Log ind\", og følg instruktionerne i browseren eller terminalen."}},
+        "it": {"stringUnit":{"state":"translated","value":"Apri il selettore dei modelli e scegli + per vedere gli Harness. Installa un provider, quindi usa \"Accedi\" e completa le istruzioni nel browser o nel terminale."}},
+        "km": {"stringUnit":{"state":"translated","value":"បើកឧបករណ៍ជ្រើសម៉ូដែល ហើយជ្រើស + ដើម្បីមើល Harnesses។ ដំឡើងអ្នកផ្តល់សេវា បន្ទាប់មកប្រើ «ចូល» ហើយបញ្ចប់ការណែនាំក្នុងកម្មវិធីរុករក ឬស្ថានីយ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Åpne modellvelgeren og velg + for å se Harnesses. Installer en leverandør, bruk deretter «Logg inn» og fullfør instruksjonene i nettleseren eller terminalen."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Otwórz wybór modeli i wybierz +, aby zobaczyć Harnesses. Zainstaluj dostawcę, następnie wybierz „Zaloguj się” i wykonaj instrukcje w przeglądarce lub terminalu."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Abra o seletor de modelos e escolha + para ver os Harnesses. Instale um provedor, use \"Iniciar sessão\" e conclua as instruções no navegador ou terminal."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Откройте выбор моделей и нажмите +, чтобы увидеть Harnesses. Установите провайдера, затем выберите «Войти» и выполните инструкции в браузере или терминале."}},
+        "th": {"stringUnit":{"state":"translated","value":"เปิดตัวเลือกโมเดลแล้วเลือก + เพื่อดู Harnesses ติดตั้งผู้ให้บริการ จากนั้นใช้ \"ลงชื่อเข้าใช้\" และทำตามคำแนะนำในเบราว์เซอร์หรือเทอร์มินัล"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Model seçiciyi açın ve Harnesses’i görmek için + seçin. Bir sağlayıcı yükleyin, ardından \"Oturum aç\" seçeneğini kullanıp tarayıcı veya terminal yönergelerini tamamlayın."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Відкрийте вибір моделей і натисніть +, щоб побачити Harnesses. Установіть постачальника, потім скористайтеся «Увійти» й виконайте вказівки у браузері або терміналі."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Mở bộ chọn mô hình và chọn + để xem Harnesses. Cài đặt nhà cung cấp, sau đó chọn “Đăng nhập” và hoàn tất hướng dẫn trong trình duyệt hoặc thiết bị đầu cuối."}}
       }
     },
     "setupGuide.harness.1": {
@@ -54,7 +90,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"執行 cmux setup harness 來檢查結果。按照該設定檔回報的復原步驟操作；未知的登入憑證不能證明帳戶可用。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"运行 cmux setup harness 检查结果。按照该配置文件报告的恢复步骤操作；未知的登录凭据不能证明账户可用。"}},
         "ko": {"stringUnit":{"state":"translated","value":"cmux setup harness를 실행해 결과를 확인하세요. 해당 프로필에서 보고한 복구 절차를 따르세요. 알 수 없는 로그인 증거만으로는 계정이 작동한다고 확인할 수 없습니다."}},
-        "ja": {"stringUnit":{"state":"translated","value":"cmux setup harness を実行して結果を確認します。そのプロファイルが示す復旧手順に従ってください。サインインの証拠が不明な場合、アカウントが動作しているとは確認できません。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"cmux setup harness を実行して結果を確認します。そのプロファイルが示す復旧手順に従ってください。サインインの証拠が不明な場合、アカウントが動作しているとは確認できません。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Pokreni cmux setup harness da provjeriš rezultat. Prati oporavak koji prijavi za taj profil; nepoznati dokaz prijave ne potvrđuje da račun radi."}},
+        "da": {"stringUnit":{"state":"translated","value":"Kør cmux setup harness for at kontrollere resultatet. Følg den gendannelse, der rapporteres for profilen; ukendt loginbevis bekræfter ikke, at en konto fungerer."}},
+        "it": {"stringUnit":{"state":"translated","value":"Esegui cmux setup harness per controllare il risultato. Segui il ripristino indicato per quel profilo; una prova di accesso sconosciuta non conferma che l’account funzioni."}},
+        "km": {"stringUnit":{"state":"translated","value":"ដំណើរការ cmux setup harness ដើម្បីពិនិត្យលទ្ធផល។ អនុវត្តតាមការស្ដារឡើងវិញដែលវារាយការណ៍សម្រាប់ប្រវត្តិរូបនោះ; ភស្តុតាងចូលដែលមិនស្គាល់មិនបញ្ជាក់ថាគណនីកំពុងដំណើរការទេ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Kjør cmux setup harness for å kontrollere resultatet. Følg gjenopprettingen som rapporteres for profilen; ukjent påloggingsbevis bekrefter ikke at en konto fungerer."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Uruchom cmux setup harness, aby sprawdzić wynik. Postępuj zgodnie z odzyskiwaniem zgłoszonym dla tego profilu; nieznany dowód logowania nie potwierdza działania konta."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Execute cmux setup harness para verificar o resultado. Siga a recuperação indicada para esse perfil; uma evidência de login desconhecida não confirma que a conta esteja funcionando."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Запустите cmux setup harness, чтобы проверить результат. Выполните указанные для этого профиля действия по восстановлению; неизвестное подтверждение входа не доказывает, что аккаунт работает."}},
+        "th": {"stringUnit":{"state":"translated","value":"เรียกใช้ cmux setup harness เพื่อตรวจสอบผลลัพธ์ ทำตามขั้นตอนการกู้คืนที่รายงานสำหรับโปรไฟล์นั้น หลักฐานการลงชื่อเข้าใช้ที่ไม่รู้จักไม่ยืนยันว่าบัญชีใช้งานได้"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Sonucu kontrol etmek için cmux setup harness komutunu çalıştırın. Bu profil için bildirilen kurtarma adımlarını izleyin; bilinmeyen oturum açma kanıtı hesabın çalıştığını doğrulamaz."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Запустіть cmux setup harness, щоб перевірити результат. Дотримуйтеся вказівок із відновлення для цього профілю; невідомі дані входу не підтверджують, що обліковий запис працює."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Chạy cmux setup harness để kiểm tra kết quả. Làm theo quy trình khôi phục được báo cáo cho hồ sơ đó; bằng chứng đăng nhập không xác định không xác nhận tài khoản đang hoạt động."}}
       }
     },
     "setupGuide.accounts.title": {
@@ -68,7 +116,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"復原登入"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"恢复登录"}},
         "ko": {"stringUnit":{"state":"translated","value":"로그인 복구"}},
-        "ja": {"stringUnit":{"state":"translated","value":"サインインを復旧"}}
+        "ja": {"stringUnit":{"state":"translated","value":"サインインを復旧"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Obnovi prijavu"}},
+        "da": {"stringUnit":{"state":"translated","value":"Gendan et login"}},
+        "it": {"stringUnit":{"state":"translated","value":"Recupera un accesso"}},
+        "km": {"stringUnit":{"state":"translated","value":"ស្ដារការចូល"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Gjenopprett en pålogging"}},
+        "pl": {"stringUnit":{"state":"translated","value":"Odzyskaj logowanie"}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Recuperar um login"}},
+        "ru": {"stringUnit":{"state":"translated","value":"Восстановить вход"}},
+        "th": {"stringUnit":{"state":"translated","value":"กู้คืนการลงชื่อเข้าใช้"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Oturum açmayı kurtar"}},
+        "uk": {"stringUnit":{"state":"translated","value":"Відновити вхід"}},
+        "vi": {"stringUnit":{"state":"translated","value":"Khôi phục đăng nhập"}}
       }
     },
     "setupGuide.accounts.0": {
@@ -82,7 +142,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"開啟「設定」>「帳號」。缺少提供者時使用「登入」，提供者過期時使用「重新驗證」，然後再次檢查。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"打开“设置”>“账户”。缺少提供方时使用“登录”，提供方过期时使用“重新认证”，然后再次检查。"}},
         "ko": {"stringUnit":{"state":"translated","value":"설정 > 계정을 여세요. 제공자가 없으면 ‘로그인’을, 만료되었으면 ‘다시 인증’을 사용한 뒤 다시 확인하세요."}},
-        "ja": {"stringUnit":{"state":"translated","value":"設定 > アカウントを開きます。プロバイダーがない場合は「サインイン」、期限切れの場合は「再認証」を使い、その後もう一度確認します。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"設定 > アカウントを開きます。プロバイダーがない場合は「サインイン」、期限切れの場合は「再認証」を使い、その後もう一度確認します。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Otvori Postavke > Nalozi. Koristi „Prijavi se“ za nedostajućeg dobavljača ili „Ponovo se autentifikuj“ za isteklog, pa ponovo provjeri."}},
+        "da": {"stringUnit":{"state":"translated","value":"Åbn Indstillinger > Konti. Brug \"Log ind\" for en manglende udbyder eller \"Godkend igen\" for en udløbet, og kontrollér derefter igen."}},
+        "it": {"stringUnit":{"state":"translated","value":"Apri Impostazioni > Account. Usa \"Accedi\" per un provider mancante o \"Autentica di nuovo\" per uno scaduto, quindi controlla di nuovo."}},
+        "km": {"stringUnit":{"state":"translated","value":"បើកការកំណត់ > គណនី។ ប្រើ «ចូល» សម្រាប់អ្នកផ្តល់សេវាដែលបាត់ ឬ «ផ្ទៀងផ្ទាត់ឡើងវិញ» សម្រាប់អ្នកដែលផុតកំណត់ បន្ទាប់មកពិនិត្យម្ដងទៀត។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Åpne Innstillinger > Kontoer. Bruk «Logg inn» for en manglende leverandør eller «Godkjenn på nytt» for en utløpt leverandør, og sjekk igjen."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Otwórz Ustawienia > Konta. Użyj „Zaloguj się” dla brakującego dostawcy lub „Uwierzytelnij ponownie” dla wygasłego, a następnie sprawdź ponownie."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Abra Ajustes > Contas. Use \"Iniciar sessão\" para um provedor ausente ou \"Autenticar novamente\" para um expirado e verifique de novo."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Откройте «Настройки» > «Учетные записи». Для отсутствующего провайдера выберите «Войти», а для просроченного — «Повторно пройти аутентификацию», затем проверьте еще раз."}},
+        "th": {"stringUnit":{"state":"translated","value":"เปิดการตั้งค่า > บัญชี ใช้ \"ลงชื่อเข้าใช้\" สำหรับผู้ให้บริการที่หายไป หรือ \"ตรวจสอบสิทธิ์อีกครั้ง\" สำหรับผู้ให้บริการที่หมดอายุ แล้วตรวจสอบอีกครั้ง"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Ayarlar > Hesaplar’ı açın. Eksik bir sağlayıcı için \"Oturum aç\"ı, süresi dolmuş bir sağlayıcı için \"Yeniden kimlik doğrula\"yı kullanın ve tekrar kontrol edin."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Відкрийте «Параметри» > «Облікові записи». Для відсутнього постачальника скористайтеся «Увійти», а для простроченого — «Повторно автентифікувати», потім перевірте ще раз."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Mở Cài đặt > Tài khoản. Dùng “Đăng nhập” cho nhà cung cấp bị thiếu hoặc “Xác thực lại” cho nhà cung cấp đã hết hạn, rồi kiểm tra lại."}}
       }
     },
     "setupGuide.accounts.1": {
@@ -96,7 +168,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"如果選錯 cmux 帳戶，請使用「切換帳戶」並核對遮罩地址。如果儲存的金鑰遺失或無法讀取，請使用「加入金鑰」；絕不要將密鑰貼到聊天中。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"如果选错了 cmux 账户，请使用“切换账户”并核对掩码地址。如果保存的密钥缺失或无法读取，请使用“添加密钥”；绝不要把密钥粘贴到聊天中。"}},
         "ko": {"stringUnit":{"state":"translated","value":"잘못된 cmux 계정을 선택했다면 ‘계정 전환’을 사용하고 마스킹된 주소를 확인하세요. 저장된 키가 없거나 읽을 수 없으면 ‘키 추가’를 사용하세요. 비밀을 채팅에 붙여 넣지 마세요."}},
-        "ja": {"stringUnit":{"state":"translated","value":"cmux アカウントを間違えて選んだ場合は「アカウントを切り替える」を使い、マスクされたアドレスを確認します。保存済みキーがない、または読み取れない場合は「キーを追加」を使い、秘密をチャットに貼り付けないでください。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"cmux アカウントを間違えて選んだ場合は「アカウントを切り替える」を使い、マスクされたアドレスを確認します。保存済みキーがない、または読み取れない場合は「キーを追加」を使い、秘密をチャットに貼り付けないでください。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Ako je izabran pogrešan cmux račun, koristi „Promijeni račun“ i provjeri maskiranu adresu. Za nedostajući ili nečitljiv sačuvani ključ koristi „Dodaj ključ“; nikad ne lijepi tajnu u chat."}},
+        "da": {"stringUnit":{"state":"translated","value":"Hvis den forkerte cmux-konto er valgt, skal du bruge \"Skift konto\" og kontrollere den maskerede adresse. Brug \"Tilføj nøgle\" for en manglende eller ulæselig gemt nøgle; indsæt aldrig hemmeligheden i en chat."}},
+        "it": {"stringUnit":{"state":"translated","value":"Se è selezionato l’account cmux sbagliato, usa \"Cambia account\" e controlla l’indirizzo mascherato. Per una chiave salvata mancante o illeggibile, usa \"Aggiungi chiave\"; non incollare mai il segreto in una chat."}},
+        "km": {"stringUnit":{"state":"translated","value":"ប្រសិនបើបានជ្រើសគណនី cmux ខុស សូមប្រើ «ប្ដូរគណនី» ហើយពិនិត្យអាសយដ្ឋានដែលបានបាំង។ សម្រាប់សោដែលបានរក្សាទុកដែលបាត់ ឬអានមិនបាន សូមប្រើ «បន្ថែមសោ»; កុំបិទភ្ជាប់អាថ៌កំបាំងក្នុងជជែកឡើយ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Hvis feil cmux-konto er valgt, bruker du «Bytt konto» og kontrollerer den maskerte adressen. For en lagret nøkkel som mangler eller ikke kan leses, bruker du «Legg til nøkkel»; lim aldri inn hemmeligheten i en chat."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Jeśli wybrano niewłaściwe konto cmux, użyj opcji „Przełącz konto” i sprawdź zamaskowany adres. W przypadku brakującego lub nieczytelnego zapisanego klucza użyj opcji „Dodaj klucz”; nigdy nie wklejaj sekretu na czacie."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Para a conta cmux errada, use \"Trocar conta\" e confira o endereço mascarado. Para uma chave salva ausente ou ilegível, use \"Adicionar chave\"; nunca cole o segredo em um chat."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Если выбрана неправильная учетная запись cmux, выберите «Сменить учетную запись» и проверьте замаскированный адрес. Для отсутствующего или нечитаемого сохраненного ключа выберите «Добавить ключ»; никогда не вставляйте секрет в чат."}},
+        "th": {"stringUnit":{"state":"translated","value":"หากเลือกบัญชี cmux ผิด ให้ใช้ \"สลับบัญชี\" และตรวจสอบที่อยู่ที่ปิดบังไว้ หากคีย์ที่บันทึกไว้หายไปหรืออ่านไม่ได้ ให้ใช้ \"เพิ่มคีย์\" อย่าวางข้อมูลลับลงในแชต"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Yanlış cmux hesabı için \"Hesap değiştir\" seçeneğini kullanıp maskeli adresi kontrol edin. Kayıtlı anahtar eksikse veya okunamıyorsa \"Anahtar ekle\"yi kullanın; gizli bilgiyi asla sohbete yapıştırmayın."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Якщо вибрано неправильний обліковий запис cmux, скористайтеся «Змінити обліковий запис» і перевірте замасковану адресу. Для відсутнього або непрочитного збереженого ключа скористайтеся «Додати ключ»; ніколи не вставляйте секрет у чат."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Nếu chọn nhầm tài khoản cmux, hãy dùng “Chuyển tài khoản” và kiểm tra địa chỉ đã che. Với khóa đã lưu bị thiếu hoặc không đọc được, dùng “Thêm khóa”; tuyệt đối không dán bí mật vào cuộc trò chuyện."}}
       }
     },
     "setupGuide.accounts.2": {
@@ -110,7 +194,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"如果指令或瀏覽器回報離線，請重新連線後再重試。如果 Cloud 無法使用，請等服務恢復後重試；本機工作可以繼續。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"如果命令或浏览器报告离线，请重新连接后再重试。如果 Cloud 不可用，请在服务恢复后重试；本地工作可以继续。"}},
         "ko": {"stringUnit":{"state":"translated","value":"명령이나 브라우저에 오프라인이라고 표시되면 다시 연결한 후 재시도하세요. Cloud를 사용할 수 없으면 서비스가 복구된 뒤 다시 시도하세요. 로컬 작업은 계속할 수 있습니다."}},
-        "ja": {"stringUnit":{"state":"translated","value":"コマンドまたはブラウザーがオフラインと報告した場合は、再接続してから再試行します。Cloud が利用できない場合は、サービスが復旧してから再試行してください。ローカル作業は続けられます。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"コマンドまたはブラウザーがオフラインと報告した場合は、再接続してから再試行します。Cloud が利用できない場合は、サービスが復旧してから再試行してください。ローカル作業は続けられます。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Ako naredba ili pregledač prijave da nema mreže, ponovo se poveži prije novog pokušaja. Ako Cloud nije dostupan, pokušaj ponovo kada se usluga vrati; lokalni rad se može nastaviti."}},
+        "da": {"stringUnit":{"state":"translated","value":"Hvis kommandoen eller browseren rapporterer offline, skal du oprette forbindelse igen, før du prøver igen. Hvis Cloud ikke er tilgængelig, skal du prøve igen, når tjenesten er tilbage; lokalt arbejde kan fortsætte."}},
+        "it": {"stringUnit":{"state":"translated","value":"Se il comando o il browser indica che sei offline, riconnettiti prima di riprovare. Se Cloud non è disponibile, riprova quando il servizio torna disponibile; il lavoro locale può continuare."}},
+        "km": {"stringUnit":{"state":"translated","value":"ប្រសិនបើពាក្យបញ្ជា ឬកម្មវិធីរុករករាយការណ៍ថាគ្មានអ៊ីនធឺណិត សូមភ្ជាប់ឡើងវិញមុនពេលព្យាយាមម្ដងទៀត។ ប្រសិនបើ Cloud មិនអាចប្រើបាន សូមព្យាយាមម្ដងទៀតនៅពេលសេវាត្រឡប់មកវិញ; ការងារក្នុងមូលដ្ឋានអាចបន្តបាន។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Hvis kommandoen eller nettleseren rapporterer frakoblet, kobler du til på nytt før du prøver igjen. Hvis Cloud ikke er tilgjengelig, prøver du igjen når tjenesten er tilbake; lokalt arbeid kan fortsette."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Jeśli polecenie lub przeglądarka zgłasza tryb offline, połącz się ponownie przed ponowną próbą. Jeśli usługa Cloud jest niedostępna, spróbuj ponownie, gdy wróci; praca lokalna może być kontynuowana."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Se o comando ou navegador informar que está offline, reconecte-se antes de tentar novamente. Se o Cloud estiver indisponível, tente novamente quando o serviço voltar; o trabalho local pode continuar."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Если команда или браузер сообщают, что вы не в сети, подключитесь снова перед повторной попыткой. Если Cloud недоступен, повторите попытку после восстановления службы; локальную работу можно продолжать."}},
+        "th": {"stringUnit":{"state":"translated","value":"หากคำสั่งหรือเบราว์เซอร์รายงานว่าออฟไลน์ ให้เชื่อมต่อใหม่ก่อนลองอีกครั้ง หาก Cloud ไม่พร้อมใช้งาน ให้ลองอีกครั้งเมื่อบริการกลับมาใช้งานได้ งานในเครื่องยังดำเนินต่อได้"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Komut veya tarayıcı çevrimdışı olduğunuzu bildirirse yeniden denemeden önce yeniden bağlanın. Cloud kullanılamıyorsa hizmet geri döndüğünde tekrar deneyin; yerel çalışmaya devam edebilirsiniz."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Якщо команда або браузер повідомляють про відсутність підключення, під’єднайтеся знову, перш ніж повторити спробу. Якщо Cloud недоступний, повторіть спробу після відновлення служби; локальну роботу можна продовжити."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Nếu lệnh hoặc trình duyệt báo ngoại tuyến, hãy kết nối lại trước khi thử lại. Nếu Cloud không khả dụng, thử lại khi dịch vụ hoạt động trở lại; bạn vẫn có thể tiếp tục làm việc cục bộ."}}
       }
     },
     "setupGuide.cloud_machine.title": {
@@ -124,7 +220,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"使用另一部機器"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"使用另一台机器"}},
         "ko": {"stringUnit":{"state":"translated","value":"다른 머신 사용"}},
-        "ja": {"stringUnit":{"state":"translated","value":"別のマシンを使う"}}
+        "ja": {"stringUnit":{"state":"translated","value":"別のマシンを使う"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Koristi drugu mašinu"}},
+        "da": {"stringUnit":{"state":"translated","value":"Brug en anden maskine"}},
+        "it": {"stringUnit":{"state":"translated","value":"Usa un altro computer"}},
+        "km": {"stringUnit":{"state":"translated","value":"ប្រើម៉ាស៊ីនផ្សេង"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Bruk en annen maskin"}},
+        "pl": {"stringUnit":{"state":"translated","value":"Użyj innej maszyny"}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Usar outra máquina"}},
+        "ru": {"stringUnit":{"state":"translated","value":"Использовать другой компьютер"}},
+        "th": {"stringUnit":{"state":"translated","value":"ใช้เครื่องอื่น"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Başka bir makine kullan"}},
+        "uk": {"stringUnit":{"state":"translated","value":"Використати іншу машину"}},
+        "vi": {"stringUnit":{"state":"translated","value":"Dùng máy khác"}}
       }
     },
     "setupGuide.cloud_machine.0": {
@@ -138,7 +246,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"對於 Cloud 機器，請先登入 cmux，然後執行 cmux setup cloud-machine --dry-run。建立機器會產生費用；只有在確實想建立時才確認卡片。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"对于 Cloud 机器，请先登录 cmux，然后运行 cmux setup cloud-machine --dry-run。创建机器会产生费用；只有在确实要创建时才确认卡片。"}},
         "ko": {"stringUnit":{"state":"translated","value":"Cloud 머신을 사용하려면 먼저 cmux에 로그인한 다음 cmux setup cloud-machine --dry-run을 실행하세요. 머신을 만들면 비용이 발생하므로, 정말 만들 때만 카드에서 확인하세요."}},
-        "ja": {"stringUnit":{"state":"translated","value":"Cloud マシンを使うには、まず cmux にサインインしてから cmux setup cloud-machine --dry-run を実行します。マシンの作成には料金がかかるため、作成するときだけカードを確認します。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"Cloud マシンを使うには、まず cmux にサインインしてから cmux setup cloud-machine --dry-run を実行します。マシンの作成には料金がかかるため、作成するときだけカードを確認します。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Za Cloud mašinu prvo se prijavi u cmux, zatim pokreni cmux setup cloud-machine --dry-run. Kreiranje mašine košta; potvrdi karticu samo kada želiš da je kreiraš."}},
+        "da": {"stringUnit":{"state":"translated","value":"For en Cloud-maskine skal du først logge ind på cmux og derefter køre cmux setup cloud-machine --dry-run. Det koster penge at oprette en maskine; bekræft kun kortet, når du vil oprette den."}},
+        "it": {"stringUnit":{"state":"translated","value":"Per una macchina Cloud, accedi prima a cmux, quindi esegui cmux setup cloud-machine --dry-run. Creare una macchina ha un costo; conferma la carta solo quando vuoi crearla."}},
+        "km": {"stringUnit":{"state":"translated","value":"សម្រាប់ម៉ាស៊ីន Cloud សូមចូល cmux ជាមុនសិន បន្ទាប់មកដំណើរការ cmux setup cloud-machine --dry-run។ ការបង្កើតម៉ាស៊ីនមានតម្លៃ; បញ្ជាក់កាតតែនៅពេលអ្នកចង់បង្កើតវាប៉ុណ្ណោះ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"For en Cloud-maskin logger du først inn på cmux, og kjører deretter cmux setup cloud-machine --dry-run. Det koster penger å opprette en maskin; bekreft kortet bare når du vil opprette den."}},
+        "pl": {"stringUnit":{"state":"translated","value":"W przypadku maszyny Cloud najpierw zaloguj się do cmux, a następnie uruchom cmux setup cloud-machine --dry-run. Utworzenie maszyny kosztuje; potwierdź kartę dopiero, gdy chcesz ją utworzyć."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Para uma máquina Cloud, entre primeiro no cmux e execute cmux setup cloud-machine --dry-run. Criar uma máquina custa dinheiro; confirme o cartão somente quando quiser criá-la."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Для машины Cloud сначала войдите в cmux, затем выполните cmux setup cloud-machine --dry-run. Создание машины стоит денег; подтверждайте карту только тогда, когда действительно хотите ее создать."}},
+        "th": {"stringUnit":{"state":"translated","value":"สำหรับเครื่อง Cloud ให้ลงชื่อเข้าใช้ cmux ก่อน จากนั้นเรียกใช้ cmux setup cloud-machine --dry-run การสร้างเครื่องมีค่าใช้จ่าย ให้ยืนยันบัตรเฉพาะเมื่อคุณต้องการสร้างเท่านั้น"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Cloud makinesi için önce cmux’te oturum açın, ardından cmux setup cloud-machine --dry-run komutunu çalıştırın. Makine oluşturmanın maliyeti vardır; kartı yalnızca oluşturmak istediğinizde onaylayın."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Для машини Cloud спочатку увійдіть у cmux, а потім виконайте cmux setup cloud-machine --dry-run. Створення машини коштує грошей; підтверджуйте картку лише тоді, коли хочете її створити."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Với máy Cloud, trước tiên hãy đăng nhập vào cmux, sau đó chạy cmux setup cloud-machine --dry-run. Tạo máy sẽ mất phí; chỉ xác nhận thẻ khi bạn thực sự muốn tạo."}}
       }
     },
     "setupGuide.cloud_machine.1": {
@@ -152,7 +272,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"對於現有 SSH 機器，請執行 cmux setup machine HOST。如果連線失敗，請使用它回報的 SSH 指令。絕不要在代理程式聊天中輸入密碼。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"对于现有 SSH 机器，请运行 cmux setup machine HOST。如果连接失败，请使用它报告的 SSH 命令。绝不要在代理聊天中输入密码。"}},
         "ko": {"stringUnit":{"state":"translated","value":"기존 SSH 머신을 사용하려면 cmux setup machine HOST를 실행하세요. 연결에 실패하면 안내된 SSH 명령을 사용하세요. 에이전트 채팅에 비밀번호를 입력하지 마세요."}},
-        "ja": {"stringUnit":{"state":"translated","value":"既存の SSH マシンには cmux setup machine HOST を実行します。接続に失敗した場合は、報告された SSH コマンドを使ってください。エージェントチャットにパスワードを入力しないでください。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"既存の SSH マシンには cmux setup machine HOST を実行します。接続に失敗した場合は、報告された SSH コマンドを使ってください。エージェントチャットにパスワードを入力しないでください。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Za postojeću SSH mašinu pokreni cmux setup machine HOST. Ako veza ne uspije, koristi SSH naredbu koju prijavi. Nikad ne unosite lozinku u chat agenta."}},
+        "da": {"stringUnit":{"state":"translated","value":"For en eksisterende SSH-maskine skal du køre cmux setup machine HOST. Hvis forbindelsen mislykkes, skal du bruge den SSH-kommando, der rapporteres. Indtast aldrig en adgangskode i en agentchat."}},
+        "it": {"stringUnit":{"state":"translated","value":"Per una macchina SSH esistente, esegui cmux setup machine HOST. Se la connessione non riesce, usa il comando SSH indicato. Non inserire mai una password in una chat dell’agente."}},
+        "km": {"stringUnit":{"state":"translated","value":"សម្រាប់ម៉ាស៊ីន SSH ដែលមានស្រាប់ សូមដំណើរការ cmux setup machine HOST។ ប្រសិនបើការតភ្ជាប់បរាជ័យ សូមប្រើពាក្យបញ្ជា SSH ដែលវារាយការណ៍។ កុំបញ្ចូលពាក្យសម្ងាត់ក្នុងជជែករបស់ភ្នាក់ងារឡើយ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"For en eksisterende SSH-maskin kjører du cmux setup machine HOST. Hvis tilkoblingen mislykkes, bruker du SSH-kommandoen som rapporteres. Skriv aldri inn et passord i en agentchat."}},
+        "pl": {"stringUnit":{"state":"translated","value":"W przypadku istniejącej maszyny SSH uruchom cmux setup machine HOST. Jeśli połączenie się nie powiedzie, użyj zgłoszonego polecenia SSH. Nigdy nie wpisuj hasła na czacie agenta."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Para uma máquina SSH existente, execute cmux setup machine HOST. Se a conexão falhar, use o comando SSH informado. Nunca digite uma senha em um chat de agente."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Для существующей машины SSH выполните cmux setup machine HOST. Если подключение не удалось, используйте указанную команду SSH. Никогда не вводите пароль в чат агента."}},
+        "th": {"stringUnit":{"state":"translated","value":"สำหรับเครื่อง SSH ที่มีอยู่ ให้เรียกใช้ cmux setup machine HOST หากการเชื่อมต่อล้มเหลว ให้ใช้คำสั่ง SSH ที่รายงาน อย่าป้อนรหัสผ่านในแชตของเอเจนต์"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Mevcut bir SSH makinesi için cmux setup machine HOST komutunu çalıştırın. Bağlantı başarısız olursa bildirilen SSH komutunu kullanın. Aracı sohbetine asla parola girmeyin."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Для наявної машини SSH виконайте cmux setup machine HOST. Якщо підключення не вдається, скористайтеся вказаною командою SSH. Ніколи не вводьте пароль у чат агента."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Với máy SSH hiện có, hãy chạy cmux setup machine HOST. Nếu kết nối thất bại, dùng lệnh SSH được báo cáo. Không nhập mật khẩu vào cuộc trò chuyện của tác nhân."}}
       }
     },
     "setupGuide.cloud_machine.2": {
@@ -166,7 +298,19 @@
         "zh-Hant": {"stringUnit":{"state":"translated","value":"執行 cmux setup status 以查看目前的檢查和復原步驟。偵測到憑證不代表它有效或屬於預期的帳戶。"}},
         "zh-Hans": {"stringUnit":{"state":"translated","value":"运行 cmux setup status 查看当前检查和恢复步骤。检测到凭据并不能证明它有效或属于目标账户。"}},
         "ko": {"stringUnit":{"state":"translated","value":"cmux setup status를 실행해 현재 검사와 복구 단계를 확인하세요. 자격 증명이 감지되었다고 해서 유효하거나 의도한 계정에 속한다는 뜻은 아닙니다."}},
-        "ja": {"stringUnit":{"state":"translated","value":"cmux setup status を実行して現在のチェックと復旧手順を確認します。認証情報が検出されたとしても、それが有効であることや目的のアカウントに属することは証明されません。"}}
+        "ja": {"stringUnit":{"state":"translated","value":"cmux setup status を実行して現在のチェックと復旧手順を確認します。認証情報が検出されたとしても、それが有効であることや目的のアカウントに属することは証明されません。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Pokreni cmux setup status za trenutne provjere i korake oporavka. Otkriveni akreditiv nije dokaz da je valjan ili da pripada željenom računu."}},
+        "da": {"stringUnit":{"state":"translated","value":"Kør cmux setup status for de aktuelle kontroller og gendannelsestrin. En registreret legitimationsoplysning er ikke et bevis på, at den er gyldig eller hører til den tilsigtede konto."}},
+        "it": {"stringUnit":{"state":"translated","value":"Esegui cmux setup status per i controlli e i passaggi di ripristino correnti. Una credenziale rilevata non prova che sia valida o appartenga all’account previsto."}},
+        "km": {"stringUnit":{"state":"translated","value":"ដំណើរការ cmux setup status សម្រាប់ការត្រួតពិនិត្យបច្ចុប្បន្ន និងជំហានស្ដារឡើងវិញ។ លិខិតសម្គាល់ដែលបានរកឃើញមិនមែនជាភស្តុតាងថាវាត្រឹមត្រូវ ឬជារបស់គណនីដែលចង់បានទេ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Kjør cmux setup status for de gjeldende kontrollene og gjenopprettingstrinnene. En oppdaget legitimasjon er ikke et bevis på at den er gyldig eller tilhører den tiltenkte kontoen."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Uruchom cmux setup status, aby wyświetlić bieżące kontrole i kroki odzyskiwania. Wykryte poświadczenie nie dowodzi, że jest prawidłowe ani że należy do zamierzonego konta."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Execute cmux setup status para ver as verificações e etapas de recuperação atuais. Detectar uma credencial não prova que ela seja válida ou pertença à conta pretendida."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Выполните cmux setup status, чтобы просмотреть текущие проверки и действия по восстановлению. Обнаруженные учетные данные не доказывают, что они действительны или принадлежат нужной учетной записи."}},
+        "th": {"stringUnit":{"state":"translated","value":"เรียกใช้ cmux setup status เพื่อดูการตรวจสอบและขั้นตอนการกู้คืนปัจจุบัน การตรวจพบข้อมูลรับรองไม่ได้พิสูจน์ว่าข้อมูลนั้นถูกต้องหรือเป็นของบัญชีที่ต้องการ"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Geçerli kontrolleri ve kurtarma adımlarını görmek için cmux setup status komutunu çalıştırın. Algılanan bir kimlik bilgisi, geçerli olduğunu veya amaçlanan hesaba ait olduğunu kanıtlamaz."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Запустіть cmux setup status, щоб переглянути поточні перевірки та кроки відновлення. Виявлені облікові дані не доводять, що вони дійсні або належать потрібному обліковому запису."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Chạy cmux setup status để xem các bước kiểm tra và khôi phục hiện tại. Việc phát hiện thông tin xác thực không chứng minh rằng thông tin đó hợp lệ hoặc thuộc tài khoản mong muốn."}}
       }
     }
   },

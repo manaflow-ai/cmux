@@ -75,3 +75,4 @@ blob skills/cmux-browser/templates/authenticated-session.sh
 blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
 blob skills/cmux-cua/SKILL.md
+blob Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/setup-guide.json
