@@ -314,6 +314,12 @@ public final class MessagesLabHomeView: NSView {
         set { projection.initialsOverride = newValue }
     }
 
+    /// The header's name; nil shows the conversation's title.
+    public var headerTitle: String? {
+        get { projection.titleOverride }
+        set { projection.titleOverride = newValue }
+    }
+
     /// The header avatar's picture, drawn over `avatarText` and the
     /// initials; nil shows those.
     public var avatarPicture: NSImage? {

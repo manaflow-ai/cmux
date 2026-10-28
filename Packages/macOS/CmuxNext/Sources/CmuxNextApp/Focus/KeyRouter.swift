@@ -118,6 +118,8 @@ final class KeyRouter: BrowserKeyRouting {
         guard keyWindow == .content else { return .panel }
         if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
         guard Self.isChord(event.modifierFlags) else {
+            // Another page's window has the key (a chat beside the focused page): it is that page's.
+            if facts.keyInOtherPage { return .deliver }
             // Printable keys, and the keys the primary input claims (a dead key composes where the key
             // after it goes; Home's history arrows), go to the primary input; only printable keys queue.
             let printable = Self.isPrintable(event)

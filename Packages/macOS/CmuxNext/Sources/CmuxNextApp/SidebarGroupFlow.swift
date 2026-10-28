@@ -107,7 +107,7 @@ struct SidebarGroupFlow {
     /// `.createGroup`: the group forms where the model formed it; a group its
     /// members leave empty goes.
     func create(_ group: CmuxNextSidebar.GroupID, name: String, color: GroupColor, _ ids: [SidebarWorkspaceID], collapsed: Bool,
-                room: ProfileID, _ intent: SidebarIntent) {
+                room: ProfileID, index: Int? = nil, _ intent: SidebarIntent) {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids), v2 = bridge.statePersonal
         let life = bridge.life, ending = life.emptied(by: members, into: nil)
         // A pending edit until the store holds the new group (cx-odqn): the
@@ -125,7 +125,8 @@ struct SidebarGroupFlow {
         let place = bridge.usesMixedOrder && v2
             ? PersonalSidebarPlanner(machines: bridge.services.machines).groupPlacement(of: group, in: bridge.model.sections)
             : PersonalSidebar.GroupPlacement()
-        let move = place.move, top = place.topIndex, flow = self
+        // The sidebar's place wins; else the caller's (New Workspace in New Group: `workspaces.newPlacement`).
+        let move = place.move ?? index, top = place.topIndex, flow = self
         editor.creating[id] = []
         life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: failed,
                     applied: applied, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in

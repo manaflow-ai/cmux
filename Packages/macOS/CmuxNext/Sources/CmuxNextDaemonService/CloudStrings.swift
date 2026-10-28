@@ -144,7 +144,7 @@ public enum CloudStrings {
 }
 
 /// Why a Cloud create needs a plan upgrade (the upgrade card's text).
-public enum CloudUpgradeReason: Equatable, Sendable {
+public nonisolated enum CloudUpgradeReason: Equatable, Sendable {
     case freePlan, server
     case atLimit(Int)
 }
