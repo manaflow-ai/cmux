@@ -194,6 +194,15 @@ class SigningVariableTests(unittest.TestCase):
         self.assertTrue(resumes["MACOS_RUNNER_26"].skipped)
         self.assertFalse(resumes["MACOS_RUNNER_PR"].skipped)
 
+    def test_a_record_key_in_another_case_is_still_a_signing_variable(self) -> None:
+        # GitHub reads variable names without regard to case.
+        record = {"changed": {"macos_runner_26": {"before": None, "after": "glaeda-std-xcode-26.6"},
+                              "Linux_Runner": {"before": None, "after": "cmux-linux-owned"}}}
+        resumes = switch.plan_resume(record, {})
+        self.assertEqual(len(resumes), 2)
+        self.assertTrue(all(item.skipped for item in resumes))
+        self.assertFalse(signing.allowed_value("macos_runner_26", "glaeda-std-xcode-26.6"))
+
     def test_restore_still_puts_back_a_recorded_value(self) -> None:
         record = {"changed": {"MACOS_RUNNER_26": {"before": "blacksmith-6vcpu-macos-26",
                                                   "after": "glaeda-std-xcode-26.6"}}}

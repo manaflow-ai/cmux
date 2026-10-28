@@ -31,7 +31,10 @@ def ephemeral_label(value: str | None) -> bool:
 
 
 def allowed_value(name: str, value: str | None) -> bool:
-    """Whether `name` may hold `value`: any value for other variables; unset or ephemeral for these."""
-    if name not in EPHEMERAL_RUNNER_VARIABLES:
+    """Whether `name` may hold `value`: any value for other variables; unset or ephemeral for these.
+
+    GitHub reads variable names without regard to case, so this does too.
+    """
+    if (name or "").strip().upper() not in EPHEMERAL_RUNNER_VARIABLES:
         return True
     return not (value or "").strip() or ephemeral_label(value)
