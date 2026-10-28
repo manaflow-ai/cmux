@@ -117,6 +117,21 @@ class PerTest(unittest.TestCase):
         self.assertTrue(verdict.own)
         self.assertIn("printed no `Test run with` summary", verdict.reasons[0])
 
+    def test_a_summary_below_the_tests_that_ran_or_an_open_xctest_suite_is_cut_short(self):
+        short = log("◇ Test run started.", "✔ Test b() passed after 0.1 seconds.", failed("a()"),
+                    "✘ Test a() failed after 0.1 seconds with 1 issue.",
+                    "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.")
+        self.assertIn("the summaries count 1 tests but 2 finished", reds.read(short).truncated)
+        xc = log("Test Suite 'All tests' started at 2026-10-28 03:38:42.712.",
+                 "Test Case '-[M.T testA]' started.", "Test Case '-[M.T testA]' failed (0.1 seconds).")
+        self.assertTrue(reds.classify(xc, xc).own)
+
+    def test_bare_signal_and_exception_lines_are_crashes_and_an_empty_log_is_unreadable(self):
+        for line in ("Process '/x' exited with signal 6", "terminated by signal 9", "EXC_BAD_ACCESS (code=1)"):
+            with self.subTest(line):
+                self.assertTrue(reds.classify(log(line), log(line)).own)
+        self.assertTrue(reds.classify("  \n", log(failed("a()"))).own)
+
     def test_assertion_text_that_quotes_a_crash_or_a_hang_is_not_one(self):
         quoting = log("◇ Test run started.", "◇ Test parsesCrash() started.",
                       '✘ Test parsesCrash() recorded an issue at A.swift:1:2: Expectation failed: (message → '

@@ -61,6 +61,10 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
                             r"(?:Fatal error: |Thread \d+ Crashed|Exception Type: +EXC_|Abort(?:ed|\s+trap)\b|"
                             r"Segmentation fault|Illegal instruction|Bus error|Trace/breakpoint trap|"
                             r"(?:the )?(?:swift test run|test process|test helper) (?:exited|terminated) (?:with|by) signal)")
+# A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
+# quotes it.
+SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
+                      r"\bEXC_(?:BAD_ACCESS|BAD_INSTRUCTION|CRASH|BREAKPOINT|ARITHMETIC|GUARD|RESOURCE)\b")
 # A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
 TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
@@ -73,6 +77,9 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
                        r"The operation was canceled|.*\blog (?:is|was) truncated)|^This log was truncated")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘] Test run with \d+ tests?")
+RUN_COUNT = re.compile(r"^[✔✘] Test run with (\d+) tests?")
+XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
+XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
 SUITE_ENDED = re.compile(r"^[✔✘] Suite (.+?) (?:passed|failed)\b")
 # Swift Testing's start line, for naming the test a crash stack runs.
@@ -221,8 +228,8 @@ def signal_of(text: str) -> str | None:
 def read(log: str | None) -> Result:
     """The tests a job log ran, failed and crashed, and whether its per-test results are whole."""
     result = Result()
-    if log is None:
-        result.truncated.append("its log could not be read")
+    if log is None or not log.strip():
+        result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
     lines = lines_of(log)
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
@@ -240,7 +247,8 @@ def read(log: str | None) -> Result:
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
-        runtime = CRASH.search(text) or (CRASH_AT_START.search(text) and not TEST_LINE.search(text))
+        runtime = CRASH.search(text) or ((CRASH_AT_START.search(text) or SIGNALED.search(text))
+                                         and not TEST_LINE.search(text))
         if runtime:
             crashed = True
             if number := signal_of(text):
@@ -260,6 +268,15 @@ def read(log: str | None) -> Result:
     if runs > sum(1 for text in lines if RUN_ENDED.search(text)):
         result.truncated.append(f"{runs - sum(1 for text in lines if RUN_ENDED.search(text))} Swift Testing run(s) "
                                 "started and printed no `Test run with` summary")
+    finished = {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    counted = sum(int(m.group(1)) for text in lines for m in [RUN_COUNT.search(text)] if m)
+    if runs and counted < len(finished):
+        # A summary counts every test of its run (skipped ones too), so it is never below the tests that ended.
+        result.truncated.append(f"the summaries count {counted} tests but {len(finished)} finished")
+    xc_suites = (sum(1 for text in lines if XC_SUITE_STARTED.search(text))
+                 - sum(1 for text in lines if XC_SUITE_ENDED.search(text)))
+    if xc_suites > 0:
+        result.truncated.append(f"{xc_suites} XCTest suite(s) started and never finished")
     suites = ({m.group(1) for text in lines for m in [SUITE_STARTED.search(text)] if m}
               - {m.group(1) for text in lines for m in [SUITE_ENDED.search(text)] if m})
     if suites:
