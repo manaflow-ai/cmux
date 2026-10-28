@@ -14,6 +14,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCAN = ROOT / "scripts/ci"
 TOLERANT = {"PermissionError", "OSError", "Exception", "BaseException"}
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
 def caught_names(handler):
@@ -28,8 +29,10 @@ def violations(source, name="<source>"):
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     found = []
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "killpg"):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = node.func
+        if getattr(callee, "attr", getattr(callee, "id", None)) != "killpg":
             continue
         # killpg(pgid, 0) is a liveness probe; EPERM there has its own meaning.
         if len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and node.args[1].value == 0:
@@ -37,6 +40,9 @@ def violations(source, name="<source>"):
         caught, child = set(), node
         while child in parents:
             parent = parents[child]
+            # A handler around a definition does not cover the call when it runs.
+            if isinstance(parent, SCOPES):
+                break
             if isinstance(parent, ast.Try) and child in parent.body:
                 for handler in parent.handlers:
                     caught |= caught_names(handler)
@@ -56,6 +62,13 @@ class KillpgToleratesEpermTests(unittest.TestCase):
     def test_detects_process_lookup_only_handler(self):
         old = "import os\ntry:\n    os.killpg(1, 15)\nexcept ProcessLookupError:\n    pass\n"
         self.assertEqual(violations(old), ["<source>:3"])
+
+    def test_detects_bare_killpg_and_handler_around_a_definition(self):
+        bare = "from os import killpg\ntry:\n    killpg(1, 9)\nexcept ProcessLookupError:\n    pass\n"
+        self.assertEqual(violations(bare), ["<source>:3"])
+        deferred = ("import os\ntry:\n    def cleanup():\n        os.killpg(1, 9)\n"
+                    "except PermissionError:\n    pass\ncleanup()\n")
+        self.assertEqual(violations(deferred), ["<source>:4"])
 
     def test_accepts_permission_error_and_liveness_probe(self):
         ok = ("import os\ntry:\n    os.killpg(1, 15)\nexcept (ProcessLookupError, PermissionError):\n    pass\n"
