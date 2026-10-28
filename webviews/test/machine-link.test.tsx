@@ -366,6 +366,22 @@ test("a list read while a reconnect waits never leaves the machine down once the
   expect(asked.filter((message) => message.method === "_acpmux/peer_reconnect")).toHaveLength(1);
 });
 
+test("a list read while a reconnect waits that answers after it never leaves the machine down", async () => {
+  const { client: pane, states, hold, release, waitReconnects, settleReconnect } = await client("offline");
+  hold();
+  waitReconnects();
+  const reconnect = pane.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The list opens while the reconnect waits; acpmux's answer (offline) is held back.
+  const open = pane.refreshPeersOnOpen();
+  settleReconnect();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The stale answer arrives last.
+  release(true);
+  await Promise.all([reconnect, open]);
+  expect(states.at(-1)?.["gpu-box"]).toBe("connected");
+});
+
 test("a lagging watcher's older note never replaces a newer one", async () => {
   const { states, notify } = await client("connected", { events: true });
   notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "connected", lastSeen: 1, error: null, at: 5 });
