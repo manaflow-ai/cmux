@@ -1,7 +1,7 @@
 // The agent pane's controls are small-radius rects, not capsule pills (POLISH.md: "No capsule
 // pills. Use small-radius rects. Circles must be truly round."). Reads the shipped page's one
 // <style> and fails on a rule whose corner radius reaches half its height on a box that is not
-// square, or that rounds with a 999px radius. Tracks and bars that are capsules by nature are
+// square, including a 999px radius on a box without explicit square dimensions. Tracks and bars that are capsules by nature are
 // listed below with why.
 //
 // The page is the built resource (CI builds the web bundles before this suite; locally run
@@ -25,6 +25,7 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
  * on purpose: its field and its selected Chats tab are round (newtab/screen.css). The other templates keep small-radius rects. */
 const SHAPES = new Set([
   ".acpmux-switch",
+  ".acpmux-quick-fast-toggle",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
@@ -78,7 +79,7 @@ function capsules(css: string) {
     const width = px(box.width);
     if (radius === undefined) return [];
     const square = height !== undefined && width !== undefined && Math.abs(width - height) < 1;
-    const capsule = radius >= 999 || (height !== undefined && !square && radius >= height / 2 - 0.5);
+    const capsule = !square && (radius >= 999 || (height !== undefined && radius >= height / 2 - 0.5));
     return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
   });
 }
