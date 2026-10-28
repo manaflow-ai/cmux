@@ -154,6 +154,30 @@ test("equal timestamps converge by writer identity regardless of delivery order"
   }
 });
 
+test.each(["edit", "delete"])("external file %s reaches an open pane and survives a stale RPC ack", async (change) => {
+  const storage = memory();
+  const pane = createInspectorOrderStore(() => storage);
+  let confirm!: () => void;
+  pane.registerHost(
+    () =>
+      new Promise<void>((resolve) => {
+        confirm = resolve;
+      }),
+  );
+  const pending = pane.set(aOrder);
+  const expected = change === "delete" ? DEFAULT_INSPECTOR_ORDER : bOrder;
+  const external = ["@cmux-order/v1/9000000000001/host", ...expected];
+  pane.applyNative(external); // The native watcher publishes its freshly stamped value to open panes.
+  expect(pane.current()).toEqual(expected);
+  confirm();
+  await pending;
+  storageEvent();
+  expect(pane.current()).toEqual(expected);
+  const relaunched = createInspectorOrderStore(() => storage);
+  relaunched.applyNative(external);
+  expect(relaunched.current()).toEqual(expected);
+});
+
 test("legacy and malformed values normalize without exposing version metadata", () => {
   for (const raw of ["oops", "{}", "null"])
     expect(createInspectorOrderStore(() => memory(raw)).current()).toEqual(DEFAULT_INSPECTOR_ORDER);

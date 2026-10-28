@@ -51,4 +51,42 @@ import Testing
         let upgraded = InspectorOrderRevision.resolving(.array([.string("changes")]), over: b, now: 1, writer: "host")
         #expect(upgraded == wire(11, "host", "changes"))
     }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["unversioned", "preserved-stamp", "delete"], [false, true])
+    func externalFileWritesReachOpenPanesAndBeatStaleRPCs(_ edit: String, _ rpcBeforeWatcher: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "inspector-external-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        // A future clock proves the watcher advances the published stamp, not just wall time.
+        let old = wire(9_000_000_000_000, "page", "changes")
+        try await CmuxConfigFile(url: url).set(old, at: InspectorOrderRevision.path)
+        settings.start()
+        defer { settings.stop() }
+        let nextLoad = settings.loadCount + 1
+        let source = try await settings.file.source()
+        let changed: String
+        if edit == "delete" { changed = try JSONC.removing(InspectorOrderRevision.path, in: source) }
+        else {
+            let value: JSONValue = edit == "unversioned" ? .array([.string("outputs")]) : wire(9_000_000_000_000, "page", "outputs")
+            changed = try JSONC.setting(value, at: InspectorOrderRevision.path, in: source)
+        }
+        // Write the config itself; no settings RPC or explicit reload delivers this edit.
+        try Data(changed.utf8).write(to: url, options: .atomic)
+        if rpcBeforeWatcher { try await settings.setSetting(at: InspectorOrderRevision.path, to: old, by: .caller("page")) }
+        await settings.waitForLoad(atLeast: nextLoad)
+        let display = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
+        let published = try #require(display.values[InspectorOrderRevision.path.joined(separator: ".")])
+        let stamp = try #require(InspectorOrderRevision.stamp(published))
+        #expect(stamp.time > 9_000_000_000_000)
+        guard case .array(let values) = published else { Issue.record("Expected a stamped order"); return }
+        let expected = edit == "delete" ? SettingsSchema.descriptor(for: InspectorOrderRevision.path)?.defaultValue : .array([.string("outputs")])
+        #expect(JSONValue.array(Array(values.dropFirst())) == expected)
+        try await settings.setSetting(at: InspectorOrderRevision.path, to: old, by: .caller("page"))
+        #expect(settings.fileRoot.value(at: InspectorOrderRevision.path) == published)
+        #expect(try await settings.file.value(at: InspectorOrderRevision.path) == published)
+        await settings.reload()
+        #expect(settings.fileRoot.value(at: InspectorOrderRevision.path) == published)
+    }
 }

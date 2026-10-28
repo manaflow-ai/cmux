@@ -18,20 +18,66 @@ nonisolated enum InspectorOrderRevision {
             if let previous, incoming.time < previous.time || (incoming.time == previous.time && incoming.writer <= previous.writer) { return nil }
             return proposed
         }
-        // Reset (nil) and legacy/manual orders are host-authored writes, stamped before broadcast.
+        return authoring(proposed, over: stored, now: now, writer: writer)
+    }
+
+    /// External file edits are authoritative even when they retain or remove the old marker.
+    static func authoring(_ proposed: JSONValue?, over stored: JSONValue?, now: Int64, writer: String) -> JSONValue? {
         guard let order = proposed ?? SettingsSchema.descriptor(for: path)?.defaultValue,
               case .array(let values) = order else { return nil }
-        let time = max(now, (previous?.time ?? 0) + 1)
-        return .array([.string("\(prefix)\(time)/\(writer)")] + values)
+        let time = max(now, max((stamp(stored)?.time ?? 0) + 1, (stamp(proposed)?.time ?? 0) + 1))
+        let sections = values.first?.stringValue?.hasPrefix(prefix) == true ? Array(values.dropFirst()) : values
+        return .array([.string("\(prefix)\(time)/\(writer)")] + sections)
     }
 }
 
 extension CmuxConfigFile {
     /// No suspension between the read, comparison and write: this is one serialized transaction.
-    func setInspectorOrder(_ proposed: JSONValue?) throws {
-        let stored = try value(at: InspectorOrderRevision.path)
+    func setInspectorOrder(_ proposed: JSONValue?, published: JSONValue? = nil) throws {
+        _ = try sourceReconcilingInspectorOrder(previous: published)
+        let stored = inspectorOrderPublished
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         guard let next = InspectorOrderRevision.resolving(proposed, over: stored, now: now, writer: UUID().uuidString) else { return }
         try set(next, at: InspectorOrderRevision.path)
+        inspectorOrderPublished = next
+    }
+
+    /// The watcher and RPC writer share this serialized reconciliation. Rewriting a stamp causes
+    /// one more file event, which is a no-op because the published value is recorded here.
+    func sourceReconcilingInspectorOrder(previous: JSONValue?) throws -> String {
+        let source = try source()
+        guard let root = try? JSONC.parse(source), case .object = root else { return source }
+        let path = InspectorOrderRevision.path
+        let current = root.value(at: path)
+        if !inspectorOrderObserved {
+            if let previous { inspectorOrderPublished = previous.value(at: path) }
+            else { inspectorOrderPublished = current }
+            inspectorOrderObserved = true
+        }
+        guard current != inspectorOrderPublished,
+              managedGuard.managedKeys[path.joined(separator: ".")] == nil else { return source }
+        if let current, SettingsSchema.descriptor(for: path)?.accepts(current) != true { return source }
+        if let incoming = stamp(current), let published = stamp(inspectorOrderPublished) {
+            if incoming.time < published.time || (incoming.time == published.time && incoming.writer < published.writer) {
+                // A delayed RPC or another pane's stale publish must not replace the
+                // version already held by this actor. Restore the held value instead.
+                try set(inspectorOrderPublished!, at: path)
+                return try self.source()
+            }
+            if incoming.time > published.time || incoming.writer > published.writer {
+                // A different pane already published a newer version. Accept it as
+                // the host's source of truth without restamping (which would make
+                // two watchers continually rewrite one another).
+                inspectorOrderPublished = current
+                return source
+            }
+            // Equal stamp with changed sections is an external file edit; fall
+            // through and assign it a fresh stamp below.
+        }
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        guard let next = InspectorOrderRevision.authoring(current, over: inspectorOrderPublished, now: now, writer: UUID().uuidString) else { return source }
+        try set(next, at: path)
+        inspectorOrderPublished = next
+        return try self.source()
     }
 }

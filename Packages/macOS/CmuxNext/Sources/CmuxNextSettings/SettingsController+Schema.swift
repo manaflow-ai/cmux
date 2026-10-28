@@ -44,7 +44,7 @@ extension SettingsController {
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
         do {
             if descriptor.path == InspectorOrderRevision.path {
-                try await file.setInspectorOrder(value)
+                try await file.setInspectorOrder(value, published: loadCount > 0 ? fileRoot : nil)
                 await reloadAfterWrite()
             } else if let value {
                 if legacy != nil || !linked.isEmpty {

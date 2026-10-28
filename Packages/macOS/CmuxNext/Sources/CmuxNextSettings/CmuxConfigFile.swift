@@ -9,6 +9,8 @@ public actor CmuxConfigFile {
     public nonisolated let url: URL
     /// Keys an MDM profile or the team policy manages; every write checks it.
     public nonisolated let managedGuard: ManagedKeyGuard
+    var inspectorOrderPublished: JSONValue?
+    var inspectorOrderObserved = false
 
     public init(url: URL, managedGuard: ManagedKeyGuard = ManagedKeyGuard()) {
         self.url = url

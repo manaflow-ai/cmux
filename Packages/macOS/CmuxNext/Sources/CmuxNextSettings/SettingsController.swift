@@ -286,7 +286,9 @@ public final class SettingsController {
         adopt(await Task.detached {
             let managed = reader.read()
             let source: Result<String, any Error>
-            do { source = .success(try await file.source()) } catch { source = .failure(error) }
+            do {
+                source = .success(try await file.sourceReconcilingInspectorOrder(previous: lastGood))
+            } catch { source = .failure(error) }
             return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
                                configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds)
         }.value)
