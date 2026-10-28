@@ -50,42 +50,46 @@ await requireBrowserLane("composer-shell-alignment.test.ts", async () => {
     await vite?.close();
   });
 
-  /** The prompt's drawn line: its placeholder text, which stands where the caret does. */
+  // Each line below is a field's own first line box, read the same way on both sides: the field's
+  // box, its padding, and half a line down from it. A text range measures the font's content area
+  // instead, which the prompt's UI font and the shell's monospace sit differently inside the same
+  // line box, so a range on one side and a line box on the other report 0.875 px in Chromium that
+  // nothing draws. The glyph is absolutely positioned, so its own box is its line box.
+
+  /** The line and the column the prompt's caret sits on. */
   const promptLine = () => {
     const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+    const field = document.querySelector(".acpmux-composer-box .acpmux-md-field")!;
+    const rect = field.getBoundingClientRect();
+    const style = getComputedStyle(field);
     const placeholder = document.querySelector(".acpmux-composer-box .acpmux-md-placeholder")!;
     const text = placeholder.querySelector(".acpmux-md-placeholder-text") ?? placeholder;
     const range = document.createRange();
     range.selectNodeContents(text);
-    const rect = range.getBoundingClientRect();
     return {
       boxHeight: box.height,
-      textLeft: rect.left - box.left,
-      lineCenter: (rect.top + rect.bottom) / 2 - box.top,
+      textLeft: rect.left + parseFloat(style.paddingLeft) - box.left,
+      lineCenter: rect.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2 - box.top,
+      /// Diagnostic: the placeholder's own text, drawn on that line and column.
+      placeholderLeft: range.getBoundingClientRect().left - box.left,
     };
   };
 
-  /** Shell mode's drawn line: the `!` glyph, and where the field puts the command's first character. */
+  /** Shell mode's line: the `!` glyph, and where the field puts the command's first character. */
   const shellLine = () => {
     const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-    const glyph = document.querySelector(".acpmux-shell-glyph")!;
-    const range = document.createRange();
-    range.selectNodeContents(glyph);
-    const glyphRect = range.getBoundingClientRect();
+    const glyphRect = document.querySelector(".acpmux-shell-glyph")!.getBoundingClientRect();
     const field = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field")!;
-    const fieldRect = field.getBoundingClientRect();
+    const rect = field.getBoundingClientRect();
     const style = getComputedStyle(field);
-    const padLeft = parseFloat(style.paddingLeft);
-    const padTop = parseFloat(style.paddingTop);
-    const lineHeight = parseFloat(style.lineHeight);
     return {
       boxHeight: box.height,
       glyphLeft: glyphRect.left - box.left,
       glyphRight: glyphRect.right - box.left,
       glyphCenter: (glyphRect.top + glyphRect.bottom) / 2 - box.top,
       // The field is a textarea: its text starts at its own padding, on a line of its own height.
-      textLeft: fieldRect.left + padLeft - box.left,
-      lineCenter: fieldRect.top + padTop + lineHeight / 2 - box.top,
+      textLeft: rect.left + parseFloat(style.paddingLeft) - box.left,
+      lineCenter: rect.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2 - box.top,
     };
   };
 
