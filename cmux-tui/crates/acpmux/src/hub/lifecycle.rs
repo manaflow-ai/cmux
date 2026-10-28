@@ -362,6 +362,8 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // An agent started below inherits the daemon's priority: normal first.
+        self.clients.foreground();
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {

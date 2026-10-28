@@ -25,6 +25,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server-core",
  "cmux-trace",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-wake",
  "cmux-worktree-care",

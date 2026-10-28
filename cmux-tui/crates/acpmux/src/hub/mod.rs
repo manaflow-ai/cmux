@@ -1265,7 +1265,7 @@ impl Hub {
             }
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
-            self.care_status(status);
+            self.status_changed(status);
         }
     }
 
