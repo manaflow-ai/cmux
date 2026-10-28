@@ -422,6 +422,9 @@ nonisolated final class TerminalOutputLane: Sendable {
         unsafe closing.load(ordering: .relaxed) ? nil : surface.raw
     }
 
+    /// Whether ``close()`` ran: the surface this lane feeds is freed (or about to be), and no work reaches it.
+    var isClosed: Bool { closing.load(ordering: .relaxed) }
+
     /// Skips queued work and waits for the chunk in flight, so nothing
     /// touches the surface afterwards. Call on the main actor immediately
     /// before `ghostty_surface_free`.
