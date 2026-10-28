@@ -48,8 +48,9 @@ struct WindowContentWaitTests {
         try await fixture.passLimit { fixture.presented.contains(record.id) }
         #expect(fixture.presented == [record.id], "a restored window whose Cloud machine is offline stays off screen with no limit")
         let reconnecting = RemoteStrings.placeholderReconnecting(machine)
-        #expect(Self.shownTexts(in: controller.window?.contentView).contains(reconnecting),
-                "the window shows no \"\(reconnecting)\" state")
+        // Outside `#expect`: its expansion mistakes the optional chain in the argument for one on the result.
+        let shown = Self.shownTexts(in: controller.window?.contentView)
+        #expect(shown.contains(reconnecting), "the window shows no \"\(reconnecting)\" state")
         #expect(WindowInvariants.problems(windows).isEmpty, "a window shown at its limit breaks a window invariant")
     }
 
