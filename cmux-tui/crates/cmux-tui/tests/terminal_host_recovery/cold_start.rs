@@ -305,14 +305,17 @@ fn terminals_with_no_host_record_end_after_the_answer_and_respawn_across_a_resta
 /// The app attaches while the ends run (after the owner said ready), and
 /// each end holds its System lane slot (a debug hook stands in for a slow
 /// commit). The lane runs 5 such tries at once, so the queue of 200 ends
-/// takes 8 s. The attached terminal's end must go first, and then its
-/// respawn: live in well under that. Before, every end waited in the lane's
-/// own queue, where `Permits::promote` could not reach it, and the respawn
-/// that end posted at a background priority could not be raised.
+/// takes 8 s. The ends start in no set order, so the test attaches to 5
+/// terminals that still adopt, at once: each one's end must go first, and
+/// then its respawn, so all 5 are live well before the queue reaches them
+/// (by chance, all 5 in its first 2.5 s is far below 1 %). Before, every end
+/// waited in the lane's own queue, where `Permits::promote` could not reach
+/// it, and a respawn queued at a background priority was not raised.
 #[test]
 fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
     const COUNT: usize = 200;
-    let (mut harness, _records, last, content) = cold_session("cold-start-end-hold", COUNT);
+    const ATTACHES: usize = 5;
+    let (mut harness, _records, _last, _content) = cold_session("cold-start-end-hold", COUNT);
     harness.extra_env.push(("CMUX_TUI_TEST_END_HOLD_MS".to_string(), "200".to_string()));
     harness.restart();
     // The ends run: the owner said ready and some already committed.
@@ -331,20 +334,40 @@ fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
         assert!(Instant::now() < deadline, "the ends never started: {listed}");
         std::thread::sleep(Duration::from_millis(50));
     }
-    let surface = pending_surface(&harness.socket, &content);
-    let (response, attached) = attach(&harness.socket, surface);
-    assert_eq!(
-        response["ok"], true,
-        "the attach while the ends ran failed after {attached:?}: its end or its respawn \
-         waited behind the queue: {response}"
-    );
-    assert!(
-        attached < Duration::from_millis(2_500),
-        "the attach while the ends ran answered after {attached:?}: it waited for the queue"
-    );
-    let resolved = request(
-        &harness.socket,
-        serde_json::json!({"cmd": "resolve-terminal", "terminal_id": last}),
-    );
-    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+    let tree = request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"}));
+    let targets = tabs(&tree)
+        .into_iter()
+        .filter(|tab| tab["terminal_state"] == "adopting")
+        .filter_map(|tab| {
+            Some((tab["surface"].as_u64()?, tab["content_resource_id"].as_str()?.to_owned()))
+        })
+        .take(ATTACHES)
+        .collect::<Vec<_>>();
+    assert_eq!(targets.len(), ATTACHES, "too few tabs still pending: {tree}");
+    let socket = harness.socket.clone();
+    let attaches = targets
+        .iter()
+        .map(|(surface, _)| {
+            let (socket, surface) = (socket.clone(), *surface);
+            std::thread::spawn(move || attach(&socket, surface))
+        })
+        .collect::<Vec<_>>();
+    for ((surface, terminal_id), attach) in targets.iter().zip(attaches) {
+        let (response, attached) = attach.join().unwrap();
+        assert_eq!(
+            response["ok"], true,
+            "the attach to {surface} while the ends ran failed after {attached:?}: its end or \
+             its respawn waited behind the queue: {response}"
+        );
+        assert!(
+            attached < Duration::from_millis(2_500),
+            "the attach to {surface} while the ends ran answered after {attached:?}: it waited \
+             for the queue"
+        );
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+    }
 }
