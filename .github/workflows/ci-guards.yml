@@ -214,6 +214,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
 
+      - name: Validate the glaeda-route App budget cuts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_glaeda_route_app_budget.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
         run: |
