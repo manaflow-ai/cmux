@@ -1,0 +1,37 @@
+name: Stable feed watch
+
+# Every stable install checks releases/latest/download/appcast.xml (or its
+# per-architecture rewrite). On 2026-10-27 v0.65.2.2 was tagged from a hotfix
+# branch whose release.yml still published by tag: the published release had 0
+# assets, every feed URL 404ed, and every 0.65.2 install showed "error
+# retrieving update information" behind a green release run
+# (https://github.com/manaflow-ai/cmux/issues/26729). A tag runs the workflow
+# file at that tag, so release.yml's own feed check cannot cover a tag cut from
+# an older branch. A schedule runs only from main, so this one can. It fetches
+# each stable feed and every enclosure it lists (scripts/ci/verify_stable_feed.py,
+# tested by tests/test_verify_stable_feed.py) and goes red on any problem.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: stable-feed-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Check every stable feed and its enclosures
+        # A feed uploaded minutes ago can still serve GitHub's cached 404.
+        run: python3 scripts/ci/verify_stable_feed.py --settle-seconds 180

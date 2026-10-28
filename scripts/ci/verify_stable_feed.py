@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""Fail when a stable Sparkle feed cannot deliver an update.
+
+Installed stable apps check releases/latest/download/appcast.xml (thin builds
+rewrite it to appcast-<arch>.xml), and files.cmux.com/stable/ serves the same
+feeds from R2. On 2026-10-27 v0.65.2.2 was tagged from a hotfix branch that
+still carried the publish-by-tag release workflow: the published release had 0
+assets while all 12 sat on a hidden draft, so every latest/download feed URL
+404ed and every 0.65.2 install showed "error retrieving update information"
+(https://github.com/manaflow-ai/cmux/issues/26729). The release run was green.
+
+This check reads each feed the way Sparkle does: the feed must load, parse,
+and list at least one item whose enclosure carries an EdDSA signature, and
+every enclosure must download (HTTP 200) with the exact length the feed
+declares. release.yml runs it after publishing with --tag, which adds the new
+release's own feed URLs, and stable-feed-watch.yml runs it hourly from main,
+because a tag runs the workflow file at that tag, so only a scheduled run on
+main covers a release cut from an older branch.
+
+Right after an upload GitHub can serve a cached 404 for a few minutes, so
+--settle-seconds keeps retrying every failure, 404 included, until it passes.
+
+usage: verify_stable_feed.py [--feed URL ...] [--tag vX.Y.Z [--tag-only]] [--attempts 3] [--settle-seconds 0]
+Exits 1 with one line per problem.
+"""
+from __future__ import annotations
+
+import argparse
+import http.client
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+import xml.etree.ElementTree as ET
+
+SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+DEFAULT_FEEDS = (
+    "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml",
+    "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-arm64.xml",
+    "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-x86_64.xml",
+    "https://files.cmux.com/stable/appcast.xml",
+    "https://files.cmux.com/stable/appcast-arm64.xml",
+    "https://files.cmux.com/stable/appcast-x86_64.xml",
+)
+FEED_NAMES = ("appcast.xml", "appcast-arm64.xml", "appcast-x86_64.xml")
+USER_AGENT = "cmux-stable-feed-check"
+
+
+class FetchError(Exception):
+    pass
+
+
+def http_get(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        raise FetchError(f"HTTP {error.code}") from error
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as error:
+        raise FetchError(str(getattr(error, "reason", error))) from error
+
+
+def served_length(status: int, content_range: str | None, content_length: str | None) -> int | None:
+    """The full size from a one-byte range response, or None if unknown."""
+    if status == 206 and content_range:
+        match = re.fullmatch(r"bytes \d+-\d+/(\d+)", content_range.strip())
+        return int(match.group(1)) if match else None
+    return int(content_length) if content_length and content_length.isdigit() else None
+
+
+def http_content_length(url: str) -> int | None:
+    """Asks for one byte and returns the full size the server reports.
+
+    urllib turns a redirected HEAD into a GET, so a HEAD to GitHub's release
+    URL would start a full DMG download; a range request follows the redirect
+    and transfers one byte."""
+    request = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return served_length(response.status, response.headers.get("Content-Range"),
+                                 response.headers.get("Content-Length"))
+    except urllib.error.HTTPError as error:
+        raise FetchError(f"HTTP {error.code}") from error
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as error:
+        raise FetchError(str(getattr(error, "reason", error))) from error
+
+
+def with_retries(attempts: int, call, *args):
+    """GitHub's release CDN returns a transient 5xx or reset now and then; a
+    404 is the failure this check exists for, so it is never retried."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return call(*args)
+        except FetchError as error:
+            if attempt == attempts or str(error).startswith("HTTP 4"):
+                raise
+            time.sleep(2 * attempt)
+
+
+def enclosures(feed_xml: bytes) -> list[dict[str, str]]:
+    """Returns each item's enclosure attributes; raises ValueError on bad XML."""
+    try:
+        root = ET.fromstring(feed_xml)
+    except ET.ParseError as error:
+        raise ValueError(f"does not parse as XML ({error})") from error
+    found = []
+    for item in root.iter("item"):
+        enclosure = item.find("enclosure")
+        if enclosure is None:
+            continue
+        found.append({
+            "url": enclosure.get("url", ""),
+            "length": enclosure.get("length", ""),
+            "signature": enclosure.get(f"{{{SPARKLE_NS}}}edSignature", ""),
+        })
+    return found
+
+
+def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_content_length) -> list[str]:
+    """Returns one line per problem with the feed or any enclosure it lists."""
+    try:
+        body = with_retries(attempts, get, feed_url)
+    except FetchError as error:
+        return [f"{feed_url}: feed did not load ({error})"]
+    try:
+        items = enclosures(body)
+    except ValueError as error:
+        return [f"{feed_url}: feed {error}"]
+    if not items:
+        return [f"{feed_url}: feed lists no item with an enclosure"]
+    problems = []
+    for item in items:
+        url = item["url"]
+        if not url:
+            problems.append(f"{feed_url}: an enclosure has no url")
+            continue
+        if not item["signature"]:
+            problems.append(f"{feed_url}: {url} has no sparkle:edSignature")
+        if not item["length"].isdigit():
+            problems.append(f"{feed_url}: {url} has no numeric length")
+            continue
+        try:
+            served = with_retries(attempts, content_length, url)
+        except FetchError as error:
+            problems.append(f"{feed_url}: {url} does not download ({error})")
+            continue
+        if served is not None and served != int(item["length"]):
+            problems.append(f"{feed_url}: {url} serves {served} bytes, the feed declares {item['length']}")
+    return problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--feed", action="append", help="feed URL to check (repeatable; default: every stable feed)")
+    parser.add_argument("--tag", help="also check this release's own feeds (releases/download/TAG/...)")
+    parser.add_argument("--tag-only", action="store_true", help="check only the --tag feeds (a backport release)")
+    parser.add_argument("--repo", default="manaflow-ai/cmux")
+    parser.add_argument("--attempts", type=int, default=3)
+    parser.add_argument("--settle-seconds", type=int, default=0,
+                        help="retry every failing feed, 404 included, for this long")
+    args = parser.parse_args(argv)
+    if args.tag_only and not args.tag:
+        parser.error("--tag-only needs --tag")
+    feeds = [] if args.tag_only else list(args.feed or DEFAULT_FEEDS)
+    if args.tag:
+        feeds += [f"https://github.com/{args.repo}/releases/download/{args.tag}/{name}" for name in FEED_NAMES]
+    deadline = time.monotonic() + max(0, args.settle_seconds)
+    problems = []
+    for feed_url in feeds:
+        found = check_feed(feed_url, max(1, args.attempts))
+        while found and time.monotonic() < deadline:
+            print(f"wait {feed_url}: {found[0]}")
+            time.sleep(15)
+            found = check_feed(feed_url, max(1, args.attempts))
+        print(f"{'FAIL' if found else 'ok  '} {feed_url}")
+        problems.extend(found)
+    for problem in problems:
+        print(f"::error::{problem}")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
