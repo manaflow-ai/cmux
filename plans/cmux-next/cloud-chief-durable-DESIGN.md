@@ -170,3 +170,26 @@ JSON report and a pass rate for each brain.
    once, a message during a run joins it, NO_REPLY posts nothing and acks, eviction in the middle of
    a run answers once, the flag off keeps P answering, the memory copy from P.
 4. Staging: binding, migration tag, flag on; the eval runner against both brains.
+
+## 11. Relation to chief-engines-DESIGN.md (Oct 28)
+
+`chief-engines-DESIGN.md` (commit 03c0c73c0fe, the Chief-engines lane) landed after D phase 1. It
+sets one Rust kernel for every Chief (memory, ledgers, rules, tool contract, prompt), engines behind
+an adapter (pi-durable is one), and the Cloud Chief as a placement: the Rust kernel on a cloud VM
+with a pi-durable Bun sidecar.
+
+Agreed: one prompt source (D still reads `chief-brain/prompts.ts`; it must read the kernel's rendered
+text), the OptChat view on every engine with pi compaction off, ledgers in the kernel, and "done =
+not worse on the replay, barrage and health evals".
+
+Proposed change to the cloud placement (sent to the Chief-engines lane): one kernel, compiled two
+ways. The native binary runs on a Mac, a Linux box or a VM; the same kernel compiled to wasm runs in
+the Durable Object, as the memory core already does (`optchat-wasm`). pi-durable runs in process in
+the DO as the engine (start = `submit`, steer = `whenBusy: "steer"`, cancel = `abort`); tools that
+need a machine call a hand (Freestyle sandbox or the Mac). Reasons against a VM per user: a cold
+wake is a VM start plus a host start (never measured; the cc route already boots a machine per
+message), a VM costs money while idle (a DO costs nothing idle and starts in about 1 s), and a sidecar
+adds an RPC hop per tool call.
+
+Until the two lanes agree: D gets no kernel features in TypeScript (no ledgers, no new tools). It
+stays the flag-gated DO placement and the measured baseline against P.
