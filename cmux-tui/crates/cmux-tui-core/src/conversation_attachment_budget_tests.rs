@@ -121,7 +121,7 @@ fn attachment_budget_accepts_sparse_original_larger_than_default_budget() {
     store.connection.execute(
         "INSERT INTO attachment_record(conversation, hash, mime_type, byte_count, uploaders_json, created_at_ms)
          VALUES(?1, ?2, 'application/octet-stream', ?3, ?4, 0)",
-        params![conversation, hash, size, r#"["user_local"]"#],
+        params![conversation, hash, i64::try_from(size).unwrap(), r#"["user_local"]"#],
     ).unwrap();
     store
         .connection
