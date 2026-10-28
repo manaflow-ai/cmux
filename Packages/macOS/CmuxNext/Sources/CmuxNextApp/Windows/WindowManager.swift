@@ -74,9 +74,10 @@ final class WindowManager {
     /// True while `restore` runs.
     private(set) var restoring = false
     /// The saved window records are not read (yet, or the launch's read failed: `SavedWindowsRead`):
-    /// they may hold windows this launch does not show, so nothing writes them (#26681). True from
-    /// the start of the launch's read, so a window opened while it waits cannot save either.
-    private(set) var savedWindowsUnread = false
+    /// they may hold windows this launch does not show, so nothing writes them (#26681). True until
+    /// the launch's read answers, so neither a window opened while it waits nor a quit before the
+    /// restore started (its flush would write no windows) can replace them.
+    private(set) var savedWindowsUnread = true
     /// The launch window the person closed before `restore` finished: the restore registers the
     /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
     /// stay in a closed window. Nil once it finished.

@@ -12,6 +12,15 @@ import Testing
 /// window (`SavedWindowsRead`, its retry tests are in CmuxNextDaemonTests).
 @MainActor @Suite(.serialized)
 struct SavedWindowsLaunchTests {
+    /// Before the launch read the records (a quit while the daemon still starts), nothing may save:
+    /// the quit flush would write this launch's windows, none yet, over the saved ones.
+    @Test func recordsCountAsUnreadUntilTheLaunchReadsThem() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        #expect(services.windows.savedWindowsUnread)
+        #expect(!services.windows.restored)
+    }
+
     /// Against a same-tree cmux-tui: while the launch's read waits and after it failed, a save leaves
     /// the stored records as they were (both windows), where before its first save kept only its own
     /// window. A read that answers lets saves through again.
@@ -21,6 +30,8 @@ struct SavedWindowsLaunchTests {
             let windows = services.windows
             let windowState = try #require(services.daemon.windowState)
             let live = try #require(services.daemon.store.workspaces.compactMap(\.key).first)
+            // Settle the launch's own saves first: one in flight could land after the seed below.
+            await windows.recordSaver.flushSaves()
             let saved = ["saved-front", "saved-second"]
             try await windowState.update { document in
                 document.windows = saved.map { WindowRecord(id: $0, workspaceKey: live, workspaceKeys: [live]) }
