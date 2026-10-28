@@ -17,7 +17,9 @@ split, all through the app's control socket (`action.run`, as a script does). Ev
              stalls past 250 ms with their stacks), the app's RSS
   streams    each terminal stream that ended and why, from the input journal's attach records (`debug.journal`,
              `ended:overflow` or `ended:other`), with whether its terminal was visible when it ended
-  crashes    the app's exit, the daemon's pid changing (a daemon restart), and crash reports of either
+  crashes    the app's exit, the daemon's pid changing (a daemon restart), and crash reports of either (.crash, or
+             .ips of a crash bug_type; their other reports, hangs, spins and resource reports, are listed apart as
+             `diagnostic_reports` and are not crashes)
 
 The report (report.json in --out, and one line per check) carries the keys of the two checks:
 
@@ -27,7 +29,13 @@ The report (report.json in --out, and one line per check) carries the keys of th
                       main_hangs_daemon_wait == 0 (main-thread stalls of 250 ms and more whose stack is in daemon
                       connection code and that waited: CPU under half the stall)
 
-A key that could not be read is null with its reason in `unseen`, and its check is not measured, never passed.
+Windows (`windows` in the report): the IPC-14 keys, the stream ends and the crashes count from the `baseline`
+sample, taken with the debug.hangs clear and the journal baseline before the floods start, to the `end` sample; the
+RSS change counts from the `start` sample after the warm-up (start-up growth is not a leak).
+
+A key that could not be read is null with its reason in `unseen`, and its check is not measured, never passed. So
+is a run that did not carry its load (`load`): a flood under FLOOD_MIN_SHARE of --flood-mbps or with no rate, or
+switches or splits that never succeeded or failed past OP_FAILED_MAX_SHARE.
 Exit 0 when both checks pass, 1 when one fails, 4 when one is not measured, 2 when the run itself failed.
 Each series is also a cmux-perf-result/v1 file (BenchApp.record), story `ipc-soak-flood-<N>[-stress]`.
 
@@ -63,6 +71,16 @@ WAIT_CPU_SHARE = 0.5  # a stall whose main-thread CPU is under this share of its
 DAEMON_SECTIONS = ["ipc", "slow_requests", "hangs"]
 WINDOW = (40, 40, 1600, 1000)
 JOURNAL_MARGIN = 256  # entries read past the new count: the journal may grow between its two reads
+FLOOD_MIN_SHARE = 0.5  # a flood that achieved under this share of --flood-mbps did not load the soak
+OP_FAILED_MAX_SHARE = 0.1  # switches or splits that failed past this share did not churn the soak
+# ReportCrash bug types of a crash report (.ips); hang (288), spin, CPU and wakeups resource reports are not crashes.
+CRASH_BUG_TYPES = frozenset({"109", "309"})
+WINDOWS = {
+    "ipc14": "baseline -> end: from the debug.hangs clear and the slow_requests baseline, before the floods start",
+    "stream_ends": "baseline -> end: from the journal baseline, before the floods start",
+    "crashes": "the whole run",
+    "daemon_rss": "start -> end: from the first sample after the warm-up",
+}
 EXIT_PASS, EXIT_FAILED, EXIT_RUN_ERROR, EXIT_NOT_MEASURED = 0, 1, 2, 4
 
 
@@ -180,6 +198,118 @@ def slow_records(start, end):
     return recent[-(b - a):]
 
 
+class HangFeed:
+    """Main-thread stalls of `debug.hangs` (the app's HangLog ring) after its clear, each record once. Not complete,
+    and so not measured, when a reply is not a running watchdog's (an error, `installed` not true, no `records`),
+    when no read succeeded, or when the ring overwrote records between reads: a gap in `sequence`, or fewer records
+    seen than the log's `count` + `busy_count` since the clear."""
+
+    def __init__(self):
+        self.seq = 0
+        self.seen = 0
+        self.lost = 0
+        self.reads = 0
+        self.problem = None
+        self.records = []
+
+    @staticmethod
+    def reply_problem(reply):
+        if not isinstance(reply, dict) or not isinstance(reply.get("records"), list):
+            return f"debug.hangs gave no records ({json.dumps(reply, default=str)[:160]})"
+        if reply.get("installed") is not True:
+            return f"no hang watchdog runs (debug.hangs installed={json.dumps(reply.get('installed'))})"
+        return None
+
+    def clear(self, reply):
+        """The reply of `debug.hangs {"clear": true}`: the records before the clear set the sequence baseline."""
+        self.problem = self.problem or self.reply_problem(reply)
+        if self.problem is None:
+            self.seq = max((r["sequence"] for r in reply["records"] if isinstance(r, dict)
+                            and isinstance(r.get("sequence"), int)), default=0)
+
+    def feed(self, reply):
+        """One `debug.hangs {"after": seq}` reply; returns its problem or None."""
+        problem = self.reply_problem(reply)
+        if problem:
+            self.problem = self.problem or problem
+            return problem
+        new = sorted((r for r in reply["records"] if isinstance(r, dict) and isinstance(r.get("sequence"), int)
+                      and r["sequence"] > self.seq), key=lambda r: r["sequence"])
+        if new and self.seq and new[0]["sequence"] > self.seq + 1:
+            self.lost += new[0]["sequence"] - self.seq - 1
+        for record in new:
+            self.seq = record["sequence"]
+            self.seen += 1
+            if classify_hang(record):
+                self.records.append(record)
+        count, busy = reply.get("count"), reply.get("busy_count", 0)
+        if isinstance(count, int) and isinstance(busy, int):
+            self.lost = max(self.lost, count + busy - self.seen)
+        self.reads += 1
+        return None
+
+    def unseen(self):
+        if self.problem:
+            return self.problem
+        if not self.reads:
+            return "debug.hangs was never read"
+        if self.lost:
+            return f"the hang log's ring overwrote {self.lost} records between reads"
+        return None
+
+
+def report_kind(path):
+    """`crash` for a crash report (.crash, or .ips whose header bug_type is a crash's), else `diagnostic` (hang,
+    spin, CPU or wakeups resource reports). An .ips whose header does not parse counts as a crash: unread is not
+    proof that nothing crashed."""
+    if path.endswith(".crash"):
+        return "crash"
+    if not path.endswith(".ips"):
+        return "diagnostic"
+    try:
+        with open(path, errors="replace") as handle:
+            header = json.loads(handle.readline())
+    except (OSError, ValueError):
+        return "crash"
+    if not isinstance(header, dict):
+        return "crash"
+    return "crash" if str(header.get("bug_type")) in CRASH_BUG_TYPES else "diagnostic"
+
+
+def load_problems(floods, target_mbps, rates, ops, switches):
+    """Why the soak did not carry its load, or []: each of `floods` floods must report a rate of FLOOD_MIN_SHARE of
+    `target_mbps` or more, and the splits (and the switches, when `switches`) must succeed with at most
+    OP_FAILED_MAX_SHARE of them failed."""
+    problems = []
+    if floods:
+        rates = list(rates or [])
+        if len(rates) < floods:
+            problems.append(f"{len(rates)} of {floods} floods reported a rate")
+        for index, rate in enumerate(rates):
+            if rate is None:
+                problems.append(f"flood {index} wrote no rate")
+            elif rate < target_mbps * FLOOD_MIN_SHARE:
+                problems.append(f"flood {index} ran at {rate} MB/s, under {FLOOD_MIN_SHARE:.0%} of {target_mbps}")
+    for op in ("switch", "split") if switches else ("split",):
+        row = (ops or {}).get(op) or {}
+        ok, failed = row.get("ok") or 0, row.get("failed") or 0
+        if not ok:
+            problems.append(f"no {op} succeeded ({failed} failed)")
+        elif failed > (ok + failed) * OP_FAILED_MAX_SHARE:
+            problems.append(f"{failed} of {ok + failed} {op} steps failed")
+    return problems
+
+
+def load_unseen(report, unseen):
+    """Adds `load` to `unseen` when the soak's load was not checked or not carried; returns the `load` key."""
+    load = report.get("load")
+    if not isinstance(load, dict):
+        unseen["load"] = "the soak's load was not checked"
+    elif load.get("problems"):
+        unseen["load"] = "; ".join(load["problems"])
+    return None if "load" in unseen else "carried"
+
+
 def ipc12(report):
     """IPC-12's soak keys and verdict: pass True, False, or None (not measured, `unseen` says why)."""
     crashes = report.get("crashes") or {}
@@ -197,7 +327,7 @@ def ipc12(report):
     if change is None:
         unseen["daemon_rss_change_pct"] = rss.get("unseen") or "no start and end sample of the daemon's RSS"
     keys = {"crashes": count, "overflow_ends_visible": visible, "daemon_rss_change_pct": change,
-            "daemon_rss_max_change_pct": rss.get("max_change_pct")}
+            "daemon_rss_max_change_pct": rss.get("max_change_pct"), "load": load_unseen(report, unseen)}
     failed = count > 0 or bool(visible) or (change is not None and abs(change) > RSS_LIMIT_PCT)
     keys["pass"] = False if failed else (None if unseen else True)
     keys["unseen"] = unseen
@@ -216,7 +346,8 @@ def ipc14(report):
     if waits is None:
         unseen["main_hangs_daemon_wait"] = hangs.get("unseen") or "debug.hangs was not read"
     keys = {"slow_requests": delta, "main_hangs_daemon_wait": waits,
-            "main_hangs_over_250ms": hangs.get("over_250ms"), "main_hangs_unattributed": hangs.get("unattributed")}
+            "main_hangs_over_250ms": hangs.get("over_250ms"), "main_hangs_unattributed": hangs.get("unattributed"),
+            "load": load_unseen(report, unseen)}
     failed = bool(delta) or bool(waits)
     keys["pass"] = False if failed else (None if unseen else True)
     keys["unseen"] = unseen
@@ -288,8 +419,7 @@ class Soak:
         self.flooders = []
         self.ends = None
         self.journal_problem = None
-        self.hang_seq = 0
-        self.hang_records = []
+        self.hangs = HangFeed()
         self.cycle = 0
         self.op_ms = {"switch": [], "split": []}
         self.op_failed = {"switch": 0, "split": 0}
@@ -334,7 +464,9 @@ class Soak:
             return {"unseen": "debug.daemon names no daemon pid"}
         path = self.probe.locate()
         if path is None:
-            return {"unseen": self.probe.reason}
+            reason = self.probe.reason
+            self.probe = self.bh.DaemonProbe(self.rpc)  # DaemonProbe keeps its failure; look again next time
+            return {"unseen": reason}
         reply = self.probe.request(path, {"cmd": "server-stats", "include": DAEMON_SECTIONS})
         if not isinstance(reply, dict) or reply.get("ok") is not True:
             self.probe = self.bh.DaemonProbe(self.rpc)  # the socket may have moved; look again next time
@@ -408,7 +540,10 @@ class Soak:
                 raise RuntimeError(f"flood pane {pane} has no terminal")
             stats = os.path.join(self.opts.out, f"flood-{index}.json")
             command = " ".join(shlex.quote(p) for p in (sys.executable, "-I", flooder, str(self.opts.flood_mbps), stats))
+            refused = len(self.stress.refusals)
             self.stress.send(tab, command + "\r")
+            if len(self.stress.refusals) > refused:
+                raise RuntimeError(f"flood {index} did not start: {self.stress.refusals[-1]}")
             self.flooders.append((tab, stats))
         self.note(f"ipc-soak: {len(self.flooders)} floods at {self.opts.flood_mbps} MB/s each")
 
@@ -493,16 +628,9 @@ class Soak:
         self.ends.feed(entries, self.visible_surfaces())
 
     def read_hangs(self):
-        reply = self.rpc("debug.hangs", {"after": self.hang_seq}, timeout=30)
-        if not isinstance(reply, dict) or "records" not in reply:
-            return {"unseen": f"debug.hangs: {json.dumps(reply)[:160]}"}
-        for record in reply.get("records") or []:
-            seq = record.get("sequence") if isinstance(record, dict) else None
-            if isinstance(seq, int) and seq > self.hang_seq:
-                self.hang_seq = seq
-                if classify_hang(record):
-                    self.hang_records.append(record)
-        return reply
+        reply = self.rpc("debug.hangs", {"after": self.hangs.seq}, timeout=30)
+        problem = self.hangs.feed(reply)
+        return {"unseen": problem} if problem else reply
 
     def sample(self, label):
         pid = self.read_daemon_pid()
@@ -550,20 +678,22 @@ class Soak:
                 self.ends = StreamEnds(stats["lastSeq"])
             else:
                 self.journal_problem = f"the input journal is off ({json.dumps(head)[:160]}): launch a Debug or tagged build"
-            self.rpc("debug.hangs", {"clear": True}, timeout=20)
+            self.hangs.clear(self.rpc("debug.hangs", {"clear": True}, timeout=20))
+            self.report["windows"] = dict(WINDOWS)
+            base_stats = self.sample("baseline")  # before any load: the IPC-14 window opens here
             self.start_floods(flood)
             alive = self.churn_for(self.opts.warmup_minutes * 60, "warmup")
-            start_stats = self.sample("start") if alive else {}
             if alive:
+                self.sample("start")
                 alive = self.churn_for(self.opts.minutes * 60, "soak")
             end_stats = self.sample("end") if alive else {}
-            self.finish_keys(start_stats, end_stats)
+            self.finish_keys(base_stats, end_stats)
         finally:
             if self.app_alive():
                 self.stop_floods()
             self.stress.close()
 
-    def finish_keys(self, start_stats, end_stats):
+    def finish_keys(self, base_stats, end_stats):
         samples = self.report["samples"]
         start = next((s for s in samples if s["label"] == "start"), None)
         end = next((s for s in samples if s["label"] == "end"), None)
@@ -576,17 +706,21 @@ class Soak:
             "max_change_pct": max_change_pct(base, [s["daemon_rss"] for s in soak if s.get("daemon_pid") == start.get("daemon_pid")]) if start else None,
             "unseen": None if same else ("the daemon restarted during the soak" if start and end
                                          else "the soak ended before its start and end samples")}
-        a, b = slow_total(start_stats), slow_total(end_stats)
+        a, b = slow_total(base_stats), slow_total(end_stats)
         restarted = self.report["crashes"]["daemon_restarts"] > 0
+        unread = next((s.get("unseen") for s in (base_stats, end_stats) if s and s.get("unseen")), None)
         self.report["slow_requests"] = {
             "start_total": a, "end_total": b, "delta": b - a if a is not None and b is not None and not restarted else None,
-            "records": slow_records(start_stats, end_stats),
-            "unseen": "the daemon restarted during the soak" if restarted else (start_stats or end_stats or {}).get("unseen")}
-        kinds = [classify_hang(r) for r in self.hang_records]
+            "records": slow_records(base_stats, end_stats),
+            "unseen": "the daemon restarted during the soak" if restarted else (
+                unread or (None if a is not None and b is not None else "no baseline and end server-stats"))}
+        kinds = [classify_hang(r) for r in self.hangs.records]
+        hangs_unseen = self.hangs.unseen()
         self.report["main_hangs"] = {
-            "over_250ms": len(kinds), "daemon_wait": kinds.count("daemon_wait"), "daemon_busy": kinds.count("daemon_busy"),
-            "other": kinds.count("other"), "unattributed": kinds.count("unattributed"),
-            "records": [dict(r, cause=k) for r, k in zip(self.hang_records, kinds)][-32:]}
+            "over_250ms": len(kinds), "daemon_wait": None if hangs_unseen else kinds.count("daemon_wait"),
+            "daemon_busy": kinds.count("daemon_busy"), "other": kinds.count("other"),
+            "unattributed": kinds.count("unattributed"), "seen": self.hangs.seen, "lost": self.hangs.lost,
+            "unseen": hangs_unseen, "records": [dict(r, cause=k) for r, k in zip(self.hangs.records, kinds)][-32:]}
         ends = self.ends.report() if self.ends else {}
         ends["journal"] = "read" if self.ends and not self.journal_problem else (self.journal_problem or "unread")
         self.report["stream_ends"] = ends
@@ -597,17 +731,23 @@ class Soak:
         if self.app.process is not None:  # no app ran: no report is this run's
             mine = [("cmux DEV", self.app.process.pid, self.app.binary)]
             mine += [("cmux-tui", pid, None) for pid in crashes["daemon_pids"]]
-            crashes["crash_reports"] = sorted({path for name, pid, binary in mine
-                                               for path in self.bl.crash_reports(self.started_wall, name, pid=pid, binary=binary)})
+            found = sorted({path for name, pid, binary in mine
+                            for path in self.bl.crash_reports(self.started_wall, name, pid=pid, binary=binary)})
+            crashes["crash_reports"] = [path for path in found if report_kind(path) == "crash"]
+            self.report["diagnostic_reports"] = [path for path in found if report_kind(path) != "crash"]
         self.report["ops"] = {op: {"ok": len(ms), "failed": self.op_failed[op], "ms": distribution(ms)}
                               for op, ms in self.op_ms.items()}
+        self.report["load"] = {
+            "floods": self.opts.flood, "target_mbps": self.opts.flood_mbps, "flood_mbps": self.report.get("flood_mbps"),
+            "problems": load_problems(self.opts.flood, self.opts.flood_mbps, self.report.get("flood_mbps"),
+                                      self.report["ops"], bool(self.switch_to))}
         self.report.setdefault("stream_ends", {"journal": self.journal_problem or "unread"})
         self.report["ipc12"] = ipc12(self.report)
         self.report["ipc14"] = ipc14(self.report)
 
     def record(self):
         story = f"ipc-soak-flood-{self.opts.flood}" + ("-stress" if self.opts.stress else "")
-        soak = [s for s in self.report["samples"] if not s["label"].startswith("warmup")]
+        soak = [s for s in self.report["samples"] if not s["label"].startswith(("warmup", "baseline"))]
         series = {
             "daemon_rss_bytes": ([s.get("daemon_rss") for s in soak], "bytes"),
             "app_rss_bytes": ([s.get("app_rss") for s in soak], "bytes"),
@@ -631,6 +771,9 @@ def report_lines(report):
         ms = row.get("ms") or {}
         lines.append(f"IPC-SOAK-OP {op} ok={row.get('ok')} failed={row.get('failed')} p50={ms.get('p50')} "
                      f"p95={ms.get('p95')} max={ms.get('max')}")
+    load = report.get("load") or {}
+    lines.append(f"IPC-SOAK-LOAD floods={load.get('floods')} target_mbps={load.get('target_mbps')} "
+                 f"flood_mbps={json.dumps(load.get('flood_mbps'))} problems={json.dumps(load.get('problems'))}")
     ends = report.get("stream_ends") or {}
     lines.append(f"IPC-SOAK-STREAM-ENDS journal={ends.get('journal')} by_reason={json.dumps(ends.get('by_reason') or {})} "
                  f"overflow_visible={ends.get('overflow_visible')} overflow_hidden={ends.get('overflow_hidden')}")
@@ -679,7 +822,8 @@ def self_test():
     good = {"crashes": {"app_exit": None, "daemon_restarts": 0, "crash_reports": []},
             "stream_ends": {"journal": "read", "overflow_visible": 0, "journal_lost": 0},
             "daemon_rss": {"change_pct": 3.2, "max_change_pct": 4.1},
-            "slow_requests": {"delta": 0}, "main_hangs": {"daemon_wait": 0, "over_250ms": 1, "unattributed": 0}}
+            "slow_requests": {"delta": 0}, "main_hangs": {"daemon_wait": 0, "over_250ms": 1, "unattributed": 0},
+            "load": {"problems": []}}
     a, b = ipc12(good), ipc14(good)
     assert a["pass"] is True and a["crashes"] == 0 and a["overflow_ends_visible"] == 0, a
     assert b["pass"] is True and b["slow_requests"] == 0 and b["main_hangs_daemon_wait"] == 0, b
@@ -708,147 +852,276 @@ def self_test():
     assert lines[0] == "IPC-SOAK-OP split ok=2 failed=0 p50=3.0 p95=5.0 max=5.0", lines
     assert lines[-1].startswith("IPC-SOAK-IPC14 slow_requests=0 main_hangs_daemon_wait=0 ") and "pass=true" in lines[-1], lines
     assert distribution([]) is None and distribution([1, 2, 3, 4])["p50"] == 2, distribution([1, 2, 3, 4])
-    run_test()
+
+    # The load: a soak that did not carry it is not measured; a failure still fails.
+    ops = {"switch": {"ok": 9, "failed": 1}, "split": {"ok": 10, "failed": 0}}
+    assert load_problems(2, 10, [9.5, 5.0], ops, True) == []
+    assert load_problems(2, 10, [9.5, None], ops, True) == ["flood 1 wrote no rate"]
+    assert load_problems(2, 10, [4.9], ops, True) == ["1 of 2 floods reported a rate", "flood 0 ran at 4.9 MB/s, under 50% of 10"]
+    assert load_problems(0, 10, None, {"split": {"ok": 0, "failed": 4}}, True) == [
+        "no switch succeeded (0 failed)", "no split succeeded (4 failed)"]
+    assert load_problems(0, 10, None, {"split": {"ok": 8, "failed": 2}}, False) == ["2 of 10 split steps failed"]
+    short = dict(good, load={"problems": ["flood 0 wrote no rate"]})
+    assert ipc12(short)["pass"] is None and ipc12(short)["unseen"]["load"] == "flood 0 wrote no rate", ipc12(short)
+    assert ipc14(short)["pass"] is None and ipc14(short)["load"] is None, ipc14(short)
+    assert ipc12(dict(short, crashes={"app_exit": -6}))["pass"] is False
+    assert ipc14({k: v for k, v in good.items() if k != "load"})["unseen"]["load"] == "the soak's load was not checked"
+
+    # debug.hangs: an error reply, no watchdog, a sequence gap and a ring that overwrote records are not measured.
+    def hang(seq, ms=300.0):
+        return {"sequence": seq, "kind": "stall", "duration_ms": ms, "cpu_ms": 1.0, "frames": ["CmuxNextDaemon.wait"]}
+    feed = HangFeed()
+    feed.clear({"installed": True, "count": 3, "records": [hang(6), hang(7)]})
+    assert feed.seq == 7 and feed.unseen() == "debug.hangs was never read"
+    assert feed.feed({"installed": True, "count": 2, "busy_count": 0, "records": [hang(7), hang(8), hang(9, 10.0)]}) is None
+    assert feed.seq == 9 and feed.seen == 2 and len(feed.records) == 1 and feed.unseen() is None, vars(feed)
+    gap = HangFeed()
+    gap.clear({"installed": True, "count": 0, "records": [hang(7)]})
+    gap.feed({"installed": True, "count": 1, "records": [hang(10)]})  # 8 and 9 overwritten
+    assert gap.lost == 2 and "overwrote 2 records" in gap.unseen(), vars(gap)
+    ring = HangFeed()
+    ring.clear({"installed": True, "count": 0, "records": []})  # no baseline sequence: the count shows the loss
+    ring.feed({"installed": True, "count": 3, "busy_count": 1, "records": [hang(40), hang(41)]})
+    assert ring.lost == 2 and ring.unseen().startswith("the hang log's ring overwrote 2"), vars(ring)
+    error = HangFeed()
+    error.clear({"installed": True, "count": 0, "records": []})
+    assert error.feed({"error": "timeout"}).startswith("debug.hangs gave no records")
+    error.feed({"installed": True, "count": 0, "records": []})  # a later good read does not hide the gap in reads
+    assert error.unseen().startswith("debug.hangs gave no records"), error.unseen()
+    off = HangFeed()
+    off.clear({"installed": False, "count": 0, "records": []})
+    off.feed({"installed": False, "count": 0, "records": []})
+    assert off.unseen() == "no hang watchdog runs (debug.hangs installed=false)", off.unseen()
+
+    # Crash reports: only a .crash or an .ips of a crash bug_type; hang and resource reports are listed apart.
+    folder = tempfile.mkdtemp(prefix="ipc-soak-reports-")
+    reports = {"crash.ips": '{"bug_type":"309","name":"cmux DEV"}\n{"pid": 1}\n', "hang.ips": '{"bug_type":"288"}\n{}\n',
+               "cpu.ips": '{"bug_type":"202"}\n{}\n', "torn.ips": "{not json\n", "old.crash": "Process: x [1]\n",
+               "x.cpu_resource.diag": "Command: x\n", "x.spin": "Command: x\n"}
+    for name, text in reports.items():
+        with open(os.path.join(folder, name), "w") as handle:
+            handle.write(text)
+    kinds = {name: report_kind(os.path.join(folder, name)) for name in reports}
+    assert kinds == {"crash.ips": "crash", "hang.ips": "diagnostic", "cpu.ips": "diagnostic", "torn.ips": "crash",
+                     "old.crash": "crash", "x.cpu_resource.diag": "diagnostic", "x.spin": "diagnostic"}, kinds
+    run_test(folder)
+    shutil.rmtree(folder, ignore_errors=True)
     print("ipc-soak: self-test ok")
 
 
-def run_test():
+def run_test(reports_folder):
     """Soak.run and finish against a fake app, STRESS builder and daemon: the samples, the stream ends of the
-    journal, the slow requests the daemon added, the daemon-wait stall and the two checks' keys."""
-    class Process:
-        pid, returncode = 111, None
+    journal, the slow requests the daemon added, the daemon-wait stall, the load, the crash reports and the two
+    checks' keys. `reports_folder` holds the report files self_test wrote."""
+    def report(name):
+        return os.path.join(reports_folder, name)
 
-        def poll(self):
-            return None
+    def stall(seq, ms=400):
+        return {"sequence": seq, "kind": "stall", "duration_ms": ms, "cpu_ms": 5,
+                "frames": ["cmux DEV CmuxNextDaemon.LineTransport.wait + 1"]}
 
-    class App:
-        tag, app, binary, features = "t", "/x/cmux DEV t.app", "/x/cmux DEV t.app/Contents/MacOS/cmux DEV", None
+    def one_stall(params, reads):
+        return {"installed": True, "count": 1, "busy_count": 0, "count250": 1, "max_ms": 400,
+                "records": [r for r in [stall(1)] if r["sequence"] > params.get("after", 0)]}
 
-        def __init__(self):
-            self.process, self.journal_seq, self.calls = None, 5, []
+    def fake_soak(flood_rate=10.0, hangs=one_stall, slow_step=1, locate_fails=0, reports=("hang.ips", "x.cpu_resource.diag"),
+                  refuse_send=False):
+        state = {"locates": 0, "reads": 0, "hang_reads": 0}
 
-        def launch(self):
-            self.process = Process()
+        class Process:
+            pid, returncode = 111, None
 
-        def rpc(self, method, params=None, timeout=60):
-            params = params or {}
-            self.calls.append(method)
-            if method == "debug.daemon":
-                return {"pid": 222}
-            if method == "debug.journal":
-                if params.get("last") == 0:
-                    self.journal_seq += 3
-                    return {"stats": {"enabled": True, "lastSeq": self.journal_seq, "capacity": 4096}, "entries": []}
-                s = self.journal_seq
-                return {"entries": [
-                    {"seq": s - 2, "kind": {"attach": {"_0": {"surface": "s-p1", "event": "hidden", "phase": "live"}}}},
-                    {"seq": s - 1, "kind": {"attach": {"_0": {"surface": "s-p1", "event": "ended:overflow", "phase": "x"}}}},
-                    {"seq": s, "kind": {"marker": {"_0": "m"}}}]}
-            if method == "debug.hangs":
-                return {"count": 1, "count250": 1, "max_ms": 400, "records": [
-                    {"sequence": 1, "kind": "stall", "duration_ms": 400, "cpu_ms": 5,
-                     "frames": ["cmux DEV CmuxNextDaemon.LineTransport.wait + 1"]}]}
-            if method == "debug.daemon.wire":
-                return {"frames_read": {"stream_end": 2}, "output_bytes_copied_app": 0}
-            return {}
+            def poll(self):
+                return None
 
-    class Stress:
-        def __init__(self, rpc, log=None, busy_where=None):
-            self.made, self.refusals, self.splits, self.background, self.sent = {}, [], 0, ["b1", "b2"], []
+        class App:
+            tag, app, binary, features = "t", "/x/cmux DEV t.app", "/x/cmux DEV t.app/Contents/MacOS/cmux DEV", None
 
-        def build(self):
-            return {"measured": "m"}
+            def __init__(self):
+                self.process, self.journal_seq = None, 5
 
-        def workspace(self, workspace):
-            tabs = [{"id": f"t-{p}", "kind": "terminal", "selected": True, "surface": f"s-{p}"} for p in ("p0", "p1", "p2")]
-            return {"id": workspace, "screens": [{"panes": [{"id": t["id"][2:], "tabs": [t]} for t in tabs]}]}
+            def launch(self):
+                self.process = Process()
 
-        def topology(self):
-            return {"windows": [{"workspace": "m"}], "workspaces": [self.workspace("m")]}
+            def rpc(self, method, params=None, timeout=60):
+                params = params or {}
+                if method == "debug.daemon":
+                    return {"pid": 222}
+                if method == "debug.journal":
+                    if params.get("last") == 0:
+                        self.journal_seq += 3
+                        return {"stats": {"enabled": True, "lastSeq": self.journal_seq, "capacity": 4096}, "entries": []}
+                    s = self.journal_seq
+                    return {"entries": [
+                        {"seq": s - 2, "kind": {"attach": {"_0": {"surface": "s-p1", "event": "hidden", "phase": "live"}}}},
+                        {"seq": s - 1, "kind": {"attach": {"_0": {"surface": "s-p1", "event": "ended:overflow", "phase": "x"}}}},
+                        {"seq": s, "kind": {"marker": {"_0": "m"}}}]}
+                if method == "debug.hangs":
+                    if params.get("clear"):
+                        return {"installed": True, "count": 0, "busy_count": 0, "records": []}
+                    state["hang_reads"] += 1
+                    return hangs(params, state["hang_reads"])
+                if method == "debug.daemon.wire":
+                    return {"frames_read": {"stream_end": 2}, "output_bytes_copied_app": 0}
+                return {}
 
-        @staticmethod
-        def panes(workspace):
-            return [p for s in (workspace or {}).get("screens") or [] for p in s.get("panes") or []]
+        class Stress:
+            def __init__(self, rpc, log=None, busy_where=None):
+                self.made, self.refusals, self.splits, self.background, self.sent = {}, [], 0, ["b1", "b2"], []
 
-        def tabs(self, workspace, pane):
-            return next(p["tabs"] for p in self.panes(self.workspace(workspace)) if p["id"] == pane)
+            def build(self):
+                return {"measured": "m"}
 
-        def split(self, workspace, pane, verb):
-            self.splits += 1
-            return f"new-{self.splits}"
+            def workspace(self, workspace):
+                tabs = [{"id": f"t-{p}", "kind": "terminal", "selected": True, "surface": f"s-{p}"} for p in ("p0", "p1", "p2")]
+                return {"id": workspace, "screens": [{"panes": [{"id": t["id"][2:], "tabs": [t]} for t in tabs]}]}
 
-        def show(self, workspace):
-            pass
+            def topology(self):
+                return {"windows": [{"workspace": "m"}], "workspaces": [self.workspace("m")]}
 
-        def action(self, *args, **kwargs):
-            return {}
+            @staticmethod
+            def panes(workspace):
+                return [p for s in (workspace or {}).get("screens") or [] for p in s.get("panes") or []]
 
-        def send(self, tab, text):
-            self.sent.append((tab, text))
+            def tabs(self, workspace, pane):
+                return next(p["tabs"] for p in self.panes(self.workspace(workspace)) if p["id"] == pane)
 
-        def close(self):
-            pass
+            def split(self, workspace, pane, verb):
+                self.splits += 1
+                return f"new-{self.splits}"
 
-    class Probe:
-        reads = 0
+            def show(self, workspace):
+                pass
 
-        def __init__(self, rpc):
-            self.reason = None
+            def action(self, *args, **kwargs):
+                return {}
 
-        def locate(self):
-            return "/daemon.sock"
+            def send(self, tab, text):
+                if refuse_send:
+                    self.refusals.append("terminal.sendText: no such tab")
+                self.sent.append((tab, text))
 
-        def request(self, path, command):
-            assert command == {"cmd": "server-stats", "include": DAEMON_SECTIONS}, command
-            Probe.reads += 1
-            total = Probe.reads  # one more slow request at each sample
-            return {"ok": True, "data": {"ipc": {"streams": {"open": 3}, "bad_message": 0, "writes": {"stalls": 0}},
-                                         "slow_requests": {"total": total, "recent": [{"method": f"m{i}"} for i in range(total)]},
-                                         "hangs": {"over_250ms": 0}}}
+            def close(self):
+                pass
 
-    class Typing:
-        FLOODER = "pass\n"
-        bench_tagged = type("BenchTagged", (), {"host_block": staticmethod(lambda: {"host": "fake"})})
+        class Probe:
+            def __init__(self, rpc):
+                self.path, self.reason = None, None
 
-        @staticmethod
-        def flood_rate(path):
-            return 10.0
+            def locate(self):  # as blocking_hangs.DaemonProbe: a failure stays with the probe
+                if self.path or self.reason:
+                    return self.path
+                state["locates"] += 1
+                if state["locates"] <= locate_fails:
+                    self.reason = "lsof timed out"
+                    return None
+                self.path = "/daemon.sock"
+                return self.path
 
-    class Launch:
-        @staticmethod
-        def crash_reports(since, name, pid=None, binary=None):
-            return []
+            def request(self, path, command):
+                assert command == {"cmd": "server-stats", "include": DAEMON_SECTIONS}, command
+                state["reads"] += 1
+                total = 1 + state["reads"] * slow_step  # slow_step more slow requests at each sample
+                return {"ok": True, "data": {"ipc": {"streams": {"open": 3}, "bad_message": 0, "writes": {"stalls": 0}},
+                                             "slow_requests": {"total": total, "recent": [{"method": f"m{i}"} for i in range(total)]},
+                                             "hangs": {"over_250ms": 0}}}
 
-    def wait(predicate, seconds, step=0.1):
-        return predicate()
+        class Typing:
+            FLOODER = "pass\n"
+            bench_tagged = type("BenchTagged", (), {"host_block": staticmethod(lambda: {"host": "fake"})})
 
-    stress_module = type("StressModule", (), {"Stress": Stress, "StressShapeError": RuntimeError, "wait": staticmethod(wait)})
-    hangs_module = type("HangsModule", (), {"DaemonProbe": Probe})
-    ticks = iter(range(10 ** 6))
-    out = tempfile.mkdtemp(prefix="ipc-soak-test-")
-    opts = parse_args(["--minutes", "0.5", "--warmup-minutes", "0.5", "--flood", "2", "--stress", "--churn-seconds", "1",
-                       "--sample-seconds", "10", "--out", out])
-    rss = {111: 500, 222: 1000}
-    soak = Soak(opts, App(), stress_module, Typing, hangs_module, Launch, rss_of=rss.get, clock=lambda: float(next(ticks)),
-                sleep=lambda seconds: None)
-    soak.run()
-    soak.finish()
-    report = soak.report
-    assert report["layout"]["flood_panes"] == ["p0", "p1"] and report["layout"]["churn_pane"] == "p2", report["layout"]
+            @staticmethod
+            def flood_rate(path):
+                return flood_rate
+
+        class Launch:
+            @staticmethod
+            def crash_reports(since, name, pid=None, binary=None):
+                return [report(r) for r in reports] if name == "cmux DEV" else []
+
+        def wait(predicate, seconds, step=0.1):
+            return predicate()
+
+        stress_module = type("StressModule", (), {"Stress": Stress, "StressShapeError": RuntimeError, "wait": staticmethod(wait)})
+        hangs_module = type("HangsModule", (), {"DaemonProbe": Probe})
+        ticks = iter(range(10 ** 6))
+        out = tempfile.mkdtemp(prefix="ipc-soak-test-")
+        opts = parse_args(["--minutes", "0.5", "--warmup-minutes", "0.5", "--flood", "2", "--stress", "--churn-seconds", "1",
+                           "--sample-seconds", "10", "--out", out])
+        rss = {111: 500, 222: 1000}
+        soak = Soak(opts, App(), stress_module, Typing, hangs_module, Launch, rss_of=rss.get,
+                    clock=lambda: float(next(ticks)), sleep=lambda seconds: None)
+        try:
+            soak.run()
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+        soak.finish()
+        return soak
+
+    # The whole run: the IPC-14 window opens at the baseline sample, before the floods.
+    soak = fake_soak()
+    report_ = soak.report
+    assert report_["layout"]["flood_panes"] == ["p0", "p1"] and report_["layout"]["churn_pane"] == "p2", report_["layout"]
     assert [t for t, text in soak.stress.sent if text.endswith("\r")] == ["t-p0", "t-p1"], soak.stress.sent
-    assert [t for t, text in soak.stress.sent if text == "\x03"] == ["t-p0", "t-p1"] and report["flood_mbps"] == [10.0, 10.0]
-    labels = [s["label"] for s in report["samples"]]
-    assert labels[0].startswith("warmup-") and "start" in labels and labels[-1] == "end", labels
-    added = len(labels) - labels.index("start") - 1  # the samples after the start sample
-    slow = report["slow_requests"]
-    assert report["daemon_rss"]["change_pct"] == 0.0 and added >= 2 and slow["delta"] == added, (labels, slow)
+    assert [t for t, text in soak.stress.sent if text == "\x03"] == ["t-p0", "t-p1"] and report_["flood_mbps"] == [10.0, 10.0]
+    labels = [s["label"] for s in report_["samples"]]
+    assert labels[0] == "baseline" and labels[1].startswith("warmup-") and "start" in labels and labels[-1] == "end", labels
+    added = len(labels) - 1  # every sample after the baseline, warm-up included
+    slow = report_["slow_requests"]
+    assert report_["daemon_rss"]["change_pct"] == 0.0 and added >= 3 and slow["delta"] == added, (labels, slow)
     assert [r["method"] for r in slow["records"]] == [f"m{i}" for i in range(slow["start_total"], slow["end_total"])], slow
-    ends = report["stream_ends"]
+    assert report_["windows"]["ipc14"].startswith("baseline -> end"), report_["windows"]
+    ends = report_["stream_ends"]
     assert ends["journal"] == "read" and ends["overflow_hidden"] >= 1 and ends["overflow_visible"] == 0, ends
-    assert report["main_hangs"]["daemon_wait"] == 1 and report["ops"]["split"]["failed"] == 0, report["main_hangs"]
-    assert report["ipc12"]["pass"] is True and report["ipc14"]["pass"] is False, (report["ipc12"], report["ipc14"])
-    assert report["ipc14"]["slow_requests"] == added and exit_code(report) == EXIT_FAILED
-    shutil.rmtree(out, ignore_errors=True)
+    assert report_["main_hangs"]["daemon_wait"] == 1 and report_["ops"]["split"]["failed"] == 0, report_["main_hangs"]
+    assert report_["load"]["problems"] == [] and report_["ipc12"]["load"] == "carried", report_["load"]
+    # A hang report and a CPU resource report of the app's pid are not crashes.
+    assert report_["crashes"]["crash_reports"] == [] and len(report_["diagnostic_reports"]) == 2, report_["diagnostic_reports"]
+    assert report_["ipc12"]["pass"] is True and report_["ipc14"]["pass"] is False, (report_["ipc12"], report_["ipc14"])
+    assert report_["ipc14"]["slow_requests"] == added and exit_code(report_) == EXIT_FAILED
+
+    crashed = fake_soak(reports=("crash.ips", "hang.ips")).report
+    assert crashed["crashes"]["crash_reports"] == [report("crash.ips")], crashed["crashes"]
+    assert crashed["ipc12"]["crashes"] == 1 and crashed["ipc12"]["pass"] is False, crashed["ipc12"]
+
+    # No flood rate: the soak did not carry its load, so IPC-12 is not measured.
+    idle = fake_soak(flood_rate=None).report
+    assert idle["flood_mbps"] == [None, None] and idle["load"]["problems"] == ["flood 0 wrote no rate", "flood 1 wrote no rate"]
+    assert idle["ipc12"]["pass"] is None and "flood 0 wrote no rate" in idle["ipc12"]["unseen"]["load"], idle["ipc12"]
+    assert exit_code(idle) == EXIT_FAILED  # IPC-14 still fails on its slow requests
+
+    # debug.hangs answered with an error, with no watchdog, or with records lost to the ring: not measured.
+    def error_reply(params, reads):
+        return {"error": "debug.hangs timed out"} if reads == 2 else one_stall(params, reads)
+
+    def no_watchdog(params, reads):
+        return {"installed": False, "count": 0, "records": []}
+
+    def gap(params, reads):  # each read the ring holds only the newest record; one more was written before it
+        return {"installed": True, "count": reads, "records": [r for r in [stall(2 * reads, ms=10)]
+                                                                  if r["sequence"] > params.get("after", 0)]}
+    for replies, reason in ((error_reply, "debug.hangs gave no records"), (no_watchdog, "no hang watchdog runs"),
+                            (gap, "the hang log's ring overwrote")):
+        run = fake_soak(hangs=replies, slow_step=0).report
+        assert run["main_hangs"]["daemon_wait"] is None and run["ipc14"]["main_hangs_daemon_wait"] is None, run["main_hangs"]
+        assert run["ipc14"]["unseen"]["main_hangs_daemon_wait"].startswith(reason), run["ipc14"]
+        assert run["ipc14"]["slow_requests"] == 0 and run["ipc14"]["pass"] is None, run["ipc14"]
+
+    # One failed locate: the next sample looks for the daemon's socket again.
+    lost = fake_soak(locate_fails=1, slow_step=0).report
+    assert lost["samples"][0]["daemon"] == "lsof timed out", lost["samples"][0]
+    assert all(isinstance(s["daemon"], dict) and s["daemon"]["slow_requests_total"] == 1 for s in lost["samples"][1:]), lost["samples"]
+    assert lost["slow_requests"]["delta"] is None and lost["ipc14"]["unseen"]["slow_requests"] == "lsof timed out", lost["slow_requests"]
+
+    # A flooder that did not start ends the run with its refusal.
+    try:
+        fake_soak(refuse_send=True)
+    except RuntimeError as error:
+        assert str(error) == "flood 0 did not start: terminal.sendText: no such tab", error
+    else:
+        raise AssertionError("a refused flood start did not stop the run")
+
+
 
 
 def parse_args(argv):
