@@ -266,7 +266,7 @@ const openFold = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-worked" });
 };
 
-const alignmentPanel = () =>
+const alignmentPanel = (harness: "claude" | "codex" = "claude") =>
   chat(
     [
       user("Review the running lanes and stop the completed work", 2),
@@ -281,7 +281,7 @@ const alignmentPanel = () =>
       ),
       testRun,
     ],
-    { isWorking: true },
+    { isWorking: true, harness },
   );
 
 // Keep one live registry command in the alignment fixtures so the mock daemon exercises the
@@ -293,7 +293,7 @@ const alignmentProcess = {
         id: "gallery-session/alignment-command",
         sessionId: "gallery-session",
         command: "bun test --alignment-fixture",
-        startedAt: 1,
+        startedAt: minutesAgo(58.5),
         state: "running",
       },
     ],
@@ -541,6 +541,44 @@ export default agentPaneEntry({
       },
       native: alignmentProcess,
       snapshot: alignmentPanel(),
+    },
+    "alignment-codex-collapsed": {
+      note: "Codex alignment evidence: four running lanes and one live command start folded with the quiet composer.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "false")
+          throw new Error("alignment collapsed state must start folded");
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel("codex"),
+    },
+    "alignment-codex-expanded": {
+      note: "Codex alignment evidence: the same four running lanes and live command with the tray expanded.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel("codex"),
+    },
+    "alignment-codex-narrow": {
+      note: "Codex narrow alignment evidence: the expanded tray keeps the composer's reduced action columns at the pane's narrow breakpoint.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel("codex"),
     },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",
