@@ -225,6 +225,11 @@ cmux_claude_apply_auth_mode() {
       ANTHROPIC_BASE_URL=${CMUX_CODEROUTER_URL-}
       ANTHROPIC_API_KEY=$cmux_aa_placeholder
       export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+      # Claude 2.1.299 reads onboarding from this isolated config home,
+      # not ~/.claude.json. Seed only fresh state, never personal credentials.
+      if [ ! -e "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
+        python3 -I /etc/cmux/claude-onboarding.py "$CLAUDE_CONFIG_DIR/.claude.json" || return 1
+      fi
     elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}

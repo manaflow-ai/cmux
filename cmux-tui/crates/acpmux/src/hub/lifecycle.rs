@@ -25,6 +25,7 @@ impl Hub {
             effort,
             adopt,
             remote,
+            vm_boundary,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -66,8 +67,7 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // `${model}` in argv or env: the model is a spawn parameter, not a
-        // set_model call.
+        // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
         // What a new chat starts on when nothing pins it (start_defaults.rs):
@@ -152,6 +152,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.tools
@@ -531,6 +532,7 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        self.refuse_cleared_host(session).await?;
         // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
         // ends here and is never reached again; the start below asks, or refuses a pinned profile.
         // A host whose end failed may still run in it: the chat is refused until it ends (review 51).
@@ -1434,12 +1436,19 @@ impl Hub {
         // agent's own requests meanwhile). A live child is ready only while
         // no start holds the spawn lock; otherwise wait for that start below.
         // A closed session, or one stopped since the request, goes through `ensure_child`.
+        // Under MDM's off, a host whose replay is not all in the log is not handed out here either:
+        // `ensure_child` judges it first, as the off's teardown does (review 3 of #26057).
+        let off = self.off_latch();
         if session.status() != SessionStatus::Closed
             && session.stops.load(Ordering::SeqCst) == stops
             && let Ok(_idle) = session.spawn_lock.try_lock()
-            && !self.managed_off_runs_full_access(&self.off_latch(), session)
+            && !self.managed_off_runs_full_access(&off, session)
             && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
+            && !(off.off() && child.replay_pending())
+            // Under MDM's off an agent whose reader stopped is not heard: `ensure_child` ends it
+            // (`host_unheard`, review 68 of #23322).
+            && !(child.is_stopped() && self.full_access_managed_off())
         {
             return Ok(child.clone());
         }

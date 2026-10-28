@@ -180,7 +180,9 @@ function toolFindings(tool: Tool): Finding[] {
   const command = tool.command ?? "";
   const plain = bare(command);
   const calls = plain
+    .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/)
+    .map((part) => part.replace(/^\s*if\s+/, ""))
     .filter((part) => EXECUTED_PR_COMMAND.test(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
     .join("\n");
   const found: Finding[] = [];
@@ -319,17 +321,17 @@ function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
 // deriving a fingerprint by walking the transcript in render would cost O(rows) per token.
 const activityVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
 const commandVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
-const summaryVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
+const summaryVersions = new WeakMap<readonly AcpmuxRow[], object>();
 export const markPullRequestActivityVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
   activityVersions.set(rows, version);
 };
 export const markPullRequestCommandVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
   commandVersions.set(rows, version);
 };
-export const markTranscriptSummaryVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
+export const markTranscriptSummaryVersion = (rows: readonly AcpmuxRow[], version: object): void => {
   summaryVersions.set(rows, version);
 };
-export const transcriptSummaryVersion = (rows: readonly AcpmuxRow[]): symbol | undefined => summaryVersions.get(rows);
+export const transcriptSummaryVersion = (rows: readonly AcpmuxRow[]): object | undefined => summaryVersions.get(rows);
 const fingerprints = new WeakMap<AcpmuxRow, string>();
 
 // The producer asks only about the row it changed. A reply chunk with the same PR references

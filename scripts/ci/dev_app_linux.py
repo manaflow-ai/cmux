@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linux stand-ins for the macOS tools a release signing job uses (ditto, PlistBuddy, the Sparkle key).
+"""Stand-ins for the macOS tools (ditto, PlistBuddy, the Sparkle key) for jobs that have none.
 
   dev_app_linux.py unzip ARCHIVE DEST     ditto -x -k
   dev_app_linux.py zip APP ARCHIVE        ditto -c -k --keepParent

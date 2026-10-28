@@ -283,7 +283,7 @@ test("file Sources use native editor fallback and show a transient failure", asy
 });
 
 test("the Inspector starts right under the header: no row for a machine and folder label", () => {
-  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 44px)");
+  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
   expect(inspectorTopOffset(28)).toBe("28px");
 });
 

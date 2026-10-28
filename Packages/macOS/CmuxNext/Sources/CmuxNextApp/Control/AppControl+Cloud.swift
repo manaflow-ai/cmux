@@ -198,6 +198,8 @@ extension AppControl {
         case .noBackend: return ControlError(code: "no_backend", message: error.description)
         case .transport: return ControlError(code: "unavailable", message: error.description)
         case .decoding: return ControlError(code: "bad_response", message: error.description)
+        // A refusal a paid plan lifts: the CLI tells the person which plan, nothing ran.
+        case let .planRequired(_, _, plan): return ControlError(code: "plan_required", message: CloudStrings.apiErrorText(error), data: .object(["plan": .string(plan)]))
         }
     }
 }

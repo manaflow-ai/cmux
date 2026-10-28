@@ -116,7 +116,7 @@ type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
 type Group = { id: string; at: number; version: number; ids: string[] };
-type ViewRevisions = { activity: symbol; command: symbol; summary: symbol };
+type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
 /// between two pieces of its own text draw as one group row where the first one started; their
@@ -552,7 +552,7 @@ export class SubagentFold {
       const revisions = this.viewRevisions.get(id) ?? {
         activity: Symbol(),
         command: Symbol(),
-        summary: Symbol(),
+        summary: {},
       };
       this.viewRevisions.set(id, revisions);
       markPullRequestActivityVersion(drawn.rows, revisions.activity);
@@ -584,12 +584,14 @@ export class SubagentFold {
   }
 
   private bumpViewRevision(id: string): void {
-    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), summary: Symbol() });
+    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), summary: {} });
   }
 
   private settleView(agent: Subagent): boolean {
     if (this.settledViews.get(agent.id) === agent.state) return false;
     this.settledViews.set(agent.id, agent.state);
+    const last = this.own.get(agent.id)?.at(-1);
+    if (last && agent.state !== "running") last.settled = true;
     this.bumpViewRevision(agent.id);
     this.bump(agent.id);
     return true;

@@ -956,7 +956,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private snapshot: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
-  private transcriptSummaryVersion = Symbol();
+  private transcriptSummaryVersion = {};
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -989,7 +989,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.pullRequestActivityVersion = Symbol();
     if (!unchanged && row.kind === "activity" && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestCommandVersion = Symbol();
-    if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = Symbol();
+    if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = {};
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
@@ -1024,7 +1024,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.ordered = undefined;
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
-    this.transcriptSummaryVersion = Symbol();
+    this.transcriptSummaryVersion = {};
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -1052,7 +1052,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!this.has(id)) return false;
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
-    this.transcriptSummaryVersion = Symbol();
+    this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.delete(id);
@@ -1063,7 +1063,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override clear(): void {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
-    this.transcriptSummaryVersion = Symbol();
+    this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.clear();
@@ -1085,7 +1085,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   placeLocalLast(): void {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
-    this.transcriptSummaryVersion = Symbol();
+    this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
@@ -4326,7 +4326,7 @@ export class AcpmuxDirectClient {
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
-      this.rows.set(id, {
+      const row: AcpmuxRow = {
         id,
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
@@ -4334,7 +4334,8 @@ export class AcpmuxDirectClient {
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
-      });
+      };
+      this.rows.set(id, row, itemIndex < 0 || !row.streaming);
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {

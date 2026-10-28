@@ -103,6 +103,17 @@
             }
           },
           {
+            "key" : "settings.group.workspaceHibernation",
+            "rows" : [
+              "workspaces.hibernation.enabled",
+              "workspaces.hibernation.idleMinutes"
+            ],
+            "title" : {
+              "key" : "settings.group.workspaceHibernation",
+              "text" : "Hibernation"
+            }
+          },
+          {
             "key" : "settings.group.history",
             "rows" : [
               "navigation.historyScope",
@@ -4127,7 +4138,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
+        "text" : "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4152,7 +4163,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download and Install Updates Automatically"
+        "text" : "Download Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -6152,7 +6163,10 @@
       "keywords" : [
         "split",
         "equal",
-        "size"
+        "size",
+        "autobalance",
+        "balance",
+        "equalize"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -8819,6 +8833,117 @@
       "title" : {
         "key" : "settings.autoArchive.idleDays",
         "text" : "Idle For"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.enabled.help",
+        "text" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.enabled",
+      "keywords" : [
+        "hibernate",
+        "hibernation",
+        "sleep",
+        "pause",
+        "memory",
+        "ram",
+        "idle",
+        "evict",
+        "workspaces",
+        "saver"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceHibernation.enabled",
+        "text" : "Hibernate Idle Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        10080,
+        5042.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 60,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.idleMinutes.help",
+        "text" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.idleMinutes",
+      "keywords" : [
+        "hibernate",
+        "idle",
+        "minutes",
+        "timeout",
+        "memory"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "idleMinutes"
+      ],
+      "range" : {
+        "max" : 10080,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -10070,
+        20155,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceHibernation.idleMinutes",
+        "text" : "Hibernate After"
       },
       "validation" : "portable"
     },
@@ -34168,7 +34293,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "click",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",

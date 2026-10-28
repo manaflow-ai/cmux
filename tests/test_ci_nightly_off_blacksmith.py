@@ -125,9 +125,12 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         import yaml
         document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         jobs = document["jobs"]
+        owned = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || "
         self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"], "ubuntu-24.04")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
+                         + "'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
+                         "${{ " + owned + "'blacksmith-8vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
@@ -154,13 +157,41 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         self.assertIn("strip -S -x nightly-helper/ghostty", helper)
 
 
+    def test_light_nightly_jobs_fail_over_to_the_owned_nightly_pool(self) -> None:
+        """Blacksmith Linux down and hosted Ubuntu saturated stalled the feed (2026-10-27).
+
+        The light nightly jobs that hold no release secrets take Blacksmith macOS 26
+        (which kept moving) while the overflow record is set. On a Mac, prepare
+        uses Apple's lipo (llvm-lipo is the Linux copy of its bytes) and the Mac's
+        own tar, as before #25885.
+        """
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        owned = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || "
+        for name in ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+                     "pick-nightly-build-runner", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
+                     "prepare-nightly-variant", "pick-nightly-sign-runner", "find-nightly-next-recovery"):
+            with self.subTest(job=name):
+                runs_on = jobs[name]["runs-on"]
+                self.assertIn(owned, runs_on)
+                self.assertRegex(runs_on, r"\|\| '(?:ubuntu-24\.04|blacksmith-\d+vcpu-ubuntu-2404)' }}$")
+                self.assertNotIn("secrets.APPLE", yaml.dump(jobs[name]))
+                self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.dump(jobs[name]))
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+            steps = {step.get("name"): step for step in jobs[name]["steps"]}
+            with self.subTest(job=name):
+                self.assertTrue(steps["Put llvm-lipo on PATH as lipo"]["if"].startswith("runner.os == 'Linux' && "))
+                restore = steps["Restore unsigned nightly products"]["run"]
+                self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
+
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.
 
         A feat-cmux-next push asks main to promote nightly-next from
         cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
         Blacksmith those requests queued behind its pool like the nightly's own
-        jobs, so no nightly started. They must run on GitHub-hosted Linux.
+        jobs, so no nightly started. They take LINUX_RUNNER, which the overflow
+        switch moves off a stalled Blacksmith label, never a single host.
         """
         for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")

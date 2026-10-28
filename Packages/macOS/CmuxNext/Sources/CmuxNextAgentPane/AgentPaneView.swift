@@ -54,6 +54,9 @@ public final class AgentPaneView: NSView {
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
+    /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
+    /// approvals); nil for no notice or another one.
+    var peerApprovalsReason: AgentPanePeerApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
@@ -401,6 +404,8 @@ public final class AgentPaneView: NSView {
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
+        model.transport.onPeerApprovalsOff = nil
+        hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()
         if let page {

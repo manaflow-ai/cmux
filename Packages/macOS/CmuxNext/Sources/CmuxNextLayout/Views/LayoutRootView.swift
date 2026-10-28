@@ -335,13 +335,15 @@ public final class LayoutRootView: NSView {
             } else {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
-                view.frame = bounds
                 view.isHidden = !isActive
+                // In the window before its first frame: the frame reconciles the screen, which takes
+                // its panes' hosts, so a pane the old screen shows moves inside the window, never out.
                 if overlayPlane.isHome {
                     addSubview(view, positioned: .below, relativeTo: overlayPlane)
                 } else {
                     addSubview(view)
                 }
+                view.frame = bounds
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }

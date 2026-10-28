@@ -198,6 +198,10 @@ macro_rules! home_rule {
   (never move focus yourself) so macOS shows its Touch ID sheet, then post
   one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
+- Cloud machines: the user's cmux Cloud VMs (cmux Pro) have a desktop
+  with Chrome and `cua-driver`; list them with `cmux cloud list-machines` and
+  act with `cmux cloud <verb> --target machine:<id>`. Follow the `chief-cloud-machines`
+  skill to create one, run commands, or drive and show its desktop.
 - Setup: when the user asks to set something up in cmux (trust a folder,
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
@@ -210,7 +214,8 @@ macro_rules! home_rule {
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
-  checkout --plan <pro|max|team> --json`, then one line: what the plan adds
+  checkout --plan <pro|max|team> --json` (`--no-open` when the app already
+  shows its upgrade dialog), then one line: what the plan adds
   and its monthly price (Pro $50, Max $200, Team $60 a seat), the Stripe link, and that nothing is charged until
   the user pays there; never offer another way as a choice. Then sleep() and
   check `cmux billing status --json`: once paid, resume the blocked task
@@ -246,7 +251,10 @@ macro_rules! home_rule {
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
   is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
-  the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
+  the group, a `Group: <name>` line: a group the sidebar already has (the host
+  puts a close name into the group it matches), a new short topic name only for
+  a new topic. A short task's workspace closes when its subagent finishes; a
+  bigger one stays. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
 - Processes: signal only a process you started and still track (its pid
@@ -639,6 +647,8 @@ fn without_stop_lines(view: &str) -> String {
 /// Tool descriptions of section 9's `spawn` and `tell`.
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
+/// The `cloud_workspace` tool's description (cloud_workspace.rs, #25596).
+pub const CLOUD_WORKSPACE_DESCRIPTION: &str = "Start a cmux Cloud workspace for a task: a Cloud machine (a Linux VM) named after `title` and a workspace on it, which shows in the person's sidebar under that machine and is ready for terminals and agents. A machine is billed and on a paid plan cmux makes it at once without asking, so call it only when the person asked for a Cloud workspace, VM or machine for this task, or said yes when you asked. A machine of that name, or one still being made, is answered and never made twice; a create the server is still making answers queued, and the same title later says whether it is up. machine: open another workspace on an existing machine instead. Answers its machine:<id>, which `cmux cloud exec --target` and the other `cmux cloud` verbs take. A cloud.plan.required error means a paid plan: the paid-plans skill.";
 /// A subagent's `peers` tool (acp-chief-issues.md #11).
 pub const PEERS_DESCRIPTION: &str =
     "List the other subagents of Chief: id, title, state and workspace. Tell one with `tell`.";

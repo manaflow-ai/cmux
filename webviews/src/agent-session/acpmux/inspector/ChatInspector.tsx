@@ -178,7 +178,7 @@ const SIDE_PANEL = ":scope > .acpmux-artifact";
 
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
-  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 28px)";
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -481,7 +481,7 @@ export function useChatInspector({
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
-        onOpenSourceFile={onOpenSourceFile}
+        onOpenSourceFile={subagent?.agent.host ? undefined : onOpenSourceFile}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
@@ -610,19 +610,24 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatPlacement;
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
     if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
     else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift, suppressShiftTransition]);
+    // Push always narrows the transcript, not the header: native tabs reserve the tools at the
+    // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
+    if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
+  }, [shell, drawn, push, chatShift, paneWidth, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.

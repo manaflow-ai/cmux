@@ -88,17 +88,10 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
     });
 }
 
-const GITHUB_PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s]*)?$/;
-const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)(?:\/[^\s]*)?$/;
+const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
-let summaryCache:
-  | {
-      revision: symbol;
-      repository?: string | null;
-      cwd?: string;
-      summary: SessionSummary;
-    }
-  | undefined;
+// Revision ownership lets old summaries go when their producer and snapshots release them.
+const summaryCache = new WeakMap<object, { repository?: string | null; cwd?: string; summary: SessionSummary }[]>();
 const normalizedPath = (path: string) => {
   const absolute = path.startsWith("/");
   const parts: string[] = [];
@@ -156,27 +149,20 @@ function sources(
   const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
-      const pr = GITHUB_PR_URL.exec(url);
-      if (pr) {
-        const canonical = `https://github.com/${pr[1]}/${pr[2]}/pull/${pr[3]}`;
+      const reference = GITHUB_REFERENCE_URL.exec(url);
+      const label = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+      if (reference) {
+        const [, owner, repo, path, number] = reference;
+        const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
         const known = knownPullRequests.get(canonical);
         if (known?.changed || known?.opened) continue;
+        const pr = path === "pull";
         add({
-          url: canonical,
-          label: known?.title ?? `${pr[1]}/${pr[2]} #${pr[3]}`,
-          kind: "pullRequest",
+          url: pr ? canonical : url,
+          label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
+          kind: pr ? "pullRequest" : "issue",
         });
-        continue;
-      }
-      if (GITHUB_ISSUE_URL.test(url)) {
-        const issue = GITHUB_ISSUE_URL.exec(url)!;
-        const canonical = `https://github.com/${issue[1]}/${issue[2]}/issues/${issue[3]}`;
-        const known = knownPullRequests.get(canonical);
-        if (known?.changed || known?.opened) continue;
-        add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "issue" });
-      } else {
-        add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "url" });
-      }
+      } else add({ url, label, kind: "url" });
     }
   };
   for (const tool of all) {
@@ -245,13 +231,9 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
 export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
   const producerRevision = transcriptSummaryVersion(rows);
-  if (
-    producerRevision &&
-    summaryCache?.revision === producerRevision &&
-    summaryCache.repository === repository &&
-    summaryCache.cwd === cwd
-  )
-    return summaryCache.summary;
+  const cached = producerRevision ? (summaryCache.get(producerRevision) ?? []) : [];
+  const match = cached.find((entry) => entry.repository === repository && entry.cwd === cwd);
+  if (match) return match.summary;
   const all = tools(rows);
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
@@ -266,7 +248,10 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
     sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),
   };
-  if (producerRevision) summaryCache = { revision: producerRevision, repository, cwd, summary: result };
+  if (producerRevision) {
+    cached.push({ repository, cwd, summary: result });
+    summaryCache.set(producerRevision, cached);
+  }
   return result;
 }
 

@@ -132,6 +132,15 @@ test("background completion invalidates a mixed streaming activity summary", asy
     expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("running");
     daemon.push(record([task("bg", "npm run dev", "completed")], 4));
     expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("completed");
+    const next = {
+      sessionUpdate: "tool_call",
+      toolCallId: "next",
+      title: "Work",
+      kind: "think",
+      status: "in_progress",
+    };
+    daemon.push(record([["in", "tool_call", update(next)]], 5));
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "next", title: "Work", state: "running" });
   } finally {
     client.close();
   }

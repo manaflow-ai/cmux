@@ -116,6 +116,7 @@
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextTestExitTrace": {"layer": "core"},
+    "CmuxNextTestSupport": {"layer": "core", "note": "test-only frame-budget calibration; system frameworks only"},
     "CmuxNextSignposts": {"layer": "core"},
     "CmuxNextDesignTokens": {"layer": "core", "plan": "labeled core by its imports (72673e48762) but holds state and I/O, so arch-layers.py lists it under impure core; the label stays until the code moves (the layer gate refuses a relabel without the code change that moves the target). It is values only once its state moves out: TunableStore and TunableFile to a service target with Tunable.value reading an injected store (lead decision 2026-10-23), RecoveryDraftStore to the Quit domain, LowPowerMode and MuseumArtSearch (URLSession) to a service, BackdropRevision to CmuxNextAppearance with DesignSettings and ThemeStore (B3)"},
 
