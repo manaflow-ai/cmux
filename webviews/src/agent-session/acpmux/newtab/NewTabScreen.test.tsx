@@ -178,6 +178,56 @@ test("a Sandboxed New chat that starts nothing leaves New chat and the other cre
   expect(asks.length).toBe(1);
 });
 
+test("a normal pagehide flushes a New Tab draft without unmounting", async () => {
+  const left: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        initialDraft="keep this across the update"
+        initialAttachments={[{ id: "shot-1", kind: "image", name: "shot.png", mimeType: "image/png", size: 4 }]}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onLeaveDraft={(...args) => left.push(args)}
+      />,
+    );
+  });
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(left).toEqual([
+    ["keep this across the update", [expect.objectContaining({ id: "shot-1", name: "shot.png" })]],
+  ]);
+});
+
+test("ordinary New Tab edits are persisted before native quit", async () => {
+  const writes: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onDraftChanged={(...args) => writes.push(args)}
+      />,
+    );
+  });
+  const input = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    input.value = "keep this before quit";
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  expect(writes).toEqual([["keep this before quit", []]]);
+});
+
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {
   const left: unknown[][] = [];
   const page = () => (

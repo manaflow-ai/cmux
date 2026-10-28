@@ -159,6 +159,10 @@ export type NewTabScreenActions = {
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
+  initialDraft?: string;
+  initialAttachments?: ComposerAttachment[];
+  /// Persist an ordinary edit while this New Tab is alive, before native quit asks for wake state.
+  onDraftChanged?(text: string, attachments: ComposerAttachment[]): void;
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
 };
 
@@ -287,7 +291,7 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
-  const [text, setText] = useState(location ?? "");
+  const [text, setText] = useState(() => props.initialDraft ?? location ?? "");
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
@@ -377,6 +381,7 @@ export function NewTabScreen(props: Props) {
     dropLanded,
     attach,
   } = useAttachmentIntake({
+    initial: props.initialAttachments,
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => field.current?.closest(".acpmux-main") ?? null,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
@@ -388,6 +393,12 @@ export function NewTabScreen(props: Props) {
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
   const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  // Persist ordinary edits while the page is alive. Native quit then has a durable record even if
+  // the WebView closes without dispatching pagehide; the location remains a suggestion, not a draft.
+  useEffect(() => {
+    if (!((text !== (location ?? "") && text.trim()) || attachments.length)) return;
+    props.onDraftChanged?.(text, attachments);
+  }, [text, attachments, location, props.onDraftChanged]);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -395,15 +406,24 @@ export function NewTabScreen(props: Props) {
   );
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
+  const flushed = useRef<string>();
   leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
-  useEffect(
-    () => () => {
-      const draft = leaving.current;
-      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
-        draft.onLeaveDraft?.(draft.text, draft.attachments);
-    },
-    [],
-  );
+  const flushDraft = useCallback(() => {
+    const draft = leaving.current;
+    if (!((draft.typed && draft.text.trim()) || draft.attachments.length)) return;
+    const key = JSON.stringify([draft.text, draft.attachments.map((attachment) => attachment.id)]);
+    if (flushed.current === key) return;
+    flushed.current = key;
+    draft.onLeaveDraft?.(draft.text, draft.attachments);
+  }, []);
+  // A normal app quit/update can pagehide without unmounting React. Persist before native closes.
+  useEffect(() => {
+    window.addEventListener("pagehide", flushDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      flushDraft();
+    };
+  }, [flushDraft]);
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {

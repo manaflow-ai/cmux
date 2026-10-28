@@ -60,6 +60,8 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 
 export type AttachmentIntakeOptions = {
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
+  /// Restored chips from the native draft store. They are metadata/previews, never a new read.
+  initial?: ComposerAttachment[];
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
   /// files for the next prompt and uploads nothing (a chat's shell mode).
@@ -170,7 +172,7 @@ function isMadeFile(file: File | MadeFile): file is MadeFile {
 /// drop, or a capture). `pending`: the files still being read, shown at once (PendingAttachment).
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>(() => options.initial ?? []);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);

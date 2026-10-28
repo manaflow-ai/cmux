@@ -89,11 +89,14 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "chat.unsentDraft":
-            if let text = params?["text"] as? String {
-                self = .unsentDraft(text)
-            } else {
-                self = .unsupported(method)
+            guard let text = params?["text"] as? String else { self = .unsupported(method); return }
+            var attachments: [AgentPaneWakeState.Attachment] = []
+            if let raw = params?["attachments"], JSONSerialization.isValidJSONObject(raw),
+               let data = try? JSONSerialization.data(withJSONObject: raw),
+               let decoded = try? JSONDecoder().decode([AgentPaneWakeState.Attachment].self, from: data) {
+                attachments = decoded
             }
+            self = .unsentDraft(text, attachments: attachments)
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
