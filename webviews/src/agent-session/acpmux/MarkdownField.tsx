@@ -34,6 +34,7 @@ import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
 import {
   inlineAttachmentNode,
   inlineIds as readInlineIds,
+  inlinePasteText,
   inlinePlugin,
   insertInline as insertInlineNode,
   placeTokens,
@@ -616,7 +617,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 const plain = text ? withoutBreakPlaceholders(text) : html ? htmlText(html) : "";
                 if (plain) {
                   if (beforeInput(editorView, plain, true)) return true;
-                  insertPlain(editorView, plain);
+                  // A copy of the prompt's own text keeps its placed attachments (composer/inlineNode.ts).
+                  insertPlain(editorView, (inlineOptions.current.enabled && inlinePasteText(slice)) || plain);
                   showPastedEnd(editorView.state);
                   return true;
                 }

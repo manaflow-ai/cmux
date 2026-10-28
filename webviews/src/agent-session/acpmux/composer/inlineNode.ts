@@ -64,6 +64,18 @@ const sliceMayPlace = (slice: Slice) =>
 /// it. A U+FFFC in other copied text (a page's bold run) is only text, and pastes as text.
 export const sliceHoldsInline = (slice: Slice) => holds(slice.content, (node) => node.type.name === INLINE_NODE);
 
+/// A paste's text with each placed attachment's node written as its token, for a copy of the
+/// prompt's own text (`sliceHoldsInline`: the copy's HTML names each node); undefined for any other
+/// paste. The copy's plain text has no attachment in it (it is the text as shown, for other apps),
+/// so a paste of it alone dropped them. The paste still goes in as text, as every paste does, and
+/// `normalize` turns each token back into its node, a copy's id beside its original.
+export function inlinePasteText(slice: Slice): string | undefined {
+  if (!sliceHoldsInline(slice)) return undefined;
+  return slice.content.textBetween(0, slice.content.size, "\n", (node) =>
+    node.type.name === INLINE_NODE ? inlineToken(idOf(node)) : (node.type.spec.leafText?.(node) ?? ""),
+  );
+}
+
 /// Each placed attachment's node in `doc`, in order.
 function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
   const found: { id: string; pos: number }[] = [];
