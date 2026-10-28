@@ -97,10 +97,7 @@ pub async fn run(cmd: HandCmd, json_out: bool) -> anyhow::Result<()> {
         HandCmd::Pair { code, api, profile, roots, agent_policy, name } => {
             let cfg = pair::pair(&code, &api, &profile, roots, agent_policy, name).await?;
             if json_out {
-                println!(
-                    "{}",
-                    json!({"paired": true, "hand": cfg.hand, "api": cfg.api, "profile": cfg.profile, "roots": cfg.roots, "agentPolicy": cfg.agent_policy, "config": config::path()})
-                );
+                println!("{}", pair_summary(&cfg));
             } else {
                 println!("paired: {} ({:?}) -> {}", cfg.hand, cfg.profile, cfg.api);
             }

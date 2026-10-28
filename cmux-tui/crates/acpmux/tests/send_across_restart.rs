@@ -151,7 +151,7 @@ fn a_lock_the_daemon_cannot_open_fails_at_once_instead_of_waiting_for_a_handover
 fn cli_daemon_restart_reattaches_an_active_turn() {
     let dir = scratch("cli-restart");
     let _shutdown = Shutdown(&dir);
-    let made = cli(&dir, &["run", "-d", "-n", "lane", "ticking:20:100"]);
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake", "ticking:20:100"]);
     assert!(made.status.success(), "start: {}", text(&made));
     let before: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout)
         .expect("ls JSON before restart");
