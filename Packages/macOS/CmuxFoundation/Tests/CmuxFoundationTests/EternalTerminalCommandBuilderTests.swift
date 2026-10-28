@@ -120,6 +120,20 @@ struct EternalTerminalCommandBuilderTests {
         }
     }
 
+    @Test("single-quotes a terminal path that ET splices into its remote shell")
+    func terminalPathWithSpaceIsQuotedForEternalTerminal() throws {
+        try withFakeCommands(executeRemoteCommand: true, installRemoteTerminal: .customWithSpace) { directory, environment in
+            let customPath = directory.appendingPathComponent("remote-home/opt/et tools/etterminal").path
+            let result = try run(
+                builder(options: try #require(EternalTerminalOptions(terminalPath: customPath))),
+                environment: environment
+            )
+
+            #expect(result.stderr.isEmpty)
+            #expect(Array(try lines(directory, "et.args").prefix(2)) == ["--terminal-path", "'\(customPath)'"])
+        }
+    }
+
     @Test("passes ET options, SSH options, agent forwarding and the remote command to et")
     func supportedEternalTerminalPreservesArguments() throws {
         try withFakeCommands(remoteTerminalPath: "/opt/et/etterminal") { directory, environment in
@@ -245,6 +259,7 @@ struct EternalTerminalCommandBuilderTests {
         case none
         case userLocalBin
         case custom
+        case customWithSpace
     }
 
     private func builder(
@@ -343,6 +358,7 @@ struct EternalTerminalCommandBuilderTests {
         case .none: nil
         case .userLocalBin: ".local/bin"
         case .custom: "opt/et"
+        case .customWithSpace: "opt/et tools"
         }
         if let remoteTerminalDirectory {
             let remoteBin = remoteHome.appendingPathComponent(remoteTerminalDirectory, isDirectory: true)

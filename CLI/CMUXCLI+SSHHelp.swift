@@ -47,9 +47,9 @@ extension CMUXCLI {
               --et-tunnel <spec>          ET --tunnel forward (repeatable)
               --et-reversetunnel <spec>   ET --reversetunnel forward (repeatable)
 
-            SSH continues to handle remote features; ET carries only the interactive terminal
-            and forwards the SSH agent when agent forwarding is on. If et, etterminal, or a
-            reachable etserver is missing, cmux reports it and uses SSH.
+            SSH continues to handle remote features; ET carries the interactive terminal and
+            any --et-tunnel forwards, and forwards the SSH agent when agent forwarding is on.
+            If et, etterminal, or a reachable etserver is missing, cmux reports it and uses SSH.
 
             Example:
               cmux ssh dev@my-host --transport et --et-port 2022

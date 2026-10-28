@@ -311,6 +311,12 @@ public struct EternalTerminalCommandBuilder: Sendable {
                 "rm -f -- " + sshFallbackLauncherPaths.map(\.remoteCommandShellQuoted).joined(separator: " ")
             )
         }
+        // ET splices --terminal-path unquoted into its remote shell command,
+        // so a path with shell-special characters is single-quoted for it.
+        script.append(
+            #"case "$cmux_et_terminal_path" in *[!A-Za-z0-9/._+@%:=,-]*) "#
+                + #"cmux_et_terminal_path="'$(printf '%s' "$cmux_et_terminal_path" | /usr/bin/sed "s/'/'\\\\''/g")'" ;; esac"#
+        )
         script.append("exec \"$cmux_et\" --terminal-path \"$cmux_et_terminal_path\" \(quotedClientArguments)")
         return "/bin/sh -c \(script.joined(separator: "\n").remoteCommandShellQuoted)"
     }
