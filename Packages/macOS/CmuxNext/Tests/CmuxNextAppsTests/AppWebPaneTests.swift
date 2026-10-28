@@ -60,7 +60,11 @@ struct AppWebPaneTests {
             await new Promise((r) => setTimeout(r, 0));
             console.info("done");
             """, arguments: [:], in: nil, contentWorld: .page)
+        // Each console line is its own bridge message, handled in its own task: wait for every
+        // line rather than assume they arrive in order.
         await calls.waitForLog("done")
+        await calls.waitForLog(#"careful {"n":1}"#)
+        await calls.waitForLog("Error: boom (cmux-app://local.board/app.js:2)")
         #expect(calls.logs.contains { $0.level == "warn" && $0.message == #"careful {"n":1}"# }, "\(calls.logs)")
         #expect(calls.logs.contains { $0.level == "error" && $0.message.contains("boom") }, "\(calls.logs)")
         #expect(calls.logs.allSatisfy { $0.app == "local/board" })
@@ -83,6 +87,7 @@ struct AppWebPaneTests {
             """, arguments: [:], in: nil, contentWorld: .page) as? String
         // The page loaded only after the offline rule list (no preconnect or DNS prefetch out).
         #expect(view.offline)
+        #expect(view.networkClosed, "no network host, so a clicked link cannot preconnect")
         // Inline script and every other origin are refused; its own file loads. `../` resolves
         // to the web root here (URL parsing), where there is no manifest; escaping paths are
         // refused by ``AppWebPane/file(for:)`` (thePaneReadsOnlyItsWebRoot).

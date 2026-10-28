@@ -30,6 +30,8 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     var onRefusedNavigation: (() -> Void)?
     /// The offline rule list is in place; nothing loads before it (``installOfflineRules()``).
     private(set) var offline = false
+    /// WebKit allows no network host to this pane (`_allowedNetworkHosts`); without it nothing loads.
+    let networkClosed: Bool
     /// Crash reloads since the page last loaded for another reason; a page that keeps
     /// crashing its process stays down after ``maxCrashReloads``.
     private var crashReloads = 0
@@ -54,6 +56,16 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         if configuration.preferences.responds(to: NSSelectorFromString("_setPeerConnectionEnabled:")) {
             // crash-allow: guarded by responds(to:) on the private setter this KVC key resolves to; absent on older WebKit, skipped.
             configuration.preferences.setValue(false, forKey: "peerConnectionEnabled")
+        }
+        // No HTTP or WebSocket host at all: a clicked link preconnects to its host before the
+        // navigation policy runs, and neither the content policy nor rule lists see that. An empty
+        // allowed-host set refuses every network load and preconnect; the pane's own scheme is not
+        // a network load. Private; a WebKit without it gets a blank pane, never an open one.
+        // crash-allow: a fixed private setter name, only checked with responds(to:); no message is sent.
+        networkClosed = configuration.responds(to: NSSelectorFromString("_setAllowedNetworkHosts:"))
+        if networkClosed {
+            // crash-allow: guarded by responds(to:) on the private setter this KVC key resolves to.
+            configuration.setValue(NSSet(), forKey: "allowedNetworkHosts")
         }
         let content = configuration.userContentController
         content.addUserScript(AppWebPaneBridge.noPeerConnections)
@@ -115,7 +127,7 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
 
     /// Loads the entry page, once the offline rule list is in place.
     private func load() {
-        guard offline else { return }
+        guard offline, networkClosed else { return }
         webView.load(URLRequest(url: pane.entryURL))
     }
 

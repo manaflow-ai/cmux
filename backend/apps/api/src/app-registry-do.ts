@@ -207,7 +207,8 @@ export class AppRegistryDO extends DurableObject<Env> {
   async bundle(app: string, version: string): Promise<{ app: string; version: string; sha256: string; files: Record<string, string> } | null> {
     const s = this.approved(app).find((v) => v.version === version)
     if (!s) return null
-    const files: Record<string, string> = {}
+    // No prototype: a file may be named `__proto__`, which `{}` would swallow.
+    const files: Record<string, string> = Object.create(null) as Record<string, string>
     for (const f of this.fileList(s.id)) files[f.path] = encodeBase64(this.fileBytes(s.id, f.path)!)
     return { app, version, sha256: s.sha256, files }
   }

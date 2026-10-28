@@ -78,6 +78,9 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
+    /// One more than the daemon keeps of a line (`MAX_LOG_CHARS`), so it still sees and marks a cut.
+    static let logLineCharacters = 2_001
+
     private func log(level: String, message: String) {
         guard loggedThisLoad <= Self.logLinesPerLoad, loggedThisPane <= Self.logLinesPerPane else { return }
         loggedThisLoad += 1
@@ -90,7 +93,7 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             calls?.webLog(app: pane.appID, level: "warn", message: "more console lines this load were dropped")
             return
         }
-        calls?.webLog(app: pane.appID, level: level, message: message)
+        calls?.webLog(app: pane.appID, level: level, message: String(message.prefix(Self.logLineCharacters)))
     }
 
     static func refusal(_ code: String, _ message: String) -> [String: Any] {

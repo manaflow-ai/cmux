@@ -175,6 +175,15 @@ describe("app registry review", () => {
     expect((await decide("app_reviewer_2", own.body.submission.id, "reject", "changed my mind here")).body.error.code).toBe("registry.decided")
   })
 
+  it("serves a file named like an object prototype key as a file", async () => {
+    const body = bundle("ivy/proto", "1.0.0", { ["__proto__"]: b64("p"), "web/constructor": b64("c") })
+    const s = (await submit("app_dev_ivy", body)).body.submission
+    expect((await decide("app_reviewer_1", s.id, "approve")).status).toBe(200)
+    const got = await call(`/apps/ivy/proto/versions/1.0.0/bundle`)
+    expect(Object.keys(got.body.files).sort()).toEqual(Object.keys(body.files).sort())
+    expect(got.body.files["__proto__"]).toBe(b64("p"))
+  })
+
   it("shows the queue and files, and after approval lists the app and serves the same bundle", async () => {
     const body = bundle("hank/notes", "2.0.0", { "web/app.js": b64("console.log(1)") })
     const s = (await submit("app_dev_hank", body)).body.submission
