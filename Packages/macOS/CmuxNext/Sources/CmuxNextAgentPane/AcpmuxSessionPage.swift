@@ -38,7 +38,8 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
 
     /// One session by id, open or closed, on this Mac or a peer it mirrors (`peer` names that
     /// peer, nil for this Mac's): the `cmux://session/<id>` question names it. Nil when acpmux has
-    /// no such session. `_acpmux/resolve` reads one local or mirrored row.
+    /// no such session. `_acpmux/resolve` reads one local or mirrored row in
+    /// its exact-id mode.
     @concurrent public func session(_ id: String, deadline: Duration = .seconds(2)) async throws -> (chat: Chat, peer: String?)? {
         guard let result = try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline) else { return nil }
         return Self.chat(id, in: result)
