@@ -220,10 +220,12 @@ struct TerminalSurfaceVisibilityTests {
 
         try #require(surface.window === window && !surface.isHiddenOrHasHiddenAncestor)
         #expect(surface.pause == nil, "the terminal moved into a shown pane stayed paused \(String(describing: surface.pause))")
+        #expect(surface.isShown, "the terminal moved into a shown pane is not shown: its size, scale and window watch wait")
 
         hiddenPane.addSubview(session.view)
 
         #expect(surface.pause == .hidden, "the terminal moved back into the hidden pane still draws")
+        #expect(!surface.isShown, "the terminal moved back into the hidden pane still does a shown terminal's work")
     }
 }
 
