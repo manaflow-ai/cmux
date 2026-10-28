@@ -36,13 +36,24 @@ extension StateResourceClient {
         return key
     }
 
-    /// Sends generated state mutation `request` and returns its `value`.
+    /// The idempotency key of the full reopen of closed item `id`: one per item, so a second request
+    /// that reaches the daemon (an Undo and a History reopen of the same item) replays the first
+    /// instead of failing as not found. Safe for good: a full reopen removes the item, and the
+    /// daemon never makes another item with that id. Recorded on `connection` like ``stateKey(on:)``.
+    static func reopenKey(_ id: String, on connection: DaemonConnection) -> String {
+        let key = "cmux-next-reopen-" + id
+        guard (try? ResourceIdempotencyKey(key)) != nil else { return stateKey(on: connection) }
+        DaemonCommandScope.current?.recordMutation(key, in: connection.mutationCauses)
+        return key
+    }
+
+    /// Sends generated state mutation `request` under `key` (nil: ``stateKey(on:)``) and returns its `value`.
     @discardableResult
     func stateMutation<Request: ResourceMutationRequest, R: Decodable & Sendable>(
-        _ request: Request, as type: R.Type = JSONValue.self
+        _ request: Request, key: String? = nil, as type: R.Type = JSONValue.self
     ) async throws -> R {
         try await ResourceOperationClient(connection: connection)
-            .mutate(request, idempotencyKey: Self.stateKey(on: connection), as: ResourceMutationResult<R>.self).value
+            .mutate(request, idempotencyKey: key ?? Self.stateKey(on: connection), as: ResourceMutationResult<R>.self).value
     }
 
     /// Sends generated read `request` and decodes its `result` as `type`.
@@ -91,10 +102,11 @@ extension StateResourceClient {
     }
 
     /// Reopens closed item `id` (`closed_…`) where it was, and removes it
-    /// from the history.
+    /// from the history. Under the item's own key (``reopenKey(_:on:)``): a
+    /// repeat replays the first reopen's result.
     @discardableResult
     public func reopenClosed(_ id: String) async throws -> ReopenedItem {
-        try await stateMutation(V2ClosedReopenRequest(closed: id), as: ReopenedItem.self)
+        try await stateMutation(V2ClosedReopenRequest(closed: id), key: Self.reopenKey(id, on: connection), as: ReopenedItem.self)
     }
 
     /// Reopens the newest closed group of window record `window` (`install/window`), else the newest

@@ -147,8 +147,9 @@ enum DaemonClosedHistory {
     }
 
     /// Cmd-Shift-T (input-principles.md 1-3, audit A1): the newest item of `window` no earlier press
-    /// took (``CloseUndoToasts/reopenClaims``: the store drops an item only on the daemon's event),
-    /// so N presses reopen N items newest first, none twice. With no close or press on its way, a
+    /// or by-id reopen (Undo, History) took (``ClosedReopenClaims``: the store drops an item only on
+    /// the daemon's event), so N presses reopen N items newest first, none twice, and a press behind
+    /// an Undo of the newest reopens the next newest. With no close or press on its way, a
     /// press picks in its own turn. A close on its way (a close intent) is newer than every record,
     /// and its record reaches the store on its own stream: a press made then (or behind such a press)
     /// waits for the closes to apply and lets the daemon pick its newest item, so Cmd-W then
@@ -171,16 +172,21 @@ enum DaemonClosedHistory {
             undo.reopensWaiting += 1
             target = nil
         }
-        let previous = undo.reopenTail
+        // Behind the press before it and the by-id reopens (Undo, History) made before it: their items are taken.
+        let previous = undo.reopenTail, byID = Array(undo.reopenClaims.sends.values)
         // task-owner: CloseUndoToasts.reopenTail, the next press's wait; it ends with its reply
-        // main-hop-allow: the person's reopen, in press order: it resumes on main only after the press before it replied and after the closes pending at the press applied (5 s at most), then sends
+        // main-hop-allow: the person's reopen, in press order: it resumes on main only after the press and the by-id reopens before it replied and after the closes pending at the press applied (5 s at most), then sends
         let sent = Task { @MainActor [weak undo] () -> Sent? in
             _ = await previous?.value
+            for reopen in byID { _ = await reopen.value }
             let result: Sent? = if let target { (entry: target, reply: await send(target, services: services)) } else {
                 await sendNewest(for: window, after: closing, services: services, undo)
             }
-            // Not reopened: the next press may take it again (released before that press picks).
-            if let result, case .failure = result.reply { undo?.reopenClaims.remove(result.entry.item.id) }
+            // Not reopened: the next request may take it again (released before that press picks).
+            if let result {
+                let reopened = if case .success = result.reply { true } else { false }
+                undo?.reopenClaims.settle(result.entry.item.id, reopened: reopened)
+            }
             return result
         }
         undo.reopenTail = sent
@@ -222,7 +228,7 @@ enum DaemonClosedHistory {
         switch reply {
         case .success(let reopened):
             guard let id = reopened.closedID else { return nil }
-            undo?.reopenClaims.insert(id)
+            undo?.reopenClaims.claim(id)
             // Its record, or what the reply says when the store has none yet.
             let kind: ClosedItem.Kind = reopened.window != nil ? .window : reopened.screenIDs.isEmpty ? .tab : .workspace
             let recorded = entry(id, in: services)
@@ -236,11 +242,10 @@ enum DaemonClosedHistory {
         }
     }
 
-    /// The newest item of `window` no earlier press took, taken now (until it left the history).
+    /// The newest item of `window` no earlier reopen took (``ClosedReopenClaims``), taken now.
     private static func take(for window: String?, in services: AppServices, _ undo: CloseUndoToasts) -> Entry? {
-        undo.reopenClaims.formIntersection(entries(allKinds, in: services).map(\.item.id))
         guard let entry = owned(by: window, in: services).first(where: { !undo.reopenClaims.contains($0.item.id) }) else { return nil }
-        undo.reopenClaims.insert(entry.item.id)
+        undo.reopenClaims.claim(entry.item.id)
         return entry
     }
 
@@ -267,18 +272,8 @@ enum DaemonClosedHistory {
         }
     }
 
-    /// Reopens `entry` on its daemon and shows it: a tab selected in its
-    /// pane, a screen selected in its workspace, a workspace in the active
-    /// window. The failure (if any) is the tracked work's result.
-    static func reopen(_ entry: Entry, services: AppServices) {
-        // main-hop-allow: the person's reopen (Cmd-Shift-T, Undo) rest, userBlocking (p06 rule 2), tracked for a capturing caller: it awaits the reply, then shows the reopened item on main; post has no userBlocking class (task 208)
-        services.registry.track(Task { @MainActor in
-            await finish(entry, await send(entry, services: services), services: services)
-        })
-    }
-
     /// Sends `closed.reopen` for `entry` and notes when its reply and its tabs came (`debug.filepages`).
-    private static func send(_ entry: Entry, services: AppServices) async -> Reply {
+    static func send(_ entry: Entry, services: AppServices) async -> Reply {
         let daemon = entry.daemon, item = entry.item
         guard let connection = daemon.connection else { return .failure(DaemonError.notConnected) }
         let start = ContinuousClock.now
@@ -297,7 +292,7 @@ enum DaemonClosedHistory {
     }
 
     /// Shows what `reply` reopened of `entry`, or why it did not.
-    private static func finish(_ entry: Entry, _ reply: Reply, services: AppServices) async -> ActionWorkFailure? {
+    static func finish(_ entry: Entry, _ reply: Reply, services: AppServices) async -> ActionWorkFailure? {
         let daemon = entry.daemon, item = entry.item
         let connection: DaemonConnection, reopened: StateResourceClient.ReopenedItem
         switch reply {

@@ -88,9 +88,9 @@ final class CloseUndoToasts {
     private(set) var lastReopen: ReopenTiming?
     /// Watches the last reopen's tabs arrive in the store; the next reopen cancels it.
     var reopenWatch: Task<Void, Never>?
-    /// Cmd-Shift-T's presses (`DaemonClosedHistory.reopenNewest`): the closed items presses took that
-    /// are still in the history, the presses still to pick theirs, and the last press's send.
-    var reopenClaims: Set<String> = []
+    /// The closed items reopens took (every reopen path: `ClosedReopenClaims`), the Cmd-Shift-T
+    /// presses still to pick theirs (`DaemonClosedHistory.reopenNewest`), and the last press's send.
+    var reopenClaims = ClosedReopenClaims<Task<DaemonClosedHistory.Reply?, Never>>()
     var reopensWaiting = 0
     var reopenTail: Task<DaemonClosedHistory.Sent?, Never>?
 

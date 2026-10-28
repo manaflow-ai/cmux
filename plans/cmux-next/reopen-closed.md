@@ -196,6 +196,13 @@ Restore rules per kind:
   It never takes a group from another LIVE window. (DECISION 1.)
 - Repeated presses walk back: each restore removes the group, so the next press finds the next one.
   Cmd-Shift-T after a restore of a group never re-restores the same group (idempotency key per press).
+- One owner per closed item's reopen (`ClosedReopenClaims`, 2026-10-28): the undo toast's Undo,
+  History, Reopen Closed Screen/Workspace and each Cmd-Shift-T press claim the item they reopen. A
+  second request for an item on its way or reopened is not sent: the HUD says "That tab is already
+  reopening." / "That tab was already reopened." A Cmd-Shift-T behind an Undo of the newest group
+  reopens the next newest (as Chrome's Reopen Closed Tab after an Undo). A by-id `closed.reopen`
+  carries the item's own idempotency key (`cmux-next-reopen-<closed id>`), so a duplicate that still
+  reaches the daemon (another client) replays the first reopen instead of failing as not found.
 - Restore is atomic: one daemon patch recreates every member of the group, then the app selects the
   first restored object (a tab: selected in its pane; a screen: selected; a workspace or space:
   shown in the window; a window: opened and made key).

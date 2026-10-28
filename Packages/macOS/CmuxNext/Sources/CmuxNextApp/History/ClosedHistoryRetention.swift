@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -181,5 +182,52 @@ extension DaemonClosedHistory {
                 if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
             }
         }
+    }
+}
+
+// Reopening one closed item by its id (Undo, History, Reopen Closed Screen or Workspace), through
+// the claims every reopen shares (`ClosedReopenClaims`).
+extension DaemonClosedHistory {
+    /// Reopens `entry` on its daemon and shows it: a tab selected in its pane, a screen selected in
+    /// its workspace, a workspace in the active window. The failure (if any) is the tracked work's
+    /// result. An item another reopen took (an Undo racing History or Cmd-Shift-T) is refused with
+    /// a HUD message and not sent; a request made while Cmd-Shift-T presses still pick
+    /// (they may pick this item) waits for them, then claims it or is refused.
+    static func reopen(_ entry: Entry, services: AppServices) {
+        guard let undo = services.closedTabs?.undoToasts else {
+            // main-hop-allow: the person's reopen (Undo, History) rest, userBlocking (p06 rule 2), tracked for a capturing caller: it awaits the reply, then shows the reopened item on main
+            services.registry.track(Task { @MainActor in await finish(entry, await send(entry, services: services), services: services) })
+            return
+        }
+        let item = entry.item
+        if let reason = undo.reopenClaims.refusal(for: item) { return services.registry.refuse(reason) }
+        let presses = undo.reopensWaiting > 0 ? undo.reopenTail : nil
+        if presses == nil { undo.reopenClaims.claim(item.id) }
+        let ticket = undo.reopenClaims.nextTicket()
+        // task-owner: CloseUndoToasts.reopenClaims.sends, removed at its reply; later presses wait for it
+        // main-hop-allow: the person's reopen (Undo, History): it resumes on main only after the presses before it picked (5 s at most behind closes) and at its reply
+        let sent = Task { @MainActor [weak undo] () -> Reply? in
+            defer { undo?.reopenClaims.removeSend(ticket) }
+            if let presses {
+                _ = await presses.value
+                guard let undo else { return nil }
+                if let reason = undo.reopenClaims.refusal(for: item) {
+                    services.registry.refuse(reason)
+                    return nil
+                }
+                undo.reopenClaims.claim(item.id)
+            }
+            let reply = await send(entry, services: services)
+            let reopened = if case .success = reply { true } else { false }
+            undo?.reopenClaims.settle(item.id, reopened: reopened)
+            return reply
+        }
+        // Filed in this turn, before the task runs (main actor): its removal comes after.
+        undo.reopenClaims.addSend(ticket, sent)
+        // main-hop-allow: the rest of the person's reopen (userBlocking, p06 rule 2), tracked for a capturing caller: it shows what came back on main
+        services.registry.track(Task { @MainActor in
+            guard let reply = await sent.value else { return nil }
+            return await finish(entry, reply, services: services)
+        })
     }
 }

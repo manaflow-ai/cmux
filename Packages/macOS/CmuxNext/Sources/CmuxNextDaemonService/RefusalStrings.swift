@@ -191,6 +191,14 @@ public nonisolated enum RefusalStrings {
     public static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     public static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
+    /// A second reopen of a closed tab (Undo, History, Cmd-Shift-T) while the first is on its way.
+    public static var closedTabReopening: String { text("handlers.refusal.closedTabReopening", "That tab is already reopening.") }
+    /// A second reopen of a closed tab after the first brought it back.
+    public static var closedTabReopened: String { text("handlers.refusal.closedTabReopened", "That tab was already reopened.") }
+    /// A second reopen of a closed screen, workspace or window while the first is on its way.
+    public static var closedItemReopening: String { text("handlers.refusal.closedItemReopening", "That item is already reopening.") }
+    /// A second reopen of a closed screen, workspace or window after the first brought it back.
+    public static var closedItemReopened: String { text("handlers.refusal.closedItemReopened", "That item was already reopened.") }
     public static func noClosedItem(_ id: String) -> String { text("handlers.refusal.closedItemGone", "That closed item can no longer be reopened.") }
     public static var paneHasNoTabs: String { text("handlers.refusal.paneHasNoTabs", "the pane has no tabs") }
     public static var tabArgumentRequired: String { text("handlers.refusal.tabArgumentRequired", "a tab argument is required") }
