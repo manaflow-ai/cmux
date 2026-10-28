@@ -183,7 +183,8 @@ pub(crate) fn cache_path(root: &Path) -> PathBuf {
 }
 
 pub(crate) fn read_cache(root: &Path) -> Option<Cached> {
-    let document: Value = serde_json::from_slice(&std::fs::read(cache_path(root)).ok()?).ok()?;
+    let document: Value =
+        serde_json::from_slice(&cmux_blocking::fs::read(cache_path(root)).ok()?).ok()?;
     Some(Cached {
         checked_at_ms: document.get("checked_at_ms")?.as_u64()?,
         latest: document.get("latest")?.as_str()?.to_string(),
@@ -209,9 +210,10 @@ pub(crate) fn write_cache(root: &Path, cached: &Cached) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file = options.open(&temp).map_err(|error| format!("write cache: {error}"))?;
+    let mut file = crate::blocking::fs::open_with(&options, &temp)
+        .map_err(|error| format!("write cache: {error}"))?;
     file.write_all(body.to_string().as_bytes()).map_err(|error| format!("write cache: {error}"))?;
-    std::fs::rename(&temp, path).map_err(|error| format!("write cache: {error}"))
+    cmux_blocking::fs::rename(&temp, path).map_err(|error| format!("write cache: {error}"))
 }
 
 /// Whether the cache needs a fresh answer (none, another channel, or older than a day).
@@ -265,7 +267,7 @@ pub(crate) fn channel() -> InstallChannel {
     }
     std::env::current_exe()
         .ok()
-        .and_then(|path| std::fs::canonicalize(path).ok())
+        .and_then(|path| cmux_blocking::fs::canonicalize(path).ok())
         .map_or(InstallChannel::Other, |path| InstallChannel::detect(&path))
 }
 

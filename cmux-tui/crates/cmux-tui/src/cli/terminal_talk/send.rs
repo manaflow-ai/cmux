@@ -350,7 +350,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     };
     let sent_ms = super::now_ms();
     write(&typed)?;
-    std::thread::sleep(request.enter_delay);
+    cmux_blocking::thread::sleep(request.enter_delay);
     write(&engine.encode(b"\r"))?;
     let sent_at = Instant::now();
     let mut receipt = json!({
@@ -407,7 +407,7 @@ fn wait<B: Daemon + ?Sized>(
         if verdict != Verdict::Pending || now >= deadline {
             return Ok((verdict, shown));
         }
-        std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
+        cmux_blocking::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
     }
 }
 

@@ -12,7 +12,7 @@ public import Quartz
 /// file opens (a cmux viewer or the default app):
 ///
 /// ```swift
-/// let model = FileBrowserModel(folder: FileManager.default.homeDirectoryForCurrentUser)
+/// let model = FileBrowserModel(folder: FileManager.default.homeDirectoryForCurrentUser, work: mainWork)
 /// let sidebar = SidebarModel(home: home, defaults: .standard)
 /// let pane = FilesPaneView(model: model, sidebar: sidebar, icons: icons, mainWork: services.mainWork) { url in
 ///     NSWorkspace.shared.openInBackground(url)

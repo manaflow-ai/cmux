@@ -144,7 +144,10 @@ impl AppIdentity {
             .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
         let Ok(name) = old.strip_prefix("/tmp") else { return old };
         let moved = home.join(".local/state/cmux").join(name);
-        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES || (!moved.exists() && old.exists()) {
+        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES
+            || (cmux_blocking::fs::metadata(&moved).is_err()
+                && cmux_blocking::fs::metadata(&old).is_ok())
+        {
             return old;
         }
         moved
@@ -174,7 +177,9 @@ impl AppIdentity {
     pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
         let build = self.build();
         let session = build.app_session()?;
-        if build.legacy_session_marker(home).is_some_and(|marker| marker.is_file()) {
+        if build.legacy_session_marker(home).is_some_and(|marker| {
+            cmux_blocking::fs::metadata(&marker).is_ok_and(|metadata| metadata.is_file())
+        }) {
             // `LegacyChannelSession.session`: the old shared daemon session.
             return Some("cmux-app".to_owned());
         }

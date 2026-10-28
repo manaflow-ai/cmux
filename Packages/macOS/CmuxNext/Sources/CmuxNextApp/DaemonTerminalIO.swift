@@ -76,10 +76,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
+    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane (p05-ipc-142).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
+         streamFocus: TerminalStreamFocus? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -125,7 +127,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 { size, expectsEcho in
                     trace.gridSent(surface: surface, cols: size.cols, rows: size.rows, expectsEcho: expectsEcho)
                 }
-            }
+            },
+            streamFocus: streamFocus
         )
         self.driver = driver
         self.inputQueue = inputQueue
@@ -239,6 +242,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.focused()
     }
 
+    /// The view's stream takes the input lane from the view that had it, in the main thread's focus order
+    /// (each view drains its ordered input on a queue of its own, so their `focusGained` can run out of order).
+    @MainActor func streamFocusGained() {
+        driver.takeStreamFocus()
+    }
+
     /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
     func takeOverSize(setLatest: Bool) async {
         driver.takeOver(setLatest: setLatest)
@@ -290,7 +299,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Hidden views release canonical geometry so another client (or the
-    /// next visible view) owns it; shown views claim it again.
+    /// next visible view) owns it; shown views claim it again. The view's stream follows: a hidden one gets
+    /// no output until it shows (`set-stream-priority`, TabContentCache's reveal and conceal).
     @MainActor func setVisible(_ visible: Bool) {
         driver.setVisible(visible)
     }

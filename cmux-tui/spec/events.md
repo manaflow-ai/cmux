@@ -1859,6 +1859,10 @@ message of the endpoint (chromium
 - `cancel-stream {stream}` ends the stream with `stream-end{canceled}` and
   removes its view before it answers `{stream, outcome:"applied"}`. It is
   idempotent: an id with no open stream answers `outcome:"ended"`.
+- `set-stream-priority {stream, priority: focused|visible|hidden}` moves the
+  stream's lane and its view's drain priority (commands.md). A hidden snapshot
+  view gets nothing until it shows again; then one READY snapshot if its
+  terminal changed meanwhile, ahead of any new `output`.
 - Streams are independent: one stream whose reader stopped fills only its
   own queue, and the other streams and the command replies of the
   connection keep flowing. Losing the connection ends every stream; there

@@ -1889,13 +1889,17 @@ RULES = (
          "// action-wait-allow: <why nothing can show before the reply>",
          line_rule(r"\.bind\([^\n]*\b(invoke|run|handler):|\.bind\([^\n]*\)\s*\{\s*(\w+|_)?\s*(,\s*\w+)*\s*in\b"
                    r"|\.waiting\(\.|\bwaitingEffect\(", "action-wait-allow:")),
-    Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
+    Rule("bench-hooks-shipped", "The bench or a sanitizer configuration in a shipped build's settings",
          "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
-         "the fleet benches; in a release, nightly or RC build's settings it would ship them to users",
-         "build benches with `scripts/reload.sh --config bench` or a measure script's `--config=bench` only; "
-         "shipped pipelines run scripts/cmux-next/check-no-bench-hooks.sh on their app",
+         "the fleet benches, and a sanitizer config (reload.sh --config asan|tsan|ubsan) ships its runtime and its "
+         "slowdown; in a release, nightly or RC build's settings either would ship to users",
+         "build benches with `scripts/reload.sh --config bench` or a measure script's `--config=bench` only, and "
+         "sanitizer apps with `scripts/reload.sh --config asan|tsan|ubsan`; shipped pipelines run "
+         "scripts/cmux-next/check-no-bench-hooks.sh on their app",
          None,
-         line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
+         line_rule(r"CMUX_BENCH_HOOKS|--config[= ](bench|asan|tsan|ubsan)\b"
+                   r"|ENABLE_(ADDRESS|THREAD|UNDEFINED_BEHAVIOR)_SANITIZER\s*=\s*YES"
+                   r"|-enable(Address|Thread|UndefinedBehavior)Sanitizer\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
     Rule("task-priority", "A task, queue or thread without a stated priority, or at a reserved level: a `Task.detached` "
          "or `DispatchQueue.global(` outside CmuxNextWakeups, a queue with no `qos:`/`target:`, a `Thread` (or Thread "

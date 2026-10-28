@@ -51,6 +51,7 @@ use crate::sidebar_resource::resolve_sidebar_view;
 use crate::sidebar_resource::sidebar_attach_snapshot;
 use crate::sidebar_resource::sidebar_snapshot;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::surface::AttachLifecycle;
 use cmux_threads::checked::sync as waits;
 use serde_json::Value;
@@ -433,9 +434,11 @@ pub(super) fn start_terminal_resource_attach(
     let worker_writer = writer.clone();
     // A control stream, not an echo-path thread: it waits for the attach to
     // commit, and echo-path threads disallow blocking.
-    let spawn = cmux_threads::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-terminal-attach",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
@@ -664,9 +667,11 @@ pub(super) fn start_browser_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = cmux_threads::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-browser-attach",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
@@ -851,9 +856,11 @@ pub(super) fn start_sidebar_resource_attach(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = cmux_threads::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-sidebar-attach",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let mut sequence = 0u64;
             if !send_resource_uncursored_stream_item(

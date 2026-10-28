@@ -3,6 +3,7 @@
 //! (plans/cmux-next/identity.md section 4), then token or pairing auth.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::net::{SocketAddr, TcpListener};
 
@@ -26,7 +27,7 @@ pub struct WebSocketServer {
     local_addr: SocketAddr,
     shutdown: Arc<AtomicBool>,
     connections: Arc<Mutex<HashMap<u64, TcpStream>>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<supervised::SupervisedThread<()>>,
 }
 
 impl WebSocketServer {
@@ -45,7 +46,7 @@ impl Drop for WebSocketServer {
             let _ = stream.set_nodelay(true);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = waits::join(thread);
+            let _ = thread.join();
         }
     }
 }
@@ -146,62 +147,68 @@ pub fn serve_websocket_with_keepalive(
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
-    let thread = cmux_threads::spawn("mux-ws-server", listen::ACCEPT_THREAD_QOS, move || {
-        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
-        while !thread_shutdown.load(Ordering::Acquire) {
-            let (stream, peer) = match listener.accept() {
-                Ok(connection) => {
-                    backoff.reset();
-                    connection
-                }
-                Err(error) => {
-                    if thread_shutdown.load(Ordering::Acquire) {
-                        break;
+    let thread = supervised::spawn_at(
+        "mux-ws-server",
+        listen::ACCEPT_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
+            while !thread_shutdown.load(Ordering::Acquire) {
+                let (stream, peer) = match listener.accept() {
+                    Ok(connection) => {
+                        backoff.reset();
+                        connection
                     }
-                    // Accept errors can persist (for example, after resource exhaustion).
-                    if crate::backoff::accept_error_needs_backoff(&error) {
-                        backoff.sleep();
+                    Err(error) => {
+                        if thread_shutdown.load(Ordering::Acquire) {
+                            break;
+                        }
+                        // Accept errors can persist (for example, after resource exhaustion).
+                        if crate::backoff::accept_error_needs_backoff(&error) {
+                            backoff.sleep();
+                        }
+                        continue;
                     }
+                };
+                if stream.set_nodelay(true).is_err() {
                     continue;
                 }
-            };
-            if stream.set_nodelay(true).is_err() {
-                continue;
+                enable_tcp_keepalive(&stream);
+                if thread_shutdown.load(Ordering::Acquire) {
+                    break;
+                }
+                let Some(permit) = claim_connection(&active_connections) else { continue };
+                let id = next_connection.fetch_add(1, Ordering::Relaxed);
+                if let Ok(tracked) = stream.try_clone() {
+                    thread_connections.lock().recover_poison().insert(id, tracked);
+                }
+                let mux = mux.clone();
+                let token = token.clone();
+                let rules = rules.clone();
+                let render_service = render_service.clone();
+                let connections = thread_connections.clone();
+                let cleanup_connections = thread_connections.clone();
+                // It reads frames and runs their requests itself: a request thread.
+                if spawn_request_thread("mux-ws-conn", move || {
+                    handle_websocket_connection_with_permit(
+                        mux,
+                        stream,
+                        peer,
+                        token.as_deref(),
+                        &rules,
+                        render_service,
+                        Some(permit),
+                    );
+                    connections.lock().recover_poison().remove(&id);
+                })
+                .is_err()
+                {
+                    cleanup_connections.lock().recover_poison().remove(&id);
+                }
             }
-            enable_tcp_keepalive(&stream);
-            if thread_shutdown.load(Ordering::Acquire) {
-                break;
-            }
-            let Some(permit) = claim_connection(&active_connections) else { continue };
-            let id = next_connection.fetch_add(1, Ordering::Relaxed);
-            if let Ok(tracked) = stream.try_clone() {
-                thread_connections.lock().recover_poison().insert(id, tracked);
-            }
-            let mux = mux.clone();
-            let token = token.clone();
-            let rules = rules.clone();
-            let render_service = render_service.clone();
-            let connections = thread_connections.clone();
-            let cleanup_connections = thread_connections.clone();
-            // It reads frames and runs their requests itself: a request thread.
-            if spawn_request_thread("mux-ws-conn", move || {
-                handle_websocket_connection_with_permit(
-                    mux,
-                    stream,
-                    peer,
-                    token.as_deref(),
-                    &rules,
-                    render_service,
-                    Some(permit),
-                );
-                connections.lock().recover_poison().remove(&id);
-            })
-            .is_err()
-            {
-                cleanup_connections.lock().recover_poison().remove(&id);
-            }
-        }
-    })?;
+        },
+    )?;
     Ok(WebSocketServer { local_addr, shutdown, connections, thread: Some(thread) })
 }
 
@@ -368,34 +375,42 @@ fn handle_websocket_connection_with_permit(
     // so the reader never joins it (a wait for another thread, which the
     // reader, a request thread that disallows blocking, may not make).
     let writer_permit = connection_permit.clone();
-    let Ok(writer_thread) = cmux_threads::spawn("mux-ws-out", REQUEST_THREAD_QOS, move || {
-        let _permit = writer_permit;
-        let mut writer_stream = writer_stream;
-        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv).
-        while let Some(item) = writer_outbound.recv() {
-            let result = match item {
-                OutboundItem::Text(text) => {
-                    writer_ipc.line_sent(text.len());
-                    writer_stream.write_websocket_text(&text, &writer_ipc)
+    let Ok(writer_thread) = supervised::spawn_at(
+        "mux-ws-out",
+        REQUEST_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let _permit = writer_permit;
+            let mut writer_stream = writer_stream;
+            // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv).
+            while let Some(item) = writer_outbound.recv() {
+                let result = match item {
+                    OutboundItem::Text(text) => {
+                        writer_ipc.line_sent(text.len());
+                        writer_stream.write_websocket_text(&text, &writer_ipc)
+                    }
+                    // The WebSocket sink refuses frames before they queue.
+                    OutboundItem::Frame(..) | OutboundItem::Chunk { .. } => {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "a frame reached a WebSocket",
+                        ))
+                    }
+                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                        let _ = flushed.send(());
+                    }),
+                };
+                if result.is_err() {
+                    writer_outbound.close();
+                    break;
                 }
-                // The WebSocket sink refuses frames before they queue.
-                OutboundItem::Frame(..) | OutboundItem::Chunk { .. } => Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "a frame reached a WebSocket",
-                )),
-                OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
-                    let _ = flushed.send(());
-                }),
-            };
-            if result.is_err() {
-                writer_outbound.close();
-                break;
             }
-        }
-        writer_close.close();
-        let _ = writer_stream.write_websocket_close();
-        let _ = writer_shutdown.shutdown(Shutdown::Both);
-    }) else {
+            writer_close.close();
+            let _ = writer_stream.write_websocket_close();
+            let _ = writer_shutdown.shutdown(Shutdown::Both);
+        },
+    ) else {
         writer.close();
         return;
     };

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd";
+pub const ir_sha256 = "7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6";
 
 pub const AccessRequestKind = enum {
     file,
@@ -794,6 +794,10 @@ pub const BookmarkImportNode = struct {
         "created_ms",
         "url",
     };
+};
+
+pub const BridgeHelloResult = struct {
+    features: []const []const u8,
 };
 
 pub const BrowserFrame = struct {
@@ -3125,6 +3129,29 @@ pub const SetSizePolicyResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "state",
     };
+};
+
+pub const SetStreamPriorityResultOutcome = enum {
+    applied,
+    ended,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "applied")) return .applied;
+        if (std.mem.eql(u8, value, "ended")) return .ended;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .applied => "applied",
+            .ended => "ended",
+        };
+    }
+};
+
+pub const SetStreamPriorityResult = struct {
+    outcome: SetStreamPriorityResultOutcome,
+    stream: u16,
 };
 
 pub const SetTerminalIdlePolicyResult = struct {
@@ -5721,6 +5748,23 @@ pub fn bindConversationTabSession(client: anytype, request: BindConversationTabS
             .authority = "control",
             .since = 12,
             .capability = "agent-session-tabs-v1",
+        },
+        request,
+    );
+}
+
+pub const BridgeHelloRequest = struct {
+    features: []const []const u8,
+};
+
+pub fn bridgeHello(client: anytype, request: BridgeHelloRequest) !wire.Decoded(BridgeHelloResult) {
+    return client.callTyped(
+        BridgeHelloResult,
+        .{
+            .name = "bridge-hello",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "bridge-hello-v1",
         },
         request,
     );
@@ -11850,6 +11894,45 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
+pub const SetStreamPriorityRequestPriority = enum {
+    focused,
+    visible,
+    hidden,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "focused")) return .focused;
+        if (std.mem.eql(u8, value, "visible")) return .visible;
+        if (std.mem.eql(u8, value, "hidden")) return .hidden;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .focused => "focused",
+            .visible => "visible",
+            .hidden => "hidden",
+        };
+    }
+};
+
+pub const SetStreamPriorityRequest = struct {
+    priority: SetStreamPriorityRequestPriority,
+    stream: u16,
+};
+
+pub fn setStreamPriority(client: anytype, request: SetStreamPriorityRequest) !wire.Decoded(SetStreamPriorityResult) {
+    return client.callTyped(
+        SetStreamPriorityResult,
+        .{
+            .name = "set-stream-priority",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "attach-streams-v1",
+        },
+        request,
+    );
+}
+
 pub const SetTabPinnedRequest = struct {
     pinned: bool,
     surface: Id,
@@ -15027,7 +15110,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 364;
+pub const command_count: usize = 366;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15083,6 +15166,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "apps-unmount", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
+    .{ .name = "bridge-hello", .authority = "local-admin", .since = 12, .capability = "bridge-hello-v1", .stream = null },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-back", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-forward", .authority = "frontend", .since = 6, .capability = null, .stream = null },
@@ -15344,6 +15428,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-stream-priority", .authority = "frontend", .since = 12, .capability = "attach-streams-v1", .stream = null },
     .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
     .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },

@@ -222,10 +222,10 @@ public final class OwnerPanicForwarder: Sendable {
 
     /// Reads the whole lines of `file` past `offset` and sends them; returns the bytes read.
     private func readLines(_ file: URL, from offset: UInt64, size: UInt64, log: RustDiagnosticsLog, into sent: inout [Event]) -> UInt64 {
-        guard size > offset, let handle = try? FileHandle(forReadingFrom: file) else { return 0 }
+        guard size > offset, let handle = try? FileHandle.blockingForReading(from: file) else { return 0 }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.read(upToCount: Int(size - offset)),
+              let data = try? handle.blockingRead(upToCount: Int(size - offset)),
               let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return 0 }
         // Only whole lines; a line still being written stays for the next read.
         let complete = data[data.startIndex...lastNewline]
@@ -408,7 +408,7 @@ public final class OwnerPanicForwarder: Sendable {
 
     private func watchSource(_ url: URL, kind: WatchKind, key: String) -> (any DispatchSourceFileSystemObject)? {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let descriptor = unsafe open(url.path, O_EVTONLY | O_CLOEXEC)
+        let descriptor = unsafe blockingOpen(url.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         let mask: DispatchSource.FileSystemEvent = switch kind {
         case .file: [.extend, .write, .delete, .rename]

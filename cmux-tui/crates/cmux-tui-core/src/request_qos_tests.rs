@@ -193,7 +193,7 @@ fn helper_reads(enabled: bool, cause: EventCause) -> HelperReads {
             let creator_live = cmux_threads::current();
             let reachable = ThreadQos::ALL.map(cmux_threads::reachable);
             let (declared, work, live) = RequestQos { enabled }
-                .spawn_helper("mux-helper-test", Some(256 * 1024), || {
+                .spawn_helper("mux-helper-test", || {
                     let declared = cmux_threads::current_slot().expect("registered").declared();
                     (declared, cmux_tui_platform::qos::work_qos(), cmux_threads::current())
                 })

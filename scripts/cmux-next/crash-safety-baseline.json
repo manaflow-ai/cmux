@@ -70,9 +70,7 @@
   },
   "unchecked": {
    "CmuxMobileSupport": 1,
-   "CmuxNextBrowser": 4,
-   "CmuxNextBrowserAutomation": 1,
-   "CmuxNextBrowserImport": 1
+   "CmuxNextBrowser": 1
   }
  },
  "waived": {

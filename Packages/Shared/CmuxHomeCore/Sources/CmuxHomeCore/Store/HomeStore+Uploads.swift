@@ -33,6 +33,8 @@ extension HomeStore {
 
     private func uploadAndSubmitPasses(_ key: inout IdempotencyKey) async throws {
         var uploadedAgain = uploads[key]?.uploadedAfterSweep ?? false
+        // wakeup-allow: bounded each pass awaits one upload pass; it passes again only for one immediate retry
+        // per key (`resumedImmediately`) and one re-upload under a new key after a sweep (`uploadedAgain`)
         while true {
             // One pass at a time per send (a reconnect may race a retry).
             guard var job = uploads[key], job.task == nil else { return }
