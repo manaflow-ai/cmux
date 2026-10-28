@@ -8,6 +8,33 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Retained copies have distinct workspace IDs and keep their own dock owners")
+    func crashMergeRemapsRetainedWorkspaceCollisions() throws {
+        var original = crashTestWindow([crashTestWorkspace("api", agents: ["a"])])
+        let oldID = try #require(original.tabManager.workspaces[0].workspaceId)
+        let panel = terminalPanelSnapshot(id: UUID(), directory: "/work", terminal: SessionTerminalPanelSnapshot())
+        original.tabManager.workspaces[0].dock = SessionSplitContainerSnapshot(
+            focusedPanelId: panel.id,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)), panels: [panel]
+        )
+        original.tabManager.workspaces[0].dock?.sourceWorkspaceIdsByPanelId = [panel.id: oldID]
+        original.dock = original.tabManager.workspaces[0].dock
+        var replay = original
+        replay.tabManager.workspaces[0].customDescription = "Keep this generation"
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
+        )))
+        let window = try #require(result.windows.first)
+        #expect(result.windows.count == 1)
+        #expect(window.tabManager.workspaces.count == 2)
+        let first = try #require(window.tabManager.workspaces[0].workspaceId)
+        let second = try #require(window.tabManager.workspaces[1].workspaceId)
+        #expect(first != second)
+        #expect(window.tabManager.workspaces[0].dock?.sourceWorkspaceIdsByPanelId == [panel.id: first])
+        #expect(window.tabManager.workspaces[1].dock?.sourceWorkspaceIdsByPanelId == [panel.id: second])
+        #expect(window.dock?.sourceWorkspaceIdsByPanelId == [panel.id: first])
+    }
+
     @Test("Crash merging never moves preserved workspaces past the live restore limit", arguments: [false, true])
     func crashMergeRespectsLiveWorkspaceLimit(divergent: Bool) throws {
         let count = SessionPersistencePolicy.maxWorkspacesPerWindow
