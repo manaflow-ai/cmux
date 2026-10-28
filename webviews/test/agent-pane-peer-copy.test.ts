@@ -1536,7 +1536,13 @@ test("a cold open whose attach fails keeps none of the records that came before 
   const drawn: AcpmuxSnapshot[] = [];
   const Client = AcpmuxDirectClient as unknown as new (...args: unknown[]) => AcpmuxDirectClient;
   const client = new Client(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://peer.invalid/", token: "t", sessionId: SESSION },
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://peer.invalid/",
+      token: "t",
+      sessionId: SESSION,
+    },
     (snapshot: AcpmuxSnapshot) => {
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },
