@@ -66,6 +66,8 @@ fn the_owner_creates_lists_kicks_and_revokes() {
         "guest_id":guest["data"]["guest_id"]});
     assert_eq!(owner.request(kick)["ok"], true);
     assert_eq!(list(&mut owner)[0]["guests"][0]["state"], "kicked");
+    // The kicked guest's redeem, replayed with its attempt and the secret, stays refused.
+    assert_code(&redeem(&mut owner, &share, "Theo", "attempt-1"), "share.kicked");
     let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
     assert_eq!(owner.request(revoke)["ok"], true);
     assert_eq!(list(&mut owner)[0]["state"], "revoked");

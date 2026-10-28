@@ -328,7 +328,8 @@ impl LinkShares {
             {
                 return match guest.state {
                     GuestState::Active => Ok((reply(guest), false)),
-                    _ => Err("share.kicked"),
+                    GuestState::Kicked => Err("share.kicked"),
+                    GuestState::Left => Err("share.left"),
                 };
             }
             if share.uses_left == 0 {
@@ -439,6 +440,7 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.provisioning" | "share.closed" => "the share is not open",
         "share.used" => "the link was already used",
         "share.kicked" => "the owner removed this guest",
+        "share.left" => "this guest left the share",
         "share.name" => "a name is 1 to 64 characters on one line",
         "share.limit" => "too many shares on this machine",
         "share.not_a_chat" => "not an agent chat with a session",
