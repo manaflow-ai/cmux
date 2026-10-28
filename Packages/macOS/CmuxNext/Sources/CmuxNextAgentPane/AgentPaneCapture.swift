@@ -25,11 +25,16 @@ enum AgentPaneCapture {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         guard await capture(window: mode == "window", to: file) else { return AgentPaneReply.success(["cancelled": true]) }
         let taken = Date()
-        // A person waits for the attachment: the read and the scale run at userBlocking's priority.
-        let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable] in
-            defer { try? FileManager.default.removeItem(at: file) }
-            return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
-        }.value
+        // A person waits for the attachment: the read, the scale and the delete run on the files lane at userBlocking.
+        let value = try? await model.runner.runFiles(.userBlocking) { () -> [String: any Sendable] in
+            defer { try? FileManager.checked.removeItem(at: file) }
+            return Self.answer((try? Data(blockingContentsOf: file)) ?? Data(), taken: taken)
+        }
+        guard let value else {
+            // Refused (quit began): the capture is dropped with its file.
+            model.runner.postFiles(.bestEffort, shutdown: .continueOnShutdown) { try? FileManager.checked.removeItem(at: file) }
+            return AgentPaneReply.success(["cancelled": true])
+        }
         return AgentPaneReply.success(value)
     }
 

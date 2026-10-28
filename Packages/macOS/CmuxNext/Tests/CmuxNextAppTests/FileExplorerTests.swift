@@ -5,6 +5,8 @@ import CmuxNextFocus
 import Foundation
 import Testing
 import CmuxNextFilesUI
+import CmuxNextWakeups
+import CmuxNextFiles
 
 /// The right sidebar's Files section (classic's file explorer) and its seven actions: Open
 /// Selection (Return), Open Selection (Finder Style) (Cmd-Down), Open in cmux, Reveal in Finder,
@@ -13,6 +15,7 @@ import CmuxNextFilesUI
 @MainActor @Suite(.serialized)
 struct FileExplorerTests {
     @MainActor final class Recorder: FileExplorerEffects {
+        let files: any FileOperating = FileOperator(work: BackgroundWork())
         var viewable = true
         private(set) var openedInCmux: [URL] = []
         private(set) var openedInDefaultApp: [URL] = []

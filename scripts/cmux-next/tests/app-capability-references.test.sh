@@ -173,4 +173,33 @@ if out="$(run)"; then fail "a computed String static in the catalog passed: $out
 write_endpoint ".tabDrag, .attachIdentity, .cloudConversations, .terminalResources"
 out="$(run)" || fail "the tree failed after the computed statics were removed: $out"
 
+# A framed IPC grant (an arm of `IpcCapability::name`) is offered per connection once its
+# transport is bound, so the app may gate on it outside the lists (ipc-frames-v2 turned every
+# Mac build red in the Bundle cmux-tui phase). A plain literal of capabilities.rs that is not an
+# arm stays red.
+cat >> "$core/src/server/capabilities.rs" <<'EOF'
+pub(super) enum IpcCapability { Frames, AttachStreams }
+impl IpcCapability {
+    pub(super) const fn name(self) -> &'static str {
+        match self {
+            Self::Frames => "ipc-frames-v2",
+            Self::AttachStreams => "attach-streams-v1",
+        }
+    }
+    fn note() -> &'static str { "plain-literal-v1" }
+}
+EOF
+write_app '        if daemon.supports(WireNegotiation.framesCapability) {}
+    }
+}
+struct WireNegotiation {
+    static let framesCapability = "ipc-frames-v2"
+    static let streamsCapability = "attach-streams-v1"
+    func gate(daemon: DaemonService) {'
+out="$(run)" || fail "a gate on a framed IPC grant failed: $out"
+write_app '        if daemon.supports("plain-literal-v1") {}'
+if out="$(run)"; then fail "an unlisted literal of capabilities.rs outside IpcCapability::name passed: $out"; fi
+[[ "$out" == *"plain-literal-v1"* ]] || fail "the failure does not name plain-literal-v1: $out"
+write_app ""
+
 echo "app-capability-references.test.sh: ok"

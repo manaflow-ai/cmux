@@ -99,7 +99,7 @@ import Testing
         let rig = MainDeadlineRig()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-draft-sweep-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let drafts = RecoveryDraftStore(directory: directory, deadlines: rig.deadlines)
+        let drafts = RecoveryDraftStore(directory: directory, deadlines: rig.deadlines, work: BackgroundWork(label: "test.recovery-drafts"))
         let id = QuitParticipantID.file(path: "/tmp/a.txt")
         #expect(drafts.update(id: id, title: "a.txt", contents: Data("a".utf8)) == .kept)
         #expect(rig.hasArmedWake, "the debounce armed no wake on the main thread's queue")
