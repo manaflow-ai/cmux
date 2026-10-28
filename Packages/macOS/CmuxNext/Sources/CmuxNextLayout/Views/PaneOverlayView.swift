@@ -367,8 +367,10 @@ final class PaneOverlayView: NSView {
             // The flash marks a move, so it draws at least at standard contrast.
             let flashAlpha = max(ringAlphaOverride ?? focusRing.contrast.ringAlpha, FocusRingContrast.standard.ringAlpha)
             focusFlash.borderColor = Palette.paneFocusRing(focusRing, override: flashAlpha).cgColor
-            glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
-            glow.shadowColor = ringColor.cgColor
+            let glowAlpha = ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value
+            glow.borderColor = ringColor.withAlphaComponent(glowAlpha).cgColor
+            // A `shadowPath` shadow is opaque where the border's alpha shaded it before: carry that alpha in the color.
+            glow.shadowColor = ringColor.withAlphaComponent(ringColor.alphaComponent * glowAlpha).cgColor
             let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
             attention.shadowColor = attentionColor.cgColor
