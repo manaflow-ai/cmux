@@ -54,7 +54,7 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
 const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:timeout(?:\s+\S+)*\s+)?(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
+  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:(?:[\w./~-]*\/)?timeout(?:\s+\S+)*\s+)?(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -140,7 +140,7 @@ const callText = (command: string) =>
 /// Shell text after dropping unexecuted short-circuit and conditional branches. Changes and Sources
 /// must scan the same executed command text or they will disagree about URLs from skipped arms.
 const executedShellText = (command: string): string => {
-  let text = callText(command).replace(/\bif\s+(true|false)\s*;\s*then\s+([\s\S]*?)\s*;\s*([\s\S]*?)\s*fi\b/g, (_, condition: string, thenBody: string, rest: string) => {
+  let text = callText(command).replace(/\bif\s+(true|false)\s*;?\s*then\s+([\s\S]*?)\s*(?:;|\n)\s*([\s\S]*?)\s*fi\b/g, (_, condition: string, thenBody: string, rest: string) => {
     if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
     const directElif = /^\s*elif\s+(?!true\s*;|false\s*;)([\s\S]*?)(?:;|$)/.exec(rest);
     if (directElif) return rest.replace(/^\s*elif\s+/, "");
@@ -150,6 +150,8 @@ const executedShellText = (command: string): string => {
     return /\belse\s+/.test(rest) ? rest.replace(/^([\s\S]*?)\belse\s+/, "") : "";
   });
   return text
+    .replace(/!\s+true\b/g, "false")
+    .replace(/!\s+false\b/g, "true")
     .split(";")
     .flatMap((statement) => {
       const pieces: { text: string; op?: "&&" | "||" }[] = [];
