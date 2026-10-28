@@ -83,8 +83,22 @@ p.add_argument("--write-once", action="store_true")
 p.add_argument("--file"); p.add_argument("--endpoint-url"); p.add_argument("--bucket")
 p.add_argument("--key"); p.add_argument("--cache-control")
 p.add_argument("--conflict-exit-code", type=int)
+p.add_argument("--download-to")
 a = p.parse_args()
 dest = os.path.join(os.environ["FAKE_R2"], a.key)
+# A read (--download-to), as the real uploader's: exit 22 on a missing object.
+# FAKE_DOWNLOAD_FAIL=<key>=<exit> fails that read as a transfer error would,
+# after the real uploader's retries.
+if a.download_to:
+    failing, _, code = os.environ.get("FAKE_DOWNLOAD_FAIL", "").partition("=")
+    if failing == a.key:
+        print(f"R2 download of s3://{a.bucket}/{a.key} failed: Connection reset by peer", file=sys.stderr)
+        sys.exit(int(code))
+    if not os.path.isfile(dest):
+        print(f"R2 download of s3://{a.bucket}/{a.key} failed: HTTP 404 Not Found", file=sys.stderr)
+        sys.exit(22)
+    shutil.copyfile(dest, a.download_to)
+    sys.exit(0)
 body = open(a.file, "rb").read()
 # Another run is mid-publication: before this upload lands, it writes the
 # objects named in FAKE_RACE (relative keys) from FAKE_OTHER_RUN.
@@ -274,6 +288,40 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
             self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
         # Provenance names the run that built them (bundle-cmux-tui.sh stamps it).
         self.assertEqual(json.loads((published / "source.json").read_text())["run"], "1")
+
+    def test_a_tree_read_that_fails_is_not_taken_for_an_absent_tree(self) -> None:
+        """Run 40670486094: the edge reset a companion read (curl exit 92). The reads now go
+        to R2; one that still fails after the downloader's retries fails the step, and a
+        failed read of source.json never passes for a first publication."""
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        commit.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        for n in names:
+            (tree / n).write_text(f"{n} build 2\n")
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        key = "a" * 40
+        for failing in (f"cmux-tui/tree/{key}/source.json", f"cmux-tui/{self.box.sha}/{names[0]}"):
+            with self.subTest(failing=failing):
+                result = self.box.run(script, KEY_V2=key, LEGACY_KEY="", FAKE_DOWNLOAD_FAIL=f"{failing}=1")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("Connection reset by peer", result.stderr)
+                self.assertFalse((self.box.r2 / "cmux-tui" / "tree" / key).exists(),
+                                 "nothing of the tree is written after a failed read")
+        # The same reads, all answered: the tree publishes.
+        result = self.box.run(script, KEY_V2=key, LEGACY_KEY="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.box.r2 / "cmux-tui" / "tree" / key / "completion.json").is_file())
 
     def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
         """The commit's earlier publication attests acpmux for the four Unix targets."""
