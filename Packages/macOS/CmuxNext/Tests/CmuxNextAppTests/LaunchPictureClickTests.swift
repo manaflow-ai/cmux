@@ -12,8 +12,8 @@ import Testing
 /// `LaunchPictureView` over the live root, masked by `LaunchPictureRegions` (p08-startup-060). A click where a part
 /// still shows the picture is held and raises the window's build (`LaunchWindowBuild.raise`) to the next frame; when
 /// the part leaves at its region's first content the click goes again at the same point, exactly once, to the live
-/// view under it. It is dropped when what the window shows or its size changed meanwhile, past the hold, or at the
-/// bound. The picture's edges reach the key router's stand-in buffer: `launch_picture_shown` begins it, the picture
+/// view under it; at the bound, to the live root. It is dropped (and counted) only when what the window shows or its
+/// size changed meanwhile. The picture's edges reach the key router's stand-in buffer: `launch_picture_shown` begins it, the picture
 /// leaving ends it.
 @MainActor @Suite(.serialized)
 struct LaunchPictureClickTests {
@@ -187,19 +187,23 @@ struct LaunchPictureClickTests {
         #expect(launch.record.sent.isEmpty)
     }
 
-    /// A part live after the 2 s hold: the click is dropped.
-    @Test func aClickOlderThanTheHoldIsDropped() throws {
+    /// Audit B10: a click held past 2 s was dropped when its part went live. What the window shows and its size are
+    /// the same, so the click means what it meant: it goes to the live view, never silently lost.
+    @Test func aSlowPartsClickStillGoesWhenItGoesLive() throws {
         let launch = try Launch()
         defer { launch.tearDown() }
         launch.slices.runNext()
         try launch.click(at: Launch.inPane)
-        launch.record.elapsed = LaunchPictureInput.clickLimit + .milliseconds(100)
+        launch.record.elapsed = .seconds(2) + .milliseconds(100)
         launch.paneGoesLive()
-        #expect(launch.record.sent.isEmpty)
+        #expect(launch.record.sent == [.leftMouseDown, .leftMouseUp], "a click the person made on an unchanged window was dropped")
+        #expect(launch.input.clickStage.delivered == 1 && launch.input.clickStage.dropped == 0)
     }
 
-    /// The bound takes the picture down with no content: a held click is dropped, never sent to a region with none.
-    @Test func theBoundDropsTheHeldClicks() throws {
+    /// Audit B10: the bound took the picture down and dropped every held click. Once the picture leaves, the live root
+    /// is what the window shows under the click's point: the clicks go there (the pane the person clicked takes the
+    /// focus), in order, unless what the window shows changed.
+    @Test func theBoundSendsTheHeldClicksToTheLiveRoot() throws {
         let launch = try Launch()
         defer { launch.tearDown() }
         launch.slices.runNext()
@@ -207,8 +211,22 @@ struct LaunchPictureClickTests {
         try launch.click(at: Launch.titleRow)
         launch.rig.fireAndRun()
         #expect(launch.regions.isFinished && launch.phase.picture == nil)
-        #expect(launch.record.sent.isEmpty && launch.input.heldClicks == 0)
+        #expect(launch.record.sent == [.leftMouseDown, .leftMouseUp, .leftMouseDown, .leftMouseUp],
+                "the bound dropped the person's clicks")
+        #expect(launch.input.heldClicks == 0)
         #expect(!launch.pictureTakesClick(at: Launch.inPane), "the picture still takes clicks after it left")
+    }
+
+    /// A click whose window changed is still dropped (it means another place now), and the drop is counted.
+    @Test func aDroppedClickIsCounted() throws {
+        let launch = try Launch()
+        defer { launch.tearDown() }
+        launch.slices.runNext()
+        try launch.click(at: Launch.inPane)
+        launch.record.stamp = "ws-2"
+        launch.rig.fireAndRun()
+        #expect(launch.record.sent.isEmpty)
+        #expect(launch.input.clickStage.dropped == 1)
     }
 
     /// Without the input holding clicks the picture takes none, as before (060).

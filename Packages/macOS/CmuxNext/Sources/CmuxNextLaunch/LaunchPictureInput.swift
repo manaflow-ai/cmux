@@ -70,6 +70,16 @@ public final class LaunchPictureInput {
     /// Clicks still waiting for their part.
     public var heldClicks: Int { clicks.count }
 
+    /// The held clicks' measured stage: how many went to the live view, how many were dropped, and the longest wait.
+    public struct ClickStage: Sendable, Equatable {
+        public var delivered = 0
+        public var dropped = 0
+        public var longestWait: Duration = .zero
+    }
+
+    /// The held clicks so far (`debug` readers, tests).
+    public private(set) var clickStage = ClickStage()
+
     /// The picture is over the live root, masked by `regions`: a click where it still shows waits for that part.
     public func holdClicks(on picture: LaunchPictureView, regions: LaunchPictureRegions) {
         guard !isFinished else { return }
