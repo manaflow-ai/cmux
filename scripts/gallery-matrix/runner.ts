@@ -265,6 +265,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       await page.locator(params.auditScroll).first().evaluate((element) => { element.scrollTop = element.scrollHeight; });
     }
     if (typeof params.auditHover === "string") await page.locator(params.auditHover).first().hover();
+    if (params.auditPointerAway === true) await page.mouse.move(0, 0);
     const geometryEnvironment = await page.evaluate(() => {
       for (const animation of document.getAnimations()) animation.pause();
       return { deviceScaleFactor: window.devicePixelRatio, viewport: { width: window.innerWidth, height: window.innerHeight } };
