@@ -71,13 +71,19 @@ final class AgentDialogDesk {
         var sessions: [[String: Any]] = []
         var cursor: String?
         var seen: Set<String> = []
+        var seenSessions: Set<String> = []
         while true { // wakeup-allow: each pass awaits a daemon page; a terminal page, malformed reply, or repeated cursor ends it
             var params: [String: Any] = ["status": "waiting", "limit": 64]
             if let cursor { params["cursor"] = cursor }
             guard let page = await line.call("_acpmux/sessions", params) else { break }
             guard let pageRows = page["sessions"] as? [[String: Any]] else { return [] }
-            sessions += pageRows.filter { ($0["peer"] as? String)?.isEmpty != false }
-            guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }), seen.insert(next).inserted else { break }
+            for row in pageRows {
+                guard (row["peer"] as? String)?.isEmpty != false,
+                      let id = row["sessionId"] as? String, !id.isEmpty else { continue }
+                if seenSessions.insert(id).inserted { sessions.append(row) }
+            }
+            guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { break }
+            guard seen.insert(next).inserted else { return [] }
             cursor = next
         }
         var out: [Pending] = []

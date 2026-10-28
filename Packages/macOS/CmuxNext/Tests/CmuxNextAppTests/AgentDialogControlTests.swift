@@ -44,6 +44,8 @@ import Testing
                 return ["sessions": [
                     ["sessionId": "s-idle", "name": "idle", "pendingPermissions": 0],
                     ["sessionId": "s-tool", "name": "builder", "pendingPermissions": 1],
+                    ["sessionId": "s-tool", "name": "builder", "pendingPermissions": 1],
+                    ["sessionId": "offline", "name": "peer", "peer": "gcp", "pendingPermissions": 1],
                     ["sessionId": "s-ask", "name": "asker", "pendingPermissions": 1],
                 ]]
             case "_acpmux/info":
@@ -100,6 +102,7 @@ import Testing
         let list = try #require(line.sent.first { $0.method == "_acpmux/sessions" })
         #expect(list.params["status"] as? String == "waiting")
         #expect(list.params["limit"] as? Int == 64)
+        #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String } == ["s-tool", "s-ask"])
     }
 
     @Test func listWithNoAcpmuxIsEmpty() async throws {
