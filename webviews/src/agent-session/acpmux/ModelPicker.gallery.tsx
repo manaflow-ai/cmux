@@ -77,18 +77,61 @@ const curated: ModelPickerProps = {
     })),
 };
 
-/// Provider-family recommendation states: the selected family is first while each harness keeps
-/// its own curated lineup; older releases stay reachable from More models. These fixtures make the
-/// per-harness ordering visible for Claude and Codex without coupling the gallery to model names.
+/// Provider-family recommendation states: synthetic harness reports make each family and its
+/// newest release visible, including a newly shipped Codex family and older releases in More.
+const familyRecommendationCatalog: ModelPickerProps["catalog"] = [
+  {
+    id: "claude",
+    name: "Claude Code",
+    top: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+    models: [
+      { id: "claude-opus-5-5", name: "Opus 5.5", family: "Opus" },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", family: "Sonnet" },
+      { id: "claude-haiku-5-5", name: "Haiku 5.5", family: "Haiku" },
+      { id: "claude-fable-5-1", name: "Fable 5.1", family: "Fable" },
+      { id: "claude-opus-4-6", name: "Opus 4.6", family: "Opus" },
+    ],
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    top: ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"],
+    models: [
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", family: "Sol" },
+      { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", family: "Terra" },
+      { id: "gpt-6.1-luna", name: "GPT-6.1 Luna", family: "Luna" },
+      { id: "gpt-6-astra", name: "GPT-6 Astra", family: "Astra" },
+      { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
+    ],
+  },
+];
+
+const recommendationPlay = (current: string, more: string) => async (ctx: Play) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
+  await ctx.waitFor(() => {
+    const first = ctx.document.querySelector<HTMLButtonElement>('button[data-key^="model:"]');
+    return first?.textContent?.includes(current) ?? false;
+  });
+  await ctx.click({ selector: ".acpmux-mp-older" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-older[aria-expanded=\"true\"]") !== null);
+  const modelLabels = Array.from(ctx.document.querySelectorAll<HTMLButtonElement>('button[data-key^="model:"]')).map(
+    (button) => button.textContent ?? "",
+  );
+  if (!modelLabels.some((label) => label.includes(more))) throw new Error(`expected older family ${more} under More models`);
+};
+
 const familyRecommendationsClaude: ModelPickerProps = {
-  ...curated,
+  ...base,
+  catalog: familyRecommendationCatalog,
   harness: "claude",
   model: "claude-sonnet-5-5",
   label: "Sonnet 5.5",
 };
 
 const familyRecommendationsCodex: ModelPickerProps = {
-  ...curated,
+  ...base,
+  catalog: familyRecommendationCatalog,
   harness: "codex",
   model: "gpt-6.1-sol",
   label: "GPT-6.1 Sol",
@@ -441,9 +484,9 @@ export default componentEntry<GalleryProps>({
     curated: { props: curated, play: openModels },
     // Current-family recommendation order: Claude's selected Sonnet family remains first while
     // the remaining curated families stay in the provider's order (older releases under More).
-    "family-recommendations-claude": { props: familyRecommendationsClaude, play: openModels },
+    "family-recommendations-claude": { props: familyRecommendationsClaude, play: recommendationPlay("Sonnet 5.5", "Opus 4.6") },
     // Codex uses the same rule with its selected Sol family and its own curated lineup.
-    "family-recommendations-codex": { props: familyRecommendationsCodex, play: openModels },
+    "family-recommendations-codex": { props: familyRecommendationsCodex, play: recommendationPlay("GPT-6.1 Sol", "GPT-6 Sol") },
     // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
     // Codex's models and More models, with no harness rail and no Add harness….
     "started-chat": {
