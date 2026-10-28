@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
+import { columnsOf } from "../agent-evals/snapshot.mjs";
 
 /** The app's action catalogue, captured from a real app (templates/app.json.gz). */
 const APP = JSON.parse(gunzipSync(readFileSync(new URL("./templates/app.json.gz", import.meta.url))).toString());
@@ -111,14 +112,18 @@ async function runSetup(cmux, setup, origin, work) {
  * agent's own terminal (as the app does for a chat in it) and `snapshot.get` the
  * daemon's focus. `action.list` and `system.capabilities` replay a real app's catalogue,
  * so the app's tools are listed and searched as in the app. Every other app method fails as an app that cannot do it would.
- * The real app also answers `beside` (where an unplaced new tab goes); this one
- * does not, so the agent must place tabs itself.
  */
 async function standInApp(path, cmux, origin) {
   rmSync(path, { force: true });
   const answer = async (method) => {
     if (method === "system.identify") {
-      return { caller: { workspace: origin.workspace_id, screen: origin.screen_id, pane: origin.pane_id, tab: origin.tab_id, terminal_id: origin.terminal_id } };
+      const caller = { workspace: origin.workspace_id, screen: origin.screen_id, pane: origin.pane_id, tab: origin.tab_id, terminal_id: origin.terminal_id };
+      // `beside`: the first undocked pane in the column right of the chat's, as the app answers.
+      const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
+      const columns = columnsOf(layout);
+      const mine = columns.findIndex((c) => c.pane_ids.includes(origin.pane_id));
+      const right = mine >= 0 ? columns.slice(mine + 1).find((c) => !c.docked) : null;
+      return { caller, ...(right?.pane_ids[0] ? { beside: { pane: right.pane_ids[0] } } : {}) };
     }
     if (method === "snapshot.get") {
       const workspaces = await cmux(["workspace", "list"]);
