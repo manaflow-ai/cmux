@@ -113,13 +113,10 @@ pub(crate) fn enabled() -> bool {
     })
 }
 
-/// `terminalHolder` with the alias as one more env-list entry: `holder` is an
-/// enable and `hosts` a disable; any other value is ignored, like an unknown
-/// feature name. A disable wins over an enable, and `DisabledFeatures` wins
-/// over both, as in Chromium's `base/feature_list.cc` (a feature on both
-/// lists is off).
 /// Which input decided [`resolve`]'s model, in its order: a policy disable,
-/// then the alias, then the feature lists or a hello, then the default.
+/// then a disabling list entry, then the alias, then the feature lists, then
+/// the default. (A client hello never changes the model: it arrives after
+/// [`install`] fixed it.)
 fn reason(features: &Snapshot, alias: Option<&str>) -> &'static str {
     let enabled = features.is_enabled(TERMINAL_HOLDER);
     match (features.source(TERMINAL_HOLDER), alias.map(str::trim)) {
@@ -131,6 +128,11 @@ fn reason(features: &Snapshot, alias: Option<&str>) -> &'static str {
     }
 }
 
+/// `terminalHolder` with the alias as one more env-list entry: `holder` is an
+/// enable and `hosts` a disable; any other value is ignored, like an unknown
+/// feature name. A disable wins over an enable, and `DisabledFeatures` wins
+/// over both, as in Chromium's `base/feature_list.cc` (a feature on both
+/// lists is off).
 fn resolve(features: &Snapshot, alias: Option<&str>) -> bool {
     let enabled = features.is_enabled(TERMINAL_HOLDER);
     match (features.source(TERMINAL_HOLDER), alias.map(str::trim)) {
@@ -175,6 +177,35 @@ mod model_tests {
         assert!(!resolve(&both, None), "disable wins");
         let hello = Snapshot::from_pairs(Channel::Release, [("terminalHolder", false)]);
         assert!(!resolve(&hello, None), "a hello's overrides resolve the same way");
+    }
+
+    /// `server-stats` `terminal_models` names the input that decided the
+    /// model (H12): every source with and without the alias.
+    #[test]
+    fn the_model_reason_names_the_input_that_decided_it() {
+        let release = Channel::Release;
+        let defaults = Snapshot::defaults(release);
+        let enable = lists(release, Some("terminalHolder"), None);
+        let disable = lists(release, None, Some("terminalHolder"));
+        let cases: [(&Snapshot, Option<&str>, &str); 9] = [
+            (&defaults, None, "default"),
+            (&defaults, Some("hosts"), "env-alias"),
+            (&defaults, Some("holder"), "env-alias"),
+            (&defaults, Some("other"), "default"),
+            (&enable, None, "feature-list"),
+            (&enable, Some("hosts"), "env-alias"),
+            (&disable, None, "feature-list"),
+            (&disable, Some("holder"), "feature-list"),
+            (&disable, Some("other"), "feature-list"),
+        ];
+        for (features, alias, expected) in cases {
+            assert_eq!(
+                reason(features, alias),
+                expected,
+                "{alias:?} {:?}",
+                features.source(TERMINAL_HOLDER)
+            );
+        }
     }
 
     #[test]

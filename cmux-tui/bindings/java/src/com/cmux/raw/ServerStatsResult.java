@@ -24,6 +24,7 @@ public final class ServerStatsResult implements WireValue {
     private final Field<ServerStatsResourceProjection> resourceProjection;
     private final long schema;
     private final Field<ServerStatsSlowRequests> slowRequests;
+    private final Field<ServerStatsTerminalModels> terminalModels;
     private final UInt64 uptimeMs;
     private final Field<ServerStatsWritePath> writePath;
 
@@ -45,6 +46,7 @@ public final class ServerStatsResult implements WireValue {
         if (!builder.schemaSet) throw new IllegalArgumentException("schema is required");
         this.schema = builder.schema;
         this.slowRequests = builder.slowRequests;
+        this.terminalModels = builder.terminalModels;
         if (!builder.uptimeMsSet) throw new IllegalArgumentException("uptime_ms is required");
         this.uptimeMs = Wire.nonNull(builder.uptimeMs, "uptime_ms");
         this.writePath = builder.writePath;
@@ -65,6 +67,7 @@ public final class ServerStatsResult implements WireValue {
     public Field<ServerStatsResourceProjection> resourceProjection() { return resourceProjection; }
     public long schema() { return schema; }
     public Field<ServerStatsSlowRequests> slowRequests() { return slowRequests; }
+    public Field<ServerStatsTerminalModels> terminalModels() { return terminalModels; }
     public UInt64 uptimeMs() { return uptimeMs; }
     public Field<ServerStatsWritePath> writePath() { return writePath; }
 
@@ -115,6 +118,10 @@ public final class ServerStatsResult implements WireValue {
         if (!Wire.isMissing(rawSlowRequests)) {
             builder.slowRequests(ServerStatsSlowRequests.fromWire(rawSlowRequests));
         }
+        Object rawTerminalModels = Wire.optional(object, "terminal_models");
+        if (!Wire.isMissing(rawTerminalModels)) {
+            builder.terminalModels(ServerStatsTerminalModels.fromWire(rawTerminalModels));
+        }
         Object rawUptimeMs = Wire.required(object, "uptime_ms");
         builder.uptimeMs(Wire.uint64(rawUptimeMs, "ServerStatsResult.uptime_ms"));
         Object rawWritePath = Wire.optional(object, "write_path");
@@ -140,6 +147,7 @@ public final class ServerStatsResult implements WireValue {
         Wire.put(object, "resource_projection", resourceProjection);
         Wire.put(object, "schema", schema);
         Wire.put(object, "slow_requests", slowRequests);
+        Wire.put(object, "terminal_models", terminalModels);
         Wire.put(object, "uptime_ms", uptimeMs);
         Wire.put(object, "write_path", writePath);
         return Collections.unmodifiableMap(object);
@@ -148,11 +156,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(hangs, that.hangs) && Objects.equals(ipc, that.ipc) && Objects.equals(ipcMethods, that.ipcMethods) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(hangs, that.hangs) && Objects.equals(ipc, that.ipc) && Objects.equals(ipcMethods, that.ipcMethods) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(terminalModels, that.terminalModels) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, hangs, ipc, ipcMethods, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, hangs, ipc, ipcMethods, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, terminalModels, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -175,6 +183,7 @@ public final class ServerStatsResult implements WireValue {
         private Long schema;
         private boolean schemaSet;
         private Field<ServerStatsSlowRequests> slowRequests = Field.omitted();
+        private Field<ServerStatsTerminalModels> terminalModels = Field.omitted();
         private UInt64 uptimeMs;
         private boolean uptimeMsSet;
         private Field<ServerStatsWritePath> writePath = Field.omitted();
@@ -233,6 +242,10 @@ public final class ServerStatsResult implements WireValue {
         }
         public Builder slowRequests(ServerStatsSlowRequests value) {
             this.slowRequests = Field.of(value);
+            return this;
+        }
+        public Builder terminalModels(ServerStatsTerminalModels value) {
+            this.terminalModels = Field.of(value);
             return this;
         }
         public Builder uptimeMs(UInt64 value) {

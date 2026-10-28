@@ -219,6 +219,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsSlowRequest': models.ServerStatsSlowRequest,
     'types/ServerStatsSlowRequestFrame': models.ServerStatsSlowRequestFrame,
     'types/ServerStatsSlowRequests': models.ServerStatsSlowRequests,
+    'types/ServerStatsTerminalModels': models.ServerStatsTerminalModels,
     'types/ServerStatsWritePath': models.ServerStatsWritePath,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
     'types/SetHostSizePolicyResult': models.SetHostSizePolicyResult,

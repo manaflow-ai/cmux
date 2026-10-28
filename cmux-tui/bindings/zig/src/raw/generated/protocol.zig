@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+pub const ir_sha256 = "051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9";
 
 pub const AccessRequestKind = enum {
     file,
@@ -3065,6 +3065,7 @@ pub const ServerStatsResult = struct {
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     slow_requests: ?ServerStatsSlowRequests = null,
+    terminal_models: ?ServerStatsTerminalModels = null,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
@@ -3078,6 +3079,7 @@ pub const ServerStatsResult = struct {
         "request_path_io",
         "resource_projection",
         "slow_requests",
+        "terminal_models",
         "write_path",
     };
 };
@@ -3108,6 +3110,22 @@ pub const ServerStatsSlowRequests = struct {
     total: u64,
     unwatched: u64,
     watchdog_wakeups: u64,
+};
+
+pub const ServerStatsTerminalModels = struct {
+    daemon: u64,
+    exited: u64,
+    holder: u64,
+    holder_start_failures: u64,
+    host_adopted: u64,
+    host_launched: u64,
+    last_holder_start_failure: ?[]const u8 = null,
+    model: []const u8,
+    model_reason: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "last_holder_start_failure",
+    };
 };
 
 pub const ServerStatsWritePath = struct {

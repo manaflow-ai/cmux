@@ -585,8 +585,21 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
-`hangs`; unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods`, `hangs`
+and `terminal_models`; unknown names are ignored.
+
+`terminal_models` (H12) is read-only: the model this daemon starts new
+terminals on (`holder` or `hosts`) and what decided it (`default`,
+`env-alias` for `CMUX_TUI_TERMINAL_HOST_MODEL`, `feature-list` for the
+enable/disable list, `policy` for managed policy or the signed document's
+`DisabledFeatures`); every live terminal once, by where its PTY lives
+(`holder`, `daemon`, `host_launched`, `host_adopted`, `exited`); and the
+new terminals whose holder start failed (such a create fails; no host is
+started instead). `host_adopted` counts terminals whose shell an earlier
+daemon's host started (it stays adopted after a replacement host).
+`host_launched` counts hosts this daemon started: all hosts under the
+`hosts` model; under the `holder` model only a respawn or a `restart-tab` of
+a hosted terminal (`respawn_hosted`), as no standby host runs then.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -671,6 +684,11 @@ object{
   hangs?:object{
     over_250ms:uint64,
     records:array<object{sequence:uint64, span:string, duration_ms:uint64}>
+  },
+  terminal_models?:object{
+    model:string, model_reason:string, holder:uint64, daemon:uint64,
+    host_launched:uint64, host_adopted:uint64, exited:uint64,
+    holder_start_failures:uint64, last_holder_start_failure?:string
   }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}

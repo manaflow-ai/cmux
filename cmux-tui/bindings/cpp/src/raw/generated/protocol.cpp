@@ -14148,6 +14148,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("slow_requests", std::move(encoded).value());
     }
+    if (value.terminal_models) {
+        auto encoded = encode_value(*value.terminal_models);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_models", std::move(encoded).value());
+    }
     auto encoded_uptime_ms = encode_value(value.uptime_ms);
     if (!encoded_uptime_ms) return std::move(encoded_uptime_ms).error();
     object.emplace("uptime_ms", std::move(encoded_uptime_ms).value());
@@ -14256,6 +14261,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsSlowRequests>(*field_slow_requests);
         if (!decoded) return std::move(decoded).error();
         result.slow_requests = std::move(decoded).value();
+    }
+    const Json* field_terminal_models = value.find("terminal_models");
+    if (field_terminal_models) {
+        auto decoded = decode_value<ServerStatsTerminalModels>(*field_terminal_models);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_models = std::move(decoded).value();
     }
     const Json* field_uptime_ms = value.find("uptime_ms");
     if (!field_uptime_ms) {
@@ -14578,6 +14589,126 @@ Result<ServerStatsSlowRequests> Codec<ServerStatsSlowRequests>::decode(const Jso
         auto decoded = decode_value<std::uint64_t>(*field_watchdog_wakeups);
         if (!decoded) return std::move(decoded).error();
         result.watchdog_wakeups = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsTerminalModels>::encode(const ServerStatsTerminalModels& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_daemon = encode_value(value.daemon);
+    if (!encoded_daemon) return std::move(encoded_daemon).error();
+    object.emplace("daemon", std::move(encoded_daemon).value());
+    auto encoded_exited = encode_value(value.exited);
+    if (!encoded_exited) return std::move(encoded_exited).error();
+    object.emplace("exited", std::move(encoded_exited).value());
+    auto encoded_holder = encode_value(value.holder);
+    if (!encoded_holder) return std::move(encoded_holder).error();
+    object.emplace("holder", std::move(encoded_holder).value());
+    auto encoded_holder_start_failures = encode_value(value.holder_start_failures);
+    if (!encoded_holder_start_failures) return std::move(encoded_holder_start_failures).error();
+    object.emplace("holder_start_failures", std::move(encoded_holder_start_failures).value());
+    auto encoded_host_adopted = encode_value(value.host_adopted);
+    if (!encoded_host_adopted) return std::move(encoded_host_adopted).error();
+    object.emplace("host_adopted", std::move(encoded_host_adopted).value());
+    auto encoded_host_launched = encode_value(value.host_launched);
+    if (!encoded_host_launched) return std::move(encoded_host_launched).error();
+    object.emplace("host_launched", std::move(encoded_host_launched).value());
+    if (value.last_holder_start_failure) {
+        auto encoded = encode_value(*value.last_holder_start_failure);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_holder_start_failure", std::move(encoded).value());
+    }
+    auto encoded_model = encode_value(value.model);
+    if (!encoded_model) return std::move(encoded_model).error();
+    object.emplace("model", std::move(encoded_model).value());
+    auto encoded_model_reason = encode_value(value.model_reason);
+    if (!encoded_model_reason) return std::move(encoded_model_reason).error();
+    object.emplace("model_reason", std::move(encoded_model_reason).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsTerminalModels> Codec<ServerStatsTerminalModels>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsTerminalModels result{};
+    const Json* field_daemon = value.find("daemon");
+    if (!field_daemon) {
+        return make_error(ErrorCode::decode, "missing required field 'daemon'");
+    }
+    if (field_daemon) {
+        auto decoded = decode_value<std::uint64_t>(*field_daemon);
+        if (!decoded) return std::move(decoded).error();
+        result.daemon = std::move(decoded).value();
+    }
+    const Json* field_exited = value.find("exited");
+    if (!field_exited) {
+        return make_error(ErrorCode::decode, "missing required field 'exited'");
+    }
+    if (field_exited) {
+        auto decoded = decode_value<std::uint64_t>(*field_exited);
+        if (!decoded) return std::move(decoded).error();
+        result.exited = std::move(decoded).value();
+    }
+    const Json* field_holder = value.find("holder");
+    if (!field_holder) {
+        return make_error(ErrorCode::decode, "missing required field 'holder'");
+    }
+    if (field_holder) {
+        auto decoded = decode_value<std::uint64_t>(*field_holder);
+        if (!decoded) return std::move(decoded).error();
+        result.holder = std::move(decoded).value();
+    }
+    const Json* field_holder_start_failures = value.find("holder_start_failures");
+    if (!field_holder_start_failures) {
+        return make_error(ErrorCode::decode, "missing required field 'holder_start_failures'");
+    }
+    if (field_holder_start_failures) {
+        auto decoded = decode_value<std::uint64_t>(*field_holder_start_failures);
+        if (!decoded) return std::move(decoded).error();
+        result.holder_start_failures = std::move(decoded).value();
+    }
+    const Json* field_host_adopted = value.find("host_adopted");
+    if (!field_host_adopted) {
+        return make_error(ErrorCode::decode, "missing required field 'host_adopted'");
+    }
+    if (field_host_adopted) {
+        auto decoded = decode_value<std::uint64_t>(*field_host_adopted);
+        if (!decoded) return std::move(decoded).error();
+        result.host_adopted = std::move(decoded).value();
+    }
+    const Json* field_host_launched = value.find("host_launched");
+    if (!field_host_launched) {
+        return make_error(ErrorCode::decode, "missing required field 'host_launched'");
+    }
+    if (field_host_launched) {
+        auto decoded = decode_value<std::uint64_t>(*field_host_launched);
+        if (!decoded) return std::move(decoded).error();
+        result.host_launched = std::move(decoded).value();
+    }
+    const Json* field_last_holder_start_failure = value.find("last_holder_start_failure");
+    if (field_last_holder_start_failure) {
+        auto decoded = decode_value<std::string>(*field_last_holder_start_failure);
+        if (!decoded) return std::move(decoded).error();
+        result.last_holder_start_failure = std::move(decoded).value();
+    }
+    const Json* field_model = value.find("model");
+    if (!field_model) {
+        return make_error(ErrorCode::decode, "missing required field 'model'");
+    }
+    if (field_model) {
+        auto decoded = decode_value<std::string>(*field_model);
+        if (!decoded) return std::move(decoded).error();
+        result.model = std::move(decoded).value();
+    }
+    const Json* field_model_reason = value.find("model_reason");
+    if (!field_model_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'model_reason'");
+    }
+    if (field_model_reason) {
+        auto decoded = decode_value<std::string>(*field_model_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.model_reason = std::move(decoded).value();
     }
     return result;
 }

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
+// cmux-tui mux protocol 12, IR 051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2759,6 +2759,8 @@ pub struct ServerStatsResult {
     pub schema: u32,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub slow_requests: Option<ServerStatsSlowRequests>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub terminal_models: Option<ServerStatsTerminalModels>,
     pub uptime_ms: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub write_path: Option<ServerStatsWritePath>,
@@ -2796,6 +2798,21 @@ pub struct ServerStatsSlowRequests {
     pub total: u64,
     pub unwatched: u64,
     pub watchdog_wakeups: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsTerminalModels {
+    pub daemon: u64,
+    pub exited: u64,
+    pub holder: u64,
+    pub holder_start_failures: u64,
+    pub host_adopted: u64,
+    pub host_launched: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub last_holder_start_failure: Option<String>,
+    pub model: String,
+    pub model_reason: String,
 }
 
 #[rustfmt::skip]

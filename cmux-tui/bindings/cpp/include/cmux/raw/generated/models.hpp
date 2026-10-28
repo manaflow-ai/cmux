@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+inline constexpr std::string_view kProtocolIrSha256 = "051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -256,6 +256,7 @@ struct ServerStatsResult;
 struct ServerStatsSlowRequest;
 struct ServerStatsSlowRequestFrame;
 struct ServerStatsSlowRequests;
+struct ServerStatsTerminalModels;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
@@ -6728,6 +6729,19 @@ struct ServerStatsSlowRequests {
     friend bool operator==(const ServerStatsSlowRequests&, const ServerStatsSlowRequests&) = default;
 };
 
+struct ServerStatsTerminalModels {
+    std::uint64_t daemon{};
+    std::uint64_t exited{};
+    std::uint64_t holder{};
+    std::uint64_t holder_start_failures{};
+    std::uint64_t host_adopted{};
+    std::uint64_t host_launched{};
+    std::optional<std::string> last_holder_start_failure{};
+    std::string model{};
+    std::string model_reason{};
+    friend bool operator==(const ServerStatsTerminalModels&, const ServerStatsTerminalModels&) = default;
+};
+
 struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
@@ -6751,6 +6765,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::optional<ServerStatsSlowRequests> slow_requests{};
+    std::optional<ServerStatsTerminalModels> terminal_models{};
     std::uint64_t uptime_ms{};
     std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
@@ -9346,6 +9361,12 @@ template <>
 struct Codec<ServerStatsSlowRequests> {
     static Result<Json> encode(const ServerStatsSlowRequests& value);
     static Result<ServerStatsSlowRequests> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsTerminalModels> {
+    static Result<Json> encode(const ServerStatsTerminalModels& value);
+    static Result<ServerStatsTerminalModels> decode(const Json& value);
 };
 
 template <>

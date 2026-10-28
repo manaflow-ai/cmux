@@ -94,6 +94,7 @@ fn a_failed_holder_start_child() {
     assert!(spawned.is_err(), "a holder start that cannot run must fail, not fall back");
     let counts = mux.terminal_models();
     assert_eq!(counts.model, "holder", "{counts:?}");
+    assert_eq!(counts.model_reason, "env-alias", "{counts:?}");
     assert_eq!(counts.holder_start_failures, 1, "{counts:?}");
     assert!(counts.last_holder_start_failure.is_some(), "{counts:?}");
     assert_eq!(counts.host_launched, 0, "no host started instead: {counts:?}");

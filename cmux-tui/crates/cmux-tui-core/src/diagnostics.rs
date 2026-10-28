@@ -841,18 +841,21 @@ pub struct TerminalModelsSnapshot {
     /// The model this daemon starts new terminals on: `holder` or `hosts`.
     pub model: &'static str,
     /// Why: `default`, `env-alias` (`CMUX_TUI_TERMINAL_HOST_MODEL`),
-    /// `feature-list` (the enable/disable list or a client hello) or
-    /// `policy` (managed policy or the signed document's DisabledFeatures).
+    /// `feature-list` (the enable/disable list) or `policy` (managed policy
+    /// or the signed document's DisabledFeatures).
     pub model_reason: &'static str,
     /// Terminals on the shared holder.
     pub holder: u64,
     /// Terminals on a PTY this daemon reads itself (ephemeral, auxiliary).
     pub daemon: u64,
-    /// Hosted terminals whose host this daemon started (its model is hosts,
-    /// or a standby host).
+    /// Hosted terminals whose host this daemon started: every host under
+    /// the hosts model (including standby hosts); under the holder model
+    /// only a respawn or a `restart-tab` of a hosted terminal
+    /// (`respawn_hosted`).
     pub host_launched: u64,
-    /// Hosted terminals whose host an earlier daemon started, adopted at
-    /// start: they stay on their host until their shell ends.
+    /// Hosted terminals whose shell an earlier daemon's host started,
+    /// adopted at start (still counted here after a replacement host takes
+    /// over the same shell): they stay hosted until their shell ends.
     pub host_adopted: u64,
     /// Hosted terminals that ended and are kept on screen.
     pub exited: u64,
