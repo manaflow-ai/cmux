@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
 import Testing
@@ -115,6 +116,10 @@ struct TerminalSurfaceVisibilityTests {
     @Test func aSurfaceCreatedUnderAHiddenContainerDrawsWhenTheContainerShows() throws {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
+        // A test window is never on screen (a CI mini's is never in front): it draws as an automation launch does.
+        let drawsWhenOccluded = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drawsWhenOccluded }
         let io = ScriptedTerminalIO()
         let tab = VisibilityNode(root: "tab", own: .visible)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
@@ -140,12 +145,15 @@ struct TerminalSurfaceVisibilityTests {
         #expect(surface.pause == nil, "the container showed and the surface stayed paused \(String(describing: surface.pause))")
     }
 
-    /// The second tab of a pane, as `PaneContentView` shows it: the new tab's terminal joins the pane's content
-    /// host hidden (parked), the first tab's view is retired (hidden), then the new one is unhidden. The new
-    /// terminal must draw.
+    /// A tab view that comes into a pane's content host hidden (a view moved from another pane, as
+    /// `PaneContentView.install` takes it) while the shown tab is retired (hidden), then is unhidden: its
+    /// terminal must draw, the retired one must not.
     @Test func aSecondTabShownByUnhidingItsParkedViewDraws() throws {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
+        let drawsWhenOccluded = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drawsWhenOccluded }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
