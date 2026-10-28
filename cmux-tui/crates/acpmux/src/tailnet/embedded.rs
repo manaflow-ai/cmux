@@ -45,6 +45,15 @@ impl Snapshot {
         value
     }
 
+    /// The node is gone: nothing it reported (sign-in URL, name, addresses)
+    /// stays in the snapshot. Any error it reported stays.
+    fn node_gone(&mut self, state: &'static str) {
+        self.state = state;
+        self.browse_to_url = None;
+        self.dns_name = None;
+        self.ips.clear();
+    }
+
     pub fn running(&self) -> bool {
         self.state == "running"
     }
@@ -195,6 +204,7 @@ impl Controller {
             generation = inner.generation;
             inner.starting = true;
             inner.snapshot.state = "starting";
+            inner.snapshot.error = None;
             self.publish_locked(&inner.snapshot);
         }
         let state_dir = self.state_dir.clone();
@@ -319,10 +329,7 @@ impl Controller {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let node = inner.node.take();
         inner.starting = false;
-        inner.snapshot.state = state;
-        inner.snapshot.browse_to_url = None;
-        inner.snapshot.dns_name = None;
-        inner.snapshot.ips.clear();
+        inner.snapshot.node_gone(state);
         self.publish_locked(&inner.snapshot);
         drop(inner);
         if let Some(node) = node {
@@ -336,7 +343,7 @@ impl Controller {
             && inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node))
         {
             inner.node = None;
-            inner.snapshot.state = state;
+            inner.snapshot.node_gone(state);
             self.publish_locked(&inner.snapshot);
         }
     }
@@ -466,6 +473,23 @@ mod tests {
         assert_eq!(snapshot.state, "running");
         assert!(snapshot.dns_name.is_none());
         assert!(snapshot.ips.is_empty());
+    }
+
+    #[test]
+    fn an_ended_node_leaves_no_sign_in_url_or_identity() {
+        let mut snapshot = Snapshot {
+            state: "running",
+            browse_to_url: Some("https://login.tailscale.com/fake".into()),
+            dns_name: Some("cmux.example.ts.net".into()),
+            ips: vec!["100.64.0.1".into()],
+            error: Some("watch ended".into()),
+        };
+        snapshot.node_gone("stopped");
+        assert_eq!(snapshot.state, "stopped");
+        assert!(snapshot.browse_to_url.is_none());
+        assert!(snapshot.dns_name.is_none());
+        assert!(snapshot.ips.is_empty());
+        assert_eq!(snapshot.error.as_deref(), Some("watch ended"));
     }
 
     #[test]
