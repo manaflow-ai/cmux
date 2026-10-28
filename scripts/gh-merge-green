@@ -1033,7 +1033,7 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
   excuse_status=0
-  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num" \
       "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
   if [ "$excuse_status" -ne 0 ]; then
     why=$(sed 's/^not excused: //' "$excuse_errors")
@@ -1149,7 +1149,7 @@ fast_gate() {
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
   local excuse_status=0
-  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num" \
       "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
   if [ "$excuse_status" -ne 0 ]; then
     local why

@@ -14,6 +14,31 @@
     "benefitSuperpowers": "规划、TDD、子代理和审查"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 请求已延迟",
+      "message": "Cloud VM 分配暂时不可用。",
+      "action": "请等待一分钟，然后使用相同的幂等键重试。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "快照请求需要重试键",
+      "message": "Cloud VM 快照需要幂等键。",
+      "action": "请使用不超过 128 个字符的固定 Idempotency-Key 重试。"
+    },
+    "snapshotInProgress": {
+      "title": "快照仍在进行中",
+      "message": "此 Cloud VM 上使用该幂等键的快照仍在运行。",
+      "action": "请等待第一个快照完成，然后使用相同的幂等键重试。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "快照重试键已被使用",
+      "message": "该幂等键已用于此 Cloud VM 上的另一个快照请求。",
+      "action": "为使用其他名称的快照使用新的幂等键。"
+    },
+    "snapshotQuota": {
+      "title": "已达到快照上限",
+      "message": "此 Cloud VM 已达到快照上限。",
+      "action": "请删除一个现有快照，然后使用相同的幂等键重试。"
+    },
     "guestInstall": {
       "title": "云端虚拟机设置未完成",
       "reason": "云端虚拟机的来宾设置未完成。",
@@ -2181,6 +2206,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "启用后，双击窗格分隔线会将其所在行或列的窗格调整为相同大小。其他行和列保持原有大小。",
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "仅在 DEBUG 构建中打开新窗口时使用的显示器名称。空值使用系统默认设置。",

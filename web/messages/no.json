@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planlegging, TDD, underagenter og gjennomgang"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM-forespørselen er forsinket",
+      "message": "Tildeling av en Cloud VM er midlertidig utilgjengelig.",
+      "action": "Vent ett minutt, og prøv deretter på nytt med samme idempotensnøkkel."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Øyeblikksbildeforespørselen trenger en nøkkel for nytt forsøk",
+      "message": "Cloud VM-øyeblikksbilder krever en idempotensnøkkel.",
+      "action": "Prøv på nytt med en fast Idempotency-Key på maksimalt 128 tegn."
+    },
+    "snapshotInProgress": {
+      "title": "Øyeblikksbildet pågår fortsatt",
+      "message": "Et øyeblikksbilde med denne idempotensnøkkelen kjører fortsatt for denne Cloud VM-en.",
+      "action": "Vent til det første øyeblikksbildet er ferdig, og prøv deretter igjen med samme idempotensnøkkel."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Nøkkelen for nytt forsøk er allerede brukt",
+      "message": "Denne idempotensnøkkelen er allerede brukt for en annen forespørsel om øyeblikksbilde på denne Cloud VM-en.",
+      "action": "Bruk en ny idempotensnøkkel for et øyeblikksbilde med et annet navn."
+    },
+    "snapshotQuota": {
+      "title": "Grensen for øyeblikksbilder er nådd",
+      "message": "Denne Cloud VM-en har nådd grensen for øyeblikksbilder.",
+      "action": "Slett et eksisterende øyeblikksbilde, og prøv deretter på nytt med samme idempotensnøkkel."
+    },
     "guestInstall": {
       "title": "Oppsettet av Cloud VM ble ikke fullført",
       "reason": "Gjesteoppsettet for Cloud VM ble ikke fullført.",
@@ -2181,6 +2206,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Når dette er aktivert, gjør et dobbeltklikk på en skillelinje panelene i raden eller kolonnen like store. Andre rader og kolonner beholder størrelsene sine.",
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",

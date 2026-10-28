@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM-anmodning forsinket",
+      "message": "Tildeling af en Cloud VM er midlertidigt utilgængelig.",
+      "action": "Vent et minut, og prøv derefter igen med den samme idempotensnøgle."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-anmodningen kræver en genforsøgsnøgle",
+      "message": "Cloud VM-snapshots kræver en idempotensnøgle.",
+      "action": "Prøv igen med en fast Idempotency-Key på højst 128 tegn."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot er stadig i gang",
+      "message": "Et snapshot med denne idempotensnøgle kører stadig for denne Cloud VM.",
+      "action": "Vent på, at det første snapshot bliver færdigt, og prøv derefter igen med samme idempotensnøgle."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-nøglen er allerede brugt",
+      "message": "Denne idempotensnøgle er allerede brugt til en anden snapshot-anmodning på denne Cloud VM.",
+      "action": "Brug en ny idempotensnøgle til et snapshot med et andet navn."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-grænsen er nået",
+      "message": "Denne Cloud VM har nået sin snapshot-grænse.",
+      "action": "Slet et eksisterende snapshot, og prøv derefter igen med den samme idempotensnøgle."
+    },
     "guestInstall": {
       "title": "Opsætning af Cloud VM blev ikke fuldført",
       "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
@@ -2181,6 +2206,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Når dette er aktiveret, gør et dobbeltklik på en skillelinje panelerne i dens række eller kolonne lige store. Andre rækker og kolonner beholder deres størrelser.",
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
