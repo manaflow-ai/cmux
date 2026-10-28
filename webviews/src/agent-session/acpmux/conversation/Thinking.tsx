@@ -9,13 +9,14 @@
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { useTicking, WorkingCountsContext, workingParts, workingTokens } from "./WorkingFor";
+import { TurnTokens } from "./TurnTokens";
+import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -104,7 +105,6 @@ export function Thinking({
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
-  const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed && doing === undefined;
@@ -126,7 +126,7 @@ export function Thinking({
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <span className="cv-worked__tokens">{workingTokens(t, language, tokens!)}</span>
+          <TurnTokens total={tokens} split={counts?.split} />
         </span>
       )}
       {parts.map((part) => (

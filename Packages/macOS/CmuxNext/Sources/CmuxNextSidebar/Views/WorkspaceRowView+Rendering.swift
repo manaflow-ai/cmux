@@ -143,7 +143,8 @@ extension WorkspaceRowView {
         if badgeText != nil {
             let size = prBadge.intrinsicContentSize
             let w = min(ceil(size.width), Self.badgeMaxWidth), h = ceil(size.height)
-            prBadge.frame = NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h)
+            // The text ends at `trailing`; the frame adds the label's padding around it.
+            prBadge.frame = prBadge.frame(forAlignmentRect: NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h))
             trailing -= w + Metrics.space2
         }
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)

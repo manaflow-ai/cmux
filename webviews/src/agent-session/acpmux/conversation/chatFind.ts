@@ -222,6 +222,8 @@ export type FindRevealTarget = {
   /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
    * the running line, WorkingFor.tsx). */
   toolId?: string;
+  /** The message that holds the match in a card of waiting messages (`rowId`, WaitingMessagesCard.tsx). */
+  member?: string;
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
@@ -285,7 +287,7 @@ export function clearFindHighlights() {
 export function paintFindHighlights(
   root: HTMLElement,
   query: string,
-  active?: { rowId: string; card: boolean; occurrence: number },
+  active?: { rowId: string; card: boolean; occurrence: number; member?: string },
 ): Range | undefined {
   const highlights = registry();
   const Highlight = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
@@ -313,13 +315,16 @@ export function paintFindHighlights(
     }
     all.push(...ranges);
     // The row that draws the match (an edit and its edited-files card share an id).
-    if (
-      active &&
-      row.dataset.rowId === active.rowId &&
-      (row.dataset.rowCard === "true") === active.card &&
-      ranges.length
-    )
-      current = ranges[Math.min(active.occurrence, ranges.length - 1)];
+    if (active && row.dataset.rowId === active.rowId && (row.dataset.rowCard === "true") === active.card) {
+      // In a card of waiting messages, the occurrence counts in the message that holds it.
+      const member = active.member
+        ? [...row.querySelectorAll<HTMLElement>("[data-find-member]")].find(
+            (node) => node.dataset.findMember === active.member,
+          )
+        : undefined;
+      const own = member ? ranges.filter((range) => member.contains(range.startContainer)) : ranges;
+      if (own.length) current = own[Math.min(active.occurrence, own.length - 1)];
+    }
   }
   highlights.set(FIND_HIGHLIGHT, new Highlight(...all.filter((range) => range !== current)));
   if (current) highlights.set(FIND_ACTIVE_HIGHLIGHT, new Highlight(current));
