@@ -176,6 +176,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             });
         }
     }
+    finished.flush();
     if options.apply && options.only.is_empty() {
         let keep = options.settings.keep_archive_days * 24 * 60 * 60 * 1000;
         match archive::expire(store, now, keep) {

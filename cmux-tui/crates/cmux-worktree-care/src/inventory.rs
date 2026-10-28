@@ -567,6 +567,29 @@ impl FinishedMemo {
         Self { path: Some(path), answers: Mutex::new(answers) }
     }
 
+    /// Flushes the bounded memo atomically. Callers normally do this once at
+    /// the end of a pass so a large scan does not rewrite the whole file per
+    /// worktree.
+    pub fn flush(&self) {
+        let Some(path) = &self.path else { return };
+        let entries: Vec<_> = self
+            .answers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .into_iter()
+            .map(|((root, head, base), answer)| StoredAnswer { root, head, base, answer })
+            .collect();
+        let Ok(bytes) = serde_json::to_vec(&entries) else { return };
+        let temporary = path.with_extension("json.tmp");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(&temporary, bytes).is_ok() {
+            let _ = std::fs::rename(temporary, path);
+        }
+    }
+
     fn key(root: &Path, head: &str, base: &str) -> (PathBuf, String, String) {
         (root.to_path_buf(), head.to_string(), base.to_string())
     }
@@ -577,25 +600,11 @@ impl FinishedMemo {
     }
 
     fn remember(&self, root: &Path, head: &str, base: &str, answer: Option<Finish>) {
-        let snapshot = {
-            let mut memo = self.answers.lock().unwrap_or_else(|e| e.into_inner());
-            if memo.len() >= MAX_REMEMBERED {
-                memo.clear();
-            }
-            memo.insert(Self::key(root, head, base), answer);
-            self.path.as_ref().map(|_| memo.clone())
-        };
-        if let (Some(path), Some(snapshot)) = (&self.path, snapshot) {
-            let entries: Vec<_> = snapshot
-                .into_iter()
-                .map(|((root, head, base), answer)| StoredAnswer { root, head, base, answer })
-                .collect();
-            let Ok(bytes) = serde_json::to_vec(&entries) else { return };
-            let temporary = path.with_extension("json.tmp");
-            if std::fs::write(&temporary, bytes).is_ok() {
-                let _ = std::fs::rename(temporary, path);
-            }
+        let mut memo = self.answers.lock().unwrap_or_else(|e| e.into_inner());
+        if memo.len() >= MAX_REMEMBERED {
+            memo.clear();
         }
+        memo.insert(Self::key(root, head, base), answer);
     }
 }
 
@@ -887,6 +896,7 @@ mod care_tests {
             "2222222222222222222222222222222222222222",
             Some(Finish::Squashed),
         );
+        memo.flush();
         drop(memo);
         let restarted = FinishedMemo::load(path);
         assert_eq!(
