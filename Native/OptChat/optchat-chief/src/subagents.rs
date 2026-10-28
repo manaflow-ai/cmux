@@ -10,10 +10,12 @@
 //!   prompt is section 9's subagent prompt, VIEW_DOC and the user's
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
-//!   ids at once. Each subagent also gets a cmux workspace whose tab is its
-//!   chat (workspaces.rs), so the user can watch and join it, when this host
-//!   has somewhere to make one. The answer says, per subagent, which
-//!   workspace it got and where, or that it got none and why: the Chief
+//!   ids at once. With `subagents.showWorkspaces` on, each subagent also
+//!   gets a cmux workspace whose tab is its chat (workspaces.rs), so the user
+//!   can watch and join it, when this host has somewhere to make one; off
+//!   (the default, #26386) it runs hidden and `control show` opens its
+//!   workspace later. The answer says, per subagent, which workspace it got
+//!   and where, that it is hidden, or that it got none and why: the Chief
 //!   repeats it to the user, so it must never claim more than happened.
 //! - `spawn` takes an optional working directory (`~` is this host's home).
 //!   A directory that does not exist here is reported and the default
@@ -671,7 +673,7 @@ impl Spawner {
 
     /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
     /// workspace; answers what the user can see of it: its workspace and
-    /// where it lives, or that it has none and why.
+    /// where it lives, that it runs hidden, or that it has none and why.
     #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
@@ -843,6 +845,30 @@ impl Spawner {
             Some(_) => &self.settings.cwd,
             None => &s.cwd,
         };
+        let _ = self.to_brain(Input::SubagentWorkspaceSlot {
+            id: id.to_owned(),
+            name: name.clone(),
+            slot: crate::state::WorkspaceSlot {
+                key: key.clone(),
+                group: group.clone(),
+                cwd: term_cwd.clone(),
+            },
+        });
+        // Hidden by default (#26386: subagents' workspaces cluttered the
+        // sidebar between the user's own): its link in the Chief's reply
+        // opens its chat, and `control show` adds its workspace. One that
+        // runs with policy ask (the spawn floor, or MUX_POLICY) shows: only
+        // its tab can allow its prompts.
+        if spec.policy != crate::approval::ASK && !self.show_workspaces() {
+            self.trace.emit(
+                "subagent.hidden",
+                json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group}),
+            );
+            return Ok(format!(
+                "hidden: no sidebar workspace (the setting {} is off); its link opens its chat, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
+                crate::chief_settings::SHOW_SUBAGENT_WORKSPACES
+            ));
+        }
         match workspaces.open(&key, &session, &name, &group, term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
@@ -872,6 +898,10 @@ impl Spawner {
             }
             Err(e) => {
                 (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
+                let _ = self.to_brain(Input::SubagentWorkspaceFailed {
+                    id: id.to_owned(),
+                    key: key.clone(),
+                });
                 self.trace.emit(
                     "subagent.workspace",
                     json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
@@ -924,6 +954,20 @@ impl Spawner {
             }
             Ok(dir) => (dir, None),
         }
+    }
+
+    /// Whether a subagent starting now gets its sidebar workspace
+    /// (`subagents.showWorkspaces`); hidden when the brain does not answer.
+    fn show_workspaces(&self) -> bool {
+        let (reply, answer) = channel();
+        if self.to_brain(Input::Settings { reply }).is_err() {
+            return false;
+        }
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .ok()
+            .and_then(|v| v["subagents"]["showWorkspaces"].as_bool())
+            .unwrap_or(false)
     }
 
     /// `Some("ask")` under the spawn floor (`Brain::spawn_policy`); `ask`

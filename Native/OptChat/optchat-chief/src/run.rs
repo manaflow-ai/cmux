@@ -665,6 +665,8 @@ fn control_line(input: Option<&Value>) -> String {
         ("cancel", Some(id)) => format!("Cancelling {id}"),
         ("restart", Some(id)) => format!("Restarting {id}"),
         ("priority", Some(id)) => format!("Putting {id} first"),
+        ("show", Some(id)) => format!("Showing {id}'s workspace"),
+        ("hide", Some(id)) => format!("Hiding {id}'s workspace"),
         ("cap", _) => "Setting how many agents work at once".to_owned(),
         ("cloud", _) => "Choosing where new agents run".to_owned(),
         (_, Some(id)) => format!("Managing {id}"),

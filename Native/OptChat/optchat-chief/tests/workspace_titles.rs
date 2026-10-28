@@ -199,6 +199,10 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Spawner::new(
             h.chat.clone(),

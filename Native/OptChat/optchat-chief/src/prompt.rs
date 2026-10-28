@@ -244,7 +244,7 @@ macro_rules! home_rule {
   (`cmux --json workspace group list`), or make one (`cmux workspace group
   create --name NAME`) once two related workspaces have none, then `cmux
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
-  is named after its title and grouped by topic for you: start each spawn
+  (when shown) is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
@@ -322,8 +322,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Subagents: the tool `spawn(tasks, cwd?)` starts one subagent per task, in
   parallel, in the background, in `cwd` (give the directory the work is in);
   it answers their ids at once, and for each one the cmux workspace where
-  the user can watch and join its chat, or that it has none and why. Tell
-  the user only what that answer says. A subagent sees your view and its
+  the user can watch and join its chat, or that it runs hidden (its link
+  opens its chat; `control show` adds a workspace) or has none and why.
+  Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate
   them in a task. Say only what is new: goal, scope, facts, what to report.
@@ -443,7 +444,7 @@ cmux Home, and your final reply of each turn is posted there.
   subagent per task, in parallel, in the background, in DIR (give the
   directory the work is in); it prints their ids at once, and for each one
   the cmux workspace where the user can watch and join its chat, or that it
-  has none and why. Tell the user only what it prints. A subagent sees your
+  runs hidden or has none and why. Tell the user only what it prints. A subagent sees your
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
@@ -675,7 +676,7 @@ pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction 
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: open or close its sidebar workspace (subagents run hidden unless the setting subagents.showWorkspaces is on; show one when the user asks to watch it or must allow its prompt). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark

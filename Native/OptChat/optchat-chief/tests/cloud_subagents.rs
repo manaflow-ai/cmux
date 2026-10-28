@@ -1055,6 +1055,10 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     let recorder = Arc::new(CwdRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     // The VM's folder, missing on this host whatever it runs on: on a Linux
     // test host /home/agent/work may exist and hide the bug (a624, Oct 24).
     let vm_dir = h.dir.path().join("only-on-the-vm");
@@ -1134,6 +1138,10 @@ fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
     let recorder = Arc::new(NameRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Arc::try_unwrap(spawner(
             &h,

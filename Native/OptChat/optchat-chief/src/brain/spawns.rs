@@ -676,6 +676,40 @@ impl Brain {
     }
 
     pub(super) fn sub_workspace(&mut self, id: &str, key: String, name: String) {
+        self.sub_workspace_opened(id, key, name, true);
+    }
+
+    /// Its workspace exists; `at_start`: the spawn opened it (a subagent
+    /// that finished meanwhile is closed under the close setting), not a
+    /// `control show` the user asked for.
+    pub(super) fn sub_workspace_opened(
+        &mut self,
+        id: &str,
+        key: String,
+        name: String,
+        at_start: bool,
+    ) {
+        // A `control show` whose workspace a later `hide` (or failure)
+        // already gave up: the record no longer names it, so it is closed,
+        // not shown (the hide's close may have run before it existed).
+        if !at_start
+            && self
+                .state
+                .sub(id)
+                .is_some_and(|(_, s)| s.workspace.as_deref() != Some(key.as_str()))
+        {
+            if let Some(workspaces) = self.workspaces.clone() {
+                let (log, id) = (self.log.clone(), id.to_owned());
+                std::thread::spawn(move || {
+                    if let Err(e) = workspaces.close(&key) {
+                        log(&format!(
+                            "subagent {id}: closing its superseded workspace: {e}"
+                        ));
+                    }
+                });
+            }
+            return;
+        }
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);
@@ -692,9 +726,65 @@ impl Brain {
             self.forget_unanswered_of(&session);
         }
         // It finished before its workspace was made.
-        if done {
+        if done && at_start {
             self.mark_workspace(id, true);
         }
+    }
+
+    /// Where its workspace opens (`control show`), and its title.
+    pub(super) fn sub_workspace_slot(
+        &mut self,
+        id: &str,
+        name: String,
+        slot: crate::state::WorkspaceSlot,
+    ) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace_slot = Some(slot);
+            sub.title = name;
+        }
+        self.save();
+    }
+
+    /// Opening workspace `key` failed (at spawn or on `control show`): it is
+    /// hidden, and the next `show` opens under a fresh key (a half-made
+    /// workspace was closed under this one, and the daemon replays its
+    /// mutations).
+    pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            if sub.workspace.as_deref() == Some(key) {
+                sub.workspace = None;
+            }
+            if sub.workspace_slot.as_ref().is_some_and(|s| s.key == key) {
+                super::control::retire_slot_key(sub);
+            }
+        }
+        self.save();
+        self.rewatch_permission(id);
+    }
+
+    /// `id` lost its workspace (hidden, or its open failed): a prompt it
+    /// still waits on has no Allow button any more, so it is watched again
+    /// and denied once overdue, as for any subagent without a workspace.
+    pub(super) fn rewatch_permission(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if Self::approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+            return;
+        }
+        let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
+            return;
+        };
+        self.watch_unanswered(
+            crate::approval::Pending {
+                session_id,
+                permission_id: p.id,
+                tool: crate::approval::tool_name(&p.request),
+                request: p.request,
+                child: Some(id.to_owned()),
+            },
+            "the app shows no working approval button for this subagent",
+        );
     }
 
     pub(super) fn sub_failed(&mut self, id: &str, error: &str) {
@@ -1448,6 +1538,7 @@ impl Brain {
         };
         if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = None;
+            super::control::retire_slot_key(sub);
         }
         self.save();
         let (log, id) = (self.log.clone(), id.to_owned());

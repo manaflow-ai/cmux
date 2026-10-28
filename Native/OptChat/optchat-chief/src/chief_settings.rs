@@ -27,6 +27,11 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the column right of
     /// its chat (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
+    /// Each subagent gets a sidebar workspace when it starts
+    /// (`subagents.showWorkspaces`). Default false (#26386): subagents run
+    /// hidden, reachable from their links in the Chief's replies, and
+    /// `control show ID` / `control hide ID` add or close one's workspace.
+    pub show_subagent_workspaces: bool,
     /// Seconds a cloud VM waits with no live cloud subagent before the host
     /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
     /// B4). Default 60.
@@ -77,6 +82,7 @@ impl Default for ChiefSettings {
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
+            show_subagent_workspaces: false,
             cloud_auto_pause_idle_secs: 60,
             cloud_delete_after_paused_days: 7,
         }
@@ -91,6 +97,9 @@ pub const REPLY_THREADS: &str = "replies.thread";
 
 /// The key of `ChiefSettings::show_after_report`.
 pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
+
+/// The key of `ChiefSettings::show_subagent_workspaces`.
+pub const SHOW_SUBAGENT_WORKSPACES: &str = "subagents.showWorkspaces";
 
 /// The key of `ChiefSettings::cloud_auto_pause_idle_secs`.
 pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
@@ -109,6 +118,9 @@ impl ChiefSettings {
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
+            show_subagent_workspaces: value["subagents"]["showWorkspaces"]
+                .as_bool()
+                .unwrap_or(false),
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
@@ -125,6 +137,7 @@ impl ChiefSettings {
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
         value["show"] = json!({"afterReport": self.show_after_report});
+        value["subagents"] = json!({"showWorkspaces": self.show_subagent_workspaces});
         value["cloud"] = json!({
             "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
             "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
