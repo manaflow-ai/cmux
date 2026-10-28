@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
+/* cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd. */
 
 
 import type * as T from "./types.js";
@@ -2168,6 +2168,12 @@ export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
 }
 export type MarkWorkspacesProviderManagedResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface MemoryReportRequest extends CmuxRequestBase {
+  cmd: "memory-report";
+}
+export type MemoryReportResult = T.JsonValue;
+
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
   cmd: "mint-terminal-renderer";
@@ -3874,6 +3880,7 @@ export type CmuxRequest =
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
+  | MemoryReportRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
@@ -5722,6 +5729,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "provider-authority";
     since: 9;
     capability: "provider-managed-workspace-authority-v2";
+    stream: null;
+  };
+  "memory-report": {
+    request: MemoryReportRequest;
+    result: MemoryReportResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "mint-terminal-renderer": {

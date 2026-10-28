@@ -8,7 +8,6 @@ import CmuxNextSettings
 import CmuxNextUpdater
 import CmuxNextWakeups
 import CmuxNextWebUpdates
-import Observation
 
 extension UpdaterService {
     /// Wires the updater to the App in `AppServices.init`: the sheet (failure details, managed
@@ -21,7 +20,7 @@ extension UpdaterService {
     func wire(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
@@ -79,16 +78,18 @@ extension UpdaterService {
     }
 
     /// Follows `updates.*` in cmux.json (R114): the gate's preferences and
-    /// Sparkle's schedule and download behavior.
-    func follow(_ settings: SettingsController) {
+    /// Sparkle's schedule and download behavior. One ServiceObservation on `mainWork`: the values
+    /// apply now once the settings loaded (before `Updater.start`), else at the first load, and each
+    /// batch of changes applies once, in a posted task.
+    func follow(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
         settingsObservation?.cancel()
         // The update card's Automatic Updates box and the tip card's Never Show Tips write the
         // same settings as Settings (UPDATE-CARD); the change returns through the observation below.
         writeSetting = { [weak self, weak settings] setting, on in
             guard let settings else { return }
             let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
-            // task-owner: one settings write that ends by itself; nothing to cancel.
-            Task { @MainActor in
+            // task-owner: one settings write that ends by itself; nothing to cancel. Off main until the controller's write.
+            Task { @concurrent in
                 do {
                     try await settings.setSetting(at: path, to: .bool(on), by: .user)
                 } catch {
@@ -96,19 +97,23 @@ extension UpdaterService {
                 }
             }
         }
-        settingsObservation = Task { [weak self, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements, tips) in ObservationStream({
-                (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
-            }) {
-                self?.apply(updates)
-                if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
-                if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
-                self?.announcementsFetch = announcements.fetch
-                if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
-            }
+        settingsObservation = ServiceObservation(.visible, owner: "UpdaterService.settings", on: mainWork) { [weak settings] in
+            guard let settings, settings.loadCount > 0 else { return }
+            _ = (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
+        } apply: { [weak self, weak settings] _ in
+            guard let self, let settings, settings.loadCount > 0 else { return }
+            followed(settings.snapshot)
         }
+    }
+
+    /// Applies the `updates.*`, `announcements.*` and tips settings of `snapshot`.
+    private func followed(_ snapshot: CmuxConfigSnapshot) {
+        let updates = snapshot.updates, announcements = snapshot.announcements, tips = snapshot.sidebarSections.showsTips
+        apply(updates)
+        if whatsNew.isItemEnabled != updates.showWhatsNew { whatsNew.isItemEnabled = updates.showWhatsNew }
+        if tipsEnabled != tips { tipsEnabled = tips }
+        announcementsFetch = announcements.fetch
+        if announcementsEnabled != announcements.enabled { announcementsEnabled = announcements.enabled }
     }
 
     func apply(_ updates: UpdatesSettings) {

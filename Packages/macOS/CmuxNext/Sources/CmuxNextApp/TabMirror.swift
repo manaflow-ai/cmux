@@ -1,4 +1,3 @@
-import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
 import os
@@ -9,17 +8,21 @@ import os
 enum TabMirror {
     typealias Locate = @MainActor (String) -> (pane: PaneID, daemon: DaemonService)?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.tab-mirror")
+    private static let owner = "TabMirror.reaches"
 
     /// Whether `locate` finds tab `key` within 10 s (at once when it already does); logs when not.
-    static func reaches(_ key: String, in locate: @escaping Locate) async -> Bool {
+    /// One keyed wait (recipe R-wait): a ServiceObservation of the lookup on `mainWork` settles it, and
+    /// its timeout is a deadline on the scheduler's one wake-up queue, so nothing polls and no Task
+    /// waits per change (Chromium signals a waiter from the change itself: `base/one_shot_event.h`).
+    static func reaches(_ key: String, in locate: @escaping Locate, on mainWork: MainWorkScheduler) async -> Bool {
         if locate(key) != nil { return true }
-        let reached = await Deadline(.seconds(10)).value("TabMirror.reaches") { await waitFor(key, locate: locate) } ?? false
+        let waiters = KeyedWaiters<String, Void>(deadlines: AlignedWakeups(queue: mainWork.wakeUps), deadlineOwner: owner)
+        let lookup = ServiceObservation(.visible, owner: owner, on: mainWork) { locate(key) != nil } apply: { [weak waiters] found in
+            if found { waiters?.settle(key, with: ()) }
+        }
+        let reached = await waiters.value(of: key, now: (), timeout: .seconds(10)) { _ in locate(key) != nil ? true : nil } ?? false
+        lookup.cancel()
         if !reached { logger.error("tab \(key, privacy: .public) did not reach the store's tree within 10 s") }
         return reached
-    }
-
-    private static func waitFor(_ key: String, locate: @escaping Locate) async -> Bool {
-        for await found in ObservationStream({ locate(key) != nil }) where found { return true }
-        return false
     }
 }

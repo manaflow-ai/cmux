@@ -495,6 +495,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
     /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
     case energyRule = "energy-v2"
+    /// `memory.limit`: the app's memory pressure level, Memory Saver mode and debug override, which the daemon
+    /// votes next to its own level (`MemoryLimitRequest.capability`; cmux-tui-core server/memory_limit.rs).
+    case memoryLimit = "memory-limit-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -544,7 +547,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
-             .energyRule, .diagnosticSites:
+             .energyRule, .memoryLimit, .diagnosticSites:
             return .optional
         }
     }
@@ -585,8 +588,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
-    /// `sharedSizing` is not either: a terminal attachment that names its device adds it
-    /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
+    /// `sharedSizing` is not either: a terminal attachment that names its device adds it (`attach(device:)`), as does a
+    /// streaming connection with a `sizingDevice`; other connections only read it from `identify`.
     /// `placementShift` only with the sidebar document (`handshakeCapabilities`).
     /// `diagnosticSites` only on a connection that reports them (`reportsDiagnosticSites`).
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {

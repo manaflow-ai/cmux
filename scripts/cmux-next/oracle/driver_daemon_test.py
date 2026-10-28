@@ -23,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 
@@ -519,8 +520,8 @@ class RunBatchTests(unittest.TestCase):
             case = oracle.Case(f"s/c{index}", "s", Path("c.json"), data)
             batches.append((oracle.Work(case, {"case_id": case.id, "state_root": str(base / f"{index:06d}")}),))
         try:
-            results, errors, _logs = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
-                                                      itertools.count())
+            results, errors, _logs, _refusals = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
+                                                                 itertools.count())
         finally:
             shutil.rmtree(base, ignore_errors=True)
         self.assertEqual(errors, [])
@@ -659,32 +660,92 @@ class RestorePreviewTraceTests(unittest.TestCase):
         captures = [d.Capture("create-ws", "before", self.snapshot, reply),
                     d.Capture("create-ws", "settled", self.snapshot, reply),
                     d.Capture("read", "settled", self.snapshot, None)]
-        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"},
-                 {"id": "not-reached", "op": "settle"}]
-        trace = d.case_trace("t/i9", steps, captures)
-        self.assertEqual([s["id"] for s in trace["steps"]], ["create-ws", "read"])
+        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"}]
+        trace = traced_case("t/i9", steps, captures)
         self.assertEqual(sorted(trace["steps"][0]["restorePreviews"]), ["before", "settled"])
         self.assertNotIn("restorePreviews", trace["steps"][1])
         report = self.inv.check_trace(json.loads(json.dumps(trace)), schema=self.schema)
         self.assertEqual(report.checked.get("I9"), 2)
         self.assertEqual([v for v in report.violations if v.invariant == "I9"], [])
-        self.assertIsNone(d.case_trace("t/i9", steps, []))
 
     def test_a_trace_catches_the_skip_journal_append_mutant(self):
         """The preview a daemon gives when a step's journal record was never appended: I9 fails."""
         stale = copy.deepcopy(self.raw)
         stale["workspaces"][0]["name"] = "before the rename"
-        trace = d.case_trace("t/i9", [{"id": "rename", "op": "resource.call"}],
-                             [d.Capture("rename", "settled", self.snapshot,
-                                        self.inv._restore_reply(stale, self.head))])
+        trace = traced_case("t/i9", [{"id": "rename", "op": "resource.call"}],
+                            [d.Capture("rename", "settled", self.snapshot,
+                                       self.inv._restore_reply(stale, self.head))])
         report = self.inv.check_trace(trace, schema=self.schema)
         self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I9"],
                          [("I9", "/daemon/session/workspaces/0/name")])
 
 
+def traced_case(case_id: str, steps: list, captures: list) -> dict:
+    """The trace CaseRun.trace_doc gives for these captures: each step's record, filled by trace_capture."""
+    records = {step["id"]: dict(step, checkpoints={}) for step in steps}
+    for capture in captures:
+        d.trace_capture(records[capture.step], capture.checkpoint, capture.snapshot, capture.restore_preview)
+    return {"schema": d.invariants.TRACE_SCHEMA, "case": case_id, "steps": list(records.values())}
+
+
 def holder_crash_case(arm: str) -> dict:
     """The terminal holder crash journey of one arm of the terminal-holder switch (p15-oracle-224)."""
     return json.loads((CORPUS / f"terminal-holder-crash-{arm}.json").read_text(encoding="utf-8"))
+
+
+class DaemonResourcesTraceTests(unittest.TestCase):
+    """Invariant I15's input (p15-oracle-217): a traced case carries the daemon's counts after setup and at
+    teardown, each with its oracle-state liveObjects, and invariants.py compares them."""
+
+    def test_the_trace_carries_both_readings_and_i15_compares_them(self):
+        import invariants
+
+        snapshot = invariants._example()
+        reading = {"pid": 77, "fds": 12, "threads": 6, "children": 0, "source": "procfs",
+                   "liveObjects": {"workspaces": 1, "terminals": 0, "subscriptions": 1}}
+        steps = [{"id": "read", "op": "snapshot"}]
+        captures = [d.Capture("read", "settled", snapshot, None)]
+
+        def trace_doc(resources):
+            run = d.CaseRun.__new__(d.CaseRun)
+            run.case, run.case_id = {}, "t/i15"
+            run.daemon, run.paths = None, types.SimpleNamespace(session="oracle-t")
+            run.streams = d.case_connections.CaseStreams()
+            run.state = d.CaseState(resources=resources)
+            run.state.trace_steps = {step["id"]: step for step in traced_case("t/i15", steps, captures)["steps"]}
+            return run.trace_doc()
+
+        trace = trace_doc((reading, {**reading, "fds": 13}))
+        self.assertEqual(trace["setup"], {"daemonResources": reading})
+        report = invariants.check_trace(json.loads(json.dumps(trace)))
+        self.assertEqual([(v.invariant, v.where, v.pointer) for v in report.violations if v.invariant == "I15"],
+                         [("I15", "teardown", "/daemonResources/fds")])
+        self.assertIn("I6", [n.invariant for n in report.not_checked], "the trace lists no teardown processes")
+        self.assertNotIn("setup", trace_doc((None, None)))
+
+    def test_the_reading_is_of_the_daemon_after_a_round_trip(self):
+        class Raw:
+            def request(self, cmd):
+                asked.append(cmd)
+                return {"ok": True, "data": {"liveObjects": {"terminals": 2}}}
+
+        class Proc:
+            pid = os.getpid()
+
+            @staticmethod
+            def poll():
+                return None
+
+        asked = []
+        run = d.CaseRun.__new__(d.CaseRun)
+        run.scale = 1.0
+        run.daemon = d.Daemon.__new__(d.Daemon)
+        run.daemon.proc, run.daemon.raw, run.daemon.identity = Proc(), Raw(), {"pid": os.getpid()}
+        run.daemon.request = lambda method, params, key, timeout: asked.append(method)
+        reading = run.daemon_resources("teardown")
+        self.assertEqual(asked, ["session.ping", d.ORACLE_STATE])
+        self.assertEqual(reading["pid"], os.getpid())
+        self.assertEqual(reading["liveObjects"], {"terminals": 2})
 
 
 def example_case() -> dict:
@@ -782,6 +843,10 @@ class LiveTests(unittest.TestCase):
         report = invariants.check_trace(trace)
         self.assertEqual(report.checked.get("I9"), len(captured), [n for n in report.not_checked
                                                                     if n.invariant == "I9"])
+        # I15: both readings are there; the kill and restart give the teardown reading another pid.
+        setup, end = trace["setup"]["daemonResources"], trace["teardown"]["daemonResources"]
+        self.assertNotEqual(setup["pid"], end["pid"])
+        self.assertIn("a step restarted it", next(n.reason for n in report.not_checked if n.invariant == "I15"))
         steps = [step["id"] for step in trace["steps"]]
         before_kill = set(steps[:steps.index("kill-daemon")])
         others = [v for v in report.violations if v.invariant == "I9" and v.step in before_kill

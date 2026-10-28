@@ -3,7 +3,7 @@
   "name": "chromiumHostFileDialogs",
   "owner": "PL-cef-layer",
   "description": "In host mode, a page's file chooser opens cmux's file picker on the page's window and sends the chosen files to the Chromium host as paths, instead of Chromium's own panel opening in the host.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

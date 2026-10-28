@@ -99,13 +99,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Under its workspace's node (p06-scheduler-023); a pane outside a workspace (tests) is a root.
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
-            ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
+            ?? VisibilityNode(root: "pane:\(pane.id)", own: own, workCounts: services.visibilityWorkCounts)
         view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.scrollFrameInput = services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
-        view.stripView.resourceSource = services.resources
+        view.stripView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p07-memory-107, p14-energy-125
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }

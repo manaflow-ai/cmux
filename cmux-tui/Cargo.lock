@@ -972,6 +972,7 @@ name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
  "cmux-threads",
+ "cmux-trace",
  "libc",
  "rquickjs",
  "serde",
@@ -1002,6 +1003,7 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-trace",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -1101,6 +1103,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-threads",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",

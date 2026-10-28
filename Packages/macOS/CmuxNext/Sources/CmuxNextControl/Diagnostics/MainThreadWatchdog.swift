@@ -32,6 +32,7 @@ public final class MainThreadWatchdog: Sendable {
         set { hangSink.withLock { $0 = newValue } }
     }
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    let hangEpisodeSink = Mutex<(@Sendable (HangEpisodeEvent) -> Void)?>(nil) // ``onHangEpisode``
     /// Receives each finished stall (a ``HangRecord`` of kind `stall`, with
     /// its raw stack) on the MAIN thread, right after the stall ended: the
     /// app sends lag spikes to crash reporting. It must return at once: no
@@ -71,7 +72,11 @@ public final class MainThreadWatchdog: Sendable {
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only
     /// when they move it, so host load adds no stall.
-    private let uptime: @Sendable () -> UInt64
+    let uptime: @Sendable () -> UInt64 // +Episodes: a checkpoint's hang attribution
+    /// When this watchdog was made, on its clock and in main-thread CPU (``start(measuringSinceCreation:)``).
+    private let createdNanos: UInt64, createdCPUNanos: UInt64
+    /// The launch's tag, read in each stall sample (``startupTasks``, +Startup).
+    public let startupTasks: StartupTaskTag?
     /// The stack is sampled this long into a stall (60% of the threshold),
     /// so a stall that ends just past the threshold still has one; the
     /// sample is dropped when the stall ends below the threshold.
@@ -100,6 +105,8 @@ public final class MainThreadWatchdog: Sendable {
     static let stallPair100: UInt64 = 1, stallPair250: UInt64 = 1 | 1 << 32
     static let count100Nanos = nanos(StallCounts.edge100), count250Nanos = nanos(StallCounts.edge250)
     let mainAsleep = Atomic<Bool>(true)
+    /// Set by the first heartbeat: the main run loop runs and owns the turns (``beginStartupTurn()``). Main thread.
+    let runLoopEntered = Atomic<Bool>(false)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
     let running = Atomic<Bool>(false)
@@ -121,6 +128,8 @@ public final class MainThreadWatchdog: Sendable {
     private let publishedTaskBudget = Atomic<UInt64>(0)
     /// Whether the main thread was inside the Chromium message pump in it (``inCEFPump(cefState:pumpKey:)``).
     private let publishedInCEFPump = Atomic<Bool>(false)
+    /// The launch tag in that sample (``startupTasks``): the task word and the phase (``StartupStallTag``).
+    private let publishedStartupTask = Atomic<UInt64>(0), publishedStartupState = Atomic<UInt8>(0)
     /// The main-thread scheduler's board (``attach(board:)``).
     let boardSink = Mutex<MainTaskBoard?>(nil)
     /// Stacks sampled while a scheduled task ran past its class budget, by packed task identity
@@ -157,17 +166,25 @@ public final class MainThreadWatchdog: Sendable {
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
-    /// - Parameter wakeUps: The main thread's deadline queue (`MainWorkScheduler.wakeUps`), which ends each
-    ///   busy window (``BusyWatchdog``).
-    public convenience init(configuration: Configuration = Configuration(), wakeUps: MainWakeUpQueue? = nil) {
-        self.init(configuration: configuration, uptime: { MainThreadWatchdog.now() }, wakeUps: wakeUps)
+    /// - Parameters:
+    ///   - configuration: Thresholds, ring size and sampling.
+    ///   - startupTasks: The launch's tag (``startupTasks``); nil: stalls carry no startup fields.
+    ///   - wakeUps: The main thread's deadline queue (`MainWorkScheduler.wakeUps`), which ends each
+    ///     busy window (``BusyWatchdog``). `main()` makes it before this watchdog and gives the same queue
+    ///     to the scheduler (`LaunchOrder`).
+    public convenience init(configuration: Configuration = Configuration(), startupTasks: StartupTaskTag? = nil,
+                            wakeUps: MainWakeUpQueue? = nil) {
+        self.init(configuration: configuration, startupTasks: startupTasks, uptime: { MainThreadWatchdog.now() }, wakeUps: wakeUps)
     }
 
-    init(configuration: Configuration, uptime: @escaping @Sendable () -> UInt64, fieldMetrics: MainThreadFieldMetrics = MainThreadFieldMetrics(),
-         wakeUps: MainWakeUpQueue? = nil) {
+    init(configuration: Configuration, startupTasks: StartupTaskTag? = nil, uptime: @escaping @Sendable () -> UInt64,
+         fieldMetrics: MainThreadFieldMetrics = MainThreadFieldMetrics(), wakeUps: MainWakeUpQueue? = nil) {
         self.configuration = configuration
         self.fieldMetrics = fieldMetrics
         self.uptime = uptime
+        self.startupTasks = startupTasks
+        createdNanos = uptime()
+        createdCPUNanos = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         self.log = HangLog(capacity: configuration.capacity)
         self.busy = BusyWatchdog(log: log, wakeUps: wakeUps)
         self.thresholdNanos = UInt64(clamping: max(configuration.threshold.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
@@ -221,16 +238,20 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     /// Starts watching the main run loop. Call once, on the main actor: a start after ``stop()`` does nothing.
+    ///
+    /// - Parameter measuringSinceCreation: The work in progress began when this watchdog was made, not now.
+    ///   `main()` makes it first and starts it once the process may have a second thread (after the malloc
+    ///   zone, the environment freeze and `ghostty_init`), so a stall in those steps still counts.
     @MainActor
-    public func start() {
+    public func start(measuringSinceCreation: Bool = false) {
         guard startedOnce.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged,
               running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         busy.watchCurrentThread()
-        let started = uptime()
+        let started = measuringSinceCreation ? createdNanos : uptime()
         beatNanos.store(started, ordering: .releasing)
         // The turn this call runs in is awake (mainAsleep false below) and began no later than now.
         turnStartNanos.store(started, ordering: .relaxed)
-        beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
+        beatCPUNanos.store(measuringSinceCreation ? createdCPUNanos : clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         // Two observers: every activity but before-waiting stamps first
         // (order CFIndex.min); before-waiting stamps last (lastOrder), so
@@ -294,31 +315,9 @@ public final class MainThreadWatchdog: Sendable {
     func heartbeat(_ activity: CFRunLoopActivity) {
         let now = uptime()
         let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
-        let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
-        let beat = beatSequence.load(ordering: .acquiring)
-        if !wasAsleep, now > previous {
-            let gap = now - previous
-            Self.raise(gapMaxNanos, to: gap)
-            if gap >= Self.frame120Nanos { frames120.add(1, ordering: .relaxed) }
-            if gap >= Self.frameNanos {
-                longFrames.add(1, ordering: .relaxed)
-                Self.raise(longFrameMaxNanos, to: gap)
-            }
-            if gap >= Self.count250Nanos {
-                stallPair.wrappingAdd(Self.stallPair250, ordering: .relaxed)
-                fieldMetrics.stallOver250Ended(start: previous)
-            } else if gap >= Self.count100Nanos {
-                stallPair.wrappingAdd(Self.stallPair100, ordering: .relaxed)
-            }
-        }
-        if !wasAsleep, now > previous, now - previous >= thresholdNanos {
-            let previousCPU = beatCPUNanos.load(ordering: .acquiring)
-            recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
-        }
-        beatCPUNanos.store(cpu, ordering: .releasing)
-        beatNanos.store(now, ordering: .releasing)
-        beatSequence.store(beat &+ 1, ordering: .releasing)
+        runLoopEntered.store(true, ordering: .relaxed)
+        stamp(now: now, cpu: cpu, endingWork: !wasAsleep)
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
         if wasAsleep, !asleep {
@@ -333,16 +332,54 @@ public final class MainThreadWatchdog: Sendable {
         }
     }
 
+    /// Stamps the heartbeat at `now`; with `endingWork`, the time since the last stamp was main-thread
+    /// work: counted, and recorded when it is a stall. The run-loop heartbeat and the launch steps
+    /// (``beginStartupTurn()``) call it, on the main thread.
+    func stamp(now: UInt64, cpu: UInt64, endingWork: Bool) {
+        let previous = beatNanos.load(ordering: .acquiring)
+        let beat = beatSequence.load(ordering: .acquiring)
+        if endingWork, now > previous {
+            let gap = now - previous
+            Self.raise(gapMaxNanos, to: gap)
+            if gap >= Self.frame120Nanos { frames120.add(1, ordering: .relaxed) }
+            if gap >= Self.frameNanos {
+                longFrames.add(1, ordering: .relaxed)
+                Self.raise(longFrameMaxNanos, to: gap)
+            }
+            if gap >= Self.count250Nanos {
+                stallPair.wrappingAdd(Self.stallPair250, ordering: .relaxed)
+                fieldMetrics.stallOver250Ended(start: previous)
+            } else if gap >= Self.count100Nanos {
+                stallPair.wrappingAdd(Self.stallPair100, ordering: .relaxed)
+            }
+        }
+        if endingWork, now > previous, now - previous >= thresholdNanos {
+            let previousCPU = beatCPUNanos.load(ordering: .acquiring)
+            recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
+        }
+        beatCPUNanos.store(cpu, ordering: .releasing)
+        beatNanos.store(now, ordering: .releasing)
+        beatSequence.store(beat &+ 1, ordering: .releasing)
+    }
+
     private func recordStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) {
         var addresses: [UInt] = []
         var details: [String: JSONValue] = [:]
-        if publishedSampleBeat.load(ordering: .acquiring) == beat, let sampler = sampler.withLock({ $0 }) {
+        let sampledThisStall = publishedSampleBeat.load(ordering: .acquiring) == beat
+        if let startupTasks {
+            // The tag the sample caught mid-stall; with no sample, the one still set as the stall ends.
+            let tag = sampledThisStall ? StartupStallTag(task: publishedStartupTask.load(ordering: .relaxed),
+                                                         state: publishedStartupState.load(ordering: .relaxed))
+                                       : StartupStallTag(startupTasks.read())
+            details = tag.details
+        }
+        if sampledThisStall, let sampler = sampler.withLock({ $0 }) {
             addresses = sampler.copy(count: publishedSampleCount.load(ordering: .relaxed))
             // The scheduled task the sample caught, or `unattributed` (AppKit's own work, the display cycle or the commit).
             if let board = boardSink.withLock({ $0 }) {
                 let task = board.task(packed: publishedTaskPacked.load(ordering: .relaxed), startNanos: publishedTaskStart.load(ordering: .relaxed),
                                       budgetNanos: publishedTaskBudget.load(ordering: .relaxed))
-                details = task.map(Self.details(of:)) ?? HangAttribution(task: nil, turnNanos: nanos).details
+                details.merge(task.map(Self.details(of:)) ?? HangAttribution(task: nil, turnNanos: nanos).details) { _, task in task }
                 if let task { details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000) }
             }
             if publishedInCEFPump.load(ordering: .relaxed) { details.merge(Self.cefPumpDetails) { _, pump in pump } }
@@ -369,9 +406,9 @@ public final class MainThreadWatchdog: Sendable {
             if threadHangs == nil { threadHangs = hangMonitor() }
             // Other threads' hang-watch scopes: a scan when one is due, and the wait until the next.
             let hangWait = threadHangs?.service(waitOverrunNanos: waitOverrun)
-            closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
+            closeRecoveredEpisode(&hang) // the beat moved while busy (also before the early waits)
             if mainAsleep.load(ordering: .acquiring) {
-                closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
+                closeRecoveredEpisode(&hang) // seen asleep: an open hang ended; before parking
                 // Parked until a main turn outlasts the sample delay (its alarm), a hang-watch scan is
                 // due, a scope wakes it, or stop(). A wake between the check and the wait is not lost:
                 // the kernel keeps the fired timer and the triggered user event.
@@ -402,6 +439,9 @@ public final class MainThreadWatchdog: Sendable {
                         publishedTaskPacked.store(task.packed, ordering: .relaxed)
                         publishedTaskStart.store(task.startNanos, ordering: .relaxed)
                         publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+                        let startup = StartupStallTag(startupTasks?.read())
+                        publishedStartupTask.store(startup.task, ordering: .relaxed)
+                        publishedStartupState.store(startup.state, ordering: .relaxed)
                         publishedSampleCount.store(count, ordering: .relaxed)
                         publishedSampleBeat.store(beat, ordering: .releasing)
                     }
@@ -414,7 +454,7 @@ public final class MainThreadWatchdog: Sendable {
             // Check again one threshold later; once the turn ended the next pass parks.
             waitOverrun = waitForAlarm(nanos: Self.sooner(thresholdNanos, hangWait))
         }
-        if let event = hang.episodes.finish() { handle(event) } // stopped mid-hang: the duration so far
+        if let event = hang.episodes.finish() { handle(event, sampler: nil, state: &hang) } // stopped mid-hang: the duration so far
     }
 
     /// The watchdog thread's one wait (``MainThreadWatchdogAlarm/wait(nanos:)``); debug builds
@@ -437,13 +477,6 @@ public final class MainThreadWatchdog: Sendable {
         return after - before - nanos
     }
 
-    /// The watchdog thread's hang bookkeeping.
-    private struct HangState {
-        var episodes: HangEpisodeTracker
-        var assertedBeat: UInt64 = .max
-        var lastReportNanos: UInt64?
-    }
-
     /// Reports a stall that has lasted `hangThreshold` (once per stall, at
     /// most once per `hangReportInterval`), and in debug builds fails an
     /// assertion past `hangAssertThreshold`. Watchdog thread only.
@@ -458,9 +491,9 @@ public final class MainThreadWatchdog: Sendable {
             if case .began = event {
                 fieldMetrics.threadHung(.main, atNanos: started)
                 reportHang(beat: beat, elapsedNanos: elapsed, now: now, sampler: sampler, crashKeys: crashKeys, trace: trace,
-                           lastReportNanos: &state.lastReportNanos)
+                           state: &state)
             } else {
-                handle(event)
+                handle(event, sampler: sampler, crashKeys: crashKeys, trace: trace, state: &state)
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,

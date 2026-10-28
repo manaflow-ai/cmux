@@ -15,7 +15,7 @@ enum BookmarkSuggestionFeed {
     /// userBlocking by its cause.
     static func follow(_ service: BookmarkService, profile: String, into engine: OmniboxSuggestionEngine) {
         let key = ObjectIdentifier(engine)
-        service.suggestionFeeds[key] = ServiceObservation(.background, owner: "BookmarkSuggestionFeed", on: service.services.mainWork) { [weak service] in
+        service.suggestionFeeds[key] = ServiceObservation(.background, owner: "BookmarkSuggestionFeed", on: service.mainWork) { [weak service] in
             service?.tree(profile).bookmarks ?? []
         } apply: { [weak service, weak engine] nodes in
             guard let engine else {

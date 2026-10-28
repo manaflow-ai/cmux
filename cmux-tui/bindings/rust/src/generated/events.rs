@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c.
+// cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -540,6 +540,32 @@ pub struct HistoryChangedEvent {
     pub cause: Option<T::EventCause>,
     pub kinds: Vec<String>,
     pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputFailedEventReason {
+    #[serde(rename = "terminal_ended")]
+    TerminalEnded,
+    #[serde(rename = "not_a_terminal")]
+    NotATerminal,
+    #[serde(rename = "write_failed")]
+    WriteFailed,
+    #[serde(rename = "daemon_handoff")]
+    DaemonHandoff,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InputFailedEvent {
+    pub bytes: u64,
+    pub reason: InputFailedEventReason,
+    /// The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream.
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
@@ -1275,6 +1301,7 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
+    InputFailed(InputFailedEvent),
     KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     LoopbackClosed(LoopbackClosedEvent),
@@ -1376,6 +1403,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
+            Self::InputFailed(_) => Some("input-failed"),
             Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::LoopbackClosed(_) => Some("loopback-closed"),
@@ -1476,6 +1504,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::InputFailed(_) => Some(&INPUT_FAILED_EVENT_METADATA),
             Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::LoopbackClosed(_) => Some(&LOOPBACK_CLOSED_EVENT_METADATA),
@@ -1853,6 +1882,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("history-changed") => match serde_json::from_value::<HistoryChangedEvent>(raw.clone()) {
             Ok(event) => Event::HistoryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("input-failed") => match serde_json::from_value::<InputFailedEvent>(raw.clone()) {
+            Ok(event) => Event::InputFailed(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

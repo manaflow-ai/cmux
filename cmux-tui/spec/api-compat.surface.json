@@ -1297,6 +1297,35 @@
         "required": true
       }
     },
+    "event:input-failed": {
+      "/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"input-failed\""
+        ]
+      },
+      "/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "attach_failed",
+          "daemon_handoff",
+          "not_a_terminal",
+          "overflow",
+          "terminal_ended",
+          "write_failed"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:keybindings-changed": {
       "/cause": {
         "ty": "enum",
@@ -10941,6 +10970,7 @@
         "required": true
       }
     },
+    "request:memory-report": {},
     "request:mint-terminal-renderer": {
       "/surface": {
         "ty": "uint64",
@@ -21213,6 +21243,12 @@
       }
     },
     "response:mark-workspaces-provider-managed": {},
+    "response:memory-report": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:mint-terminal-renderer": {
       "/data/endpoint": {
         "ty": "string",

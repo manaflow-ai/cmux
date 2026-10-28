@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c.
+// cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3019,6 +3019,14 @@ pub struct MarkWorkspacesProviderManagedRequest {
 
 #[rustfmt::skip]
 pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MemoryReportRequest {
+}
+
+#[rustfmt::skip]
+pub type MemoryReportResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6145,6 +6153,10 @@ impl CmuxClient {
 
     pub fn mark_workspaces_provider_managed(&mut self, request: MarkWorkspacesProviderManagedRequest) -> Result<MarkWorkspacesProviderManagedResult> {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
+    }
+
+    pub fn memory_report(&mut self, request: MemoryReportRequest) -> Result<MemoryReportResult> {
+        self.execute(&MEMORY_REPORT_METADATA, &request)
     }
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {

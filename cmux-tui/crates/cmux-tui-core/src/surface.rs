@@ -23,6 +23,7 @@ mod host_state;
 mod input;
 mod local_output;
 mod local_reader;
+mod memory_usage;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -36,11 +37,13 @@ pub(crate) mod spawn;
 mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
+mod thread_qos;
 pub use color_overrides::apply_terminal_color_overrides;
 #[cfg(unix)]
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
 pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
+pub(crate) use memory_usage::{PtyHome, SurfaceMemory, TerminalMemory};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
@@ -170,6 +173,7 @@ use crate::mux::ResourceWaitWake;
 use crate::panic_free::RecoverPoison;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::TerminalExit;
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -791,6 +795,7 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: terminal_runtime::TerminalCell::new(Box::new(term)),
@@ -865,6 +870,7 @@ impl Surface {
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -926,11 +932,15 @@ impl Surface {
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
-        // Echo path class; blocking is disallowed while it streams a host
-        // connection (`HostedReader::run`), not between connections.
-        let reader_thread = cmux_threads::spawn(
+        // Echo path class, or utility while no view shows the terminal
+        // (surface/thread_qos.rs); blocking is disallowed while it streams a
+        // host connection (`HostedReader::run`), not between connections.
+        let reader_thread = supervised::spawn_following(
             format!("surface-{id}-host"),
             crate::echo_thread::ECHO_PATH_QOS,
+            terminal.thread_qos.clone(),
+            Fatal,
+            ShutdownBehavior::Continue,
             {
                 let surface = surface.clone();
                 move || hosted_reader.run(surface, reader)
@@ -968,7 +978,10 @@ impl Surface {
             .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
-            let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
+            let _ = supervised::spawn(
+                "terminal-host-test-disconnect",
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()

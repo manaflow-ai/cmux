@@ -31,6 +31,8 @@ struct MainFrameBudgetOpenTask {
     var parks = 0
     /// An idle task's idle deadline (``MainFrameBudget/noteIdleTask(postedFrom:deadlineNanos:)``; 0: none).
     var idleDeadlineNanos: UInt64 = 0
+    /// Its own time at its last ``MainFrameBudget/shouldYield()``: the chunk since then is the next one's estimate.
+    var ownAtYieldCheck: UInt64 = 0
     /// When its hang scope ends (``MainTaskBoard/hangScopeEnd(_:startNanos:idleDeadlineNanos:)``), on its own time as
     /// ``ownNanos(at:)``: its nested tasks and loops move it out, so a nested task's hang is not this one's too.
     var hangAtNanos: UInt64 {

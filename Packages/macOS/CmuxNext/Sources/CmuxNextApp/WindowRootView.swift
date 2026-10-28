@@ -8,7 +8,6 @@ import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
-import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
 /// on its top), or on the trailing edge (`sidebar.side`, R109; the traffic
@@ -40,7 +39,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let contentHost = MainPaneCardView(frame: .zero)
     /// The shade over the chrome around the curved main pane.
     let mainPaneShade = MainPaneChromeShadeView(frame: .zero)
-    private var mainPaneObservation: Task<Void, Never>?
+    /// The main pane tunables and the UI scale (``follow(on:work:)``).
+    private var mainPaneObservation: VisibleObservation<[CGFloat]>?
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
@@ -50,8 +50,19 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// constraints: it sizes itself by its own width constraint (`SidebarContainerView.widthConstraint`),
     /// so the root pins its top, bottom and edge, and frames the rest from the sidebar's frame.
     var sidebarEdgePins: [SidebarSide: NSLayoutConstraint] = [:]
-    private var placementObservation: Task<Void, Never>?
-    private var tokenObservation: Task<Void, Never>?
+    /// The sidebar placement settings (``follow(on:work:)``).
+    private var placementObservation: VisibleObservation<SidebarPlacement>?
+    /// The titlebar tokens (``follow(on:work:)``).
+    private var tokenObservation: VisibleObservation<[CGFloat]>?
+    /// The sidebar placement settings the root follows (``observePlacement(on:work:)``).
+    struct SidebarPlacement: Equatable {
+        let side: SidebarSide
+        let spaces: SpacesPosition
+        let spacesVisibility: SpacesVisibilityMode
+        let rail: [CGFloat]
+    }
+    /// The window's node once ``follow(on:work:)`` ran; until then this view's own, always visible.
+    private var visibility = VisibilityNode(root: "WindowRootView", own: .visible)
     private var displayOptionsWatch: AppearanceSignals.Subscription?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
@@ -113,14 +124,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter revealDeadlines: Times the collapsed band's close delay and the paint hold's limit (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` (the app's); on by default.
+    /// - Parameter rendersMotionOnServer: `motion.renderServer` (the app's; off by default): the sidebar's show
+    ///   and hide lay the window out once and spring on the render server (`SidebarContainerView+RenderSlide`).
     /// - Parameter bandRendersOnServer: `motion.renderServer` for the collapsed band's reveal (`CollapsedBandReveal`).
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
          signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true },
+         rendersMotionOnServer: @escaping () -> Bool = { false },
          bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.sidebar = sidebar
+        sidebar.rendersMotionOnServer = rendersMotionOnServer
         collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines, fullWidth: { TitlebarToolbarBand.width }, rendersOnServer: bandRendersOnServer)
         paintHold = PanePaintHold(owner: "window.paint-hold", deadlines: revealDeadlines)
         self.reduceTransparency = reduceTransparency
@@ -153,19 +168,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
-        tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           DesignSettings.shared.titlebar == .minimal ? 1 : 0,
-                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
-                self?.applyTokens()
-                self?.applyTitlebarButtonsMode()
-            }
-        }
-        placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
         wireContentAreaMotion()
         applyMainPane()
-        mainPaneObservation = observeMainPane()
         displayOptionsWatch = signals.subscribe([.displayOptions], owner: "WindowRootView") { [weak self] in
             self?.themeDidChange()
         }
@@ -176,13 +181,24 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            tokenObservation?.cancel()
-            placementObservation?.cancel()
-            mainPaneObservation?.cancel()
+    // Releasing the observations ends them.
+    nonisolated deinit {}
+
+    /// Follows the titlebar tokens, the sidebar placement and the main pane tunables while the
+    /// window shows (`node`, its window's): a hidden or occluded window reads none of them, and
+    /// one that shows again applies what changed meanwhile once. Its theme change waits for the
+    /// show the same way. The values in effect now applied in init.
+    func follow(on node: VisibilityNode, work: MainWorkScheduler) {
+        visibility = node
+        tokenObservation = VisibleObservation(node, owner: "WindowRootView.tokens", on: work) {
+            [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
+             DesignSettings.shared.titlebar == .minimal ? 1 : 0, DesignSettings.shared.titlebarButtons == .hover ? 1 : 0]
+        } apply: { [weak self] _ in
+            self?.applyTokens()
+            self?.applyTitlebarButtonsMode()
         }
+        placementObservation = observePlacement(on: node, work: work)
+        mainPaneObservation = observeMainPane(on: node, work: work)
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
@@ -222,6 +238,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The strips under the top row in a render-server sidebar slide (`followSidebarSlide`): called before
+    /// the slide's one layout; the closure it returns, called after it, springs each strip's tabs from the
+    /// traffic-light inset they showed with (`TabStripView.windowControlsSlide`). The window sets it.
+    var topRowStripsSlide: () -> () -> [RenderSpring.Move] = { { [] } }
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a
@@ -400,7 +420,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        themeDidChange()
+        visibility.deferUntilVisible(key: "WindowRootView.theme") { [weak self] in self?.themeDidChange() }
     }
 
     // The window's own background, opacity and blur are in

@@ -64,6 +64,16 @@ Per mode:
            (kOpGeometryStats through `debug.chromium_host.measure {op: geometry}`) give the page placements per
            display frame (pass: <= 1, none unplaced; geometry_row, task p01-process-053).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
+  route    (`--modes route`, task p01-process-042) host mode's input ring with ack pacing (feature
+           chromiumHostInputRing, a host-mode Chromium tab whose page view takes its input): the
+           `debug.chromium_host` `input_route` counters while the probe tab gets
+           scroll_pacing  a trackpad gesture (began, 60 changed, ended) then its momentum (began, 30 changed,
+                          ended), one tick per 4 ms: pass when the page's pacer never had more than 1 wheel in
+                          flight, the first wheel tick of the gesture left cmux within 0.5 ms of its event
+                          (`first_wheel_send_us` p50/p95/max) and the page scrolled during the momentum ticks.
+           key            --count keys into the focused field: pass when the field got every key, none was left
+                          unwritten, and no move or wheel was in flight more than once (keys never wait).
+           A build whose tabs are not in host mode (no input route) fails the mode with the reason.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
            (chromium_host_baseline.py, `baseline-rows.md` in --out):
@@ -162,9 +172,11 @@ and document picture-in-picture, with feature chromiumHostChoosers on, then the 
 (`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
 
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
-(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
-cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal), and Reload brings the page
-back under a new host.
+(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the supervisor's Chromium Host under a Chromium tab
+(`browserHost.tabs` on): cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal),
+`debug.crashes` lists the host's end in `chromium_host` with that signal, its fork API and its log's last lines (at
+least one, none with a URL; the row's `crash_record`, chromium_host_crash_records.py, p01-process-085), and Reload
+brings the page back under a new host.
 
 --kill-host --restore runs instead the restore row (chromium_host_restore.py, p01-process-083) in a launch of its own,
 with feature chromiumHostRestoreTabs on (the kill rows expect the crash page and Reload, which a restore replaces): it
@@ -175,6 +187,10 @@ one when it is focused (`hidden_ms`).
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
+
+--hang MS runs instead the busy banner row (chromium_host_hang.py, p01-process-084): with chromiumHostHangBanner on,
+the host stopped MS ms with a key waiting shows "Chromium is busy" at 2000 +/- 100 ms (`debug.cef` host_hang), no
+busy deadline is armed with no input waiting, and the banner goes when the host runs again.
 
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
@@ -198,8 +214,10 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_crash_records  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_hang  # noqa: E402
 import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_choosers  # noqa: E402
@@ -233,7 +251,11 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(NATIVE_UI_ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
-    parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
+    parser.add_argument("--hang", type=int, metavar="MS",
+                        help="only the busy banner row (chromium_host_hang.py, p01-process-084): the host stopped MS ms")
+    parser.add_argument("--kill-host", action="store_true",
+                        help="only the host kill rows (chromium_host_kill.py) with their crash records "
+                             "(chromium_host_crash_records.py)")
     parser.add_argument("--signals", default="KILL",
                         help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
     parser.add_argument("--restore", action="store_true",
@@ -248,8 +270,10 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if sum([args.native_ui is not None, args.find, args.kill_host]) > 1:
-        parser.error("--native-ui, --find and --kill-host each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.kill_host, args.hang is not None]) > 1:
+        parser.error("--native-ui, --find, --kill-host and --hang each run instead of the modes: pick one")
+    if args.hang is not None and args.hang < chromium_host_hang.BUSY_AFTER_MS + chromium_host_hang.TOLERANCE_MS:
+        parser.error(f"--hang must hold the host past the banner's {chromium_host_hang.BUSY_AFTER_MS} ms")
     if args.restore and not args.kill_host:
         parser.error("--restore is a --kill-host row: add --kill-host")
     host_tab_modes = [mode for mode in HOST_TAB_MODES if mode in args.modes.split(",")]
@@ -664,6 +688,14 @@ def chromium_host_pid():
     return next(iter(chromium_host_pids()), None)
 
 
+def supervisor_host_pid(rpc):
+    """The pid of the supervisor's running Chromium Host (`debug.cef` host_supervisor, the host that serves the tabs),
+    else the first running host of the app (chromium_host_pid), or None."""
+    supervisor = (rpc("debug.cef") or {}).get("host_supervisor")
+    pid = supervisor.get("pid") if isinstance(supervisor, dict) else None
+    return int(pid) if isinstance(pid, (int, float)) and not isinstance(pid, bool) else chromium_host_pid()
+
+
 def chromium_host_pids():
     """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS)."""
     macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
@@ -810,6 +842,11 @@ def main():
         env.update(chromium_host_native_ui_choosers.ENV)
         chooser_page = os.path.join(opts.out, "native-ui-choosers.html")
         open(chooser_page, "w").write(chromium_host_native_ui_choosers.PAGE)
+    if opts.hang is not None:
+        hang_page = os.path.join(opts.out, "hang.html")
+        open(hang_page, "w").write(chromium_host_hang.PAGE)
+        url = pathlib.Path(hang_page).as_uri()
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_hang.FEATURES]))
     if opts.kill_host:
         kill_page = os.path.join(opts.out, "kill-host.html")
         open(kill_page, "w").write(chromium_host_kill.PAGE)
@@ -854,7 +891,7 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host or opts.hang is not None else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
@@ -886,6 +923,10 @@ def main():
                 ok = ok and locks_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.hang is not None:
+            RESULT["modes"]["hang"], ok = chromium_host_hang.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url, chromium_host_pid,
+                lambda pid: os.kill(pid, signal.SIGSTOP), lambda pid: os.kill(pid, signal.SIGCONT), opts.hang)
         if opts.kill_host:
             if opts.restore:
                 RESULT["modes"]["kill_host"] = {}
@@ -894,8 +935,9 @@ def main():
                     url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
             else:
                 RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
-                    rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
-                    lambda pid: pid is not None and not pid_gone(pid))
+                    rpc, wait, url, opts.signals, lambda: supervisor_host_pid(rpc), app.process.pid if app.process else None,
+                    lambda pid: pid is not None and not pid_gone(pid),
+                    record=lambda host, number: chromium_host_crash_records.row(rpc, wait, host, number))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -904,6 +946,8 @@ def main():
             ok = run_tcc(rpc, app.process.pid if app.process else None, tcc_keychain, tcc_seed) and ok
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if "route" in modes:
+            ok = run_route(rpc, url) and ok
         if opts.baseline and inproc_tab:
             # After the helper rows: the 9 extra tabs would otherwise be in its pump share.
             RESULT.setdefault("sessions", {}).setdefault("light", {})["tabs10"] = tabs10_wakes(rpc, url)
@@ -1108,6 +1152,94 @@ def run_inproc(rpc, url):
     row["pump_share"] = {"light": pump_share(rpc, page)}
     RESULT["modes"]["inproc"] = row
     return tab
+
+
+FIRST_WHEEL_LIMIT_US = 500  # p01-process-042: the first wheel tick of a gesture leaves cmux in < 0.5 ms
+
+
+def route_report(rpc):
+    """`debug.chromium_host` `input_route` (host mode's input ring, p01-process-042); None without one."""
+    return (rpc("debug.chromium_host") or {}).get("input_route")
+
+
+def route_page(report):
+    """The route's page whose pacer moved most: the probe's (the bench shows one hosted page)."""
+    pages = (report or {}).get("pages") or []
+    return max(pages, key=lambda page: page.get("sent") or 0) if pages else {}
+
+
+def run_route(rpc, url):
+    """The `route` rows (p01-process-042): scroll pacing with momentum and keys through host mode's input ring."""
+    page, _, _ = open_inproc_probe(rpc, url, "route")
+    if not page:
+        RESULT["modes"]["route"] = {"error": "the probe tab did not open", "pass": False}
+        return False
+    # The hosted page view is a cmux view (no page window): window points over the focused pane's content.
+    border = focused_pane_border(rpc)
+    if not border:
+        RESULT["modes"]["route"] = {"error": "no pane geometry (debug.pane_chrome)", "pass": False}
+        return False
+    click_point = host_click_point(border)
+    before = route_report(rpc)
+    if before is None:
+        RESULT["modes"]["route"] = {"error": "no input route: the tab is not in host mode with the input ring (feature "
+                                             "chromiumHostInputRing, a host the supervisor started with a ring, p01-process-080)",
+                                    "pass": False}
+        return False
+    rows = {}
+    # A page that scrolls: the probe fills the viewport.
+    page("document.documentElement.style.height = 'auto'; document.body.style.height = '20000px'; scrollTo(0, 0); 0")
+    point = click_point("b")
+
+    def scroll(dy, **phase):
+        rpc("debug.mouse", {"action": "scroll", "dy": dy, "hover": False, **point, **phase})
+        time.sleep(0.004)  # test harness: one tick per 4 ms, a trackpad's rate
+
+    scroll(-4, phase="began")
+    for _ in range(60):
+        scroll(-8, phase="changed")
+    scroll(0, phase="ended")
+    time.sleep(0.2)  # test harness: the gesture's last ticks are dispatched
+    after_gesture = page("scrollY") or 0
+    scroll(-20, momentum="began")
+    for _ in range(30):
+        scroll(-12, momentum="changed")
+    scroll(0, momentum="ended")
+    time.sleep(0.3)  # test harness: the momentum ticks are dispatched and drawn
+    after_momentum = page("scrollY") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    first = report.get("first_wheel_send_us") or []
+    rows["scroll_pacing"] = {
+        "max_wheels_in_flight": paced.get("max_wheels_in_flight"), "coalesced": paced.get("coalesced"),
+        "sent": paced.get("sent"), "first_wheel_send_us": results.percentiles(first),
+        "scroll_after_gesture": after_gesture, "scroll_after_momentum": after_momentum,
+        "ring_dropped": report.get("ring_dropped"), "unwritten": report.get("unwritten"),
+    }
+    rows["scroll_pacing"]["pass"] = (paced.get("max_wheels_in_flight") == 1 and bool(first)
+                                     and max(first) < FIRST_WHEEL_LIMIT_US and after_gesture > 0
+                                     and after_momentum > after_gesture)
+
+    rpc("debug.mouse", click_point("t"))
+    time.sleep(0.3)  # test harness: focus lands
+    field_before = page("document.getElementById('t').value.length") or 0
+    unwritten_before = (route_report(rpc) or {}).get("unwritten") or 0
+    for _ in range(opts.count):
+        rpc("debug.key", {"key": "a"})
+        time.sleep(1 / 30)  # test harness: one key per two frames
+    field_after = wait(lambda: (lambda n: n if (n or 0) >= field_before + opts.count else None)(
+        page("document.getElementById('t').value.length")), 10) or page("document.getElementById('t').value.length") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    rows["key"] = {"keys": opts.count, "field_before": field_before, "field_after": field_after,
+                   "unwritten": (report.get("unwritten") or 0) - unwritten_before,
+                   "max_moves_in_flight": paced.get("max_moves_in_flight"),
+                   "max_wheels_in_flight": paced.get("max_wheels_in_flight")}
+    rows["key"]["pass"] = (field_after - field_before == opts.count and rows["key"]["unwritten"] == 0
+                           and (paced.get("max_moves_in_flight") or 0) <= 1)
+    rows["route"] = report
+    RESULT["modes"]["route"] = rows
+    return rows["scroll_pacing"]["pass"] and rows["key"]["pass"]
 
 
 def pump_work_ms(rpc):

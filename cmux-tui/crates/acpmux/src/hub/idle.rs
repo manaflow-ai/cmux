@@ -58,7 +58,9 @@ impl Hub {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
-            tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+            self.supervise("hub.idle-reaper", Fatal, ShutdownBehavior::Skip, async move {
+                Self::idle_reaper_loop(weak, wake).await
+            });
         }
         self.idle_wake.notify_one();
     }

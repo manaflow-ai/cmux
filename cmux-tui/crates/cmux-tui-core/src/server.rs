@@ -39,7 +39,6 @@ use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -284,6 +283,7 @@ use group_outcome_json::{
 };
 use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
 mod capabilities;
+mod memory_report;
 mod terminal_create;
 mod terminal_history;
 mod terminal_io_wire;
@@ -312,6 +312,8 @@ mod chief_engine_mirror;
 pub(crate) mod energy_op;
 /// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
 pub(crate) mod energy_rule;
+/// `memory.limit`: the app's memory limit (p07-memory-109).
+pub(crate) mod memory_limit;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };
@@ -2011,6 +2013,10 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
+    /// Where this daemon's memory goes (server/memory_report.rs): per
+    /// terminal, the registry's consumers and the process footprint. Owner
+    /// only.
+    MemoryReport,
 }
 }
 
@@ -2337,7 +2343,12 @@ const OUTBOUND_CONNECTION_CAPACITY: usize = OUTBOUND_CAPACITY * 16;
 const OUTBOUND_CONNECTION_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 8;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
-const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+/// The bytes a connection's control sequence may hold queued: two lines of
+/// the largest size the reader accepts (with their `\n`), so any accepted
+/// line fits, also behind another of that size. `Command`s are held to the
+/// daemon's `SERVER_SURFACE_RETAINED_BYTE_CAPACITY` as well
+/// (connection_scheduler.rs, `SequenceBudget`).
+const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 2 * (MAX_JSON_LINE_BYTES + 1);
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -2355,7 +2366,7 @@ mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
 use worker_admission::{
     ResourceWorkerAdmission, ResourceWorkerAdmissionError, ResourceWorkerPermit,
-    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
+    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit, WorkerClass,
 };
 
 // The frame variant of the attach writer; no transport serves it yet.
@@ -2390,7 +2401,8 @@ mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
-    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
+    ConnectionBudget, ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest,
+    SequencedItem, run_pending_request,
 };
 
 mod bounded_outbound;
@@ -2500,8 +2512,9 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
-    lock_caller_scope, pairing_request, zeroize_string,
+    auth_token, connection_caller, constant_time_eq, debug_assert_off_reader,
+    handle_connection_frame_at, handle_request_with_cancellation, lock_caller_scope,
+    pairing_request, zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
