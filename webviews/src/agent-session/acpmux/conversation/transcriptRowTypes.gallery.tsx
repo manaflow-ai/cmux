@@ -88,7 +88,7 @@ export default componentEntry<Props>({
   title: "Transcript row types",
   area: "Agent pane",
   height: 360,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript", "agent-session/acpmux/rows/MessageRow.tsx"],
   load: async () => RowTypeStage,
   pane: true,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
