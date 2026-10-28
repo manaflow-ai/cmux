@@ -20,28 +20,28 @@ final class CardSlot {
 /// Scrolling never re-runs the grid's body: the offset comes in through
 /// `scrolled(to:)` and changes only the slots that flip.
 @MainActor
+@Observable
 final class CardResidency {
-    private var slots: [String: CardSlot] = [:]
-    private var ids: [String] = []
-    private var layout: OverviewLayout?
-    private var offset: CGFloat = 0
-    private var visible = false
-    private var settled = true
+    @ObservationIgnored private var slots: [String: CardSlot] = [:]
+    @ObservationIgnored private var ids: [String] = []
+    @ObservationIgnored private var layout: OverviewLayout?
+    @ObservationIgnored private var offset: CGFloat = 0
+    @ObservationIgnored private var visible = false
+    @ObservationIgnored private var settled = true
     private let plan = CardResidencyPlan()
     private let clock = FrameClock()
-    private var ticking = false
+    @ObservationIgnored private var ticking = false
     /// Cards built so far (tests and the rig's log).
-    private(set) var builds = 0
-    /// Building ahead or moving started (true) or both ended (false).
-    var onBusyChanged: (Bool) -> Void = { _ in }
-    private var building = false { didSet { publishBusy() } }
+    @ObservationIgnored private(set) var builds = 0
+    @ObservationIgnored private var building = false { didSet { publishBusy() } }
     /// The offset changed within the last `restFrames` frames: any scroll,
     /// a finger's, a deceleration's or one set from code (which the scroll
     /// phase does not report).
-    private var moving = false { didSet { publishBusy() } }
+    @ObservationIgnored private var moving = false { didSet { publishBusy() } }
+    /// Moving or building ahead (observed: the grid is idle only without it).
     private(set) var busy = false
     private let motionClock = FrameClock()
-    private var stillFrames = 0
+    @ObservationIgnored private var stillFrames = 0
     /// Frames without an offset change before the grid counts as at rest.
     static let restFrames = 6
 
@@ -49,7 +49,6 @@ final class CardResidency {
         let now = building || moving
         guard now != busy else { return }
         busy = now
-        onBusyChanged(now)
     }
 
     func slot(_ id: String) -> CardSlot {
