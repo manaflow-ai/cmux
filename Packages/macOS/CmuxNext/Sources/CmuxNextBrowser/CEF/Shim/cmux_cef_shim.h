@@ -1462,6 +1462,32 @@ CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_writt
 // The trace's "ts" values use this clock; sample it next to the caller's clock for the offset.
 CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void);
 
+// Chromium's own HangWatcher in the browser process (the fork's
+// cmux_set_hang_dump_handler, p09-observability-106; no API number yet: the
+// shim checks the symbol). Not a cmux_shim_* export: in process only, the
+// Chromium Host's browser process keeps its own watch (host_hang_watcher.h).
+// The fork puts the handler in place of Crashpad's as
+// base::debug::DumpWithoutCrashing's function (base/threading/hang_watcher.cc
+// RecordHang dumps with it), and --cmux-browser-hang-watch on the browser's
+// command line turns the watcher on for the IO and thread pool threads only.
+// One call per capture, on Chromium's HangWatcher thread, while each hung
+// thread that leaves its scope waits for it: return soon, never wait for
+// another thread. `count` hung threads, most severe first; thread i:
+// thread_ids[i] (pthread_threadid_np), thread_types[i] (0 IO, 1 main, 2 pool,
+// 3 compositor), overrun_us[i] past its deadline, names[i] its Chromium name
+// ("" when unnamed) and frame_counts[i] return addresses, innermost first, in
+// `frames` after those of threads 0..i-1. Every array is valid only during
+// the call.
+typedef void (*cmux_cef_hang_dump_fn)(void* ctx, int count, const uint64_t* thread_ids, const int* thread_types,
+                                      const int64_t* overrun_us, const char* const* names, const int* frame_counts,
+                                      const uintptr_t* frames);
+// Sets the handler before cmux_shim_initialize (after cmux_shim_load); a later
+// call does not install the dump function. NULL clears it, but a capture
+// already running may still call the previous one: keep its ctx alive for the
+// process. Returns 1 when the fork took it, 0 when the fork lacks the call
+// (then pass no --cmux-browser-hang-watch).
+CMUX_SHIM_EXPORT int cmux_cef_set_dump_handler(cmux_cef_hang_dump_fn fn, void* ctx);
+
 #ifdef __cplusplus
 }
 #endif

@@ -21,6 +21,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Host mode shows `<input type=color>` in cmux (``ChromiumHostChoosers``): the renderer asks the browser
     /// for a chooser (fork API 31's Blink feature), so the fork's handler gets it, not Blink's own popup.
     var embedderColorChooser = false
+    /// Chromium's own HangWatcher watches the browser process's IO and pool threads and dumps their hangs to cmux
+    /// (``browserHangWatchSwitch``, p09-observability-106): the fork took cmux's dump handler (``CEFHangDumps``). The
+    /// features of ``hangWatcherOffFeatures`` stay off, so no child process runs a watcher.
+    var browserHangWatch = false
     /// Chromium's own spare renderer is off (``spareRendererFeature`` in the one `disable-features`
     /// entry): the default-off feature `chromiumOneSpareRenderer` while the spare windows' placeholders
     /// hold a renderer, which is then the one spare (``CEFSpareWindow/keepsChromiumSpare``).
@@ -149,6 +153,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // HasEnoughMemoryForAnotherMainFrame). A bench switch of the same name sets it instead.
         result.append(contentsOf: sharedRendererMemoryArguments)
         if embedderColorChooser { result.append(Self.embedderColorChooserArgument) }
+        if browserHangWatch { result.append(Self.browserHangWatchSwitch) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -371,11 +376,21 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static let syncOffSwitch = "disable-sync"
 
     /// `EnableHangWatcher` and `EnableHangWatcherOnGpuProcess` (base/threading/hang_watcher.cc): a
-    /// HangWatcher thread in each Chromium process (the app is the browser process) wakes every 10 s
-    /// (kHangWatcherMonitoringPeriod) and reports a hung thread with DumpWithoutCrashing. Chromium
-    /// turns it on only "where the generated data is used"; cmux ships no crash_reporter.cfg, so the
-    /// dumps go nowhere. The GPU process reads its own feature (HangWatcher::InitializeOnMainThread).
+    /// HangWatcher thread in each Chromium process wakes every 10 s (kHangWatcherMonitoringPeriod) and
+    /// reports a hung thread with DumpWithoutCrashing. Chromium turns it on only "where the generated
+    /// data is used"; a child process's dumps would go to Crashpad, and cmux ships no crash_reporter.cfg
+    /// until p09-observability-105 forwards its minidumps, so both stay off. Children take the browser's
+    /// feature list (FieldTrialList::PopulateLaunchOptionsWithFieldTrialState), so the browser process
+    /// (the app) watches through ``browserHangWatchSwitch`` instead. The GPU process reads its own
+    /// feature (HangWatcher::InitializeOnMainThread).
     static let hangWatcherOffFeatures = ["EnableHangWatcher", "EnableHangWatcherOnGpuProcess"]
+
+    /// The fork's switch (patch cmux_browser_hang_watch, p09-observability-106): the browser process's
+    /// HangWatcher runs with ``hangWatcherOffFeatures`` off and watches the IO and thread pool threads with
+    /// dumps, Chromium's 10 s deadline per task, every 10 s; never the UI thread, which is the app's main
+    /// thread and cmux's own watchdog's. Its dumps reach cmux's handler (``CEFHangDumps``), so pass it only
+    /// once the fork took that handler.
+    static let browserHangWatchSwitch = "cmux-browser-hang-watch"
 
     /// `OptimizationHints` (components/optimization_guide/core/optimization_guide_features.cc): with it
     /// off, the Optimization Hints component is not registered with the component updater
@@ -402,6 +417,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         spareAfterFirstTab: Bool = false,
         embedderColorChooser: Bool = false,
         chromiumSpareOff: Bool = false,
+        browserHangWatch: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -438,6 +454,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
             embedderColorChooser: embedderColorChooser,
+            browserHangWatch: browserHangWatch,
             chromiumSpareOff: chromiumSpareOff,
             useMockKeychain: mockKeychain,
             loadExtensions: extensions,

@@ -180,6 +180,10 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p09-observability-106; the fork train numbers it): the
+  // browser process's HangWatcher dumps to the embedder (cmux_cef_hang_dump_fn
+  // is the fork's cmux_hang_dump_fn).
+  int (*set_hang_dump_handler)(cmux_cef_hang_dump_fn, void*) = nullptr;
 };
 
 struct Host {

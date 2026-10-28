@@ -415,6 +415,7 @@ public final class CEFEngine: BrowserEngine {
         if runtimeSource.watchesHostHangs {
             runtime.watchHostHangs(reports: { [weak runtimeSource] hang in runtimeSource?.onHostHang?(hang) })
         }
+        runtime.chromiumHangSink = runtimeSource.onChromiumHang
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

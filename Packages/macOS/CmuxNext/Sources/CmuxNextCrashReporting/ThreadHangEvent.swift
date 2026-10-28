@@ -17,18 +17,28 @@ public nonisolated struct ThreadHangEvent: Sendable, Equatable {
     public let overrun: Duration
     /// Return addresses, innermost first (the monitor's sample of the hung thread).
     public let addresses: [UInt]
+    /// Who found the hang: the `hang_source` tag. ``hangWatchSource`` for cmux's hang watch, ``chromiumSource`` for
+    /// Chromium's own HangWatcher in the browser process (p09-observability-106).
+    public let source: String
+
+    /// cmux's hang watch (the main-thread watchdog's monitor).
+    public static let hangWatchSource = "hang_watch"
+    /// Chromium's HangWatcher (base/threading/hang_watcher.cc), through the fork's dump handler.
+    public static let chromiumSource = "chromium"
 
     /// Makes the value from its parts.
-    public init(thread: String, threadKind: String, threadName: String, overrun: Duration, addresses: [UInt]) {
+    public init(thread: String, threadKind: String, threadName: String, overrun: Duration, addresses: [UInt],
+                source: String = ThreadHangEvent.hangWatchSource) {
         self.thread = thread
         self.threadKind = threadKind
         self.threadName = threadName
         self.overrun = overrun
         self.addresses = addresses
+        self.source = source
     }
 
     /// The Sentry event: one exception with the hung thread's stack, that thread (crashed, so Sentry shows its
-    /// stack first), the debug images, and the `hang_source`, `hang.thread` and `hang.thread_kind` tags.
+    /// stack first), the debug images, and the `hang_source` (``source``), `hang.thread` and `hang.thread_kind` tags.
     public func event() -> Event {
         let event = Event(level: .error)
         event.platform = "cocoa"
@@ -50,7 +60,7 @@ public nonisolated struct ThreadHangEvent: Sendable, Equatable {
         event.exceptions = [hang]
         event.threads = [hung]
         event.debugMeta = MainThreadHangEvent.debugMeta(images)
-        event.tags = ["hang_source": "hang_watch", "hang.thread": thread, "hang.thread_kind": threadKind]
+        event.tags = ["hang_source": source, "hang.thread": thread, "hang.thread_kind": threadKind]
         event.extra = ["hang_overrun_ms": overrunMs]
         if !threadName.isEmpty { event.extra?["thread_name"] = threadName }
         return event

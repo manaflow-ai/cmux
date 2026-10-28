@@ -147,6 +147,11 @@ final class CEFRuntime {
     var shutdownWaiter: OnceContinuation<Void, OnceContinuationError>?
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     let crashLog = BrowserCrashLog()  // recent renderer and helper process failures (`debug.crashes`)
+    /// Where Chromium's browser-process hang dumps go (``CEFRuntimeSource/onChromiumHang``, read when the source is
+    /// adopted); nil leaves Chromium's own HangWatcher off in every process.
+    var chromiumHangSink: (@Sendable ([ChromiumHungThread]) -> Void)?
+    /// The dump handler the fork took at start (``installHangDumps(_:inProcess:)``); nil while Chromium does not watch.
+    var hangDumps: CEFHangDumps?
     var helperExits = CEFHelperExitMetric()  // where `cef.helper_exit` samples go (a test sets its own store)
     var rendererStability = RendererStability()  // where pages' hangs go as stability events (the App sets its reporting one)
     /// Watches helper exits (GPU, utility, extension renderers) from start.
@@ -526,12 +531,15 @@ final class CEFRuntime {
         }
 
         let builtInPlan = inputs.builtInPlan
+        // Before the switches: the watcher's switch goes only to a fork that took cmux's dump handler.
+        let inProcess = if case .inProcess = library { true } else { false }
+        let browserHangWatch = installHangDumps(shim, inProcess: inProcess)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTabFeature(), embedderColorChooser: drawsChoosersInCmux,
             chromiumSpareOff: !spareWindow.chromiumStarting(placeholderSupported: shim.placeholderSupported() == 1),
-            bundleIdentifier: Bundle.main.bundleIdentifier,
+            browserHangWatch: browserHangWatch, bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment, builtInExtensions: builtInPlan.folders,
             builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
             keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),

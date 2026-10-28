@@ -110,6 +110,15 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setEnergySaver: (Int32, String?) -> Int32
     /// `cmux_shim_memory_pressure_vote(level)`: cmux's vote in Chromium's pressure aggregator (``CEFMemoryPressureVote``).
     let memoryPressureVote: @convention(c) (Int32) -> Int32
+    /// `cmux_cef_hang_dump_fn`: ctx, count, thread ids, thread kinds, overruns (µs), names, frame counts, frames
+    /// (``ChromiumHungThread/capture(count:ids:kinds:overruns:names:frameCounts:frames:)`` reads them).
+    typealias HangDumpFn = @convention(c) (
+        UnsafeMutableRawPointer?, Int32, UnsafePointer<UInt64>?, UnsafePointer<Int32>?, UnsafePointer<Int64>?,
+        UnsafePointer<UnsafePointer<CChar>?>?, UnsafePointer<Int32>?, UnsafePointer<UInt>?
+    ) -> Void
+    /// `cmux_cef_set_dump_handler(fn, ctx)`: Chromium's browser-process HangWatcher dumps to cmux (p09-observability-106),
+    /// before `initialize` only; 1 when the fork took it. Nil in host mode and with a shim that lacks it.
+    let setDumpHandler: (@convention(c) (HangDumpFn?, UnsafeMutableRawPointer?) -> Int32)?
 
     let createWindow: (Int32, CEFParentView?, Int32, Int32, String?, String?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's

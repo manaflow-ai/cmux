@@ -56,6 +56,11 @@ public final class CEFRuntimeSource {
     /// Host mode, with ``watchesHostHangs``: each UI hang of the Chromium Host of 250 ms or more, for the
     /// app's hang reports (set by the App). Read at each hang.
     public var onHostHang: ((ChromiumHostHang) -> Void)?
+    /// In process: Chromium's own HangWatcher watches the browser process's IO and pool threads, and each capture
+    /// goes here on Chromium's HangWatcher thread, which must not wait (feature `chromiumHangWatcher`, set by the App;
+    /// p09-observability-106). Nil keeps the watcher off in every Chromium process. Read when the runtime adopts the
+    /// source, before Chromium starts.
+    public var onChromiumHang: (@Sendable ([ChromiumHungThread]) -> Void)?
     /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
     /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
     /// adopts the source; in process it changes nothing.

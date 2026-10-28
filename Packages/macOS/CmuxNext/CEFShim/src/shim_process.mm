@@ -385,6 +385,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
   CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
+  CMUX_BIND(set_hang_dump_handler, "cmux_set_hang_dump_handler");
 #undef CMUX_BIND
 }
 
@@ -438,6 +439,9 @@ void cmux_shim_set_default_search(const char* template_url_json) {
 // Read once by cmux_shim_initialize (CefSettings.chrome_policy_id).
 static std::string g_chrome_policy_id;
 
+// cmux_shim_initialize ran (cmux_cef_set_dump_handler is refused after it).
+static bool g_initialize_called = false;
+
 void cmux_shim_set_chrome_policy_id(const char* policy_id) {
   g_chrome_policy_id = policy_id ? policy_id : "";
 }
@@ -479,6 +483,7 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
                          const char* locale, const char* accept_languages,
                          const char* const* switch_list, void* ctx, cmux_shim_schedule_fn schedule,
                          cmux_shim_event_fn event, cmux_shim_key_fn key) {
+  g_initialize_called = true;
   Host& h = host();
   h.ctx = ctx;
   h.schedule = schedule;
@@ -574,6 +579,15 @@ int cmux_shim_memory_pressure_vote(int level) {
     return 0;
   }
   return fork_api().memory_pressure_vote(level);
+}
+
+// The fork installs the dump function at startup (PostEarlyInitialization),
+// so a handler set once cmux_shim_initialize ran would never be called: refused.
+int cmux_cef_set_dump_handler(cmux_cef_hang_dump_fn fn, void* ctx) {
+  if (!fork_api().set_hang_dump_handler || g_initialize_called) {
+    return 0;
+  }
+  return fork_api().set_hang_dump_handler(fn, ctx);
 }
 
 void cmux_shim_shutdown(void) {

@@ -46,4 +46,13 @@ struct ThreadHangReportTests {
         #expect(event.extra?["thread_name"] == nil)
         #expect(event.tags?["hang.thread"] == "terminal-output")
     }
+
+    /// p09-observability-106: a hang Chromium's own HangWatcher dumped is the same thread-hang event with source chromium.
+    @Test func aChromiumHangIsTaggedWithItsSource() {
+        let event = ThreadHangEvent(thread: "chromium.io", threadKind: "io", threadName: "Chrome_IOThread", overrun: .seconds(2),
+                                    addresses: [], source: ThreadHangEvent.chromiumSource).event()
+        #expect(event.tags?["hang_source"] == "chromium")
+        #expect(event.tags?["hang.thread"] == "chromium.io")
+        #expect(event.threads?.first?.name == "Chrome_IOThread")
+    }
 }

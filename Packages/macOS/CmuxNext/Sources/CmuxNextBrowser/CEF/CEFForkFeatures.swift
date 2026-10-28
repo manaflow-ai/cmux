@@ -36,6 +36,11 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// `cp/p13-webui-079` on `cp/p06-scheduler-212`): a string to a cmux-page document's receiver, with no script.
     /// Max + 1 of the fork lines and of the numbers the app claims (38 is ``surfaceCopyForkAPI``).
     static let pagePushForkAPI: Int32 = 39
+    /// The first fork API with `cmux_set_hang_dump_handler` and `--cmux-browser-hang-watch` (p09-observability-106,
+    /// manaflow-ai/cef `cp/p09-observability-106`): Chromium's HangWatcher dumps of the browser process's IO and pool
+    /// threads go to cmux. Max + 1 of the fork lines and of the numbers the app claims (39 is ``pagePushForkAPI``); the
+    /// fork train (p07-memory-074) confirms it with its pin.
+    static let hangDumpForkAPI: Int32 = 40
 
     /// The first fork API whose page window joins the app's Core Animation commit only for a deadline
     /// the app set (`cmux_browser_set_resize_sync`). With none, `UpdateWindowGeometry` does not call
@@ -57,6 +62,8 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     var shimHasMouseMove = false
     /// The shim exports `cmux_shim_tab_page_push` (`CEFShimLibrary.tabPagePush`).
     var shimHasPagePush = false
+    /// The shim exports `cmux_cef_set_dump_handler` (`CEFShimLibrary.setDumpHandler`; never in host mode).
+    var shimHasHangDump = false
 
     /// No always-on per-tab DevTools session: a tab gets a DevTools agent only when DevTools opens
     /// or an agent drives it over CDP, so Chrome's process reuse can put up to 2 same-site main
@@ -89,6 +96,10 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// messages instead of a script per call. Below this API, or with an older shim, every delivery is a script.
     var pagePush: Bool { shimHasPagePush && forkAPIVersion >= Self.pagePushForkAPI }
 
+    /// Chromium's own HangWatcher can watch the browser process's IO and pool threads and dump their hangs to cmux
+    /// (``CEFHangDumps``). Below this API, or with an older shim or in host mode, the watcher stays off everywhere.
+    var hangDumps: Bool { shimHasHangDump && forkAPIVersion >= Self.hangDumpForkAPI }
+
     /// A page-window resize holds the app's commit only while the app gives that page a deadline.
     /// Below it Chromium 154 waits on every resize, so `CEFSwitches` keeps `AsyncLiveResize` on.
     var resizeWaitsOnlyForDeadline: Bool { forkAPIVersion >= Self.resizeSyncForkAPI }
@@ -99,6 +110,7 @@ extension CEFForkFeatures {
     init(_ shim: CEFShimLibrary) {
         self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
                   shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasSurfaceCopy: shim.tabCopySurface != nil,
-                  shimHasMouseMove: shim.tabSendMouseMove != nil, shimHasPagePush: shim.tabPagePush != nil)
+                  shimHasMouseMove: shim.tabSendMouseMove != nil, shimHasPagePush: shim.tabPagePush != nil,
+                  shimHasHangDump: unsafe shim.setDumpHandler != nil)
     }
 }

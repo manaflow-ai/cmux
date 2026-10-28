@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHangWatcher",
+  "owner": "PL-telemetry",
+  "description": "In-process Chromium runs its own HangWatcher for the browser process's IO and thread pool threads, never the UI thread and never in a child process, and each hang it dumps goes to crash reporting and hang reports as a thread hang with source chromium (needs the fork's cmux_set_hang_dump_handler).",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

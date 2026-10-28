@@ -178,6 +178,13 @@
       "api": null,
       "fork_commit": null,
       "summary": "PartitionAlloc purge at memory pressure"
+    },
+    {
+      "id": "p09-observability-106",
+      "program": "p09-observability",
+      "api": null,
+      "fork_commit": "d77fd049d35e339c7c7944b21914af8ce172fd57",
+      "summary": "cmux_set_hang_dump_handler and --cmux-browser-hang-watch: the browser process's HangWatcher (IO and pool threads, never the UI thread; no child process watcher) dumps to the embedder"
     }
   ]
 }
