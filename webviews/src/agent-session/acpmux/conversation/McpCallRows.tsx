@@ -9,9 +9,9 @@ import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { ChevronRight, Spinner, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
-import { mcpCall, mcpLabel, McpNamesContext, mcpRawName, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
+import { mcpCall, mcpLabel, McpNamesContext, mcpOutputResult, mcpRawName, prettyValue, type McpCall } from "./mcpCalls";
 import { isFailed, isRunning } from "./toolGroups";
-import { OutputMore, useOutput } from "./toolOutput";
+import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -157,12 +157,9 @@ export function McpCallDetails({
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
-  const response = useOutput(
-    useMemo(() => prettyOutput(output, strip), [output, strip]),
-    reveal,
-  );
+  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
   return (
-    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response.text })}>
+    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
       <code className="cv-mcp-call__name selectable" data-find-skip>
         {raw}
       </code>
@@ -172,18 +169,10 @@ export function McpCallDetails({
           <pre className="cv-mcp-call__body selectable">{request}</pre>
         </div>
       )}
-      {response.text && (
+      {response && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head">{t("tools.mcp.response")}</div>
-          <pre className="cv-mcp-call__body selectable">
-            {response.cut && (
-              <span className="cv-output-cut" aria-hidden="true">
-                …{"\n"}
-              </span>
-            )}
-            {response.shown}
-          </pre>
-          <OutputMore output={response} />
+          <ToolOutput result={response} reveal={reveal} />
         </div>
       )}
     </div>

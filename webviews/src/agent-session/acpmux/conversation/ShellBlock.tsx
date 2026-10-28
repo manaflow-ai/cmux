@@ -4,7 +4,7 @@
 // eight lines it shows its first ones under a fade, with Show all N lines (BlockParts.tsx). Output
 // wraps by default, each line hanging under its start; unwrapped, its right edge fades while more
 // lies past.
-import type { ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
@@ -12,6 +12,7 @@ import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { watchOutputViewport } from "./outputViewport";
 
 export function ShellBlock({
   id,
@@ -45,9 +46,21 @@ export function ShellBlock({
   const [wrap] = useBlockWrap("output");
   // The command's lines and all the output's, though a long output draws only its end until opened
   // (none to cut when whole).
-  const preview = usePreview(whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(raw.text), reveal);
+  const [overflows, setOverflows] = useState(false);
+  const preview = usePreview(
+    whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(raw.text),
+    reveal,
+    !whole && overflows,
+  );
   const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
+  const viewport = useCallback(
+    (node: HTMLPreElement | null) => {
+      body.current = node;
+      return node && !whole ? watchOutputViewport(node, setOverflows) : undefined;
+    },
+    [body, whole],
+  );
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
       <div className="cv-shell__label">
@@ -70,11 +83,12 @@ export function ShellBlock({
         </span>
       </div>
       <pre
-        ref={body}
+        ref={viewport}
         className="cv-shell__body selectable"
         data-wrap={wrap}
         data-preview={preview.attribute}
         data-live={live || undefined}
+        data-output-viewport={whole ? undefined : ""}
         {...SIDEWAYS_SCROLLER}
       >
         {rest && (
