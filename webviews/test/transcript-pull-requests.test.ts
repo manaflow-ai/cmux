@@ -504,6 +504,15 @@ test("short-circuit and negated shell forms reflect executed mutations", () => {
   expect(
     transcriptPullRequests(toolsRows(shell("false && echo no || gh pr merge 48 -R acme/app --squash")))[0],
   ).toMatchObject({ number: 48, changed: true, state: "merged" });
+  expect(
+    transcriptPullRequests(
+      toolsRows(
+        shell(
+          "if false; then echo https://github.com/acme/app/pull/49; else echo https://github.com/acme/app/pull/50; fi",
+        ),
+      ),
+    ),
+  ).toMatchObject([{ number: 50, kind: "pullRequest" }]);
 });
 
 test("issue commands do not hide unrelated references on the same shell line", () => {
