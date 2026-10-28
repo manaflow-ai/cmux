@@ -1,13 +1,110 @@
 // l10n-allow-file: gallery fixtures exercise picker states and labels, not shipped copy.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
+import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
+import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
+import { rememberFullAccess } from "./startMode";
 
-type Props = Record<string, never>;
+/// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
+const galleryAccounts: ChatAccounts = {
+  list: async () => ({ accounts: [] }),
+  set: async () => undefined,
+};
 
-const initialSnapshot: AcpmuxSnapshot = {
+/** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
+/** `managed`: acpmux answered `"fullAccess": "managed"` (MDM keeps full access off, #23322). */
+type Props = { claude?: boolean; accounts?: boolean; managed?: boolean };
+
+const directAccounts: ChatAccounts = {
+  list: async () =>
+    readChatAccounts({
+      routes: [
+        { id: "personal", name: "Personal", kind: "direct-subscription", serves: true },
+        { id: "work", name: "Work API", kind: "direct-api-key", serves: true },
+        { id: "codex", name: "Codex account", kind: "direct-subscription", serves: false },
+        ...["subrouter", "cliproxyapi", "custom-anthropic", "custom-openai", "local-coderouter", "cmux-router"].map(
+          (kind) => ({ id: kind, name: kind, kind, serves: true }),
+        ),
+      ],
+      active: { routeId: "personal", scope: "chat" },
+      family: "claude",
+    }),
+  set: async () => undefined,
+};
+
+/// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
+/// its 1M and plan modes, and Fable 5.1 pinned. The chat runs the pinned release claude-opus-5-5
+/// on claude-sr2, a Claude Code profile the model catalog does not map; Claude Code's `opus` is the
+/// same model, so the menu lists it once.
+const claudeCodeModels = [
+  { id: "default", name: "Default (recommended)" },
+  { id: "opus", name: "Opus 5.5" },
+  { id: "claude-fable-5-1[1m]", name: "Fable 5.1 · 1M context" },
+  { id: "sonnet", name: "Sonnet 5.5" },
+  { id: "haiku", name: "Haiku 5.5" },
+  { id: "opus[1m]", name: "Opus · 1M context" },
+  { id: "opusplan", name: "Opus plan · Sonnet execute" },
+  { id: "sonnet[1m]", name: "Sonnet · 1M context" },
+  { id: "claude-fable-5-1", name: "Fable 5.1" },
+];
+
+const claudeSnapshot: AcpmuxSnapshot = {
+  type: "snapshot",
+  protocolVersion: 1,
+  rows: [],
+  sessions: [],
+  connection: "gallery",
+  isWorking: false,
+  queue: [],
+  canLoadOlder: false,
+  catalog: [{ id: "claude-sr2", name: "Claude Code", family: "claude-sr2", models: claudeCodeModels }],
+  summary: {
+    sessionId: "gallery-claude",
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    model: "claude-opus-5-5",
+    turnCount: 12,
+    usage: { used: 300_000, size: 1_000_000 },
+    modes: {
+      availableModes: [
+        { id: "default", name: "Default" },
+        { id: "acceptEdits", name: "Accept edits" },
+        { id: "bypassPermissions", name: "Full access" },
+      ],
+      currentModeId: "default",
+    },
+    configOptions: [
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        currentValue: "claude-opus-5-5",
+        options: claudeCodeModels.map((model) => ({ value: model.id, name: model.name })),
+      },
+      {
+        id: "effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: "medium",
+        options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, name: value })),
+      },
+      {
+        id: "fast-mode",
+        name: "Fast mode",
+        currentValue: "off",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "on", name: "On" },
+        ],
+      },
+    ],
+  },
+};
+
+const codexSnapshot: AcpmuxSnapshot = {
   type: "snapshot",
   protocolVersion: 1,
   rows: [],
@@ -27,6 +124,7 @@ const initialSnapshot: AcpmuxSnapshot = {
           efforts: ["low", "medium", "high"],
           defaultEffort: "medium",
           fast: true,
+          inlineFast: true,
           contextWindow: 200_000,
         },
         { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "high"] },
@@ -73,11 +171,29 @@ const initialSnapshot: AcpmuxSnapshot = {
           { value: "on", name: "On" },
         ],
       },
+      // Codex still reports this option for its /plan command and mode paths; the footer leaves it
+      // out of the generic Options chip.
+      {
+        id: "collaboration_mode",
+        name: "Collaboration mode",
+        category: "collaboration_mode",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "plan", name: "Plan", description: "Write a plan before editing." },
+        ],
+      },
     ],
   },
 };
 
-function GalleryComposerPickers() {
+function GalleryComposerPickers({ claude, accounts, managed }: Props) {
+  // As an acpmux answer would set it; cleared again when the variant goes.
+  useEffect(() => {
+    rememberFullAccess(managed ? "managed" : undefined);
+    return () => rememberFullAccess(undefined);
+  }, [managed]);
+  const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
   const [effort, setEffort] = useState("medium");
@@ -99,23 +215,42 @@ function GalleryComposerPickers() {
         })),
       },
     }),
-    [effort, fast, mode, model],
+    [initialSnapshot, effort, fast, mode, model],
+  );
+  // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
+  const pickerCatalog = useMemo(
+    () =>
+      claude
+        ? buildPickerCatalog({
+            catalog: BUNDLED_MODEL_CATALOG,
+            acpmux: snapshot.catalog,
+            session: {
+              harness: "claude-sr2",
+              model: snapshot.summary?.model,
+              configOptions: snapshot.summary?.configOptions,
+            },
+          })
+        : undefined,
+    [claude, snapshot],
   );
   return (
-    <div className="acpmux-composer-gallery-shell">
-      <div className="acpmux-composer-gallery-copy">
-        <strong>Composer controls</strong>
-        <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
+    <ChatAccountsContext.Provider value={accounts ? directAccounts : galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>Composer controls</strong>
+          <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
+        </div>
+        <ComposerPickers
+          snapshot={snapshot}
+          {...(pickerCatalog ? { pickerCatalog } : {})}
+          permissionAccess={{ grants }}
+          onModel={setModel}
+          onMode={setMode}
+          onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+          showPlan
+        />
       </div>
-      <ComposerPickers
-        snapshot={snapshot}
-        permissionAccess={{ grants }}
-        onModel={setModel}
-        onMode={setMode}
-        onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-        showPlan
-      />
-    </div>
+    </ChatAccountsContext.Provider>
   );
 }
 
@@ -127,8 +262,23 @@ const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 const openModel: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
-    throw new Error("the model menu has no Fast mode row");
+  if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
+    throw new Error("the model picker has no inline Fast bolt");
+  const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
+  if (headers.some((node) => node.textContent?.trim()))
+    throw new Error("the compact model menu should not show a static session header");
+};
+
+const openAccounts: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
+  await ctx.focus({ role: "menuitem", name: /^Account/ });
+  await ctx.press("Enter");
+  await ctx.waitFor(() =>
+    [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(
+      (menu) => menu.textContent?.includes("Personal") && !menu.querySelector(".acpmux-quick-sub"),
+    ),
+  );
 };
 
 const modelFocus: Play = async (ctx) => {
@@ -211,13 +361,11 @@ const effortPick: Play = async (ctx) => {
 };
 
 const fastMode: Play = async (ctx) => {
-  await ctx.click(MODEL);
-  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  const fast = { selector: ".acpmux-model .acpmux-fast" } as const;
   await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
-  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
-  // A checkbox row keeps the menu open, so the row shows the confirmed state in place.
+  if (ctx.find(fast).getAttribute("aria-pressed") !== "false") throw new Error("Fast mode must start off");
   await ctx.click(fast);
-  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-pressed") === "true");
 };
 
 const morePicker: Play = async (ctx) => {
@@ -230,6 +378,8 @@ const morePicker: Play = async (ctx) => {
 const openMode: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  if (ctx.document.querySelector(".acpmux-access-heading"))
+    throw new Error("the permission menu should not show a static header");
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
@@ -242,6 +392,17 @@ const openMode: Play = async (ctx) => {
     if (item.querySelector<HTMLElement>(".ui-menu-shortcut")?.textContent?.trim() !== String(index + 1))
       throw new Error("Permission mode shortcut is not a trailing hint");
   }
+};
+
+const managedMode: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  const row = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes("Full access"),
+  );
+  if (row?.getAttribute("aria-disabled") !== "true") throw new Error("Full access must be disabled while managed");
+  if (row.querySelector(".acpmux-menu-description")?.textContent?.trim() !== "Managed by your organization")
+    throw new Error("Full access must say it is managed by the organization");
 };
 
 const accessGrants: Play = async (ctx) => {
@@ -293,7 +454,7 @@ export default componentEntry<Props>({
     longFrameFailMs: { value: 33, reason: "Composer picker actions should remain responsive on the gallery host." },
     settleMaxMs: { value: 250, reason: "Local picker opens and toggles should settle within a quarter second." },
   },
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
+  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers", "agent-session/acpmux/QuickModelMenu.tsx"],
   load: async () => GalleryComposerPickers,
   styles: () =>
     Promise.all([
@@ -305,11 +466,11 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     "pill-rail": {
-      note: "The 400 px composer rail keeps the one model button (model and effort) and the access control quiet before any menu opens.",
+      note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},
     },
     "model-menu": {
-      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and Fast mode.",
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort and More models; the free Fast bolt stays beside the model name.",
       props: {},
       play: openModel,
     },
@@ -344,12 +505,33 @@ export default componentEntry<Props>({
       props: {},
       play: effortPick,
     },
+    "claude-model-menu": {
+      note: "Leo's started claude-sr2 chat (2026-10-21; nine numbered rows, Opus 5.5 twice): the menu lists four models, Opus 5.5 once and checked; Effort names Medium, Account names CLI login, Fast mode names Off, and the rest are under More models.",
+      props: { claude: true },
+      play: openModel,
+    },
+    "claude-direct-accounts": {
+      height: 580,
+      note: "Account lists the local harness login and its two direct accounts; compatible proxy and router transports stay out of the list.",
+      props: { claude: true, accounts: true },
+      play: openAccounts,
+    },
+    "claude-effort-up": {
+      note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",
+      props: { claude: true },
+      play: openEffort,
+    },
     "fast-mode": {
-      note: "Fast mode is the model menu's last row, a checkbox (Leo 2026-10-20): a click turns it on, and the menu shows it checked.",
+      note: "The free Fast mode is the bolt beside the model name: a click turns it on while the model picker remains adjacent.",
       props: {},
       play: fastMode,
     },
     "permission-menu": { props: {}, play: openMode },
+    "permission-managed": {
+      note: "MDM keeps full access off (#23322): Full access is disabled and says Managed by your organization; the other rows are unchanged.",
+      props: { managed: true },
+      play: managedMode,
+    },
     "access-grants": {
       note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
       props: {},

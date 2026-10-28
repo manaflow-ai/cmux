@@ -30,6 +30,7 @@ import fnmatch
 import re
 import sys
 from collections.abc import Iterable
+from pathlib import Path
 
 # The Swift exports compile their module and its dependencies: a setting can be
 # declared in CmuxNextDesign (SidebarNavigationSettings, AttentionSettings), so
@@ -44,7 +45,27 @@ SETTINGS_INPUTS = (
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift"
     r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
 )
+
+
+def _settings_exports() -> tuple[str, ...]:
+    """settings-exports.txt beside this file, the one list of what the settings export writes, so
+    the OUTPUTS row for them cannot drift from it (review of #23915)."""
+    text = (Path(__file__).resolve().parent / "settings-exports.txt").read_text(encoding="utf-8")
+    listed = [line.split("#", 1)[0].strip() for line in text.splitlines()]
+    exports = tuple(path for path in listed if path)
+    if not exports:
+        raise SystemExit("scripts/cmux-next/settings-exports.txt lists no export")
+    return exports
+
+
+SETTINGS_EXPORTS = _settings_exports()
 SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/bindings/rust/scripts/sync-resource-api\.py"
+CAPABILITY_INPUTS = (
+    r"Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift$"
+    r"|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift$"
+    r"|scripts/cmux-next/check-daemon-capabilities-fresh\.py$"
+    r"|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh$"
+)
 
 # An input regex that no path matches: only the base autofix writes the output.
 BOT_ONLY = r"(?!)"
@@ -57,12 +78,11 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
     # added a target. The base autofix regenerates it after each merge.
     (("Packages/macOS/CmuxNext/ci-target-graph.json",), BOT_ONLY,
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
+    (("plans/cmux-next/daemon-capabilities.json",), CAPABILITY_INPUTS,
+     "scripts/cmux-next/check-daemon-capabilities-fresh.py --write (the autofix)"),
     (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
-    (("schemas/settings/settings-schema.json", "schemas/settings-export/settings-schema.sources.sha256",
-      "docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist",
-      "docs/mdm/com.manaflow.cmux.intune.plist", "docs/mdm/cmux-example.mobileconfig",
-      "docs/mdm/managed-preferences.md"),
+    (SETTINGS_EXPORTS,
      SETTINGS_INPUTS, "scripts/cmux-next/regenerate-settings-exports.sh (a Mac; the autofix)"),
     # The defaults snapshot reads the action and settings exports and the app's Swift sources.
     (("schemas/defaults/cmux-next.json",),

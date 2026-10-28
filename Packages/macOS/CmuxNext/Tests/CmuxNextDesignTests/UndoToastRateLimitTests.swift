@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// A close's undo toast shows at most once per id in its gap (Lawrence 2026-10-18).
 struct UndoToastRateLimitTests {

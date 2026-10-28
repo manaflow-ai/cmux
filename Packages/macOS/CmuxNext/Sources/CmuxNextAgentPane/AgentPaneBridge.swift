@@ -1,4 +1,6 @@
 import Foundation
+import CmuxNextPages
+import CmuxNextSettings
 import os
 import WebKit
 
@@ -23,6 +25,10 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
+        // A right-click menu of the page shows as a standard macOS menu; the reply waits for it to close.
+        if let body = message.body as? [String: Any], body["method"] as? String == AgentPaneView.contextMenuMethod, let view {
+            return view.contextMenu(params: body["params"] as? [String: Any] ?? [:]) { replyHandler($0, nil) }
+        }
         // A page menu with no room in the pane draws past the window's edge (AgentPaneView+Popup).
         if let body = message.body as? [String: Any], let method = body["method"] as? String, method.hasPrefix("popup."),
            let view {
@@ -42,6 +48,11 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
         }
         let request = AgentPaneRequest(body: message.body)
+        if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+           let json = JSONValue(foundation: value), let view {
+            view.uiPointerReport?(json)
+            return replyHandler(["ok": true], nil)
+        }
         // A page frame for the host's socket goes out on this turn when it can (no Task hop).
         if case .transportSend(let connection, let frames) = request, let model = view?.model {
             return model.transport.submit(connection: connection, frames: frames) { error in
@@ -84,6 +95,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         if request == .ready {
             logger.info("agent pane ready accepted")
             view.applyTheme(force: true)
+            // This document has no composer state, even when the native value has not changed.
+            view.deliver([.composer(view.model.composer)], scripts: [view.model.composer.pageScript])
             view.applyShortcuts()
             view.applyPreviewFeatures()
             AgentPaneSessionStatus.push(to: view)
@@ -95,7 +108,6 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
-            AgentPaneImportCards.shared.push(to: view)
         }
         return view.model
     }

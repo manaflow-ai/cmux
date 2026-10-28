@@ -1194,7 +1194,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الرئيسية"
           }
         },
@@ -1212,19 +1212,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Home"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Inicio"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Accueil"
           }
         },
@@ -1248,7 +1248,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "홈"
           }
         },
@@ -1302,13 +1302,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "主页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "主頁"
           }
         }
@@ -1325,8 +1325,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تتطلب المحادثات إصدارًا أحدث من خادم cmux."
+            "state": "translated",
+            "value": "تتطلب المحادثات إصدارًا أحدث من الخادم الخفي لـ cmux."
           }
         },
         "bs": {
@@ -1343,19 +1343,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Unterhaltungen benötigen einen neueren cmux-Daemon."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Las conversaciones requieren un daemon de cmux más reciente."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les conversations nécessitent un daemon cmux plus récent."
           }
         },
@@ -1379,7 +1379,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "대화를 사용하려면 최신 cmux 데몬이 필요합니다."
           }
         },
@@ -1433,13 +1433,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "会话需要更新版本的 cmux 守护进程。"
+            "state": "translated",
+            "value": "对话需要更新版本的 cmux 守护进程。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "對話需要較新版本的 cmux 常駐程式。"
           }
         }
@@ -1456,7 +1456,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "محادثة جديدة"
           }
         },
@@ -1474,19 +1474,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Neue Unterhaltung"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nueva conversación"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nouvelle conversation"
           }
         },
@@ -1510,7 +1510,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "새 대화"
           }
         },
@@ -1564,13 +1564,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新会话"
+            "state": "translated",
+            "value": "新对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "新對話"
           }
         }
@@ -1594,7 +1594,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         },
@@ -1612,19 +1612,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         },
@@ -1642,7 +1642,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         },
@@ -1696,13 +1696,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief"
           }
         }
@@ -1719,7 +1719,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "اجعل Chief آخر هو الافتراضي قبل أرشفة هذا."
           }
         },
@@ -1737,19 +1737,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Lege zuerst einen anderen Chief als Standard fest, bevor du diesen archivierst."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Haz que otro Chief sea el predeterminado antes de archivar este."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Définissez un autre Chief par défaut avant d’archiver celui-ci."
           }
         },
@@ -1761,7 +1761,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "このChiefをアーカイブする前に、別のChiefをデフォルトにしてください。"
           }
         },
@@ -1773,7 +1773,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 Chief를 보관하기 전에 다른 Chief를 기본값으로 지정하세요."
           }
         },
@@ -1827,14 +1827,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "归档此 Chief 前,请先将另一个 Chief 设为默认。"
+            "state": "translated",
+            "value": "归档此 Chief 前，请先将另一个 Chief 设为默认。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "封存此 Chief 前,請先將另一個 Chief 設為預設。"
+            "state": "translated",
+            "value": "封存此 Chief 前，請先將另一個 Chief 設為預設。"
           }
         }
       }
@@ -1850,7 +1850,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تعذّرت أرشفة Chief. حاول مرة أخرى."
           }
         },
@@ -1868,19 +1868,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Der Chief konnte nicht archiviert werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "No se pudo archivar el Chief. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Impossible d’archiver le Chief. Réessayez."
           }
         },
@@ -1892,7 +1892,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chiefをアーカイブできませんでした。もう一度お試しください。"
           }
         },
@@ -1904,7 +1904,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief를 보관할 수 없습니다. 다시 시도하세요."
           }
         },
@@ -1958,13 +1958,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "无法归档 Chief。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "無法封存 Chief。請再試一次。"
           }
         }
@@ -1987,8 +1987,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "الردود الأخيرة، وأجاب عنها:"
+            "state": "translated",
+            "value": "الردود الأخيرة، أجاب عنها:"
           }
         },
         "bs": {
@@ -2005,20 +2005,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Letzte Antworten, beantwortet von:"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Respuestas recientes, respondidas por:"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Réponses récentes, données par :"
+            "state": "translated",
+            "value": "Réponses récentes, fournies par :"
           }
         },
         "it": {
@@ -2035,7 +2035,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "최근 답변과 답변한 엔진:"
           }
         },
@@ -2089,13 +2089,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "最近的回复，回答者："
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "最近的回覆，回答者："
           }
         }
@@ -2118,8 +2118,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "يعمل على جهاز Mac هذا (%@). الأدوات: zoom وdate وspawn وtell وأدوات الحزمة نفسها."
+            "state": "translated",
+            "value": "يعمل على جهاز Mac هذا (%@). الأدوات: zoom وdate وspawn وtell وأدوات بيئة التشغيل نفسها."
           }
         },
         "bs": {
@@ -2136,19 +2136,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Läuft auf diesem Mac (%@). Werkzeuge: zoom, date, spawn, tell und die des Harness."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Se ejecuta en este Mac (%@). Herramientas: zoom, date, spawn, tell y las del harness."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "S’exécute sur ce Mac (%@). Outils : zoom, date, spawn, tell et ceux du harness."
           }
         },
@@ -2166,8 +2166,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 Mac에서 실행됩니다(%@). 도구: zoom, date, spawn, tell 및 하니스 자체 도구."
+            "state": "translated",
+            "value": "이 Mac에서 실행됩니다(%@). 도구: zoom, date, spawn, tell 및 하네스 자체 도구."
           }
         },
         "nb": {
@@ -2220,13 +2220,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "在此 Mac 上运行（%@）。工具：zoom、date、spawn、tell 以及 harness 自带的工具。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "在此 Mac 上執行（%@）。工具：zoom、date、spawn、tell 以及 harness 自帶的工具。"
           }
         }
@@ -2249,7 +2249,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "افتراضي"
           }
         },
@@ -2267,19 +2267,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Standard"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Predeterminado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Par défaut"
           }
         },
@@ -2297,7 +2297,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "기본값"
           }
         },
@@ -2351,13 +2351,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "默认"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "預設"
           }
         }
@@ -2380,7 +2380,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "مستوى الاستدلال"
           }
         },
@@ -2398,19 +2398,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Aufwand"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Esfuerzo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Effort"
           }
         },
@@ -2428,7 +2428,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "추론 강도"
           }
         },
@@ -2482,13 +2482,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "推理强度"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "推理強度"
           }
         }
@@ -2511,8 +2511,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "الحزمة"
+            "state": "translated",
+            "value": "بيئة التشغيل"
           }
         },
         "bs": {
@@ -2529,19 +2529,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness"
           }
         },
@@ -2559,8 +2559,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "하니스"
+            "state": "translated",
+            "value": "하네스"
           }
         },
         "nb": {
@@ -2613,13 +2613,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness"
           }
         }
@@ -4767,7 +4767,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "النموذج"
           }
         },
@@ -4785,19 +4785,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modell"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modelo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modèle"
           }
         },
@@ -4815,7 +4815,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "모델"
           }
         },
@@ -4869,13 +4869,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "模型"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "模型"
           }
         }
@@ -4898,7 +4898,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الاسم"
           }
         },
@@ -4916,19 +4916,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Name"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nombre"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nom"
           }
         },
@@ -4946,7 +4946,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이름"
           }
         },
@@ -5000,13 +5000,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "名称"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "名稱"
           }
         }
@@ -5029,7 +5029,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تُطبَّق التغييرات من الدور التالي."
           }
         },
@@ -5047,19 +5047,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Änderungen gelten ab dem nächsten Zug."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Los cambios se aplican desde el próximo turno."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les changements s’appliquent dès le prochain tour."
           }
         },
@@ -5077,7 +5077,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "변경 사항은 다음 턴부터 적용됩니다."
           }
         },
@@ -5131,13 +5131,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "更改从下一轮开始生效。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "變更從下一輪開始生效。"
           }
         }
@@ -5160,7 +5160,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "لا يوجد دور بعد"
           }
         },
@@ -5178,19 +5178,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Noch kein Zug"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Aún no hay turnos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pas encore de tour"
           }
         },
@@ -5208,7 +5208,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "아직 턴이 없습니다"
           }
         },
@@ -5262,13 +5262,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "还没有轮次"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "還沒有輪次"
           }
         }
@@ -5291,7 +5291,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إظهار التتبعات"
           }
         },
@@ -5309,19 +5309,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Traces anzeigen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mostrar trazas"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Afficher les traces"
           }
         },
@@ -5339,7 +5339,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "추적 보기"
           }
         },
@@ -5393,13 +5393,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "显示追踪"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "顯示追蹤"
           }
         }
@@ -5422,7 +5422,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يُظهر إعدادات Chief هذا أو يخفيها"
           }
         },
@@ -5440,19 +5440,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Blendet die Einstellungen dieses Chiefs ein oder aus"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Muestra u oculta los ajustes de este Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Affiche ou masque les réglages de ce Chief"
           }
         },
@@ -5470,7 +5470,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 Chief의 설정을 표시하거나 숨깁니다"
           }
         },
@@ -5524,13 +5524,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "显示或隐藏此 Chief 的设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "顯示或隱藏此 Chief 的設定"
           }
         }
@@ -5553,7 +5553,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إعدادات Chief"
           }
         },
@@ -5571,19 +5571,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief-Einstellungen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ajustes de Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Réglages de Chief"
           }
         },
@@ -5601,7 +5601,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 설정"
           }
         },
@@ -5655,13 +5655,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 設定"
           }
         }
@@ -5679,7 +5679,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "أغلق إصدارات cmux DEV الأقدم لدمج سجل Chief"
           }
         },
@@ -5697,19 +5697,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Beende ältere cmux-DEV-Builds, um den Chief-Verlauf zusammenzuführen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cierra las compilaciones antiguas de cmux DEV para unir el historial de Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Quittez les anciennes versions cmux DEV pour fusionner l’historique de Chief"
           }
         },
@@ -5733,7 +5733,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 기록을 병합하려면 이전 cmux DEV 빌드를 종료하세요"
           }
         },
@@ -5787,13 +5787,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "退出旧版 cmux DEV 构建以合并 Chief 历史记录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "結束舊版 cmux DEV 組建以合併 Chief 歷史紀錄"
           }
         }
@@ -5811,7 +5811,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ملخصات ذاكرة Chief متوقفة مؤقتًا. لا يزال Chief يجيب."
           }
         },
@@ -5829,19 +5829,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Gedächtniszusammenfassungen von Chief sind pausiert. Chief antwortet weiterhin."
+            "state": "translated",
+            "value": "Die Gedächtniszusammenfassungen des Chiefs sind pausiert. Der Chief antwortet weiterhin."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Los resúmenes de memoria de Chief están en pausa. Chief sigue respondiendo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les résumés de mémoire de Chief sont en pause. Chief répond toujours."
           }
         },
@@ -5853,7 +5853,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief のメモリ要約は一時停止中です。Chief は引き続き応答します。"
           }
         },
@@ -5865,7 +5865,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 메모리 요약이 일시 중지되었습니다. Chief는 계속 응답합니다."
           }
         },
@@ -5919,13 +5919,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 的记忆摘要已暂停。Chief 仍会回复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 的記憶摘要已暫停。Chief 仍會回覆。"
           }
         }
@@ -5939,6 +5939,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا رد من Chief منذ %lld د. يعيد المحاولة تلقائيًا ويخبرك إذا تعذّر عليه الرد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema odgovora od Chiefa već %lld min. Sam ponovo pokušava i javit će vam ako ne može odgovoriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet svar fra Chief i %lld min. Den prøver selv igen og giver dig besked, hvis den ikke kan svare."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seit %lld Min. keine Antwort vom Chief. Er versucht es selbst erneut und sagt dir Bescheid, wenn er nicht antworten kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin respuesta del Chief desde hace %lld min. Lo reintenta por su cuenta y te avisa si no puede responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune réponse du Chief depuis %lld min. Il réessaie de lui-même et vous prévient s’il ne peut pas répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna risposta dal Chief da %lld min. Riprova da solo e ti avvisa se non riesce a rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief から %lld 分間返信がありません。自動で再試行し、返信できない場合はお知らせします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief មិនបានឆ្លើយតបអស់រយៈពេល %lld នាទីហើយ។ វានឹងព្យាយាមម្ដងទៀតដោយខ្លួនឯង ហើយប្រាប់អ្នកប្រសិនបើវាមិនអាចឆ្លើយបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 %lld분 동안 답하지 않았습니다. 자동으로 다시 시도하며, 답할 수 없으면 알려 줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke noe svar fra Chief på %lld min. Den prøver igjen selv og gir deg beskjed hvis den ikke kan svare."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak odpowiedzi od Chiefa od %lld min. Sam ponawia próbę i da ci znać, jeśli nie będzie mógł odpowiedzieć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem resposta do Chief há %lld min. Ele tenta de novo sozinho e avisa você se não conseguir responder."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не отвечает уже %lld мин. Он сам повторяет попытку и сообщит вам, если не сможет ответить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ไม่ได้ตอบกลับมา %lld นาทีแล้ว Chief จะลองใหม่เองและแจ้งให้คุณทราบหากตอบไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief %lld dakikadır yanıt vermedi. Kendisi yeniden deniyor ve yanıt veremezse size haber verecek."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не відповідає вже %lld хв. Він сам повторює спробу й повідомить вас, якщо не зможе відповісти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chưa trả lời trong %lld phút. Chief sẽ tự thử lại và báo cho bạn nếu không thể trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 已 %lld 分钟没有回复。它会自动重试，如果无法回答会告诉你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 已 %lld 分鐘沒有回覆。它會自動重試，若無法回答會告訴你。"
           }
         }
       }
@@ -5955,7 +6075,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "جارٍ تنظيم سجل Chief: %1$lld من %2$lld"
           }
         },
@@ -5973,19 +6093,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief-Verlauf wird geordnet: %1$lld von %2$lld"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Organizando el historial de Chief: %1$lld de %2$lld"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Organisation de l’historique de Chief : %1$lld sur %2$lld"
           }
         },
@@ -6009,7 +6129,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 기록 정리 중: %2$lld개 중 %1$lld개"
           }
         },
@@ -6063,13 +6183,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在整理 Chief 历史记录：%1$lld / %2$lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在整理 Chief 歷史紀錄：%1$lld / %2$lld"
           }
         }
@@ -6087,13 +6207,13 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief のすべての設定…"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "كل إعدادات Chief…"
           }
         },
@@ -6111,19 +6231,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Alle Chief-Einstellungen…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Todos los ajustes de Chief…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Tous les réglages de Chief…"
           }
         },
@@ -6141,7 +6261,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "모든 Chief 설정…"
           }
         },
@@ -6195,13 +6315,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "所有 Chief 设置…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "所有 Chief 設定…"
           }
         }
@@ -6224,7 +6344,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "عرض الذاكرة"
           }
         },
@@ -6242,19 +6362,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Speicher anzeigen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mostrar memoria"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Afficher la mémoire"
           }
         },
@@ -6272,7 +6392,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "메모리 보기"
           }
         },
@@ -6326,13 +6446,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "显示记忆"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "顯示記憶"
           }
         }
@@ -6355,7 +6475,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يعمل على الخادم المقترن %@."
           }
         },
@@ -6373,19 +6493,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Läuft auf dem gekoppelten Server %@."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Se ejecuta en el servidor vinculado %@."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "S’exécute sur le serveur jumelé %@."
           }
         },
@@ -6403,7 +6523,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "페어링된 서버 %@에서 실행됩니다."
           }
         },
@@ -6457,13 +6577,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "在已配对的服务器 %@ 上运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "在已配對的伺服器 %@ 上執行。"
           }
         }
@@ -6486,7 +6606,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "لم يكن الـ Chief على هذا الـ Mac يعمل. يجري تشغيله الآن؛ حاول مرة أخرى بعد لحظات."
           }
         },
@@ -6504,19 +6624,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Der Chief dieses Macs lief nicht. Er startet jetzt; versuche es gleich noch einmal."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "El Chief de este Mac no se estaba ejecutando. Se está iniciando ahora; inténtalo de nuevo en un momento."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Le Chief de ce Mac ne fonctionnait pas. Il démarre maintenant ; réessayez dans un instant."
           }
         },
@@ -6534,7 +6654,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 Mac의 Chief가 실행 중이 아니었습니다. 지금 시작하는 중이니 잠시 후 다시 시도하세요."
           }
         },
@@ -6588,13 +6708,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此 Mac 的 Chief 未在运行。现在正在启动，请稍后再试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此 Mac 的 Chief 未在執行。現在正在啟動，請稍後再試。"
           }
         }
@@ -6617,7 +6737,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الـ Chief على هذا الـ Mac لا يعمل."
           }
         },
@@ -6635,19 +6755,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Der Chief dieses Macs läuft nicht."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "El Chief de este Mac no se está ejecutando."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Le Chief de ce Mac ne fonctionne pas."
           }
         },
@@ -6665,7 +6785,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 Mac의 Chief가 실행 중이 아닙니다."
           }
         },
@@ -6719,13 +6839,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此 Mac 的 Chief 未在运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此 Mac 的 Chief 未在執行。"
           }
         }
@@ -6748,7 +6868,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الخادم الذي يعمل عليه هذا الـ Chief غير متصل."
           }
         },
@@ -6766,19 +6886,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Der Server mit diesem Chief ist nicht verbunden."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "El servidor con este Chief no está conectado."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Le serveur de ce Chief n’est pas connecté."
           }
         },
@@ -6796,7 +6916,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 Chief가 있는 서버가 연결되어 있지 않습니다."
           }
         },
@@ -6850,13 +6970,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此 Chief 所在的服务器未连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此 Chief 所在的伺服器未連線。"
           }
         }
@@ -6879,7 +6999,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "لا يسمح هذا الخادم لهذا الاتصال بتغيير الـ Chief الخاص به."
           }
         },
@@ -6897,19 +7017,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Dieser Server lässt diese Verbindung seinen Chief nicht ändern."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Este servidor no permite que esta conexión cambie su Chief."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ce serveur ne permet pas à cette connexion de modifier son Chief."
           }
         },
@@ -6927,7 +7047,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 서버는 이 연결이 Chief를 변경하는 것을 허용하지 않습니다."
           }
         },
@@ -6981,13 +7101,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此服务器不允许此连接更改其 Chief。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此伺服器不允許此連線變更其 Chief。"
           }
         }
@@ -7010,7 +7130,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "لا يصل هذا الخادم الخفي إلى دماغ الـ Chief. أعد تشغيل الخادم الخفي للـ Chief."
           }
         },
@@ -7028,19 +7148,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Dieser Daemon erreicht das Gehirn seines Chiefs nicht. Starte den Daemon des Chiefs neu."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Este daemon no llega al cerebro de su Chief. Reinicia el daemon del Chief."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ce démon n’atteint pas le cerveau de son Chief. Redémarrez le démon du Chief."
           }
         },
@@ -7058,7 +7178,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 데몬이 Chief의 브레인에 닿지 않습니다. Chief의 데몬을 다시 시작하세요."
           }
         },
@@ -7112,13 +7232,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此守护进程无法连到其 Chief 的大脑。请重新启动 Chief 的守护进程。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此背景程式無法連到其 Chief 的大腦。請重新啟動 Chief 的背景程式。"
           }
         }
@@ -7141,7 +7261,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إصدار cmux على هذا الخادم قديم جدًا لتغيير الـ Chief من هنا."
           }
         },
@@ -7159,19 +7279,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Das cmux dieses Servers ist zu alt, um seinen Chief von hier zu ändern."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "El cmux de este servidor es demasiado antiguo para cambiar su Chief desde aquí."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Le cmux de ce serveur est trop ancien pour modifier son Chief d’ici."
           }
         },
@@ -7189,7 +7309,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 서버의 cmux가 너무 오래되어 여기에서 Chief를 변경할 수 없습니다."
           }
         },
@@ -7243,13 +7363,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此服务器的 cmux 版本太旧，无法从这里更改其 Chief。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此伺服器的 cmux 版本太舊，無法從這裡變更其 Chief。"
           }
         }
@@ -7272,7 +7392,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "فشل التغيير: %@"
           }
         },
@@ -7290,19 +7410,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Die Änderung ist fehlgeschlagen: %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "El cambio falló: %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "La modification a échoué : %@"
           }
         },
@@ -7320,7 +7440,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "변경하지 못했습니다: %@"
           }
         },
@@ -7374,13 +7494,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "更改失败：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "變更失敗：%@"
           }
         }
@@ -7403,7 +7523,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الوكلاء معطّلون في جلسة البناء هذه. لن يرد الـ Chief."
           }
         },
@@ -7421,19 +7541,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agenten sind in dieser Build-Sitzung deaktiviert. Der Chief antwortet nicht."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Los agentes están desactivados en esta sesión de compilación. El Chief no responde."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les agents sont désactivés dans cette session de build. Le Chief ne répond pas."
           }
         },
@@ -7451,7 +7571,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 빌드 세션에서는 에이전트가 꺼져 있습니다. Chief가 답하지 않습니다."
           }
         },
@@ -7505,13 +7625,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此构建会话中已停用代理。Chief 不会回复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此建置工作階段已停用代理。Chief 不會回覆。"
           }
         }
@@ -9500,7 +9620,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · سياق %2$@"
           }
         },
@@ -9518,19 +9638,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · %2$@ Kontext"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · contexto de %2$@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · contexte %2$@"
           }
         },
@@ -9548,7 +9668,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · %2$@ 컨텍스트"
           }
         },
@@ -9602,13 +9722,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · %2$@ 上下文"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%1$@ · %2$@ 上下文"
           }
         }
@@ -9632,7 +9752,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "نماذج أقدم"
           }
         },
@@ -9650,19 +9770,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ältere Modelle"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modelos anteriores"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modèles plus anciens"
           }
         },
@@ -9680,7 +9800,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이전 모델"
           }
         },
@@ -9734,13 +9854,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "较早的模型"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "較早的模型"
           }
         }
@@ -9764,7 +9884,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus يخطط وSonnet ينفّذ"
           }
         },
@@ -9782,19 +9902,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus plant, Sonnet führt aus"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus planifica, Sonnet ejecuta"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus planifie, Sonnet exécute"
           }
         },
@@ -9812,7 +9932,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus가 계획하고 Sonnet이 실행"
           }
         },
@@ -9866,13 +9986,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus 规划，Sonnet 执行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opus 規劃，Sonnet 執行"
           }
         }
@@ -9896,7 +10016,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "نماذج أخرى"
           }
         },
@@ -9914,19 +10034,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Weitere Modelle"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Otros modelos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autres modèles"
           }
         },
@@ -9944,7 +10064,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "기타 모델"
           }
         },
@@ -9998,13 +10118,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "其他模型"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "其他模型"
           }
         }
@@ -10028,7 +10148,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "التخطيط والتنفيذ"
           }
         },
@@ -10046,19 +10166,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Planen und Ausführen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Planificar y ejecutar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Planifier et exécuter"
           }
         },
@@ -10076,7 +10196,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "계획 및 실행"
           }
         },
@@ -10130,13 +10250,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "规划与执行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "規劃與執行"
           }
         }
@@ -10160,7 +10280,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الأخيرة"
           }
         },
@@ -10178,19 +10298,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zuletzt"
+            "state": "translated",
+            "value": "Zuletzt verwendet"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Recientes"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Récents"
           }
         },
@@ -10208,7 +10328,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "최근"
           }
         },
@@ -10262,13 +10382,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "最近"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "最近"
           }
         }
@@ -10292,7 +10412,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "السرعة"
           }
         },
@@ -10310,19 +10430,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Geschwindigkeit"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Velocidad"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Vitesse"
           }
         },
@@ -10340,7 +10460,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "속도"
           }
         },
@@ -10394,13 +10514,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "速度"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "速度"
           }
         }
@@ -10424,7 +10544,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "سريع"
           }
         },
@@ -10442,19 +10562,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Schnell"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Rápido"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Rapide"
           }
         },
@@ -10472,7 +10592,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "빠름"
           }
         },
@@ -10526,13 +10646,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "快速"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "快速"
           }
         }
@@ -10556,7 +10676,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "التفاعلات"
           }
         },
@@ -10574,19 +10694,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Reaktionen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Reacciones"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Réactions"
           }
         },
@@ -10604,7 +10724,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "반응"
           }
         },
@@ -10658,13 +10778,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "回应"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "回應"
           }
         }
@@ -10688,7 +10808,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يمكنها إيقاظ Chief"
           }
         },
@@ -10706,19 +10826,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Können den Chief wecken"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pueden despertar al Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Peuvent réveiller le Chief"
           }
         },
@@ -10736,8 +10856,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 깨우기"
+            "state": "translated",
+            "value": "Chief를 깨울 수 있음"
           }
         },
         "nb": {
@@ -10790,13 +10910,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "可唤醒 Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "可喚醒 Chief"
           }
         }
@@ -10820,7 +10940,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تشغيل"
           }
         },
@@ -10838,19 +10958,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ein"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Activado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Activé"
           }
         },
@@ -10868,7 +10988,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "켬"
           }
         },
@@ -10922,13 +11042,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "开"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "開"
           }
         }
@@ -10952,7 +11072,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إيقاف"
           }
         },
@@ -10970,19 +11090,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Aus"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Desactivado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Désactivé"
           }
         },
@@ -11000,7 +11120,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "끔"
           }
         },
@@ -11054,13 +11174,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "关"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "關"
           }
         }
@@ -11084,8 +11204,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "حزمة المصنِّف"
+            "state": "translated",
+            "value": "بيئة تشغيل المصنِّف"
           }
         },
         "bs": {
@@ -11102,19 +11222,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Klassifikator-Harness"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness del clasificador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Harness du classificateur"
           }
         },
@@ -11132,7 +11252,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "분류기 하네스"
           }
         },
@@ -11186,13 +11306,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分类器 Harness"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分類器 Harness"
           }
         }
@@ -11216,7 +11336,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "نموذج المصنِّف"
           }
         },
@@ -11234,19 +11354,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Klassifikatormodell"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modelo del clasificador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Modèle du classificateur"
           }
         },
@@ -11264,7 +11384,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "분류기 모델"
           }
         },
@@ -11318,13 +11438,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分类器模型"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分類器模型"
           }
         }
@@ -11348,7 +11468,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "التعليمات"
           }
         },
@@ -11366,19 +11486,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Anweisungen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instrucciones"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instructions"
           }
         },
@@ -11396,7 +11516,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "지침"
           }
         },
@@ -11450,13 +11570,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "指令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "指示"
           }
         }
@@ -11475,12 +11595,12 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルト(Claudeルート)"
+            "value": "デフォルト（Claude ルート）"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "افتراضي (مسار Claude)"
           }
         },
@@ -11498,19 +11618,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Standard (Claude-Route)"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Predeterminado (ruta de Claude)"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Par défaut (route Claude)"
           }
         },
@@ -11528,7 +11648,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "기본값(Claude 경로)"
           }
         },
@@ -11582,14 +11702,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "默认(Claude 路由)"
+            "state": "translated",
+            "value": "默认（Claude 路由）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "預設(Claude 路由)"
+            "state": "translated",
+            "value": "預設（Claude 路由）"
           }
         }
       }
@@ -11612,7 +11732,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "التعليمات المضمَّنة"
           }
         },
@@ -11630,19 +11750,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Eingebaute Anweisungen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instrucciones integradas"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instructions intégrées"
           }
         },
@@ -11660,7 +11780,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "기본 지침"
           }
         },
@@ -11714,13 +11834,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "内置指令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "內建指示"
           }
         }
@@ -11744,7 +11864,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يقرر نموذج رخيص ما إذا كان تفاعلك على رسالة Chief يحتاج إلى رد. عندها فقط يبدأ Chief بالكتابة. الحقول الفارغة تستخدم إعداداتك."
           }
         },
@@ -11762,20 +11882,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ein günstiges Modell entscheidet, ob deine Reaktion auf eine Chief-Nachricht eine Antwort braucht. Nur dann beginnt der Chief zu tippen. Leere Felder nutzen deine Einstellungen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Un modelo económico decide si tu reacción en un mensaje del Chief necesita respuesta. Solo entonces el Chief empieza a escribir. Los campos vacíos usan tus ajustes."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un modèle bon marché décide si votre réaction sur un message du Chief appelle une réponse. Seulement alors le Chief commence à écrire. Les champs vides utilisent vos réglages."
+            "state": "translated",
+            "value": "Un modèle bon marché décide si votre réaction sur un message du Chief appelle une réponse. Ce n’est qu’alors que le Chief commence à écrire. Les champs vides utilisent vos réglages."
           }
         },
         "it": {
@@ -11792,7 +11912,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 메시지에 남긴 반응에 답이 필요한지 저렴한 모델이 판단합니다. 필요할 때만 Chief가 입력을 시작합니다. 빈 칸은 내 설정을 사용합니다."
           }
         },
@@ -11846,13 +11966,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "由廉价模型判断你对 Chief 消息的回应是否需要答复。只有需要时 Chief 才开始输入。留空的字段使用你的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "由低成本模型判斷你對 Chief 訊息的回應是否需要答覆。只有需要時 Chief 才開始輸入。留空的欄位使用你的設定。"
           }
         }
@@ -11876,7 +11996,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "المصنِّف"
           }
         },
@@ -11894,19 +12014,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Klassifikator"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Clasificador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Classificateur"
           }
         },
@@ -11924,7 +12044,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "분류기"
           }
         },
@@ -11978,14 +12098,674 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分类器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分類器"
+          }
+        }
+      }
+    },
+    "home.chief.delete.default": {
+      "comment": "Refusal: Delete Chief on the default Chief.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اجعل Chief آخر هو الافتراضي قبل حذف هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavite drugog Chiefa kao zadanog prije brisanja ovog."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør en anden Chief til standard, før du sletter denne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lege zuerst einen anderen Chief als Standard fest, bevor du diesen löschst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make another Chief the default before deleting this one."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Haz que otro Chief sea el predeterminado antes de eliminar este."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définissez un autre Chief par défaut avant de supprimer celui-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta un altro Chief come predefinito prima di eliminare questo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このChiefを削除する前に、別のChiefをデフォルトにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ Chief ផ្សេងជាលំនាំដើម មុនពេលលុប Chief នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Chief를 삭제하기 전에 다른 Chief를 기본값으로 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør en annen Chief til standard før du sletter denne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przed usunięciem tego Chiefa ustaw innego jako domyślnego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Defina outro Chief como padrão antes de excluir este."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перед удалением сделайте основным другого Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้ง Chief อื่นเป็นค่าเริ่มต้นก่อนลบ Chief นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu silmeden önce başka bir Chief’i varsayılan yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перед видаленням зробіть основним іншого Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy đặt một Chief khác làm mặc định trước khi xóa Chief này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除此 Chief 前,请先将另一个 Chief 设为默认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除此 Chief 前,請先將另一個 Chief 設為預設。"
+          }
+        }
+      }
+    },
+    "home.chief.delete.failed": {
+      "comment": "Error: Delete Chief did not finish.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر حذف Chief. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nije moguće izbrisati. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kunne ikke slettes. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief konnte nicht gelöscht werden. Versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief couldn’t be deleted. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo eliminar el Chief. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de supprimer le Chief. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile eliminare il Chief. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefを削除できませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចលុប Chief បានទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief를 삭제할 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kunne ikke slettes. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się usunąć Chiefa. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível excluir o Chief. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось удалить Chief. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ Chief ไม่ได้ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief silinemedi. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося видалити Chief. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể xóa Chief. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法删除 Chief。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法刪除 Chief。請再試一次。"
+          }
+        }
+      }
+    },
+    "home.chief.delete.title": {
+      "comment": "Title of Delete Chief's question; %@ is the Chief's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف “%@”؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbrisati „%@“?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet “%@”?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@”?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Eliminar “%@”?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer « %@ » ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminare “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”を削除しますか?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប “%@”?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”을(를) 삭제할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slette «%@»?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć „%@”?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir “%@”?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить «%@»?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ “%@” ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” silinsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити «%@»?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa “%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除“%@”?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除「%@」?"
+          }
+        }
+      }
+    },
+    "home.chief.delete.body": {
+      "comment": "Body of Delete Chief's question: what deleting does, and that Archive Chief only hides.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتوقف Chief ويُزال نهائيًا، وتختفي محادثته من القائمة. لا يمكن التراجع عن ذلك. أرشفة Chief تخفيه بدلًا من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief se zaustavlja i trajno uklanja, a njegov razgovor nestaje s liste. Ovo se ne može poništiti. Arhiviranje Chiefa ga umjesto toga samo sakriva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief stopper og fjernes for altid, og samtalen forsvinder fra listen. Det kan ikke fortrydes. Arkivér Chief skjuler i stedet en Chief."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief wird angehalten und endgültig entfernt, und seine Unterhaltung verschwindet aus der Liste. Das lässt sich nicht rückgängig machen. „Chief archivieren“ blendet einen Chief stattdessen nur aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this. Archive Chief hides a Chief instead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Chief se detiene y se elimina para siempre, y su conversación sale de la lista. No se puede deshacer. Archivar Chief solo lo oculta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Chief s’arrête et est supprimé définitivement, et sa conversation quitte la liste. Cette action est irréversible. « Archiver le Chief » le masque simplement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief si ferma e viene rimosso per sempre, e la sua conversazione esce dall’elenco. Non è possibile annullare. Archivia Chief invece lo nasconde."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefは停止して完全に削除され、会話はリストから消えます。この操作は取り消せません。非表示にするだけなら「Chiefをアーカイブ」を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ឈប់ ហើយត្រូវបានលុបជាអចិន្ត្រៃយ៍ ហើយការសន្ទនារបស់វាចេញពីបញ្ជី។ អ្នកមិនអាចមិនធ្វើវិញបានទេ។ ការទុក Chief ក្នុងបណ្ណសារ គ្រាន់តែលាក់វាជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief가 중지되고 영구적으로 제거되며, 대화도 목록에서 사라집니다. 이 작업은 되돌릴 수 없습니다. Chief 보관은 Chief를 숨기기만 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief stopper og fjernes for godt, og samtalen forsvinner fra listen. Dette kan ikke angres. Arkiver Chief skjuler i stedet en Chief."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief zatrzymuje się i zostaje trwale usunięty, a jego rozmowa znika z listy. Tego nie można cofnąć. Archiwizacja Chiefa tylko go ukrywa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief para e é removido para sempre, e a conversa sai da lista. Não é possível desfazer. Arquivar Chief apenas o oculta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief остановится и будет удалён навсегда, а его разговор исчезнет из списка. Это нельзя отменить. Архивирование Chief только скрывает его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief จะหยุดและถูกลบถาวร และบทสนทนาจะหายไปจากรายการ เลิกทำไม่ได้ การเก็บ Chief ถาวรจะซ่อน Chief แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief durur ve kalıcı olarak kaldırılır; konuşması listeden çıkar. Bu geri alınamaz. Chief’i Arşivle bunun yerine yalnızca gizler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief зупиниться й буде видалений назавжди, а його розмова зникне зі списку. Це не можна скасувати. Архівування Chief лише приховує його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief dừng lại và bị xóa vĩnh viễn, cuộc trò chuyện của nó rời khỏi danh sách. Không thể hoàn tác. Lưu trữ Chief chỉ ẩn Chief."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 会停止并被永久移除,其对话也会从列表中消失。此操作无法撤销。归档 Chief 只会隐藏它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 會停止並被永久移除,其對話也會從列表中消失。此動作無法復原。封存 Chief 只會隱藏它。"
+          }
+        }
+      }
+    },
+    "home.chief.delete.button": {
+      "comment": "Button of Delete Chief's question.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbriši Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer le Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief’i Sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除 Chief"
           }
         }
       }

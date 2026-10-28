@@ -34,6 +34,9 @@ public final class ConversationViewController: UIViewController {
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
+    /// A tapped link in a message: return true when the host handled it (a
+    /// file preview); false, or unset, opens it with the system.
+    public var onOpenLink: ((URL) -> Bool)?
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()
@@ -243,6 +246,7 @@ public final class ConversationViewController: UIViewController {
         view.addSubview(composerContainer)
         composer.translatesAutoresizingMaskIntoConstraints = false
         composer.delegate = self
+        composer.onOpenAttachment = { [weak self] id, view in self?.openComposerAttachment(id, from: view) }
         composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
         if let placeholder = options.placeholder { composer.placeholderText = placeholder }
         composerContainer.addSubview(composer)
@@ -914,17 +918,14 @@ public final class ConversationViewController: UIViewController {
     /// readied; any other row builds its text as before.
     private func bubbleTextPreparation(for message: ConversationMessage) -> (@Sendable () async -> Void)? {
         let width = collectionView.bounds.width
-        guard width > 0, !message.text.isEmpty, message.linkPreview == nil, message.poll == nil,
-              message.audioAttachment == nil, !message.isUnsent,
+        guard width > 0, let inputs = ConversationBubbleInputs.live(message, meID: store.meID),
               store.translations.presentation(for: message) == nil else { return nil }
         let margin = layoutMargin
         let traits = collectionView.traitCollection
-        let meID = store.meID
-        let text = PreparedBubbleText(text: message.text, outgoing: message.senderID == meID, mentions: message.mentions, meID: meID, runs: message.textRuns)
         return {
             await Task.detached(priority: .userInitiated) {
                 traits.performAsCurrent {
-                    let body = MessageCellLayout.attributedBody(text.text, outgoing: text.outgoing, mentions: text.mentions, meID: text.meID, runs: text.runs)
+                    let body = MessageCellLayout.attributedBody(inputs)
                     _ = BubbleTextCache.shared.size(of: body, width: MessageCellLayout.bubbleTextWidth(width: width, margin: margin))
                 }
             }.value
@@ -2024,15 +2025,6 @@ extension ConversationViewController {
             )
         }
     }
-}
-
-/// What a live message's bubble text is built from, handed to a task.
-private struct PreparedBubbleText: Sendable {
-    var text: String
-    var outgoing: Bool
-    var mentions: [ConversationMention]
-    var meID: String?
-    var runs: [ConversationTextRun]
 }
 
 /// Rows handed to a measuring task (immutable value models).

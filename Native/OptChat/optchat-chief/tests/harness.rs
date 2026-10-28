@@ -441,7 +441,9 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         let tags = &inner.specs[0].tags;
         assert_eq!(tags.get(CHIEF_TAG).map(String::as_str), Some("h0me"));
         assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("turn"));
-        assert_eq!(tags.len(), 2);
+        // Plus its names on an approval card (approval_display_tags.rs), never `mux.parent`.
+        assert_eq!(tags.len(), 4);
+        assert!(!tags.contains_key(cmux_chief::rules::PARENT_TAG));
     }
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| {
@@ -775,7 +777,10 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
         "SUB",
         &Default::default(),
     );
-    assert!(sub.args.is_empty(), "{:?}", sub.args);
+    // Only the deny list (tests/subagent_preset_tools.rs): no setting-source limit.
+    for word in isolated {
+        assert!(!sub.args.iter().any(|a| a == word), "{:?}", sub.args);
+    }
     assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
 }
 

@@ -27,6 +27,7 @@ import {
   ProviderNetworkFullError,
   ProviderTlsRuleLimitError,
   type AttachTransport,
+  type ProviderCredential,
   type SSHEndpoint,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -1415,7 +1416,7 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async destroy(vmId: string): Promise<void> {
+  async destroy(vmId: string, _credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.destroy",
       "provider",
@@ -1424,7 +1425,8 @@ export class FreestyleProvider implements VMProvider {
         try {
           await this.deps.client().vms.ref(vmId).delete();
         } catch (err) {
-          if (isNotFound(err)) return; // already gone; destroy is idempotent
+          // Already gone; destroy is idempotent. Strict: only Freestyle's own NOT_FOUND says so.
+          if (options?.strict ? err instanceof FreestyleApiError && err.code === "NOT_FOUND" : isNotFound(err)) return;
           throw new ProviderError("freestyle", `destroy(${vmId})`, err);
         }
       },
@@ -1575,7 +1577,8 @@ export class FreestyleProvider implements VMProvider {
       }),
       async (span) => {
         try {
-          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
+          // A caller's signal (ExecOptions.signal) ends the request with it.
+          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS, opts?.signal);
           if (opts?.stdin) {
             const r = await execWithStdin(fs, vmId, command, timeoutMs, opts.stdin);
             setSpanAttributes(span, { "cmux.exec.exit_code": r.exitCode });

@@ -15,6 +15,7 @@ pub(super) fn handle(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     }
     let InventoryWatchParams { enabled } = serde_json::from_value(params.clone())
         .map_err(|_| RpcError::invalid_params("expected only a boolean enabled field"))?;
+    let _outbound = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = enabled;
     if enabled { Ok(hub.health.inventory_changes().borrow().wire()) } else { Ok(json!({})) }
 }
@@ -26,21 +27,30 @@ pub(super) async fn send_latest(
     conn: &Conn,
     snapshots: &mut tokio::sync::watch::Receiver<crate::harness_health::inventory_feed::Snapshot>,
 ) {
+    let _outbound = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if enabled && let Ok(permit) = conn.out.reserve().await {
-        // Serialize enqueue with disable: every earlier notification is queued
-        // before the disable reply, and no notification can pass its false flag.
-        let enabled =
-            conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if *enabled {
-            let value = snapshots.borrow_and_update().wire();
-            // Bounded like `Conn::send`: never more than one frame.
-            match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
-                Ok(line) => permit.send(line),
-                Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
-            }
-            return;
+    let reserved = super::OUTBOUND_CONTROL_RESERVE
+        + conn.outbound_pending_controls.load(std::sync::atomic::Ordering::Acquire);
+    if enabled
+        && conn.out.capacity() > reserved
+        && let Ok(permit) = conn.out.try_reserve()
+    {
+        let value = snapshots.borrow_and_update().wire();
+        match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
+            Ok(line) => permit.send(line),
+            Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
         }
+        return;
+    }
+    if enabled {
+        // Keep the response and gap-marker permits available when an
+        // inventory watcher is slower than the daemon's bounded queue.
+        super::report_outbound_loss_locked(
+            &conn.out,
+            &conn.outbound_dropped,
+            &conn.outbound_gap_pending,
+            &conn.outbound_lock,
+        );
     }
     // Do not replay changes that happened while the subscription was off.
     let _ = snapshots.borrow_and_update();

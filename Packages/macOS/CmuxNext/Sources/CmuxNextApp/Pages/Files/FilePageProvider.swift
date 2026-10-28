@@ -106,9 +106,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown page's viewer comments live between opens (nil: none are kept).
     /// ``FilePageProvider+Comments.swift``.
-    let comments: (any MarkdownTableWidthStoring)?
+    let comments: (any MarkdownCommentStoring)?
     /// Sends the page a changed comment list (the service sets it: the `comments` page command).
     var onCommentsChanged: ((JSONValue) -> Void)?
+    /// The newest persisted comment mutation already published to this page. A later callback can
+    /// finish parsing before an older one, so stale mutations must not overwrite the page.
+    var latestCommentsSequence = 0
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
@@ -122,7 +125,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
         self.comments = comments
@@ -457,11 +460,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Links
 
+    /// Whether `url` exists, off the main actor.
+    @concurrent nonisolated private static func exists(_ url: URL) async -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
     private func openLink(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let href = params["href"]?.stringValue else { throw PageError.invalidParams("href is required") }
         if kind == .markdown, params["kind"]?.stringValue == "file" {
             let target = Self.canonical(try path(params["target"]))
-            guard FileManager.default.fileExists(atPath: target.path) else { throw PageError(code: kind.op("not_found"), message: target.path) }
+            // A stat can hang on a network or sleeping volume: never on the main actor.
+            guard await Self.exists(target) else { throw PageError(code: kind.op("not_found"), message: target.path) }
             // Inside a granted document's folder (links resolved): opens. Anything else asks,
             // naming the resolved path; a refused or unshown sheet refuses the link.
             if !inGrantedFolder(target) {

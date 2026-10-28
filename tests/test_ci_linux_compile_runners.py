@@ -10,15 +10,20 @@ The size must not come from `vars.LINUX_RUNNER` while it names a Blacksmith
 label: that shared variable names `blacksmith-4vcpu-ubuntu-2404` for every
 small Linux job (docs/ci-runners.md), so `vars.LINUX_RUNNER ||
 'blacksmith-32vcpu-ubuntu-2404'` would still run on 4 vCPU. But the Blacksmith
-outage switch (scripts/ci/cloud_overflow_switch.py) points `LINUX_RUNNER` at
-`ubuntu-24.04`, and these jobs must follow it there, or the switch's
-force-cancel and rerun sends them straight back to the stalled pool. So each
-trusted fallback ends in exactly
+outage switch (scripts/ci/cloud_overflow_switch.py) moves Linux overflow to
+another Blacksmith size while its CI_CLOUD_OVERFLOW_SAVED record exists, and
+these jobs move with it (16 and 32 vCPU swap), or the switch's force-cancel and
+rerun sends them straight back to the stalled pool; a non-Blacksmith
+`LINUX_RUNNER` an operator sets still wins. Never GitHub-hosted Ubuntu (Leo,
+2026-10-27: "just put it on blacksmith / 16vcpu blacksmiths do exist"). So
+each trusted fallback ends in exactly
 
-    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'
+    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER
+      || vars.CI_CLOUD_OVERFLOW_SAVED && '<other size>' || '<size>'
 
-Forks (`repository_owner != 'manaflow-ai'`) and fork pull requests keep their
-own branches of each expression, unchanged.
+Fork pull requests use the same sized Blacksmith lane as the trusted job for
+the compile and test suites below. Small routing/status jobs can keep the
+4-vCPU lane.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ SMALL = "blacksmith-16vcpu-ubuntu-2404"
 EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # Rust: cargo build, test, clippy, cross builds.
     ("ci-web.yml", "diff-sidecar-check", "runs-on", BIG),
+    ("cmux-next-fast-gates.yml", "fast-gates", "runs-on", SMALL),
     ("cloudflare-relay.yml", "cloudflare-relay", "runs-on", BIG),
     ("cmux-browser-host-chromium.yml", "chromium", "runs-on", BIG),
     ("cmux-browser-host-release.yml", "build", "matrix:target=x86_64-unknown-linux-gnu:runs_on", BIG),
@@ -107,8 +113,10 @@ SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
 def trusted_fallback(label: str) -> str:
-    """The size, unless the outage switch names a non-Blacksmith runner."""
-    return f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '{label}'"
+    """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
+    other = SMALL if label == BIG else BIG
+    return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+            f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -118,17 +126,25 @@ FORK_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
     " != github.repository && '{label}' || "
 )
-FORK_PR_4 = OWNER + FORK_PULL_REQUEST.format(label="blacksmith-4vcpu-ubuntu-2404")
+FORK_PR_LABELS = {
+    ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
+    ("ci-web.yml", "web-production-build", "runs-on"): BIG,
+    ("ci-web.yml", "web-tests", "runs-on"): SMALL,
+    ("ci-web.yml", "web-instant-navigation", "runs-on"): SMALL,
+    ("ci-web.yml", "diff-sidecar-check", "runs-on"): BIG,
+    ("cmux-next-fast-gates.yml", "fast-gates", "runs-on"): SMALL,
+    ("cmux-next.yml", "web-bundles", "runs-on"): BIG,
+    ("cmux-vm-clients.yml", "rust", "runs-on"): BIG,
+    ("cmux-vm-clients.yml", "sdk", "runs-on"): SMALL,
+    ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
+}
 PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
-    # (prefix, closing) for the selectors that do not take the default
-    # owner + 4 vCPU fork pull request branches.
+    # (prefix, closing) for selectors with a special owner/fork expression.
     ("cmux-tui-sdks.yml", "conformance", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-8vcpu-ubuntu-2404"), ""),
-    # These three read no variable before the move, so a fork pull request
-    # took the trusted literal. Reading LINUX_RUNNER now needs the fork pull
-    # request branch first (test_ci_fork_runner_routing.py); it names the
-    # label a fork pull request ran on before: 16 vCPU here, 4 vCPU for
-    # cmux-next.yml web-bundles and gallery-health (the default prefix).
+    # These read no variable before the move, so a fork pull request took the
+    # trusted literal. Reading LINUX_RUNNER now needs the fork pull request
+    # branch first (test_ci_fork_runner_routing.py).
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
@@ -167,7 +183,11 @@ OWNER_ONLY = {
 def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str:
     prefix, closing = PREFIX.get((workflow, job_id, where), (None, ""))
     if prefix is None:
-        prefix = OWNER if (workflow, job_id) in OWNER_ONLY else FORK_PR_4
+        if (workflow, job_id) in OWNER_ONLY:
+            prefix = OWNER
+        else:
+            fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
+            prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
     return "${{ " + prefix + trusted_fallback(label) + closing + " }}"
 
 
@@ -227,9 +247,9 @@ class LinuxCompileRunners(unittest.TestCase):
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 
-    def test_forks_keep_their_hosted_runner(self) -> None:
-        # The whole selector is pinned: the fork branch and the fork pull
-        # request branch stay exactly as they were before the move.
+    def test_fork_pull_requests_use_the_selected_blacksmith_size(self) -> None:
+        # The trusted job's size is also the fork pull request's size, while
+        # small routing/status jobs retain the 4-vCPU default.
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
@@ -237,7 +257,12 @@ class LinuxCompileRunners(unittest.TestCase):
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
                 if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:
-                    self.assertIn(FORK_PR_4, value, "a fork pull request keeps its 4 vCPU runner")
+                    fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
+                    self.assertIn(
+                        OWNER + FORK_PULL_REQUEST.format(label=fork_label),
+                        value,
+                        f"fork pull requests use {fork_label}",
+                    )
 
     def test_every_listed_label_is_known_to_actionlint(self) -> None:
         config = yaml.safe_load((ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))

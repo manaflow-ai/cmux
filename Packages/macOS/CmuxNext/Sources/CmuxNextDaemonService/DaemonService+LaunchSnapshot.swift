@@ -42,23 +42,26 @@ extension DaemonService {
     /// later `start` reports why).
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
-                                     resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
+                                     resolvesShellIntegration: Bool = false,
+                                     echoesPlacementShift: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
     /// first-party app packages shipped in the app bundle (its default apps).
     /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
     /// cmux-tui spec/transports.md "App listener and page files").
+    /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``).
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
         var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
+        environment.merge(DaemonDiagnosticKnobs(processEnvironment: ProcessInfo.processInfo.environment).daemonEnvironment) { own, _ in own }
         return environment
     }
 
@@ -86,7 +89,7 @@ extension DaemonService {
     /// begun in `main` (`prestart`) and for the connections after it.
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
-                                               retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
+                                               echoesPlacementShift: Bool, retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
         var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
@@ -95,6 +98,7 @@ extension DaemonService {
         // A stopped or wedged owner keeps its socket open: only the heartbeat
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true
+        configuration.echoesPlacementShift = echoesPlacementShift
         return configuration
     }
 

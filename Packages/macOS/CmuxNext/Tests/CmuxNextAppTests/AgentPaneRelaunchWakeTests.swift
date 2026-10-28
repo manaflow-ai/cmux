@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -16,6 +17,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct AgentPaneRelaunchWakeTests {
     static let thisMac = "install:agent-pane-relaunch-wake-test"
+    static let work = BackgroundWork(label: "test.relaunch-wake")
 
     /// A tab store of one run, as the App wires it: tab records in a tree, pages on a page that
     /// never loads (a loopback port nobody serves), the wake file of the tag's state directory.
@@ -63,7 +65,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // The next run: each tab's first page gets its chat's composer back with its handshake.
         let after = Self.run(file: file, records: records)
-        after.wakeStates = after.relaunchWake.take()
+        after.wakeStates = await after.relaunchWake.take(on: Self.work)
         #expect(after.wakeStates["tab_gone"] == nil, "a closed tab's composer was kept")
         let shownPage = try #require(after.view(for: "tab_shown"))
         let shownHandshake = try await Self.ready(shownPage)
@@ -81,7 +83,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // Handed back once: a crash after this launch never brings back chips already sent.
         let third = Self.run(file: file, records: records)
-        third.wakeStates = third.relaunchWake.take()
+        third.wakeStates = await third.relaunchWake.take(on: Self.work)
         #expect(third.wakeStates.isEmpty)
     }
 
@@ -179,7 +181,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // The next run: the chat's first page gets the four screenshots back with its handshake.
         let after = Self.run(file: file, records: records)
-        after.wakeStates = after.relaunchWake.take()
+        after.wakeStates = await after.relaunchWake.take(on: Self.work)
         #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path),
                 "the launch left the saved composer behind, so a chip sent in this run could come back")
         let restoredPage = try #require(after.view(for: "tab_chat"))
@@ -216,11 +218,51 @@ struct AgentPaneRelaunchWakeTests {
         await store.save(["tab_huge": huge, "tab_small": small])
         let left = try FileManager.default.contentsOfDirectory(atPath: folder.path)
         #expect(left.count == 1, "the dropped tab's files stayed: \(left)")
-        #expect(store.take() == ["tab_small": small])
+        #expect(await store.take(on: Self.work) == ["tab_small": small])
 
         let inline = ["tab_old": AgentPaneWakeState(attachments: small.attachments, shell: true, shellText: "ls")]
         try JSONEncoder().encode(inline).write(to: file)
-        #expect(store.take() == inline, "a save the last build wrote did not come back")
+        #expect(await store.take(on: Self.work) == inline, "a save the last build wrote did not come back")
+    }
+
+    /// Slice (c) of the main-thread sweep: the launch read the states (up to 8 MB) and their attachments'
+    /// files (up to 128 MB) on the main thread as it made the tab store.
+    @Test func theSavedStatesAreReadOffTheMainThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let held = AgentPaneWakeState(shell: true, shellText: "ls")
+        await AgentPaneRelaunchWake(file: file).save(["tab_a": held])
+        let probe = LaunchReadProbe()
+        #expect(await AgentPaneRelaunchWake(file: file, reader: probe.reader).take(on: Self.work) == ["tab_a": held])
+        #expect(probe.reads == [false], "the saved states were read on the main thread")
+    }
+
+    /// The launch reads the states off the main thread from its start: a page made before the read ends still
+    /// gets its chat's composer with its first handshake (the handshake waits, never the main thread).
+    @Test func aPageMadeBeforeTheReadEndsStillGetsItsComposer() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let records = ["tab_chat": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude")]
+        let held = AgentPaneWakeState(shell: true, shellText: "make test")
+        await AgentPaneRelaunchWake(file: file).save(["tab_chat": held])
+
+        let probe = LaunchReadProbe(held: true)
+        let tabs = Self.run(file: file, records: records)
+        tabs.relaunchWake = AgentPaneRelaunchWake(file: file, reader: probe.reader)
+        tabs.relaunchWake.begin(on: Self.work)
+        let started = await probe.waitForStart()
+        #expect(started, "the read never started")
+        let page = try #require(tabs.view(for: "tab_chat"))
+        // task-owner: the page's first ready; awaited below.
+        let ready = Task { ((try await Self.ready(page))["wake"] as? [String: Any])?["shellText"] as? String }
+        probe.release()
+        #expect(try await ready.value == "make test", "a page made while the read ran lost its composer")
+        #expect(probe.reads == [false], "the saved states were read on the main thread")
+        #expect(!tabs.relaunchWake.mayHold("tab_chat"), "the state stayed in the store, so a later page could bring it back")
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.

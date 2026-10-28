@@ -35,11 +35,9 @@ final class CommandHistory {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-        }
+        observation?.cancel()
     }
 
     /// Starts keeping the daemons' switch and retention in step with the settings.
@@ -61,7 +59,7 @@ final class CommandHistory {
 
     private static func state(settings: SettingsController, daemons: [DaemonService]) -> SyncState {
         var machines: [String: String] = [:]
-        for daemon in daemons where daemon.supports(DaemonCapabilities.shared.terminalCommandHistory) {
+        for daemon in daemons where daemon.supports(DaemonCapability.terminalCommandHistory.rawValue) {
             guard case .connected = daemon.store.connectionState else { continue }
             machines[daemon.machineID] = daemon.store.generation?.rawValue ?? ""
         }
@@ -190,7 +188,7 @@ final class CommandHistory {
 
     private func daemons() -> [DaemonService] {
         services.machines.daemons.filter { daemon in
-            guard daemon.supports(DaemonCapabilities.shared.terminalCommandHistory), case .connected = daemon.store.connectionState else { return false }
+            guard daemon.supports(DaemonCapability.terminalCommandHistory.rawValue), case .connected = daemon.store.connectionState else { return false }
             return true
         }
     }

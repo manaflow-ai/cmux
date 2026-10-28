@@ -25,6 +25,8 @@ pub struct AnswerContext {
     pub ice: IceSource,
     pub include_loopback: bool,
     pub exclude_cgnat: bool,
+    /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
+    pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
 }
 
 #[derive(Clone)]
@@ -125,13 +127,26 @@ pub async fn run(config: HostConfig) -> Result<()> {
     // One ICE cache for the life of the process (reconnects keep it).
     let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
     if crate::notify::enabled() {
+        // Paired phones that gave a push key get sealed notifications (sealed_notify.rs).
+        let sealer = services.pairing.as_ref().map(|pairing| {
+            Arc::new(crate::sealed_notify::Sealer {
+                mac: pairing.mac_device_id.clone(),
+                identity: pairing.identity.clone(),
+                trust: pairing.trust.clone(),
+                push_keys: Arc::clone(&pairing.push_keys),
+                acpmux: services.acpmux.clone(),
+            })
+        });
         tokio::spawn(crate::notify::run(
             config.base_url.clone(),
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
+            Some(config.services.daemon_socket()),
+            sealer,
         ));
     }
+    let mailbox = mailbox_for(&services);
     // Phones keep their WireGuard sessions when the Mac changes networks.
     tokio::spawn(crate::netwatch::run());
     // Test-only signal hooks, never in a normal install: only when the state
@@ -144,7 +159,7 @@ pub async fn run(config: HostConfig) -> Result<()> {
     loop {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
-        let reason = match connect_once(&config, &tokens, &services, &ice).await {
+        let reason = match connect_once(&config, &tokens, &services, &ice, &mailbox).await {
             Ok(reason) if removed(&reason) => {
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
@@ -181,6 +196,7 @@ async fn connect_once(
     tokens: &Arc<Tokens>,
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
+    mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -220,6 +236,7 @@ async fn connect_once(
         ice: ice.clone(),
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
+        mailbox: mailbox.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
     let reason = serve_signaling(signaling, context).await;
@@ -256,6 +273,76 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The mailbox of a supervised hostd: its pairing's keys and trust, the
+/// services a link reaches, and the replies already spent (on disk).
+fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>> {
+    let pairing = services.pairing.as_ref()?;
+    let daemon_socket = services
+        .default_socket
+        .clone()
+        .unwrap_or_else(|| services.tui_socket_dir.join(format!("{}.sock", services.default_session)));
+    Some(Arc::new(crate::mailbox::Mailbox {
+        mac: pairing.mac_device_id.clone(),
+        trust: pairing.trust.clone(),
+        identity: pairing.identity.clone(),
+        spent: Arc::clone(&pairing.spent_replies),
+        key_wait: crate::pairing::TRUST_WAIT,
+        applier: Arc::new(crate::mailbox_apply::LiveApplier {
+            acpmux: services.acpmux.clone(),
+            daemon_socket,
+            chief_socket: services.chief_socket.clone(),
+        }),
+    }))
+}
+
+/// How long hostd waits before it tries an item it could not settle again.
+const MAILBOX_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Checks and applies a `mailbox` frame in the background, then acks every
+/// settled item (signed). An item it could not settle yet (the app has not
+/// sent its keys, a service is out of reach) is not acknowledged: it stays
+/// queued at the backend and is tried again here while the socket lives.
+/// Without pairing (unsupervised) nothing is applied.
+pub fn answer_mailbox(
+    signaling: &SignalingClient,
+    mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    items: Vec<cmux_mobile_link::signaling::MailboxItem>,
+) {
+    let signaling = signaling.clone();
+    tokio::spawn(async move {
+        let Some(mailbox) = mailbox else {
+            let results = items
+                .into_iter()
+                .take(crate::mailbox::MAX_ITEMS)
+                .map(|item| cmux_mobile_link::signaling::MailboxResult {
+                    id: item.id,
+                    applied: false,
+                    reason: Some("not_paired".into()),
+                    sig: None,
+                })
+                .collect();
+            if let Err(error) = signaling.send_mailbox_ack(results) {
+                tracing::warn!(%error, "mailbox ack not sent");
+            }
+            return;
+        };
+        let mut items = items;
+        while !items.is_empty() && signaling.closed_reason().is_none() {
+            let handled = mailbox.handle(items, crate::mailbox::now()).await;
+            if !handled.results.is_empty()
+                && let Err(error) = signaling.send_mailbox_ack(handled.results)
+            {
+                tracing::warn!(%error, "mailbox ack not sent");
+                return;
+            }
+            items = handled.later;
+            if !items.is_empty() {
+                tokio::time::sleep(MAILBOX_RETRY).await;
+            }
+        }
+    });
+}
+
 /// Answer every admitted dial on `signaling` until it closes; returns the
 /// close reason.
 pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext) -> String {
@@ -266,6 +353,11 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
                 Some(session) => session,
                 None => return signaling.closed_reason().unwrap_or_else(|| "signaling closed".into()),
             },
+            // A queue, not an event: frames sent right after `hello` wait for this loop.
+            Some(items) = signaling.next_mailbox() => {
+                answer_mailbox(&signaling, context.mailbox.clone(), items);
+                continue;
+            }
             event = events.recv() => match event {
                 Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(reason)) => return reason,
                 Ok(cmux_mobile_link::signaling::SignalingEvent::Error { code, message, session_id }) => {

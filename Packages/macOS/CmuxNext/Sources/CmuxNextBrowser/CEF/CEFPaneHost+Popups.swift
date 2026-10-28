@@ -88,6 +88,8 @@ extension CEFPaneHost {
         if let visible = visibleTab, !visible.awaitsWindowMove, let browser = visible.browserID {
             lastActivated = browser
             _ = shim.tabActivate(browser)
+            // The shown popup names the page window now: its placeholder closes below.
+            hostView.layerHosting.pageShown(browser: browser)
             hostView.postGeometryChange()
         }
         if let blank = placeholder, tabs.contains(where: { $0 !== blank && !$0.awaitsWindowMove && $0.browserID != nil }) {

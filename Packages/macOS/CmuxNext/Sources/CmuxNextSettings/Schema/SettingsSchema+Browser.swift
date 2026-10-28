@@ -10,6 +10,7 @@ nonisolated enum BrowserSettingsSchema {
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
         let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
         let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
+        let importGroup = SettingsText.keyed("settings.group.import", "Import")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
@@ -41,6 +42,14 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.showBookmarksBar", "Show Bookmarks Bar"),
                 help: SettingsText.keyed("settings.browser.showBookmarksBar.help", "A row of bookmarks under each browser toolbar."),
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
+            ),
+            SettingDescriptor(
+                BrowserImportSetting.configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
+                help: SettingsText.keyed("settings.browser.importEnabled.help",
+                                         "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."),
+                kind: .toggle, default: .bool(BrowserImportSetting.fallback),
+                keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
             ),
             SettingDescriptor(
                 AgentCursorSetting().configPath, section: .browser, group: agentInput,
@@ -93,7 +102,13 @@ nonisolated enum BrowserSettingsSchema {
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(1...1_440, step: 5, unit: .minutes, placeholder: 30)),
-                default: .string("moderate"), keywords: ["memory saver", "sleep", "discard"]
+                // Unset is its own behaviour, not "moderate": hidden pages only freeze and are never
+                // discarded on their own (`BrowserHibernationSetting.fallback`). Any written value,
+                // "moderate" included, turns automatic discards on, so it shows as customized and
+                // Reset returns to unset.
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.neverDiscard", "Never Discard"),
+                keywords: ["memory saver", "sleep", "discard", "freeze", "reload"]
             ),
             SettingDescriptor(
                 ["browser", "hibernationExclusions"], section: .browser, group: memory,

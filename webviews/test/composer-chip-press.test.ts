@@ -4,7 +4,8 @@
 // no effort chip of its own) and the permission chip in the bar, and the folder chip on the location
 // strip, in a chat's composer, a new chat's and the New Tab page's.
 //
-// - The arrow cursor over every chip, as the rest of the pane's controls (macOS), never the hand.
+// - The pointing hand over every chip, as over every clickable thing (desktop.css; Leo 2026-10-21:
+//   "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE").
 // - A press shows its tone the moment the button goes down: the hover's ease does not delay it,
 //   and the chip does not move: its layout box stays put, and it draws no shrink or dim (Leo
 //   2026-10-19: no mousedown and mouseup click feedback).
@@ -150,7 +151,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       for (const stage of STAGES) {
         const where = `${engine}: ${stage.entry} ${stage.variant} at ${width} px`;
 
-        test(`${where}: the arrow cursor over every chip`, async () => {
+        test(`${where}: the pointing hand over every chip`, async () => {
           const page = await open(engine, stage, width);
           const cursors = await page.evaluate(
             (selectors) =>
@@ -160,7 +161,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             stage.chips.map(chip),
           );
           await page.close();
-          expect(cursors).toEqual(Object.fromEntries(stage.chips.map((name) => [chip(name), "default"])));
+          expect(cursors).toEqual(Object.fromEntries(stage.chips.map((name) => [chip(name), "pointer"])));
         });
 
         test(`${where}: a press shows its tone at once, and the chip does not move`, async () => {

@@ -84,9 +84,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             case .url(let url)?: self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
-                LinkRouter.shared.record("file:\(url.path)")
+                // `src/app.ts:3:5` opens the editor at line 3, column 5.
+                let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+                LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
                 guard let services = self?.services else { return }
-                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id))
+                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
             case nil: break
             }
         }
@@ -149,7 +151,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             guard let services else { return }
             // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
             guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            services.linkOpener.openWeb(url, from: pane, background: background)
+            // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
+            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+            services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
         }
     }
 

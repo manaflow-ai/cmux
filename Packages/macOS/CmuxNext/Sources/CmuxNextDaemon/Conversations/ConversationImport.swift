@@ -56,7 +56,7 @@ public struct ConversationImportResult: Decodable, Sendable, Equatable {
 extension ConversationClient {
     public func importHistory(_ request: ConversationImportRequest) async throws -> ConversationImportResult {
         guard await Self.supported(by: connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.localConversations])
+            throw DaemonError.missingCapabilities([DaemonCapability.localConversations.rawValue])
         }
         return try await connection.request(request)
     }

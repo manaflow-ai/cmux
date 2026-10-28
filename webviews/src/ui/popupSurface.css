@@ -4,7 +4,7 @@
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
   --ui-popup-radius: 8px;
-  --ui-popup-padding: calc(4px * var(--cmux-interface-scale, 1));
+  --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
      elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
@@ -17,11 +17,12 @@
   --ui-popup-shadow:
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
-  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
   --ui-row-radius: 5px;
-  --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
-  /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). The motion
-     scale's steps (pages/shared/desktop.css); the literal is the same step, for a page without it. */
+  --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
+  /* The fade-in a dialog, its backdrop, a tooltip and the find pill take. A popup or menu has none:
+     it opens in one frame (below). The motion scale's steps (pages/shared/desktop.css); the literal
+     is the same step, for a page without it. */
   --ui-popup-open: var(--cmux-motion-micro, 120ms);
   /* The close: a fade, in every motion setting (the native fadeOut token). */
   --ui-popup-close: var(--cmux-motion-quick, 80ms);
@@ -33,45 +34,6 @@
   --ui-popup-edge: transparent;
 }
 
-@keyframes ui-popup-open {
-  from {
-    opacity: 0;
-    transform: scale(0.97);
-    translate: var(--ui-popup-x, 0) var(--ui-popup-y, 0);
-  }
-}
-
-/* A popup also travels a few points out of its trigger (Leo 2026-10-20, directional motion): one
-   above its trigger rises, one below drops, one beside it slides away from it. Base UI names the
-   side (`data-side`); a menu useUiAnchor places gets its travel from the side it opened on (an
-   inline `--ui-popup-y`), so one that flips below its chip drops instead of rising. */
-:where(.ui-popup:is([data-side="top"], [data-side="above"])) {
-  --ui-popup-y: 4px;
-}
-:where(.ui-popup:is([data-side="bottom"], [data-side="below"])) {
-  --ui-popup-y: -4px;
-}
-:where(.ui-popup[data-side="left"], .ui-popup[data-side="inline-start"]) {
-  --ui-popup-x: 4px;
-}
-:where(.ui-popup[data-side="right"], .ui-popup[data-side="inline-end"]) {
-  --ui-popup-x: -4px;
-}
-
-@keyframes ui-popup-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-/* Reduce Motion keeps the open's fade and drops its scale (POLISH: no flash; motion.md rule 7):
-   a popup that appeared in one frame flashed. Every host loads this sheet. */
-@media (prefers-reduced-motion: reduce) {
-  :where(.ui-popup) {
-    animation: ui-popup-fade var(--ui-popup-open) ease-out;
-  }
-}
-
 /* A popup takes focus when it opens so its keys work; it never draws the engine's `outline: auto`
    ring, which WebKit paints in the macOS accent (orange when the person picks orange). Its rows show
    the highlight instead. */
@@ -80,8 +42,15 @@
   outline: none;
 }
 
-/* A popup fades out when it closes (POLISH: no flash; a closed menu vanished in one frame). Base UI
-   keeps it mounted while it carries data-ending-style, until the fade ends. */
+/* A popup or menu opens in one frame and fades only as it closes (Leo 2026-10-24: "When you open
+   it up, no animation. When you close it, animation for closing... No fade in ever for any of
+   these."). No open animation, no starting style, no transition into the open state, under every
+   motion setting: Menu, Popover, Select, Combobox, ContextMenu and the agent pane's own menus and
+   popovers (the header's ... menu, the PR and needs-you popovers, the composer's pickers).
+   Panels that slide in from an edge (presence, data-enter), dialogs and tooltips keep their own
+   motion. test/popover-instant-open.test.ts and popover-instant-open-pane.test.ts hold this.
+   It fades out when it closes (POLISH: no flash; a closed menu vanished in one frame): Base UI keeps
+   it mounted while it carries data-ending-style, until the fade ends. */
 :where(.ui-popup) {
   transition: opacity var(--ui-popup-close) ease-in;
 }
@@ -154,17 +123,20 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
    agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
 :where(.ui-menu-shortcut) {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 :where(.ui-field) {
   font-family: inherit;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 :where(.ui-separator) {
   height: 1px;
@@ -249,13 +221,14 @@
    its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   -webkit-user-select: none;
   user-select: none;
   cursor: default;
   outline: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 :where(.ui-menu-item) {
   display: flex;

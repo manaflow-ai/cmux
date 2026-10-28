@@ -56,14 +56,14 @@ public final class StashService: StashPageSource {
     public func dropDraft(_ key: String) { drafts[key] = nil }
 
     /// Whether `daemon` keeps stashes; without it no stash UI shows. Only this Mac's daemon.
-    func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.shared.stash) }
+    func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapability.stash.rawValue) }
 
     /// The reason Save and Close of tabs (`workspaces` false) or of whole workspaces is unavailable,
     /// or nil while this Mac's daemon keeps them (`stash-v1`, `stash-workspaces-v1`).
     public func unavailableReason(workspaces: Bool = false) -> String? {
         guard let daemon = host?.localDaemon else { return RefusalStrings.daemonConnecting }
-        let capability = workspaces ? DaemonCapabilities.shared.stashWorkspaces : DaemonCapabilities.shared.stash
-        guard daemon.isLocal, daemon.supports(DaemonCapabilities.shared.stash), daemon.supports(capability) else {
+        let capability = workspaces ? DaemonCapability.stashWorkspaces.rawValue : DaemonCapability.stash.rawValue
+        guard daemon.isLocal, daemon.supports(DaemonCapability.stash.rawValue), daemon.supports(capability) else {
             return daemon.missingCapabilityMessage(capability)
         }
         return nil
@@ -99,7 +99,7 @@ public final class StashService: StashPageSource {
             reopened = try await state().restoreStash(id, target: .here, pane: host?.stashRestorePane)
         } catch { throw Self.failure(error) }
         if let host, let connection = host.localDaemon.connection {
-            await host.localDaemon.store.applied(through: await connection.eventSequence())
+            await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash")
             host.showRestored(reopened, asWorkspace: workspaces)
         }
         await model.reload()
@@ -111,7 +111,7 @@ public final class StashService: StashPageSource {
         guard let connection = daemon.connection else {
             throw ActionFailure(message: daemon.notConnectedReason ?? RefusalStrings.daemonConnecting)
         }
-        guard serves(daemon) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.stash)) }
+        guard serves(daemon) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.stash.rawValue)) }
         return connection.state
     }
 
@@ -152,7 +152,7 @@ public final class StashService: StashPageSource {
             let reopened = try await state.restoreStash(group.id, members: tabs.map(\.id), target: inNewWorkspace ? .newWorkspace : .here,
                                                         pane: host?.stashRestorePane)
             guard let host, let connection = host.localDaemon.connection else { return }
-            await host.localDaemon.store.applied(through: await connection.eventSequence())
+            await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash group")
             host.showRestored(reopened, asWorkspace: inNewWorkspace)
         } catch { throw Self.failure(error) }
     }

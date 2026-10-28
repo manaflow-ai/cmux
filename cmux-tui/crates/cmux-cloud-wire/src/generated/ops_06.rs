@@ -5,6 +5,35 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes inbox.list declares.
+    InboxListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Flag a conversation unread (the read cursor stays).
+    InboxMarkUnreadOp {
+        name: "inbox.mark_unread",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: InboxMarkUnreadParams,
+        result: HomeInboxEntry,
+        error: InboxMarkUnreadError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxMarkUnreadParams {
+    pub conversation: ConversationId,
+    pub unread: bool,
+}
+
+wire_errors! {
     /// The error codes inbox.mark_unread declares.
     InboxMarkUnreadError {
         AuthForbidden = "auth.forbidden",
@@ -499,6 +528,8 @@ pub struct IntegrationPolicySetParamsGithub {
     pub require_org_admin: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_workflows: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -857,39 +888,6 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         IntegrationUnavailable = "integration.unavailable",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.
-    MailGetOp {
-        name: "mail.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailGetParams,
-        result: Value,
-        error: MailGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailGetParams {
-    pub connection: ConnectionId,
-    pub message_id: String,
-}
-
-wire_errors! {
-    /// The error codes mail.get declares.
-    MailGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
         ProviderError = "provider.error",
         SelectorNotFound = "selector.not_found",
     }

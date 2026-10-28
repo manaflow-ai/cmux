@@ -197,7 +197,7 @@ def move_condition() -> str:
 def substitute(text: str, sha: str) -> str:
     """Evaluate the expressions this test understands for a promotion request."""
     text = re.sub(
-        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*\|\|\s*''\s*\}\}",
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*(?:\|\|\s*github\.event_name\s*==\s*'schedule'\s*&&\s*format\('[^']*',\s*github\.event\.schedule\)\s*)?\|\|\s*''\s*\}\}",
         lambda match: match.group(1).replace("{0}", sha),
         text,
     )
@@ -328,13 +328,15 @@ def test_a_newer_request_after_an_older_one_still_wins() -> None:
     assert result["writes"] == [RUNNING, NEWER], [short(sha) for sha in result["writes"]]
 
 
-def test_a_cancelled_request_without_a_green_compile_is_not_promoted() -> None:
-    """Recovered requests pass the same guard (Release compile admission) as the input."""
+def test_a_cancelled_request_without_a_green_compile_is_still_promoted() -> None:
+    """Recovered requests pass the same guard as the input. With G2 off (#25786)
+    a missing Release compile no longer refuses: the promoted commit's own
+    nightly build is the compile gate, so the newest evicted commit wins."""
     requests, dispatch_runs = queue(RUNNING, [UNGREEN, OLDER])
     result = run_promotions(requests, dispatch_runs, not_green=[UNGREEN])
     assert result["failed"] == [], result["failed"]
-    assert result["target"] == OLDER, short(result["target"])
-    assert UNGREEN not in result["writes"]
+    assert result["target"] == UNGREEN, short(result["target"])
+    assert OLDER not in result["writes"], [short(sha) for sha in result["writes"]]
 
 
 def test_a_request_cancelled_by_a_person_is_not_promoted() -> None:
@@ -385,17 +387,12 @@ def test_the_promote_job_can_read_the_cancel_annotation() -> None:
 
 
 def main() -> None:
-    test_one_writer_for_every_request()
-    test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
-    test_a_newer_request_after_an_older_one_still_wins()
-    test_a_cancelled_request_without_a_green_compile_is_not_promoted()
-    test_a_request_cancelled_by_a_person_is_not_promoted()
-    test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
-    test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit()
-    test_one_unreadable_cancel_annotation_keeps_the_other_evicted_requests()
-    test_the_promote_job_can_read_the_cancel_annotation()
-    print("PASS: nightly-next promotion queue")
-
+    # Every test_ function runs: a hand-kept list dropped the ungreen case
+    # without anyone noticing (#24590).
+    tests = [value for name, value in globals().items() if name.startswith("test_")]
+    for test in tests:
+        test()
+    print(f"PASS: nightly-next promotion queue ({len(tests)} cases)")
 
 if __name__ == "__main__":
     main()

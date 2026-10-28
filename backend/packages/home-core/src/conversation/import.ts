@@ -2,7 +2,7 @@ import { withTurn } from "./budget.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
-import { searchIntent, type FanOut } from "./fanout.ts"
+import { rowKind, searchIntent, type FanOut } from "./fanout.ts"
 import { formatRfc3339Millis, importConversationId, parseRfc3339Millis, validToken } from "./ids.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import { stampParticipant, type ParticipantPolicy } from "./policy.ts"
@@ -145,6 +145,7 @@ const searchItems = (before: ConversationHead | null, head: ConversationHead, me
 const fillChief = (state: ConversationHead | null, source: ImportSource | null, params: Params, ctx: ReduceContext, actor: string, now: string): Result => {
   if (!state) return refuse("unknown_conversation")
   const me = findParticipant(state, actor)
+  if (!me) return refuse("unknown_conversation")
   if (state.kind !== "chief" || me?.kind !== "human" || me.role !== "owner" || me.left_at !== undefined) return refuse("forbidden")
   if (!source) return bad()
   if (state.import) {
@@ -171,7 +172,8 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
   const now = formatRfc3339Millis(ctx.now)
   try {
     if (op === "conversation.import.commit") {
-      if (!state || state.import?.by !== actor) return refuse(state ? "forbidden" : "unknown_conversation")
+      // A caller who never belonged gets the answer of an id that does not exist (tenant-isolation-DESIGN.md 5.1).
+      if (!state || state.import?.by !== actor) return refuse(state && findParticipant(state, actor) ? "forbidden" : "unknown_conversation")
       if (state.state !== "importing") return { ok: true, state, value: { conversation: summary(state, null) }, changed: false }
       if (params.last_seq !== state.last_seq) return refuse("import_out_of_order")
       const cursors = Object.fromEntries(Object.entries(state.read_cursors).map(([p, seq]) => [p, Math.min(seq, state.last_seq)]))
@@ -184,7 +186,7 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
             user: p.id,
             conversation: head.id,
             rev: head.rev,
-            kind: head.kind ?? "group",
+            kind: rowKind(head, p.id),
             title: head.title,
             last_seq: head.last_seq,
             last_at: last?.created_at ?? head.created_at,

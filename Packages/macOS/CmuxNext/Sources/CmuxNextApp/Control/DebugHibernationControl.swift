@@ -1,7 +1,7 @@
-import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextControl
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.hibernation.pressure` (DEBUG builds): feeds a memory pressure level to browser tab
 /// hibernation as the dispatch source would, so the fleet bench
 /// (scripts/measure/tab-hibernation.sh) measures pressure without `sudo memory_pressure`.

@@ -64,6 +64,7 @@
   font-weight: 400;
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subagents__time,
 .cv-subagent__time {
@@ -83,25 +84,6 @@
   background: var(--cv-card-fill);
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text);
-}
-.cv-subagent-avatar__dot {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--cv-card-fill);
-  background: var(--cv-text-muted);
-}
-.cv-subagent-avatar[data-state="running"] .cv-subagent-avatar__dot {
-  background: var(--agent-accent);
-}
-.cv-subagent-avatar[data-state="completed"] .cv-subagent-avatar__dot {
-  background: var(--agent-success, var(--cv-text-muted));
-}
-.cv-subagent-avatar[data-state="failed"] .cv-subagent-avatar__dot {
-  background: var(--agent-danger);
 }
 /* A listed subagent: one 48px line inside the list's border. */
 .cv-subagent {
@@ -194,7 +176,7 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent__stop[data-state="failed"],
 .cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. A click goes back to the parent's view. */
@@ -229,6 +211,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   cursor: pointer;
   user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subagent-of__pill:hover {
   color: var(--cv-text);
@@ -294,6 +277,7 @@ button.cv-subagent > :last-child {
    the column's leading edge. Its list opens upward over the transcript, as a popover does. */
 .acpmux-agents-pill {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 30px;
   padding: 0 12px 0 10px;
@@ -310,8 +294,8 @@ button.cv-subagent > :last-child {
   font-size: var(--text-control);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  cursor: default;
   user-select: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-agents-pill:hover,
 .acpmux-agents-pill[aria-expanded="true"] {
@@ -339,6 +323,7 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-agents-list ul {
   margin: 0;
@@ -354,9 +339,11 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   width: 100%;
   height: 44px;
@@ -366,7 +353,6 @@ button.cv-subagent > :last-child {
   gap: 10px;
   border-radius: 8px;
   color: var(--agent-muted);
-  cursor: default;
 }
 /* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
 .acpmux-agents-list__row[data-depth="1"] {
@@ -410,14 +396,16 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agents-list__state {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agents-list__time {
   flex: none;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
    messages (SubagentPaneFooter.tsx). */
@@ -429,6 +417,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   text-align: center;
   user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
@@ -448,15 +437,45 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
-/* Past five lines the list scrolls in place; the stack never scrolls the transcript. */
+/* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
+   the top"): the header and View all are pinned, and only the list between them scrolls. In a
+   short pane the list gives up its height first, down to nothing; the header never does. */
+.acpmux-running-tray {
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-running-tray__head,
+.acpmux-running-tray__finished {
+  flex: none;
+}
+/* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
+   the stack never scrolls the transcript. */
 .acpmux-running-tray__list {
-  max-height: calc(5 * 28px);
+  --acpmux-tray-lines: 5;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(var(--acpmux-tray-lines) * 28px);
   margin: 0;
   padding: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
+}
+.acpmux-running-tray[data-look="tall"] .acpmux-running-tray__list {
+  --acpmux-tray-lines: 8;
+}
+/* The `sectioned` look: a hairline between what runs and what ended, and ended lines dim. */
+.acpmux-running-tray[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+.acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
+  color: var(--agent-muted);
+}
+/* View all under the list's last line, across the tray's width, with its own divider. */
+.acpmux-running-tray__list + .acpmux-running-tray__finished {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
 .acpmux-running-tray__head > svg {
   flex: none;
@@ -467,7 +486,7 @@ button.cv-subagent > :last-child {
   padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+/* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
   color: var(--agent-muted);
 }
@@ -548,8 +567,51 @@ button.cv-subagent > :last-child {
 .acpmux-agent-card__task {
   color: var(--agent-muted, var(--cmux-text-secondary));
 }
+
+/* An expanded background command keeps its bounded tail in the row; only this disclosed row
+   polls process/tail, and the terminal action remains in the same compact surface. */
+.acpmux-running-tray__tail {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 8px 8px 24px;
+  min-width: 0;
+}
+.acpmux-running-tray__tail pre {
+  flex: 1 1 240px;
+  max-height: calc(var(--text-detail--line-height) * 10);
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-running-tray__tail button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  border: 0;
+  padding: 4px 8px;
+  color: var(--agent-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.acpmux-running-tray__tail button:hover,
+.acpmux-running-tray__tail button:focus-visible {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-placement="after-latest-message"] {
+  flex: none;
+  margin: 0 var(--cv-inset) 8px;
+}
 .acpmux-agent-card__state[data-status="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agent-card__task {
   display: -webkit-box;
@@ -564,7 +626,7 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .cv-subagent-done[data-state="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
    button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */

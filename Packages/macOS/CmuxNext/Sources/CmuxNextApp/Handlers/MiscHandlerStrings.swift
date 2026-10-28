@@ -14,7 +14,7 @@ enum MiscHandlerStrings {
     static var untitledTab: String { String(localized: "handlers.misc.closed.untitledTab", defaultValue: "Untitled Tab", table: "MiscHandlers", bundle: .module) }
     static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
     static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
-    static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet.", table: "MiscHandlers", bundle: .module) }
+    static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "This version of cmux can't run this Cloud action. Update cmux, then try again.", table: "MiscHandlers", bundle: .module) }
     static var reactGrabFailed: String { String(localized: "handlers.misc.reactGrabFailed", defaultValue: "React Grab could not load on this page.", table: "MiscHandlers", bundle: .module) }
     /// A browser tab refused while `browser.enabled` is off.
     static var browserOff: String { String(localized: "handlers.misc.browserOff", defaultValue: "The cmux browser is off. Run Enable cmux Browser to open web pages in cmux.", table: "MiscHandlers", bundle: .module) }
@@ -41,6 +41,14 @@ enum MiscHandlerStrings {
         String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module)
     }
     static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
+    /// `agent.openSessionTab` with a peer `host` this Mac mirrors, but no live chat of it named `session`.
+    static func noPeerSession(_ session: String, _ peer: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.noPeerSession", defaultValue: "%1$@ has no running chat named %2$@.", table: "MiscHandlers", bundle: .module), peer, session)
+    }
+    /// `agent.openSessionTab` with a peer `host` where more than one live chat has the name `session`.
+    static func ambiguousPeerSession(_ session: String, _ peer: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession", defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", table: "MiscHandlers", bundle: .module), peer, session)
+    }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }

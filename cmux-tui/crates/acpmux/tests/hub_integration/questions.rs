@@ -113,3 +113,74 @@ async fn questions_deny_all_declines_without_asking() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["preview"], "chose reject_once null");
 }
+
+#[tokio::test]
+async fn questions_annotations_carry_the_agents_own_preview_and_notes() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let (id, pending) = ask(&mut c, "preview-question: Which layout?").await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    // The card shows (and sends back) the trimmed preview; the agent gets its own text.
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": id, "permissionId": pid, "optionId": "allow_once",
+               "answers": {"Which layout?": "B"},
+               "annotations": {"Which layout?": {"preview": "[ B ]", "notes": "but narrower"}}}),
+    )
+    .await
+    .unwrap();
+    c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end").await;
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(
+        hub.session_summary(&session)["preview"],
+        r#"got {"annotations": {"Which layout?": {"notes": "but narrower", "preview": "[ B ]\n"}}, "answers": {"Which layout?": "B"}}"#
+    );
+}
+
+#[tokio::test]
+async fn questions_annotations_that_do_not_fit_are_refused_and_the_ask_stays() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let (id, pending) = ask(&mut c, "preview-question: Which layout?").await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let long = "x".repeat(8193);
+    for (answers, annotations) in [
+        // A preview the agent never wrote.
+        (json!({"Which layout?": "B"}), json!({"Which layout?": {"preview": "<b>B</b>"}})),
+        // Another question, an unknown field, empty or too long notes, nothing at all.
+        (json!({"Which layout?": "B"}), json!({"Other?": {"notes": "x"}})),
+        (json!({"Which layout?": "B"}), json!({"Which layout?": {"notes": "x", "response": "y"}})),
+        (json!({"Which layout?": "B"}), json!({"Which layout?": {"notes": "  "}})),
+        (json!({"Which layout?": "B"}), json!({"Which layout?": {"notes": long}})),
+        (json!({"Which layout?": "B"}), json!({})),
+        // Annotations without answers.
+        (Value::Null, json!({"Which layout?": {"notes": "x"}})),
+    ] {
+        let mut params = json!({"sessionId": id, "permissionId": pid, "optionId": "allow_once",
+                                "annotations": annotations});
+        if !answers.is_null() {
+            params["answers"] = answers;
+        }
+        let refused = c.request(method::MUX_PERMISSION_RESPOND, params.clone()).await;
+        assert!(refused.is_err(), "{params}");
+    }
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["status"], "waiting");
+}
+
+#[tokio::test]
+async fn questions_annotations_for_a_question_that_is_not_claudes_are_dropped() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    // A command whose request carries its own `_meta.acpmux.question`: no AskUserQuestion input,
+    // so the answer goes through and the annotations go nowhere.
+    let (id, pending) = ask(&mut c, "meta-question: Go?").await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": id, "permissionId": pid, "optionId": "go", "answers": {"Go?": "yes"},
+               "annotations": {"Go?": {"notes": "x"}}}),
+    )
+    .await
+    .unwrap();
+    c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end").await;
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "chose go");
+}

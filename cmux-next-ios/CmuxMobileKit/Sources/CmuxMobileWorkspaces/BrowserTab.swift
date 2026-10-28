@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 import WebKit
 import CmuxMobileBrowserStream
+import CmuxTabsKit
 
 /// One browser tab's `WKWebView` and the state the tab toolbar shows. The
 /// web view lives as long as the tab, so switching tabs or zooming to the
@@ -52,10 +53,7 @@ public final class BrowserTabModel: BrowserTabState {
         watch(\.estimatedProgress) { model, value in model.progress = value }
     }
 
-    public var host: String {
-        guard let host = url?.host() else { return url?.absoluteString ?? "" }
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
+    public var host: String { url.map(TabsKitAddress.displayLabel(for:)) ?? "" }
 
     public func goBack() { _ = webView.goBack() }
     public func goForward() { _ = webView.goForward() }

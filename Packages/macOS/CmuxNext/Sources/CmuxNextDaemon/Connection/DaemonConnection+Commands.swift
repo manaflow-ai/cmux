@@ -29,8 +29,8 @@ extension DaemonConnection {
     public func renameWorkspace(_ key: WorkspaceKey, to name: String, source: WorkspaceNameSource? = nil,
                                 expectedNameRevision: UInt64? = nil, release: Bool = false) async throws -> WorkspaceMutationResult {
         if source == .auto {
-            guard identity?.supports(DaemonCapabilities.shared.workspaceNameSource) == true else {
-                throw DaemonError.missingCapabilities([DaemonCapabilities.shared.workspaceNameSource])
+            guard identity?.supports(DaemonCapability.workspaceNameSource.rawValue) == true else {
+                throw DaemonError.missingCapabilities([DaemonCapability.workspaceNameSource.rawValue])
             }
         }
         let nameMutation: MutationIdentity = {
@@ -73,11 +73,11 @@ extension DaemonConnection {
     }
 
     /// Whether this daemon takes `if_empty` on `close-workspace`.
-    public var supportsCloseIfEmpty: Bool { identity?.supports(DaemonCapabilities.shared.closeWorkspaceIfEmpty) == true }
+    public var supportsCloseIfEmpty: Bool { identity?.supports(DaemonCapability.closeWorkspaceIfEmpty.rawValue) == true }
 
     /// Whether this daemon closes many tabs, and the terminals they end, in
     /// one commit (`close-tabs`, `end_terminals`).
-    public var supportsBatchClose: Bool { identity?.supports(DaemonCapabilities.shared.batchClose) == true }
+    public var supportsBatchClose: Bool { identity?.supports(DaemonCapability.batchClose.rawValue) == true }
 
     /// Closes `surfaces` in one daemon commit (`batch-close-v1`). With
     /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
@@ -94,7 +94,7 @@ extension DaemonConnection {
     /// provider's when the daemon supports `terminal-env-v1`.
     func terminalEnvironment(_ explicit: [String: String]?) async -> [String: String]? {
         if let explicit { return explicit }
-        guard identity?.supports(DaemonCapabilities.shared.terminalEnv) == true, let provider = configuration.terminalEnvironment else {
+        guard identity?.supports(DaemonCapability.terminalEnv.rawValue) == true, let provider = configuration.terminalEnvironment else {
             return nil
         }
         let env = await provider()
@@ -108,14 +108,21 @@ extension DaemonConnection {
     @discardableResult
     public func createTerminal(in key: WorkspaceKey, cwd: String? = nil, argv: [String]? = nil, name: String? = nil,
                                size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async throws -> CreateTerminalResult {
+        try await request(createTerminalRequest(in: key, cwd: cwd, argv: argv, name: name, size: size, env: env, keep: keep))
+    }
+
+    /// One `create-terminal` for workspace `key`: a new terminal id and mutation identity, so the
+    /// request sent again replays the terminal instead of starting a second one.
+    func createTerminalRequest(in key: WorkspaceKey, cwd: String?, argv: [String]? = nil, name: String? = nil,
+                               size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async -> CreateTerminalRequest {
         let terminal = TerminalID.generate()
         var env = await terminalEnvironment(env)
-        if identity?.supports(DaemonCapabilities.shared.terminalEnv) == true {
+        if identity?.supports(DaemonCapability.terminalEnv.rawValue) == true {
             env = (env ?? [:]).merging(Self.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         }
-        let keep = identity?.supports(DaemonCapabilities.shared.terminalReap) == true ? keep : nil
-        return try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
-                                                       terminalID: terminal, env: env, keep: keep, mutation: mutation()))
+        let keep = identity?.supports(DaemonCapability.terminalReap.rawValue) == true ? keep : nil
+        return CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
+                                     terminalID: terminal, env: env, keep: keep, mutation: mutation())
     }
 
     /// New terminal tab in `pane` (the daemon's focused pane when nil).
@@ -190,8 +197,8 @@ extension DaemonConnection {
     /// gets `missingCapabilities` and no request.
     @discardableResult
     public func setTabPinned(_ surface: SurfaceID, _ pinned: Bool) async throws -> SetTabPinnedRequest.Response {
-        guard identity?.supports(DaemonCapabilities.shared.tabMetadata) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.tabMetadata])
+        guard identity?.supports(DaemonCapability.tabMetadata.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.tabMetadata.rawValue])
         }
         return try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
     }
@@ -313,7 +320,7 @@ extension DaemonConnection {
     /// `terminal`, `agent`, `daemon`) reaches daemons that serve it.
     public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil,
                        source: String? = nil) async throws -> NotificationID {
-        let source = identity?.supports(DaemonCapabilities.shared.notificationSource) == true ? source : nil
+        let source = identity?.supports(DaemonCapability.notificationSource.rawValue) == true ? source : nil
         return try await request(NotifyRequest(title: title, body: body, level: level, surface: surface, source: source))
             .notification
     }
@@ -347,8 +354,8 @@ extension DaemonConnection {
         guard endTerminals else {
             return try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
         }
-        guard identity.supports(DaemonCapabilities.shared.terminalReap) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.terminalReap])
+        guard identity.supports(DaemonCapability.terminalReap.rawValue) else {
+            throw DaemonError.missingCapabilities([DaemonCapability.terminalReap.rawValue])
         }
         guard let endpoint else { throw DaemonError.notConnected }
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)

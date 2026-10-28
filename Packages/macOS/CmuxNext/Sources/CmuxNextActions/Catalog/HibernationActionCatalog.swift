@@ -34,8 +34,21 @@ nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "neverHibernateSite", title: t("action.neverHibernateSite", "Never Hibernate This Site"),
                 keywords: ["tab", "browser", "hibernate", "sleep", "discard", "exception", "exclude", "site", "keep", "awake"],
-                category: .tab, symbol: "moon.zzz.fill", surfaces: [.palette, .contextMenu], targets: [.tab],
+                category: .tab, symbol: "moon.circle", surfaces: [.palette, .contextMenu], targets: [.tab],
                 cliName: "tab never-hibernate-site"
+            ),
+            // Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md).
+            ActionDescriptor(
+                id: "workspace.hibernate", title: t("action.workspace.hibernate", "Hibernate Workspace"),
+                keywords: ["workspace", "hibernate", "sleep", "pause", "memory", "ram", "evict", "free", "idle"],
+                category: .workspace, symbol: "moon.zzz", surfaces: [.palette, .contextMenu], targets: [.workspace],
+                cliName: "workspace hibernate"
+            ),
+            ActionDescriptor(
+                id: "workspace.toggleKeepAwake", title: t("action.workspace.keepAwake", "Keep Workspace Awake"),
+                keywords: ["workspace", "hibernate", "hibernation", "awake", "keep", "never", "sleep", "memory", "exception"],
+                category: .workspace, symbol: "sun.max", surfaces: [.palette, .contextMenu], targets: [.workspace],
+                cliName: "workspace toggle-keep-awake"
             ),
             ActionDescriptor(
                 id: "wakeTab", title: t("action.wakeTab", "Wake Tab"),

@@ -21,10 +21,8 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     return;
   }
   const repo = path.resolve(import.meta.dir, "../..");
-  // The pane's sheets, then noEntry.css where its import ships it (after them) if it is not listed.
-  const NO_ENTRY_CSS = "webviews/src/agent-session/acpmux/newtab/noEntry.css";
-  const sheets = paneSheets();
-  const css = (sheets.includes(NO_ENTRY_CSS) ? sheets : [...sheets, NO_ENTRY_CSS])
+  // Exactly the sheets the pane ships, including noEntry.css through its import graph.
+  const css = paneSheets()
     .map((file) =>
       readFileSync(path.join(repo, file), "utf8")
         .split("\n")
@@ -211,7 +209,8 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     const page = await open("no-preference", false);
     try {
       const seen = Object.keys(await entrances(page));
-      for (const label of ["context menu", "composer picker menu", "model picker", "tooltip", "hover card", "dialog"])
+      // Menus and popovers open in one frame on every page (test/popover-instant-open.test.ts).
+      for (const label of ["tooltip", "hover card", "dialog", "notice from an edge", "card with presence"])
         expect(seen).toContain(label);
     } finally {
       await page.close();

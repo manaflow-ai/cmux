@@ -60,9 +60,10 @@ public struct WorkspacesList: View {
     @State private var renamingGroup: GroupTarget?
     @State private var deletingGroup: GroupTarget?
     @State private var groupNameText = ""
-    /// The rows' status gutter (32 pt at Large), for the separator inset.
+    /// The rows' status gutter (32 pt at Large): the separators, section
+    /// titles, group titles and Mac lines start after it, at the text column.
     @Environment(\.dynamicTypeSize) private var typeSize
-    private var gutter: CGFloat { WorkspaceRow.scaled(WorkspaceRow.gutter, typeSize) }
+    private var gutter: CGFloat { CmuxMobileListColumn.plain(typeSize).text }
     /// Where the list's visible area ends (above the tab bar): unfolding
     /// scrolls when the first new row would open below it.
     @State private var visibleBottom: CGFloat = .infinity
@@ -501,7 +502,9 @@ public struct WorkspacesList: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 0, trailing: 20))
+        // From the screen edge, as the rows: the chevron in their gutter, the
+        // name at their titles' x.
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .contextMenu {
@@ -831,8 +834,10 @@ public struct WorkspacesList: View {
                 reconnect?(fold.mac.id)
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 0) {
+                // The glyph in the rows' gutter, the Mac's name at their titles' x.
                 Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
+                    .frame(width: gutter)
                     .accessibilityHidden(true)
                 // The name with its tag capsule, as Settings → Devices shows it;
                 // the plain text form when the capsule line doesn't fit.
@@ -869,6 +874,7 @@ public struct WorkspacesList: View {
                         .font(.caption.weight(.semibold))
                         .rotationEffect(.degrees(isOpen ? 90 : 0))
                         .animation(theme.motion.snap.animation, value: isOpen)
+                        .padding(.leading, 6)
                         .accessibilityHidden(true)
                 }
             }
@@ -879,7 +885,7 @@ public struct WorkspacesList: View {
         }
         .buttonStyle(.plain)
         .disabled(fold.isForcedOpen || (fold.reason != .offline && reconnect == nil))
-        .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 4, trailing: 20))
+        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 20))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
@@ -1105,16 +1111,21 @@ struct RowPressStyle: ButtonStyle {
 }
 
 /// A section title as a row that scrolls with the list (not a pinned
-/// header: pinned plain headers overlap rows under the glass bar).
+/// header: pinned plain headers overlap rows under the glass bar). It starts
+/// at the rows' titles, after their status gutter (SPEC 4.2.1: one text column).
 struct SectionTitle: View {
     let title: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The title's x from the screen edge: the rows' text column.
+    static func leading(_ size: DynamicTypeSize) -> CGFloat { CmuxMobileListColumn.plain(size).text }
 
     var body: some View {
         Text(title)
             .font(theme.type.meta.weight(.semibold))
             .foregroundStyle(theme.colors.label2)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 2, trailing: 20))
+            .listRowInsets(EdgeInsets(top: 14, leading: Self.leading(typeSize), bottom: 2, trailing: 20))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .accessibilityAddTraits(.isHeader)
@@ -1126,20 +1137,25 @@ struct SectionTitle: View {
 struct GroupHeaderLabel: View {
     let group: MacWorkspaceGroup
     let count: Int
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: 8) {
+        // From the screen edge: the chevron centered in the rows' status
+        // gutter, the name at their titles' x, its color dot after it.
+        HStack(spacing: 0) {
             Image(systemName: "chevron.right")
                 .font(theme.type.meta.weight(.semibold))
                 .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
                 .foregroundStyle(theme.colors.label2)
-            Circle()
-                .fill(swatch)
-                .frame(width: 8, height: 8)
+                .frame(width: Self.titleLeading(typeSize))
             Text(group.displayName)
                 .font(theme.type.meta.weight(.semibold))
                 .foregroundStyle(theme.colors.label)
                 .lineLimit(1)
+            Circle()
+                .fill(swatch)
+                .frame(width: 8, height: 8)
+                .padding(.leading, 8)
             Spacer(minLength: 8)
             if group.isCollapsed {
                 Text(String(count))
@@ -1156,6 +1172,9 @@ struct GroupHeaderLabel: View {
     private var swatch: Color {
         WorkspaceSwatch.color(stored: group.color) ?? theme.colors.label3.color
     }
+
+    /// The name's x from the screen edge: the rows' text column.
+    static func titleLeading(_ size: DynamicTypeSize) -> CGFloat { CmuxMobileListColumn.plain(size).text }
 }
 
 /// A Mac workspace group the person is renaming or deleting.
@@ -1222,8 +1241,8 @@ struct WorkspaceRow: View {
     /// The offline Mac, for the VoiceOver hint.
     var offlineMacName: String?
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The status gutter; separators start at the text.
-    private var gutter: CGFloat { Self.scaled(Self.gutter, typeSize) }
+    /// The status gutter; the title, separators and section titles start after it.
+    private var gutter: CGFloat { Self.textLeading(typeSize) }
     private var needsYouDisc: CGFloat { Self.scaled(10, typeSize) }
     private var doneDisc: CGFloat { Self.scaled(8, typeSize) }
 
@@ -1231,14 +1250,13 @@ struct WorkspaceRow: View {
     /// Type size (the same curve as the row's text). Not `@ScaledMetric`: in
     /// list rows it scaled 32 pt to about 64 pt at Large (round 2 review).
     static func scaled(_ value: CGFloat, _ size: DynamicTypeSize) -> CGFloat {
-        let category = UIContentSizeCategory(size)
-        guard category != .large else { return value }
-        let traits = UITraitCollection(preferredContentSizeCategory: category)
-        return UIFontMetrics(forTextStyle: .body).scaledValue(for: value, compatibleWith: traits)
+        CmuxMobileListColumn.scaled(value, size)
     }
 
-    /// The gutter at Large; the list scales it the same way for separators.
-    static let gutter: CGFloat = 32
+    /// The gutter at Large (`CmuxMobileListColumn.plainGutter`).
+    static let gutter: CGFloat = CmuxMobileListColumn.plainGutter
+    /// The title's x from the screen edge (rows have no leading inset).
+    static func textLeading(_ size: DynamicTypeSize) -> CGFloat { CmuxMobileListColumn.plain(size).text }
     /// About one row: unfolding scrolls when the first new row would not fit.
     static let minHeight: CGFloat = 60
 

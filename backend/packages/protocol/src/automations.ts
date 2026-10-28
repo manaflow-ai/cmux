@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { automationCapabilityOps } from "./automation-caps.ts"
 import { MachineId } from "./cloud-machine-ops.ts"
+import { ConversationId } from "./ops-home-schemas.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
 
 /**
@@ -145,6 +146,18 @@ export const Body = Schema.Union([
     conversation: Schema.Literals(["fresh", "continue"])
   }),
   Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) }),
+  /**
+   * A Chief's own job (plans/cmux-next/chief-automations-DESIGN.md): each run puts `prompt` in the
+   * Chief's conversation as the Chief's own note and starts a Cloud Chief turn there, so the job
+   * runs in the cloud while the person's computers sleep and the Chief posts the result in that
+   * chat. Delivery refuses a Chief whose owner is not the member the run is charged to.
+   */
+  Schema.Struct({
+    type: Schema.Literal("chief"),
+    chief: Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)),
+    conversation: ConversationId,
+    prompt: NonEmptyText(8000)
+  }),
   /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
   Schema.Struct({
     type: Schema.Literal("code"),

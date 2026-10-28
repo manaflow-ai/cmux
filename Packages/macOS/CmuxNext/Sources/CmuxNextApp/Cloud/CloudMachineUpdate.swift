@@ -9,6 +9,12 @@ import Foundation
 /// app's own pinned build (`cmux link machine update`, cmux-tui `link/machine_update.rs`), then moves
 /// the chat. Neither the CLI nor an agent can ask for it, and nothing the invocation carries reaches
 /// the machine: the CLI takes only the machine daemon's socket.
+///
+/// The app may also start the same update by itself (``CloudMachineUpdates``): a connected
+/// machine on another build than the app's is updated, also while an agent works there, with the same
+/// `cmux link machine update` and the same build source (the app's own pinned build; nothing picks
+/// it). That trigger lives only in the app; no CLI verb, action argument or agent reaches it. This
+/// button never reads its ledger: a click always runs.
 @MainActor
 enum CloudMachineUpdate {
     /// The invocation argument the "Update Machine" button sets.
@@ -28,7 +34,7 @@ enum CloudMachineUpdate {
         do {
             answer = try await cli.machineUpdate(socket: socket)
         } catch {
-            throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, String(describing: error)), retry: retry)
+            throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, CloudStrings.errorText(error)), retry: retry)
         }
         guard !answer.ok else { return }
         services.cloud.logger.error("cloud machine update: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
@@ -40,8 +46,9 @@ enum CloudMachineUpdate {
     }
 }
 
-/// Update Machine's text (``CloudMachineUpdate``). Keys live in Resources/Cloud.xcstrings.
-enum CloudMachineUpdateStrings {
+/// Update Machine's text (``CloudMachineUpdate``, and the automatic update's reasons,
+/// ``CloudMachineUpdateTarget``). Keys live in Resources/Cloud.xcstrings.
+nonisolated enum CloudMachineUpdateStrings {
     /// The button on a `machine_outdated` stop's toast.
     static var button: String {
         String(localized: "cloud.machineUpdate.button", defaultValue: "Update Machine", table: "Cloud", bundle: .module)
@@ -49,8 +56,10 @@ enum CloudMachineUpdateStrings {
     static func updating(_ machine: String) -> String {
         String(format: String(localized: "cloud.machineUpdate.updating", defaultValue: "Updating cmux on %@…", table: "Cloud", bundle: .module), machine)
     }
+    /// A machine too old to update in place: what still works there, never "use another machine".
     static func unsupported(_ machine: String) -> String {
-        String(format: String(localized: "cloud.machineUpdate.unsupported", defaultValue: "%@ runs a cmux too old to update in place. Use a new Cloud machine instead.",
+        String(format: String(localized: "cloud.machineUpdate.unsupportedKeepsWorking",
+                              defaultValue: "%@ runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.",
                               table: "Cloud", bundle: .module), machine)
     }
     static func unavailable(_ machine: String) -> String {
