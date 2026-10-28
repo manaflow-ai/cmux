@@ -158,6 +158,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_receipt.py
 
+      - name: Validate fast checks install every locked Bun workspace
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_bun_workspaces.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
@@ -190,6 +194,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
 
+      - name: Validate the per-test base-red classifier (a crash is never a base red)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_reds.py
+
       - name: Validate the pinned gh-merge-green install
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_gh_merge_green.py
@@ -213,6 +221,10 @@ jobs:
       - name: Validate the workflow_run handlers' API budget
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
+
+      - name: Validate the glaeda-route App budget cuts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_glaeda_route_app_budget.py
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
@@ -1325,6 +1337,7 @@ jobs:
         run: |
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
+          python3 tests/test_nightly_next_canary_feed_origin.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}
