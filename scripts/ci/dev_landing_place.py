@@ -203,8 +203,11 @@ def overflow_label(configured: str, read_snapshot: Callable[[], Mapping[str, Any
     onto it. The nightly signing jobs' pick (nightly_sign_runner.py, the one Blacksmith stall rule) skips a label
     the queue janitor's snapshot saw stalled. No snapshot, or an unreadable one, keeps OVERFLOW_LABEL.
     """
-    import nightly_sign_runner  # noqa: PLC0415 - scripts/ci, next to this file
-
+    try:
+        import nightly_sign_runner  # noqa: PLC0415 - scripts/ci, next to this file
+    except Exception as error:  # noqa: BLE001 - placement never fails the job
+        print(f"dev_landing_place: stall rule unavailable: {error}", file=sys.stderr)
+        return configured, ""
     if not nightly_sign_runner.BLACKSMITH_MACOS.fullmatch(configured):
         return configured, ""
     try:
@@ -212,7 +215,11 @@ def overflow_label(configured: str, read_snapshot: Callable[[], Mapping[str, Any
     except Exception as error:  # noqa: BLE001 - the configured label keeps its say
         print(f"dev_landing_place: pool snapshot unreadable: {error}", file=sys.stderr)
         snapshot = None
-    label, why = nightly_sign_runner.pick(configured, snapshot, now or dt.datetime.now(dt.timezone.utc))
+    try:
+        label, why = nightly_sign_runner.pick(configured, snapshot, now or dt.datetime.now(dt.timezone.utc))
+    except Exception as error:  # noqa: BLE001 - placement never fails the job; the configured label stands
+        print(f"dev_landing_place: stall pick failed: {error}", file=sys.stderr)
+        return configured, ""
     return label, f"; Blacksmith overflow {why}"
 
 

@@ -5525,7 +5525,7 @@ jobs:
       contents: read
     env:
       # The placed label's first entry (a glaeda-* label means a mini).
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runner_label || 'blacksmith-12vcpu-macos-26' }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runner_label || 'blacksmith-6vcpu-macos-26' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_TUI_TREE_KEY: ${{ needs.dev-landing-place.outputs.tree_fetch_key }}

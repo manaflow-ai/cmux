@@ -271,17 +271,32 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
+MATRIX_KEY = re.compile(r"\bmatrix\.([A-Za-z_][\w-]*)")
+
+
 def lands_on_large_mac(job: dict) -> bool:
-    """Whether a job can run on LARGE_MAC with every picker before it silent (vars unknown or unset)."""
-    if LARGE_MAC not in runs_on_text(job) and LARGE_MAC not in yaml.safe_dump(job.get("strategy") or {}):
+    """Whether a job can run on LARGE_MAC with every picker before it silent (vars unknown or unset).
+
+    Fails closed: a runs-on that spells LARGE_MAC but whose value the resolver cannot read (a fromJSON() or
+    format() of it, an expression it cannot parse) counts as landing there.
+    """
+    text = runs_on_text(job)
+    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), dict) else None
+    for key in MATRIX_KEY.findall(text):
+        if isinstance(matrix, dict) and LARGE_MAC in yaml.safe_dump(matrix.get(key, "")):
+            return True
+    if LARGE_MAC not in text:
         return False
     runs_on = job.get("runs-on")
     if isinstance(runs_on, dict):
         runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
                                                  else runs_on.get("labels") or [])]
-    if "matrix." in runs_on_text(job) and LARGE_MAC in yaml.safe_dump(job.get("strategy") or {}):
+    try:
+        labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
+    except ValueError:
         return True
-    return LARGE_MAC in {str(label) for label in runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)}
+    unread = any(isinstance(label, runs_on_labels.Unknown) and str(label).endswith("(...)") for label in labels)
+    return unread or LARGE_MAC in {str(label) for label in labels}
 
 
 class RunsOnFallbackTests(unittest.TestCase):
@@ -293,11 +308,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
                 key = f"{path.name}#{job_id}"
-                try:
-                    hit = lands_on_large_mac(job)
-                except ValueError as error:
-                    hit = True
-                    key += f" (unreadable: {error})"
+                hit = lands_on_large_mac(job)
                 if hit and key in LARGE_MAC_LAST_RESORT:
                     seen.add(key)
                 elif hit:
@@ -450,6 +461,12 @@ class RunsOnFallbackTests(unittest.TestCase):
                                             "strategy": {"matrix": {"pool": ["blacksmith-12vcpu-macos-26"]}}}))
         self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
                                                         "'blacksmith-6vcpu-macos-26' }}"}))
+        # A literal hidden in a function the resolver cannot read fails closed; a matrix key runs-on never reads
+        # does not count.
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "fromJSON(needs.p.outputs.runs_on || "
+                                                       "'[\"blacksmith-12vcpu-macos-26\"]') }}"}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "pool": ["blacksmith-6vcpu-macos-26"], "note": ["blacksmith-12vcpu-macos-26"]}}}))
         self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.large == 'true' && "
                                                         "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}"}))
 
