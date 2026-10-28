@@ -1,6 +1,7 @@
 """Tests for scripts/ci/signer_parity_compare.py (the codesign/rcodesign payload compare)."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import json
@@ -884,6 +885,51 @@ class StrictFourthReviewTests(StrictFixture):
         self.assertIn("Contents/_CodeSignature", proc.stdout)
         self.assertIn("Contents/Frameworks/Lib.framework/Versions/A/_CodeSignature", proc.stdout)
         self.assertIn("a bundle without its signature directory (A, B)", proc.stdout)
+
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictFifthReviewTests(StrictFixture):
+    """A digest copied outside its hash field, and symlink modes."""
+
+    def app_with_comment(self, name: str, time: str):
+        """An app whose CodeResources holds a comment with its nested executable's digest, sealed and signed."""
+        app = self.app(name, time=time)
+        nested = (app / NESTED).read_bytes()
+        path = app / "Contents/_CodeSignature/CodeResources"
+        comment = b"<!--<data>" + base64.b64encode(hashlib.sha256(nested).digest()) + b"</data>-->"
+        sealed = path.read_bytes().replace(b"<dict>", comment + b"<dict>", 1)
+        path.write_bytes(sealed)
+        (app / "Contents/MacOS/Demo").write_bytes(macho(b"TEXT" * 8, lambda cd: self.signer.cms(cd, time=time),
+                                                        resources_hash=hashlib.sha256(sealed).digest(), reserve=4096))
+        return app
+
+    def test_a_digest_copied_into_a_comment_is_not_normalized(self):
+        a, b = self.app_with_comment("a", "261028120000Z"), self.app_with_comment("b", "261028130500Z")
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("the same entries in different bytes", proc.stdout)
+
+    def test_a_digest_copied_into_the_cdhashes_plist_is_not_normalized(self):
+        def commented(cd):
+            digest = hashlib.sha256(cd).digest()[:20]
+            return lambda value: plistlib.dumps(value).replace(
+                b"<dict>", b"<!--<data>" + base64.b64encode(digest) + b"</data>--><dict>", 1)
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, cdhashes_plist=commented(cd)),
+                                                 page_shift=12, reserve=4096))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, cdhashes_plist=commented(cd)),
+                                                 page_shift=14, reserve=4096))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("signed attribute 1.2.840.113635.100.9.1 differs", proc.stdout)
+
+    @unittest.skipUnless(hasattr(os, "lchmod"), "symlink modes exist only where lchmod does (macOS)")
+    def test_symlink_modes_are_compared(self):
+        a, b = self.app("a"), self.app("b")
+        os.lchmod(b / "Contents/Current", 0o700)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Contents/Current: symlink mode differs", proc.stdout)
 
 
 if __name__ == "__main__":

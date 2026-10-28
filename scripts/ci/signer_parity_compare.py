@@ -663,19 +663,52 @@ def attribute_value(attr_oid: str, values: Node, names: dict):
     compare equal; every other attribute is compared as it is."""
     if attr_oid not in CD_HASH_ATTRIBUTES:
         return der(values)
-    return marked(der(values), names)
+    return marked_attribute(attr_oid, values, names)
 
 
-def marked(data: bytes, names: dict) -> bytes:
-    """data with each named digest, raw or base64 (as an XML plist holds it),
-    replaced by a marker that holds a NUL byte, so no text value can forge it."""
+def marked_plist(data: bytes, names: dict, expected: int):
+    """An XML property list's bytes with the content of each <data> element that
+    holds a named digest replaced by a marker no text can forge (it holds a NUL),
+    or None unless exactly `expected` elements were replaced: a copy of a digest
+    anywhere else (a comment, another field) is never normalized away."""
     import base64
-    tokens = {}
-    for digest, name in names.items():
-        tokens[digest] = tokens[base64.b64encode(digest)] = b"\0<" + name.encode() + b">\0"
-    for token in sorted(tokens, key=len, reverse=True):
-        data = data.replace(token, tokens[token])
-    return data
+    import binascii
+    import re
+    if not data.lstrip().startswith(b"<?xml") and not data.lstrip().startswith(b"<plist"):
+        return None if expected else data
+    replaced = 0
+
+    def mark(match):
+        nonlocal replaced
+        try:
+            value = base64.b64decode(re.sub(rb"\s+", b"", match.group(1)), validate=True)
+        except (binascii.Error, ValueError):
+            return match.group(0)
+        if value not in names:
+            return match.group(0)
+        replaced += 1
+        return b"<data>\0<" + names[value].encode() + b">\0</data>"
+    out = re.sub(rb"<data>([^<]*)</data>", mark, data)
+    return out if replaced == expected else None
+
+
+def marked_attribute(attr_oid: str, values: Node, names: dict):
+    """A CodeDirectory-hash attribute with only its digest values named."""
+    def name(value):
+        return ("digest", names[value]) if value in names else value
+    if attr_oid == MESSAGE_DIGEST:
+        return [name(v.value) for v in values.children]
+    if attr_oid == APPLE_CDHASHES:
+        return [(der(v.children[0]), name(v.children[1].value)) if len(v.children) == 2 else der(v)
+                for v in values.children]
+    if len(values.children) != 1:
+        return der(values)
+    try:
+        plist = plistlib.loads(values.children[0].value)
+        count = len(plist["cdhashes"])
+    except Exception:
+        return der(values)
+    return marked_plist(values.children[0].value, names, count) or der(values)
 
 
 def cd_hash_attribute_errors(attrs: list, names: dict, count: int) -> list:
@@ -938,9 +971,9 @@ def resources_named(plist, home: str, names: dict):
     """A CodeResources property list with each digest named, but only in its hash
     fields and only when the digest is of that entry's own path (a file's bytes)
     or of a CodeDirectory of the nested code at that path."""
-    used = {}
+    used, used_count = {}, [0]
     if not isinstance(plist, dict):
-        return plist, used
+        return plist, used, 0
 
     def name(digest, entry):
         label = names.get(digest) if isinstance(digest, bytes) else None
@@ -948,6 +981,7 @@ def resources_named(plist, home: str, names: dict):
         own = os.path.normpath(os.path.join(home, entry)) if home else os.path.normpath(entry)
         if path and (path == own or path.startswith(own + "/")):
             used[digest] = label
+            used_count[0] += 1
             return ("digest of", label)  # a tuple: no property list value equals it
         return digest
 
@@ -963,7 +997,7 @@ def resources_named(plist, home: str, names: dict):
             elif isinstance(value, dict):
                 value = {k: name(v, entry) if k in HASH_FIELDS else v for k, v in value.items()}
             out[section][entry] = value
-    return out, used
+    return out, used, used_count[0]
 
 
 def manifest_named(data: bytes, rel: str, names: dict) -> bytes:
@@ -1132,10 +1166,11 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
         except Exception:
             return out + ["not a property list; bytes differ"]
         home = os.path.dirname(os.path.dirname(rel))
-        (na, ua), (nb, ub) = resources_named(pa, home, known[0]), resources_named(pb, home, known[1])
+        (na, ua, ca), (nb, ub, cb) = resources_named(pa, home, known[0]), resources_named(pb, home, known[1])
         if na == nb:
-            # The parsed lists agree; their bytes must too, but for those digests.
-            return out + ([] if marked(xa, ua) == marked(xb, ub) else
+            # The parsed lists agree; their bytes must too, but for the digests in hash fields.
+            ma, mb = marked_plist(xa, ua, ca), marked_plist(xb, ub, cb)
+            return out + ([] if ma is not None and ma == mb else
                           ["the same entries in different bytes (formatting, comments or order)"])
         diffs = code_resources_diff_values(na, nb) or ["the property lists differ"]
         return out + [f"{d} (a hash not explained by a nested item that differs only by signing time)" for d in diffs]
@@ -1215,6 +1250,19 @@ def container_errors(da: bytes, db: bytes, pa, pb) -> list:
     return [] if outside(da, pa) == outside(db, pb) else ["the universal container (header, offsets or padding) differs"]
 
 
+def symlink_mode_errors(a_root: str, b_root: str) -> list:
+    """The default compare records a symlink's target only; its own mode (macOS
+    lchmod) must match too."""
+    out = []
+    ta, tb = walk(a_root), walk(b_root)
+    for rel in sorted(set(ta) & set(tb)):
+        if os.path.islink(ta[rel]) and os.path.islink(tb[rel]):
+            ma, mb = (oct(stat.S_IMODE(os.lstat(p).st_mode)) for p in (ta[rel], tb[rel]))
+            if ma != mb:
+                out.append(f"{rel}: symlink mode differs ({ma} / {mb})")
+    return out
+
+
 def tree_errors(root: str) -> list:
     """What strict mode cannot read: os.walk() otherwise skips an unreadable directory."""
     errors = []
@@ -1242,6 +1290,9 @@ def main() -> int:
     modes = [oct(stat.S_IMODE(os.stat(p).st_mode)) for p in (args.a, args.b)]
     if modes[0] != modes[1]:
         return fail(f"the app directories' modes differ: {modes[0]} / {modes[1]}")
+    links = symlink_mode_errors(args.a, args.b)
+    if links:
+        return fail(f"{len(links)} symlink modes differ", links)
     try:
         return compare(args)
     except Exception as error:  # a malformed input fails strict mode, never crashes it open
