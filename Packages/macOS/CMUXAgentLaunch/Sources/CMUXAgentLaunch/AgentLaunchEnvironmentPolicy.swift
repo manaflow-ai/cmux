@@ -370,7 +370,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         case "1":
             return sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
         case "0":
-            return nil
+            return sanitizedNodeOptions(env["NODE_OPTIONS"])
         default:
             return sanitizedNodeOptions(env["NODE_OPTIONS"])
         }

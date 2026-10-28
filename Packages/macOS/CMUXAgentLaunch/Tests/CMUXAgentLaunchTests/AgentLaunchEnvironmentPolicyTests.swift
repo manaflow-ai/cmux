@@ -68,6 +68,19 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(repair == ["NODE_OPTIONS": .some("--inspect")])
     }
 
+    @Test("Keeps options after a stale preload when the original was explicitly absent")
+    func keepsOptionsAfterStalePreloadWithoutOriginal() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": #"--require="/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size=4096 --require=/tmp/instrumentation.cjs"#,
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0",
+        ])
+
+        #expect(repair == [
+            "NODE_OPTIONS": .some("--require=/tmp/instrumentation.cjs"),
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
+        ])
+    }
+
     @Test("Leaves a process environment without a cmux restore preload unchanged")
     func leavesUnrelatedNodeOptionsUnchanged() {
         let policy = AgentLaunchEnvironmentPolicy()
