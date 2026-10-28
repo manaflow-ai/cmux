@@ -12,6 +12,9 @@
 1. Open Settings > Accounts. Use Sign In for a missing provider or Re-authenticate for an expired one, then check again.
 2. For the wrong cmux account, use Switch Account and check the masked address. For a missing or unreadable saved key, use Add Key; never paste the secret into a chat.
 3. If the command or browser reports offline, reconnect before retrying. If Cloud is unavailable, retry when the service returns; local work can continue.
+4. Connect the cmux GitHub App, then review its repositories and permissions in GitHub. Finish any browser approval and check Settings > Accounts for the result. This does not configure another machine.
+
+In the app: **Connect GitHub**.
 
 ## Use another machine
 

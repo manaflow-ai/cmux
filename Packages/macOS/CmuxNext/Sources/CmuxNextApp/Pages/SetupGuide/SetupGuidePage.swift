@@ -10,9 +10,10 @@ struct SetupGuideSection: Identifiable {
     let id: String
     let title: String
     let steps: [String]
+    let action: (id: String, title: String)?
 }
 
-/// Offline instructions from setup::TASKS. Reading the guide never checks credentials or starts a login.
+/// Offline instructions from setup::TASKS. Only a deliberate button click starts a shared action.
 @MainActor
 final class SetupGuidePage: InternalPageProvider {
     var page: InternalPageID { .setupGuide }
@@ -20,12 +21,20 @@ final class SetupGuidePage: InternalPageProvider {
     var symbol: String { "book" }
     static var pageTitle: String { String(localized: "setupGuide.title", defaultValue: "Setup Guide", table: "SetupGuide", bundle: .module) }
 
+    private weak var registry: ActionRegistry?
+
+    init(registry: ActionRegistry) { self.registry = registry }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        SetupGuideView()
+        SetupGuideView { [weak registry] action in
+            // The manifest does not grant arbitrary native actions to the guide.
+            guard action == "accounts.githubConnect" else { return }
+            registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
+        }
     }
 
     static func bind(into registry: ActionRegistry, services: AppServices) {
-        services.pages.register(SetupGuidePage())
+        services.pages.register(SetupGuidePage(registry: registry))
         registry.bindEffect("help.setupGuide", effect: { [weak services] invocation in
             guard let services, services.pages.show(.setupGuide, in: services.windows.active, focus: invocation.allowsViewChange) != nil else {
                 return .refused(RefusalStrings.noWindowOpen)
@@ -35,16 +44,19 @@ final class SetupGuidePage: InternalPageProvider {
     }
 }
 
-/// Static, selectable instructions with native scrolling; no credential reads or automatic actions.
+/// Selectable instructions with native scrolling; no credential reads or automatic actions.
 final class SetupGuideView: NSView {
     private final class Document: NSView { override var isFlipped: Bool { true } }
     private let scroll = NSScrollView()
     private let document = Document()
-    private var lines: [(label: ThemedLabel, gap: CGFloat)] = []
+    private var lines: [(view: NSView, gap: CGFloat)] = []
+    private var actions: [ObjectIdentifier: String] = [:]
+    private let onAction: (String) -> Void
     private let readingWidth: CGFloat
 
-    init(sectionSpacing: CGFloat = Metrics.space5, readingWidth: CGFloat = 680) {
+    init(sectionSpacing: CGFloat = Metrics.space5, readingWidth: CGFloat = 680, onAction: @escaping (String) -> Void = { _ in }) {
         self.readingWidth = readingWidth
+        self.onAction = onAction
         super.init(frame: .zero)
         setAccessibilityIdentifier("setup-guide")
         scroll.drawsBackground = false
@@ -59,7 +71,22 @@ final class SetupGuideView: NSView {
                 add("\(index + 1). \(step)", font: Typography.body, gap: Metrics.space3,
                     id: "setup-guide-\(section.id)-\(index)")
             }
+            if let action = section.action {
+                let button = ThemedBezelButton(title: action.title, target: self, action: #selector(performAction(_:)))
+                button.font = Typography.body
+                button.bezelStyle = .rounded
+                button.cell?.wraps = true
+                button.setAccessibilityIdentifier("setup-guide-\(section.id)-action")
+                actions[ObjectIdentifier(button)] = action.id
+                document.addSubview(button)
+                lines.append((button, Metrics.space3))
+            }
         }
+    }
+
+    @objc private func performAction(_ sender: NSButton) {
+        guard let action = actions[ObjectIdentifier(sender)] else { return }
+        onAction(action)
     }
 
     @available(*, unavailable)
@@ -81,13 +108,18 @@ final class SetupGuideView: NSView {
         let available = scroll.contentSize.width
         let width = min(readingWidth, max(1, available - 2 * Metrics.space5))
         var y = Metrics.space5
-        for (label, gap) in lines {
+        for (view, gap) in lines {
             y += gap
-            let height = ceil(label.attributedStringValue.boundingRect(
-                with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            let attributed = (view as? NSTextField)?.attributedStringValue ?? (view as? NSButton)?.attributedTitle ?? NSAttributedString(string: "")
+            let isButton = view is NSButton
+            let textWidth = max(1, width - (isButton ? 2 * Metrics.space3 : 0))
+            let height = ceil(attributed.boundingRect(
+                with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
-            label.frame = NSRect(x: max(0, (available - width) / 2), y: y, width: width, height: height)
-            y += height
+            let rowHeight = isButton ? max(Metrics.controlHeight, height + Metrics.space2) : height
+            let rowWidth = isButton ? min(width, max(view.fittingSize.width, attributed.size().width + 2 * Metrics.space3)) : width
+            view.frame = NSRect(x: max(0, (available - width) / 2), y: y, width: rowWidth, height: rowHeight)
+            y += rowHeight
         }
         document.frame = NSRect(x: 0, y: 0, width: available, height: max(scroll.contentSize.height, y + Metrics.space5))
     }

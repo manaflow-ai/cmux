@@ -17,10 +17,14 @@ def guides():
     literal = r'"(?:[^"\\]|\\.)*"'
     for task in tasks.split('    Task {')[1:]:
         identifier = re.search(r'id: (' + literal + ')', task)
-        guide = re.search(r'guide: Some\(HumanGuide \{\s*title: (' + literal + r'),\s*steps: &\[([\s\S]*?)\],\s*\}\)', task)
+        guide = re.search(r'guide: Some\(HumanGuide \{\s*title: (' + literal + r'),\s*steps: &\[([\s\S]*?)\],\s*action: ([\s\S]*?),\s*\}\)', task)
         if guide:
+            action = re.fullmatch(r'Some\(HumanGuideAction \{ id: (' + literal + r'), title: (' + literal + r') \}\)', guide[3])
+            if not action and guide[3] != 'None':
+                raise ValueError('Unsupported guide action')
             result.append({'id': json.loads(identifier[1]), 'title': json.loads(guide[1]),
-                           'steps': [json.loads(s) for s in re.findall(literal, guide[2])]})
+                           'steps': [json.loads(s) for s in re.findall(literal, guide[2])],
+                           'action': {'id': json.loads(action[1]), 'title': json.loads(action[2])} if action else None})
         elif 'guide: None,' not in task:
             raise ValueError('Every task must declare its guide explicitly')
     if not result:
@@ -37,12 +41,16 @@ def outputs():
             return f'String(localized: "setupGuide.{entry["id"]}.{suffix}", defaultValue: {json.dumps(value, ensure_ascii=False)}, table: "SetupGuide", bundle: .module)'
         swift += [f'            SetupGuideSection(id: "{entry["id"]}", title: {localized("title", entry["title"])}, steps: [']
         swift += [f'                {localized(str(i), value)},' for i, value in enumerate(entry['steps'])]
-        swift += ['            ]),']
+        action = entry['action']
+        native_action = f'(id: {json.dumps(action["id"])}, title: {localized("action", action["title"])})' if action else 'nil'
+        swift += [f'            ], action: {native_action}),']
     swift += ['        ]', '    }', '}', '']
     md = ['# Set up cmux', '', '<!-- Generated from setup::TASKS by scripts/cmux-next/generate-setup-guide.py. -->', '']
     for entry in entries:
         md += ['## ' + entry['title'], '']
         md += [f'{i + 1}. {value}' for i, value in enumerate(entry['steps'])]
+        if entry['action']:
+            md += ['', f'In the app: **{entry["action"]["title"]}**.']
         md += ['']
     return {APP / 'Pages/SetupGuide/SetupGuideContent.generated.swift': '\n'.join(swift),
             ROOT / 'docs/setup-guide.md': '\n'.join(md),

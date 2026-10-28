@@ -7,17 +7,18 @@ enum SetupGuideContent {
             SetupGuideSection(id: "harness", title: String(localized: "setupGuide.harness.title", defaultValue: "Start an agent on this Mac", table: "SetupGuide", bundle: .module), steps: [
                 String(localized: "setupGuide.harness.0", defaultValue: "Open the model picker and choose + to see Harnesses. Install a provider, then use Sign In and finish its browser or terminal instructions.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.harness.1", defaultValue: "Run cmux setup harness to check the result. Follow the recovery it reports for that profile; unknown sign-in evidence does not confirm a working account.", table: "SetupGuide", bundle: .module),
-            ]),
+            ], action: nil),
             SetupGuideSection(id: "accounts", title: String(localized: "setupGuide.accounts.title", defaultValue: "Recover a sign-in", table: "SetupGuide", bundle: .module), steps: [
                 String(localized: "setupGuide.accounts.0", defaultValue: "Open Settings > Accounts. Use Sign In for a missing provider or Re-authenticate for an expired one, then check again.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.accounts.1", defaultValue: "For the wrong cmux account, use Switch Account and check the masked address. For a missing or unreadable saved key, use Add Key; never paste the secret into a chat.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.accounts.2", defaultValue: "If the command or browser reports offline, reconnect before retrying. If Cloud is unavailable, retry when the service returns; local work can continue.", table: "SetupGuide", bundle: .module),
-            ]),
+                String(localized: "setupGuide.accounts.3", defaultValue: "Connect the cmux GitHub App, then review its repositories and permissions in GitHub. Finish any browser approval and check Settings > Accounts for the result. This does not configure another machine.", table: "SetupGuide", bundle: .module),
+            ], action: (id: "accounts.githubConnect", title: String(localized: "setupGuide.accounts.action", defaultValue: "Connect GitHub", table: "SetupGuide", bundle: .module))),
             SetupGuideSection(id: "cloud_machine", title: String(localized: "setupGuide.cloud_machine.title", defaultValue: "Use another machine", table: "SetupGuide", bundle: .module), steps: [
                 String(localized: "setupGuide.cloud_machine.0", defaultValue: "For a Cloud machine, sign in to cmux, then preview with cmux setup cloud-machine --dry-run. To proceed, run cmux setup cloud-machine without --dry-run. Creating a machine costs money; confirm the request only when you want it.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.cloud_machine.1", defaultValue: "For an existing SSH machine, run cmux setup machine HOST. If the connection fails, use the SSH command it reports. Do not enter a password into an agent chat.", table: "SetupGuide", bundle: .module),
                 String(localized: "setupGuide.cloud_machine.2", defaultValue: "Run cmux setup status for the current checks and recovery steps. A detected credential is not proof that it is valid or belongs to the intended account.", table: "SetupGuide", bundle: .module),
-            ]),
+            ], action: nil),
         ]
     }
 }
