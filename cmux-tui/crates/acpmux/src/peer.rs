@@ -145,6 +145,9 @@ pub struct Peer {
     settled: tokio::sync::watch::Sender<u64>,
     /// Connected, degraded or reconnecting, and since when (`peer_link.rs`).
     link: StdMutex<Link>,
+    /// Where each change of `state()` goes once the hub runs the peer (`report_states`), and
+    /// the last state sent there; both under `link`'s lock, so the notes go out in order.
+    state_notes: StdMutex<StateNotes>,
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
@@ -206,6 +209,7 @@ impl Peer {
             stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
+            state_notes: StdMutex::new(StateNotes::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
             purge_tombstones: Default::default(),
@@ -219,8 +223,39 @@ impl Peer {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Every change of the link's state goes through here, so each one sends its note
+    /// (`report_states`) from the code that made it: no timer, no polling, no repeats.
     fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
-        f(&mut self.link.lock().unwrap_or_else(|e| e.into_inner()))
+        let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        let out = f(&mut link);
+        self.note_state(&link);
+        out
+    }
+
+    /// Sends `_acpmux/peer_state_changed` notes for this peer to `notes` (the watchers' feed,
+    /// `Hub::spawn_peer`) from now on, starting with its state now. A stopped peer sends none:
+    /// its replacement, or its removal, speaks for the name.
+    pub fn report_states(&self, notes: tokio::sync::broadcast::Sender<Value>) {
+        let link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        self.state_notes.lock_or_recover().to = Some(notes);
+        self.note_state(&link);
+    }
+
+    /// Called with `link` locked.
+    fn note_state(&self, link: &Link) {
+        if self.stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let state = link.state();
+        let mut notes = self.state_notes.lock_or_recover();
+        let Some(to) = notes.to.as_ref() else { return };
+        if notes.sent == Some(state) {
+            return;
+        }
+        notes.sent = Some(state);
+        let error = self.last_error.lock_or_recover().clone();
+        let note = state_note(&self.name, state.wire(), link.last_seen, error);
+        let _ = to.send(note);
     }
 
     pub fn state(&self) -> PeerState {
@@ -661,6 +696,10 @@ impl Peer {
         };
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
+            // Before the link goes down, so the state note of the drop names why.
+            if let Err(e) = &outcome {
+                *self.last_error.lock_or_recover() = Some(e.clone());
+            }
             // The epoch moves first: a handshake that marks the link ready checks it after,
             // so `connected` never stays true for a link that is gone.
             self.link_ended();
@@ -673,7 +712,6 @@ impl Peer {
                 backoff.reset();
             }
             if let Err(e) = outcome {
-                *self.last_error.lock_or_recover() = Some(e.clone());
                 let notice = PeerNotice::Disconnected(e);
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
@@ -860,11 +898,19 @@ impl Peer {
             me.upload_resume.store(resume, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
-            me.with_link(|l| l.ready(crate::store::now_ms()));
-            // Connected only now. `run` moves the epoch on before it clears `connected`, so a
-            // link that dropped meanwhile is seen here and never left reading connected.
-            me.connected.store(true, Ordering::SeqCst);
-            if me.link_epoch() != link {
+            // Connected only now, and ready with it, so its state note follows `connected`.
+            // `run` moves the epoch on before it clears `connected` and takes the link down, so
+            // a link that dropped meanwhile is seen here: it is not made ready again, and never
+            // left reading connected.
+            let live = me.with_link(|l| {
+                let live = me.link_epoch() == link;
+                if live {
+                    me.connected.store(true, Ordering::SeqCst);
+                    l.ready(crate::store::now_ms());
+                }
+                live
+            });
+            if !live || me.link_epoch() != link {
                 me.connected.store(false, Ordering::SeqCst);
                 return Ok(());
             }
@@ -1029,6 +1075,38 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
 /// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
+
+/// `Peer::state_notes`.
+#[derive(Default)]
+struct StateNotes {
+    to: Option<tokio::sync::broadcast::Sender<Value>>,
+    sent: Option<PeerState>,
+}
+
+/// The hub's feed marks a peer state note with this key (`server/harness_admin.rs`
+/// `watch_note` sends its value as `_acpmux/peer_state_changed`).
+pub const STATE_NOTE: &str = "peerStateChanged";
+
+/// The feature the daemon lists for `_acpmux/peer_state_changed`.
+pub const STATE_EVENTS_FEATURE: &str = "peerStateEvents";
+
+/// One `_acpmux/peer_state_changed {peer, state, lastSeen, error, at}`, marked for the
+/// watchers' feed.
+pub fn state_note(
+    peer: &str,
+    state: crate::protocol::peer_state::PeerLinkState,
+    last_seen: Option<u64>,
+    error: Option<String>,
+) -> Value {
+    let note = crate::protocol::peer_state::PeerStateChanged {
+        peer: peer.to_owned(),
+        state,
+        last_seen,
+        error,
+        at: crate::store::now_ms(),
+    };
+    json!({ (STATE_NOTE): note })
+}
 
 /// One frame queued for the link: the link epoch it was admitted on, and the pending key of
 /// the request it carries (None for a notification).

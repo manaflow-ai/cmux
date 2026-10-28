@@ -157,6 +157,11 @@ impl Hub {
         self.harness_watch.changes.subscribe()
     }
 
+    /// The watchers' feed itself, for a peer's state notes (`peer.rs` `report_states`).
+    pub(super) fn harness_watch_sender(&self) -> broadcast::Sender<Value> {
+        self.harness_watch.changes.clone()
+    }
+
     /// Sends one `_acpmux/harnesses_changed` payload to the watchers.
     pub(super) fn send_harness_change(&self, payload: Value) {
         let _ = self.harness_watch.changes.send(payload);
