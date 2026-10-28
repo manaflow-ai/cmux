@@ -24289,7 +24289,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld sessions"
+            "value": "%lld sessions au total"
           }
         },
         "it": {
