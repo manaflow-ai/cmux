@@ -20,22 +20,22 @@ nonisolated extension StatusIndicatorPlan {
     }
 
     /// `plan` with a shape of its own where it would say `state` by color alone (audit 4, P4; WCAG
-    /// 1.4.1): a plain dot for an error or a pause would read as waiting's dot in another color, so
-    /// in every look an error draws a crossed ring and a pause an empty ring (the shapes plan's,
-    /// ``stillPlan(_:style:)``), in their colors. With the system's "Differentiate without color"
-    /// (`withoutColor`), waiting's dot draws its figure too (an exclamation mark, a hand, a key, a
-    /// question bubble). A set's own mark, a ring of known progress and every moving mark stay.
+    /// 1.4.1). In every look, an error or a pause that would draw a plain dot, or the same mark as
+    /// waiting or as each other in this set (`glyphOf` gives another state's mark), draws the shapes
+    /// plan's (``stillPlan(_:style:)``: a crossed ring, an empty ring), in its color. With the system's
+    /// "Differentiate without color" (`withoutColor`), waiting, error, a pause and success always draw
+    /// the shapes plan's marks (waiting's figure: an exclamation mark, a hand, a key, a question
+    /// bubble), which differ from each other in every set. Rings of known progress and moving marks stay.
     static func shaped(_ plan: StatusIndicatorPlan, for state: StatusIndicatorState, style: StatusIndicatorStyle,
-                       withoutColor: Bool) -> StatusIndicatorPlan {
-        guard plan.glyph == .dot, plan.animation == nil else { return plan }
-        switch state {
-        case .error, .paused(progress: nil):
+                       withoutColor: Bool, glyphOf: (StatusIndicatorState) -> Glyph) -> StatusIndicatorPlan {
+        guard plan.glyph != .none, plan.animation == nil else { return plan }
+        let apart: [StatusIndicatorState] = [.waiting, .error, .paused(progress: nil)]
+        if withoutColor, apart.contains(state) || state == .success || state.blockedKind != nil {
             return stillPlan(state, style: style)
-        case .waiting where withoutColor:
-            return stillPlan(state, style: style)
-        default:
-            return plan
         }
+        guard state == .error || state == .paused(progress: nil) else { return plan }
+        let shared = plan.glyph == .dot || apart.contains { $0 != state && glyphOf($0) == plan.glyph }
+        return shared ? stillPlan(state, style: style) : plan
     }
 
     /// The shapes plan for `state` (Leo 2026-10-13: "What if they were just colors or symbols or
