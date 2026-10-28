@@ -30,6 +30,7 @@ use tokio::task::JoinSet;
 
 use crate::crypto::ServiceAuthority;
 use crate::daemon::ServerConnection;
+use crate::read_buffer::filled;
 use crate::service::{
     EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
 };
@@ -84,6 +85,14 @@ struct MuxUploadPermit {
     _total: OwnedSemaphorePermit,
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: MuxUploadBudget's semaphores are private to it and nothing closes them"
+)]
+async fn acquire_budget(budget: &Arc<Semaphore>, charged: u32) -> OwnedSemaphorePermit {
+    budget.clone().acquire_many_owned(charged).await.expect("mux upload budget is never closed")
+}
+
 impl MuxUploadBudget {
     fn new() -> Self {
         Self {
@@ -110,33 +119,16 @@ impl MuxUploadBudget {
         let charged =
             u32::try_from(charged).map_err(|_| ServicesError::MessageTooLarge(encoded_bytes))?;
         let bulk = if matches!(lane, Lane::Bulk | Lane::Tunnel) {
-            Some(
-                self.bulk
-                    .clone()
-                    .acquire_many_owned(charged)
-                    .await
-                    .expect("mux upload budget is never closed"),
-            )
+            Some(acquire_budget(&self.bulk, charged).await)
         } else {
             None
         };
         let non_interactive = if lane == Lane::Interactive {
             None
         } else {
-            Some(
-                self.non_interactive
-                    .clone()
-                    .acquire_many_owned(charged)
-                    .await
-                    .expect("mux upload budget is never closed"),
-            )
+            Some(acquire_budget(&self.non_interactive, charged).await)
         };
-        let total = self
-            .total
-            .clone()
-            .acquire_many_owned(charged)
-            .await
-            .expect("mux upload budget is never closed");
+        let total = acquire_budget(&self.total, charged).await;
         Ok(MuxUploadPermit { _bulk: bulk, _non_interactive: non_interactive, _total: total })
     }
 }
@@ -389,8 +381,8 @@ impl DaemonServices {
                         services.serve_stream(scope, request_slots, incoming).await
                     });
                 }
-                completed = handlers.join_next(), if !handlers.is_empty() => {
-                    match completed.expect("a non-empty handler set has a task") {
+                Some(completed) = handlers.join_next(), if !handlers.is_empty() => {
+                    match completed {
                         Ok(Ok(())) | Ok(Err(_)) => {}
                         Err(error) => break Err(ServicesError::RequestTask(error)),
                     }
@@ -506,8 +498,8 @@ impl DaemonServices {
         loop {
             let encoded = tokio::select! {
                 encoded = messages.receive() => encoded?,
-                result = requests.join_next(), if !requests.is_empty() => {
-                    match result.expect("a non-empty request set has a task") {
+                Some(result) = requests.join_next(), if !requests.is_empty() => {
+                    match result {
                         Ok(result) => result?,
                         Err(error) => return Err(ServicesError::RequestTask(error)),
                     }
@@ -987,22 +979,16 @@ fn required_json_string<'a>(
 
 #[cfg(unix)]
 fn decode_hex_32(value: &str) -> Result<[u8; 32], ServicesError> {
-    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(ServicesError::Remote("renderer grant has invalid token".into()));
+    let invalid = || ServicesError::Remote("renderer grant has invalid token".into());
+    let (pairs, []) = value.as_bytes().as_chunks::<2>() else { return Err(invalid()) };
+    if pairs.len() != 32 {
+        return Err(invalid());
     }
+    let nibble =
+        |byte: u8| char::from(byte).to_digit(16).and_then(|digit| u8::try_from(digit).ok());
     let mut output = [0u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
-        let nibble = |byte: u8| match byte {
-            b'0'..=b'9' => Some(byte - b'0'),
-            b'a'..=b'f' => Some(byte - b'a' + 10),
-            b'A'..=b'F' => Some(byte - b'A' + 10),
-            _ => None,
-        };
-        output[index] = (nibble(pair[0])
-            .ok_or_else(|| ServicesError::Remote("renderer grant has invalid token".into()))?
-            << 4)
-            | nibble(pair[1])
-                .ok_or_else(|| ServicesError::Remote("renderer grant has invalid token".into()))?;
+    for (byte, &[high, low]) in output.iter_mut().zip(pairs) {
+        *byte = (nibble(high).ok_or_else(invalid)? << 4) | nibble(low).ok_or_else(invalid)?;
     }
     Ok(output)
 }
@@ -1013,8 +999,9 @@ async fn read_terminal_frame(stream: &mut tokio::net::UnixStream) -> Result<Fram
     stream.read_exact(&mut encoded).await?;
     let payload_len = frame_payload_len(&encoded, MAX_FRAME_PAYLOAD)
         .map_err(|error| ServicesError::Remote(format!("invalid terminal host frame: {error}")))?;
-    encoded.resize(HEADER_LEN + payload_len, 0);
-    stream.read_exact(&mut encoded[HEADER_LEN..]).await?;
+    let mut payload = vec![0u8; payload_len];
+    stream.read_exact(&mut payload).await?;
+    encoded.append(&mut payload);
     let mut frames = FrameDecoder::new(MAX_FRAME_PAYLOAD)
         .push(&encoded)
         .map_err(|error| ServicesError::Remote(format!("invalid terminal host frame: {error}")))?;
@@ -1065,10 +1052,10 @@ async fn send_workspace_response(
 async fn send_prepared_workspace_response(
     workspace: &WorkspaceService,
     messages: &MessageStream,
-    mut prepared: PreparedRpcResponse,
+    prepared: PreparedRpcResponse,
     allow_offload: bool,
 ) -> Result<(), ServicesError> {
-    let response = prepared.take_response();
+    let (response, delivery) = prepared.into_parts();
     let response_id = response.id;
     let retryable_if_too_large = workspace_response_too_large_is_retryable(&response);
     let encoded = if allow_offload && workspace_response_needs_codec(&response) {
@@ -1085,14 +1072,14 @@ async fn send_prepared_workspace_response(
     match encoded {
         EncodedWorkspaceResponse::Message(encoded) => {
             messages.send(&encoded).await?;
-            prepared.commit_delivery();
+            delivery.commit();
             Ok(())
         }
         EncodedWorkspaceResponse::TooLarge => {
             // The client did not receive the requested page. Dropping the
             // delivery guard restores its input cursor before the fallback is
             // sent, regardless of whether that send succeeds.
-            drop(prepared);
+            drop(delivery);
             let mut error = RpcError::new(
                 "resource-exhausted",
                 "RPC response exceeds the maximum message size",
@@ -1245,8 +1232,8 @@ impl MessageStream {
     pub async fn receive(&self) -> Result<Option<Bytes>, ServicesError> {
         let mut state = self.read.lock().await;
         loop {
-            if state.buffer.len() >= 4 {
-                let size = u32::from_be_bytes(state.buffer[..4].try_into().unwrap()) as usize;
+            if let Some(size) = state.buffer.first_chunk::<4>() {
+                let size = usize::try_from(u32::from_be_bytes(*size)).unwrap_or(usize::MAX);
                 if size > MAX_RPC_MESSAGE {
                     state.buffer.clear();
                     state.budgets.clear();
@@ -1367,7 +1354,7 @@ where
                     remote.close().await?;
                     return Ok::<_, ServicesError>(());
                 }
-                remote.send(Bytes::copy_from_slice(&buffer[..size])).await?;
+                remote.send(Bytes::copy_from_slice(filled(&buffer, size))).await?;
             }
         }
     };
@@ -1454,12 +1441,17 @@ where
                 lane
             }
         };
-        if lane == Lane::Tunnel {
-            return Err(ServicesError::UnexpectedLane {
-                expected: Lane::Bulk,
-                actual: Lane::Tunnel,
-            });
-        }
+        let sender = match lane {
+            Lane::Interactive => &interactive,
+            Lane::Control => &control,
+            Lane::Bulk => &bulk,
+            Lane::Tunnel => {
+                return Err(ServicesError::UnexpectedLane {
+                    expected: Lane::Bulk,
+                    actual: Lane::Tunnel,
+                });
+            }
+        };
         let packets = crate::mux_codec::encode_line_with_limit(
             message,
             &line,
@@ -1473,12 +1465,6 @@ where
         let upload = MuxUploadMessage {
             packets,
             _permit: upload_budget.acquire(lane, encoded_bytes).await?,
-        };
-        let sender = match lane {
-            Lane::Interactive => &interactive,
-            Lane::Control => &control,
-            Lane::Bulk => &bulk,
-            Lane::Tunnel => unreachable!("Tunnel was rejected above"),
         };
         sender
             .send(upload)
@@ -1726,6 +1712,9 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
         Self::MuxInput(error)
     }
 }
+
+#[cfg(all(test, unix))]
+mod hex_tests;
 
 #[cfg(all(test, unix))]
 #[path = "services_bridge_tests.rs"]

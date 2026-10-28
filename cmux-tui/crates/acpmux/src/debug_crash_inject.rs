@@ -83,7 +83,7 @@ fn kind_of(params: &Value) -> Result<CrashKind, RpcError> {
 
 /// Crash as `kind` says, on [`THREAD`].
 pub(crate) fn fire(kind: CrashKind) -> std::io::Result<std::thread::JoinHandle<()>> {
-    std::thread::Builder::new().name(THREAD.into()).spawn(move || crash_now(kind))
+    cmux_threads::spawn(THREAD, cmux_threads::ThreadQos::Utility, move || crash_now(kind))
 }
 
 /// Crash the calling thread (`Panic`) or the process (`Abort`, `Segv`).

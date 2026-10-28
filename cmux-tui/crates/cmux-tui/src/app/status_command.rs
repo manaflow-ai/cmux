@@ -208,7 +208,7 @@ pub(super) fn capture_status_output(
             child_reaped = kill_status_command_group(&mut child);
             break;
         }
-        std::thread::sleep(STATUS_POLL_TICK);
+        cmux_threads::checked::sync::sleep(STATUS_POLL_TICK);
     }
     drop(job);
     // A file read never blocks on writers, so lingering descendants cannot

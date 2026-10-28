@@ -241,17 +241,18 @@ impl OrderedSession {
         let session = self.inner.clone();
         let events = self.events.clone();
         // supervise-allow: one background refresh request; a panic ends that refresh only and the next change event refreshes again.
-        let spawn =
-            std::thread::Builder::new().name("machine-usage-refresh".into()).spawn(move || {
-                match session.machine_usage() {
-                    Ok(usage) => {
-                        let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
-                    }
-                    Err(error) => {
-                        crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
-                    }
+        let spawn = cmux_threads::spawn(
+            "machine-usage-refresh",
+            cmux_threads::ThreadQos::Utility,
+            move || match session.machine_usage() {
+                Ok(usage) => {
+                    let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
                 }
-            });
+                Err(error) => {
+                    crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+                }
+            },
+        );
         if let Err(error) = spawn {
             crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
         }
@@ -277,8 +278,10 @@ impl OrderedSession {
         let dirty = self.client_refresh_dirty.clone();
         let generation = self.client_refresh_generation.clone();
         // supervise-allow: one background refresh request; a panic ends that refresh only and the next change event refreshes again.
-        let spawn =
-            std::thread::Builder::new().name("client-list-refresh".into()).spawn(move || {
+        let spawn = cmux_threads::spawn(
+            "client-list-refresh",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let _release = ReleaseClaimOnPanic(queued.clone());
                 loop {
                     dirty.store(false, Ordering::Release);
@@ -305,7 +308,8 @@ impl OrderedSession {
                     }
                     break;
                 }
-            });
+            },
+        );
         if let Err(error) = spawn {
             self.client_refresh_queued.store(false, Ordering::Release);
             let generation = self.client_refresh_generation.load(Ordering::Acquire);

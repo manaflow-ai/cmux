@@ -579,18 +579,28 @@ impl<B: Backend> Server<B> {
                     && let Some(job) = self.proxied_job(&params)
                 {
                     let caller = caller_env::current();
+                    let call_id = id.clone();
                     // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
-                    std::thread::spawn(move || {
-                        let result = match caller {
-                            Some(caller) => caller_env::scope(caller, || job.run(None)),
-                            None => job.run(None),
-                        };
-                        let response = json!({"jsonrpc": "2.0", "id": id, "result": result});
-                        let _ = output.send(&response);
-                    });
-                    return None;
+                    let started = cmux_threads::spawn(
+                        "cmux-mcp-proxied-call",
+                        cmux_threads::ThreadQos::UserInitiated,
+                        move || {
+                            let result = match caller {
+                                Some(caller) => caller_env::scope(caller, || job.run(None)),
+                                None => job.run(None),
+                            };
+                            let response =
+                                json!({"jsonrpc": "2.0", "id": call_id, "result": result});
+                            let _ = output.send(&response);
+                        },
+                    );
+                    match started {
+                        Ok(_) => return None,
+                        Err(error) => Err((-32603, format!("cannot start the call: {error}"))),
+                    }
+                } else {
+                    self.call(&params)
                 }
-                self.call(&params)
             }
             _ => Err((-32601, format!("method not found: {method}"))),
         };

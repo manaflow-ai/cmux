@@ -573,8 +573,9 @@ impl HolderService {
                 }
                 // The holder died: start a new one and hand it every master.
                 service.note_link_down(CrashKeyLink::Lost);
-                let _ = supervised::spawn(
+                let _ = supervised::spawn_at(
                     "holder-restart",
+                    cmux_threads::ThreadQos::UserInitiated,
                     Fatal,
                     ShutdownBehavior::Continue,
                     move || {
@@ -749,9 +750,15 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = supervised::spawn("cmux-holder-exe", Fatal, ShutdownBehavior::Continue, || {
-        let _ = standalone_holder();
-    });
+    let _ = supervised::spawn_at(
+        "cmux-holder-exe",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        || {
+            let _ = standalone_holder();
+        },
+    );
 }
 
 /// `/tmp/cmux-hd-<uid>/<hash of the host root>.sock`: short enough for
