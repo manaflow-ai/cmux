@@ -1,4 +1,9 @@
+import CMUXAuthCore
 import CMUXMobileCore
+import CmuxAuthRuntime
+import CmuxIrohTransport
+import CmuxIrxTransport
+import CmuxMobileTransport
 import CmuxMobileRPC
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -9,27 +14,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-private struct TaggedByteTransport: CmxByteTransport {
-    let tag: String
-
-    func connect() async throws {}
-    func receive() async throws -> Data? { nil }
-    func send(_ data: Data) async throws {}
-    func close() async {}
-}
-
-private struct TaggedByteTransportFactory: CmxByteTransportFactory {
-    let tag: String
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        TaggedByteTransport(tag: tag)
-    }
-
-    func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport {
-        TaggedByteTransport(tag: tag)
-    }
-}
 
 /// The two halves of the bearer-token rule for device links. Route selection:
 /// the token leaves this Mac over a Tailscale peer address only with the
@@ -93,23 +77,32 @@ struct DeviceRouteSelectorTests {
         }
     }
 
-    @Test("Automatic Iroh keeps an authorized Tailscale fallback when no Iroh route is present")
-    func automaticIrohKeepsLegacyFallback() throws {
+    @MainActor
+    @Test("The production runtime keeps an authorized Tailscale route with or without Iroh", arguments: [false, true])
+    func automaticIrohKeepsLegacyFallback(hasAutomaticClient: Bool) async throws {
+        let suite = "DeviceRouteSelector-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let runtime = makeRuntime(defaults: defaults, hasAutomaticClient: hasAutomaticClient)
         let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 10)
-        let selector = DeviceRouteSelector(allowsIroh: true)
 
-        #expect(selector.supportedKinds == [.iroh, .tailscale])
-        let selection = try selector.select(from: [tailscale], instance: studio) {
+        #expect(runtime.supportedRouteKinds == (hasAutomaticClient ? [.iroh, .tailscale] : [.tailscale]))
+        let selection = try runtime.routeSelector.select(from: [tailscale], instance: studio) {
             self.grant(for: $0)
         }
         #expect(selection.route == tailscale)
-        #expect(selection.evidence == grant(for: tailscale))
-    }
-
-    @Test("DeviceLinkRuntime defaults keep Tailscale with automatic Iroh")
-    func deviceLinkRuntimeDefaultRouteSelector() {
-        #expect(DeviceLinkRuntime.defaultRouteSelector(hasAutomaticClient: true).supportedKinds == [.iroh, .tailscale])
-        #expect(DeviceLinkRuntime.defaultRouteSelector(hasAutomaticClient: false).supportedKinds == [.tailscale])
+        let evidence = try #require(selection.evidence)
+        #expect(evidence == grant(for: tailscale))
+        #expect(throws: DeviceRouteSelector.SelectionError.needsAuthorization) {
+            try runtime.routeSelector.select(from: [tailscale], instance: studio) { _ in nil }
+        }
+        let peer = try runtime.forPeer(studio)
+        let transport = try peer.transportFactory.makeTransport(for: CmxByteTransportRequest(
+            route: selection.route,
+            expectedPeerDeviceID: studio.deviceID,
+            authorizationMode: .legacyTailscaleBearer(evidence)
+        ))
+        await transport.close()
     }
 
     @Test("Automatic connections never fall back to a saved Tailscale bearer route")
@@ -122,32 +115,104 @@ struct DeviceRouteSelectorTests {
         }
     }
 
-    @Test("Automatic runtime keeps the Tailscale fallback transport registered")
-    func automaticRuntimeKeepsFallbackTransport() throws {
-        let selector = DeviceRouteSelector(allowsIroh: true)
-        let factory = try DeviceLinkRuntime.makeTransportFactory(
-            routeSelector: selector,
-            automaticFactory: TaggedByteTransportFactory(tag: "iroh"),
-            fallbackFactory: TaggedByteTransportFactory(tag: "tailscale")
-        )
+    @MainActor
+    @Test("The per-peer runtime retains real fallback transports and their authorization checks")
+    func automaticRuntimeKeepsFallbackTransport() async throws {
+        let suite = "DeviceRouteSelector-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // An explicit selector isolates per-peer registration from the default-selector regression.
+        let runtime = makeRuntime(defaults: defaults, hasAutomaticClient: true,
+            routeSelector: DeviceRouteSelector(allowsDebugLoopback: true, allowsIroh: true))
+        let peer = try runtime.forPeer(studio)
         let iroh = try CmxAttachRoute(
             id: "iroh", kind: .iroh,
             endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []),
-            priority: 0
+            priority: 10
         )
-        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 10)
-
-        #expect(factory.supportedKinds == [.iroh, .tailscale])
-        #expect((try factory.makeTransport(for: iroh) as? TaggedByteTransport)?.tag == "iroh")
-        #expect((try factory.makeTransport(for: tailscale) as? TaggedByteTransport)?.tag == "tailscale")
-
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0)
         let evidence = try #require(grant(for: tailscale))
-        let request = CmxByteTransportRequest(
-            route: tailscale,
-            expectedPeerDeviceID: studio.deviceID,
-            authorizationMode: .legacyTailscaleBearer(evidence)
+        let selection = try peer.routeSelector.select(from: [tailscale, iroh], instance: studio) {
+            self.grant(for: $0)
+        }
+        #expect(selection.route == iroh)
+        #expect(selection.evidence == nil)
+        let automatic = try peer.transportFactory.makeTransport(for: CmxByteTransportRequest(
+            route: iroh, expectedPeerDeviceID: studio.deviceID, authorizationMode: .transportAdmission
+        ))
+        await automatic.close()
+        #expect(throws: CmxIrohByteTransportError.missingPeerIntent) {
+            try peer.transportFactory.makeTransport(for: iroh)
+        }
+        let fallback = try peer.transportFactory.makeTransport(for: CmxByteTransportRequest(
+            route: tailscale, expectedPeerDeviceID: studio.deviceID, authorizationMode: .legacyTailscaleBearer(evidence)
+        ))
+        await fallback.close()
+        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+            try peer.transportFactory.makeTransport(for: tailscale)
+        }
+        let wrongDevice = try #require(grant(for: tailscale, deviceID: "33333333-3333-3333-3333-333333333333"))
+        let wrongHost = try CmxLegacyTailscaleAuthorizationEvidence(macDeviceID: studio.deviceID, host: "100.64.0.2", port: 51000)
+        let wrongPort = try CmxLegacyTailscaleAuthorizationEvidence(macDeviceID: studio.deviceID, host: "100.64.0.1", port: 51001)
+        let invalidModes: [CmxTransportAuthorizationMode] = [
+            .stackBearer, .transportAdmission, .legacyTailscaleBearer(wrongDevice),
+            .legacyTailscaleBearer(wrongHost), .legacyTailscaleBearer(wrongPort),
+        ]
+        for mode in invalidModes {
+            #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
+                try peer.transportFactory.makeTransport(for: CmxByteTransportRequest(
+                    route: tailscale, expectedPeerDeviceID: studio.deviceID, authorizationMode: mode
+                ))
+            }
+        }
+        let loopback = try route("loop", kind: .debugLoopback, host: "127.0.0.1", priority: 0)
+        let local = try peer.transportFactory.makeTransport(for: CmxByteTransportRequest(
+            route: loopback, expectedPeerDeviceID: studio.deviceID, authorizationMode: .stackBearer
+        ))
+        await local.close()
+    }
+
+    @MainActor
+    @Test("An explicit Iroh-only policy excludes authorized Tailscale from the peer factory")
+    func automaticRuntimeRespectsFallbackOptOut() throws {
+        let suite = "DeviceRouteSelector-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let runtime = makeRuntime(defaults: defaults, hasAutomaticClient: true,
+            routeSelector: DeviceRouteSelector(allowsIroh: true, allowsLegacyTailscale: false))
+        let peer = try runtime.forPeer(studio)
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0)
+        let evidence = try #require(grant(for: tailscale))
+        #expect(peer.supportedRouteKinds == [.iroh])
+        #expect(throws: CmxRouteTransportFactoryError.unsupportedRouteKind(.tailscale)) {
+            try peer.transportFactory.makeTransport(for: CmxByteTransportRequest(
+                route: tailscale, expectedPeerDeviceID: studio.deviceID, authorizationMode: .legacyTailscaleBearer(evidence)
+            ))
+        }
+    }
+
+    @MainActor
+    private func makeRuntime(
+        defaults: UserDefaults,
+        hasAutomaticClient: Bool,
+        routeSelector: DeviceRouteSelector? = nil
+    ) -> DeviceLinkRuntime {
+        let config = AuthConfig(stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
+            magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback", apiBaseURL: "http://127.0.0.1:1")
+        let auth = AuthCoordinator(
+            client: StackAuthClient(config: config, tokenStore: .memory, noAutomaticPrefetch: true),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
+            anchor: AuthPresentationContextProvider(), config: config,
+            launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: false))
+        let client = hasAutomaticClient ? DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "device-route-selector")) : nil
+        return DeviceLinkRuntime(
+            tokens: HiveAccountTokenSource(accountScopedAuth: auth,
+                identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test")),
+            automaticClient: client, routeSelector: routeSelector
         )
-        #expect((try factory.makeTransport(for: request) as? TaggedByteTransport)?.tag == "tailscale")
     }
 
     @Test("A Tailscale route dials only with a device-bound grant for its exact peer")
