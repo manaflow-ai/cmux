@@ -979,8 +979,9 @@ impl Surface {
             .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
-            let _ = supervised::spawn(
+            let _ = supervised::spawn_at(
                 "terminal-host-test-disconnect",
+                cmux_threads::ThreadQos::Utility,
                 Fatal,
                 ShutdownBehavior::Continue,
                 move || {

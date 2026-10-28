@@ -23,6 +23,8 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private weak var services: AppServices?
     /// The app's main-thread scheduler: a fetch's and a batch's replies are posted tasks on it.
     private let mainWork: MainWorkScheduler
+    /// The app's blocking-work lanes: the former histories are read there.
+    private let work: BackgroundWork
     private let local: LocalPaletteUsageStore
     private let preferences: URL
     /// The connection whose former histories were imported this launch.
@@ -50,6 +52,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
          preferences: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences")) {
         self.services = services
         self.mainWork = mainWork
+        work = services.work
         self.local = local
         self.preferences = preferences
         history = local.history
@@ -89,10 +92,10 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             return
         }
         guard case .daemon(let client, let id) = owner else { return }
-        let importing = importedOn != id, preferences = preferences, mainWork = mainWork
+        let importing = importedOn != id, preferences = preferences, mainWork = mainWork, work = work
         // task-owner: DaemonPaletteUsageStore.fetching (cancelled with the store); one read, off main (recipe R-hop)
         fetching = Task { @concurrent [weak self] in
-            let answer = await Self.read(client, importing: importing, preferences: preferences)
+            let answer = await Self.read(client, importing: importing, preferences: preferences, work: work)
             guard !Task.isCancelled else { return }
             // `visible`: an open palette reranks with what it reads; no input of the person waits on it.
             mainWork.postFromAnyThread(.visible, owner: "DaemonPaletteUsageStore.fetched") { [weak self] in
@@ -110,12 +113,12 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
 
     /// Reads the daemon's history, importing first (when `importing`) each former history it has not seen.
     @concurrent private nonisolated static func read(_ client: PaletteUsageStateClient, importing: Bool,
-                                                     preferences: URL) async -> Fetched? {
+                                                     preferences: URL, work: BackgroundWork) async -> Fetched? {
         do {
             var snapshot = try PaletteUsageWire.history(try await client.get())
             guard importing else { return Fetched(history: snapshot.history, revision: snapshot.revision, imported: false) }
             var importedAny = false
-            for former in await PaletteUsageLegacyHistory.read(preferences: preferences)
+            for former in await PaletteUsageLegacyHistory.read(preferences: preferences, runner: work)
             where !snapshot.imported.contains(former.source) && !Task.isCancelled {
                 do {
                     _ = try await client.importHistory(source: former.source, entries: former.rows,

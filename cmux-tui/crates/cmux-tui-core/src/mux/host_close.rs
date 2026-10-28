@@ -89,9 +89,15 @@ impl TerminalHostCloses {
             return;
         }
         let closes = self.clone();
-        if supervised::spawn("terminal-host-close", Fatal, ShutdownBehavior::Continue, move || {
-            closes.work();
-        })
+        if supervised::spawn_at(
+            "terminal-host-close",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                closes.work();
+            },
+        )
         .is_err()
         {
             // Thread exhaustion must not strand a queued close: finish the

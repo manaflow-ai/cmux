@@ -46,7 +46,7 @@ public final class ScreenshotsView: NSView {
     ///   - appearance: grid colors and tile size.
     ///   - mainWork: the app's one main-thread scheduler (the grid follows the model on it, and its thumbnails land on it).
     public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any ScreenshotsWorkspace,
-                files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance(),
+                files: any FileOperating, appearance: FileGridAppearance = FileGridAppearance(),
                 mainWork: MainWorkScheduler) {
         self.model = model
         self.grid = FileGridView(cache: cache, work: mainWork, appearance: appearance)

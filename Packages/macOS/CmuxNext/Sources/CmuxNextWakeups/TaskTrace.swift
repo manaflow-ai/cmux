@@ -26,7 +26,8 @@ public import CmuxNextTrace
 /// ticket.run(priority: TaskTrace.code(workClass)) { body() }  // main lane; a lane job calls ticket.arrive()
 /// ```
 public final class TaskTrace: Sendable {
-    /// Where a traced item runs: the `task.run` begin's lane code, a ``BlockingLane``'s `rawValue` or 3 for main.
+    /// Where a traced item runs: the `task.run` begin's lane code: files 0, system 1, cpu 2, main 3, bulk files 4
+    /// (``BlockingLane/bulkFiles``'s `rawValue` is 3, so the lane code is not the raw value).
     public enum Lane: UInt8, Sendable {
         /// ``BlockingLane/files``.
         case files = 0
@@ -36,6 +37,8 @@ public final class TaskTrace: Sendable {
         case cpu = 2
         /// The main thread (a queued control request).
         case main = 3
+        /// ``BlockingLane/bulkFiles``.
+        case bulkFiles = 4
 
         /// The code of a ``BackgroundWork`` lane.
         public init(_ lane: BlockingLane) {
@@ -43,6 +46,7 @@ public final class TaskTrace: Sendable {
             case .files: self = .files
             case .system: self = .system
             case .cpu: self = .cpu
+            case .bulkFiles: self = .bulkFiles
             }
         }
     }

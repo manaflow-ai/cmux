@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextFiles
 @testable import CmuxNextFilesUI
 import CmuxNextWakeups
 import Foundation
@@ -32,7 +33,8 @@ import Testing
     @Test func aFileInfoWindowIsNotRestorable() {
         _ = NSApplication.shared
         let info = FileInfoWindow(url: FileManager.default.temporaryDirectory, icons: FileIconProvider(queries: nil),
-                                  mainWork: MainWorkScheduler(budget: MainFrameBudget())) {}
+                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                  reader: FileInfoReader(work: BackgroundWork(label: "test.file-info"))) {}
         defer { info.panel.close() }
         #expect(!info.panel.isRestorable)
     }
