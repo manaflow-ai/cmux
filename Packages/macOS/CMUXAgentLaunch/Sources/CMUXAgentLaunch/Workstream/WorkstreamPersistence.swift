@@ -128,11 +128,11 @@ public actor WorkstreamPersistence {
                 let cursor = latestByID.values.map(\.offset).min()
                     ?? oldestExaminedOffset
                     ?? tail.endOffset
-                throw WorkstreamReadDeadline.partial(WorkstreamBoundedLatestResult(
+                return WorkstreamBoundedLatestResult(
                     items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
                     exceededBudget: true,
                     startOffset: cursor > 0 ? cursor : nil
-                ))
+                )
             }
             oldestExaminedOffset = line.offset
             guard line.data.count <= Self.maximumPersistedRowBytes,
@@ -205,51 +205,10 @@ public actor WorkstreamPersistence {
             let (deadline, overflow) = started.addingReportingOverflow(budget)
             return overflow ? UInt64.max : deadline
         }
-        let latest: WorkstreamBoundedLatestResult
-        do {
-            latest = try loadBoundedLatest(
-                limit: limit,
-                deadlineNanoseconds: deadline
-            )
-        } catch WorkstreamReadDeadline.partial(let partial) {
-            // Keep rows decoded before the cutoff, but restart older paging at
-            // the original EOF. This deliberately rereads the bounded tail;
-            // the Store's UUID reconciliation removes those duplicates while
-            // ensuring no unexamined byte range is skipped.
-            let elapsed = uptimeNanoseconds() - started
-            let partialPage = Page(
-                items: partial.items,
-                hasMoreBefore: size > 0,
-                startOffset: size > 0 ? size : nil
-            )
-            return WorkstreamStartupSnapshot(
-                items: partial.items,
-                revision: try loadRevision(),
-                page: partialPage,
-                diagnostics: WorkstreamStartupDiagnostics(
-                    elapsedNanoseconds: elapsed,
-                    fileBytes: size,
-                    exceededBudget: true,
-                    missingFile: false
-                )
-            )
-        } catch WorkstreamReadDeadline.exceeded {
-            // A deadline raised before any bounded row could be returned is
-            // still a successful, recoverable startup. Restart older paging
-            // at the original EOF rather than publishing a truncated cursor.
-            let elapsed = uptimeNanoseconds() - started
-            return WorkstreamStartupSnapshot(
-                items: [],
-                revision: try loadRevision(),
-                page: Page(items: [], hasMoreBefore: size > 0, startOffset: size > 0 ? size : nil),
-                diagnostics: WorkstreamStartupDiagnostics(
-                    elapsedNanoseconds: elapsed,
-                    fileBytes: size,
-                    exceededBudget: true,
-                    missingFile: false
-                )
-            )
-        }
+        let latest = try loadBoundedLatest(
+            limit: limit,
+            deadlineNanoseconds: deadline
+        )
         if latest.exceededBudget || deadline.map({ uptimeNanoseconds() >= $0 }) == true {
             let elapsed = uptimeNanoseconds() - started
             return WorkstreamStartupSnapshot(
