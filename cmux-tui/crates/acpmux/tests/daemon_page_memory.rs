@@ -408,8 +408,11 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
             std::fs::remove_dir_all(&dir).unwrap();
         }
     }
+    // Same 16-core Linux fixture: base grew 100–105 MiB; bounded construction
+    // grew 24–28 MiB including cold agent startup. Leave room for allocator noise
+    // while rejecting the full-history intermediate copies.
     assert!(
-        growth.iter().all(|kb| *kb < 24 * 1024),
+        growth.iter().all(|kb| *kb < 48 * 1024),
         "transcript construction retained full history: peak growth KiB {growth:?}"
     );
 }
