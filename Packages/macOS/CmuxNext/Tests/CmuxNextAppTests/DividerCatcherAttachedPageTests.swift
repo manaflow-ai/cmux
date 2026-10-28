@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 @testable import CmuxNextLayout
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
@@ -65,6 +66,8 @@ import Testing
         let log = RecordLog()
         let window: HostWindow
         let layer: WindowOverlayLayer
+        /// The app's input tap as the layer hears it: the catchers wait for the pointer through it.
+        let tap: InputEventTap
         let model: LayoutModel
         let root: LayoutRootView
         let provider = Panes()
@@ -81,9 +84,11 @@ import Testing
             window = HostWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 800), styleMask: [.titled, .resizable],
                                 backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            let tap = InputEventTap()
+            self.tap = tap
             layer = WindowOverlayLayer(window: window,
                                        signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime),
-                                       currentTurn: { 0 })
+                                       inputTap: { tap }, currentTurn: { 0 })
             window.overlay = layer
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -129,14 +134,23 @@ import Testing
 
         var catcherPanels: [NSWindow] { (window.childWindows ?? []).filter { $0 is DividerMousePanel && $0.isVisible } }
 
-        /// The pointer comes to every catcher area that has no panel yet (each gets its panel on its first move in).
+        /// The pointer comes to every catcher area that has no panel yet, through the tap, as the app hears a move
+        /// (each area gets its panel on its first move in).
         func pointerVisitsCatcherAreas() {
             guard let catchers = layer.catchers else { return }
             for _ in 0..<64 {
                 guard let rect = catchers.waitingRects.first else { return }
-                let screen = window.convertToScreen(rect)
-                catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.midY))
+                tap.deliverObserve(event(.mouseMoved, at: CGPoint(x: rect.midX, y: rect.midY)))
             }
+        }
+
+        /// A mouse event at `point` (this window's coordinates) on `target` (a child window), or on this window.
+        func event(_ type: NSEvent.EventType, at point: CGPoint, on target: NSWindow? = nil) -> NSEvent {
+            let target = target ?? window
+            let location = target.convertPoint(fromScreen: window.convertPoint(toScreen: point))
+            return NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                                      windowNumber: target.windowNumber, context: nil, eventNumber: 0,
+                                      clickCount: type == .mouseMoved || type == .leftMouseDragged ? 0 : 1, pressure: 1)!
         }
 
         func close() {
@@ -208,6 +222,75 @@ import Testing
         let catchers = try #require(layer.catchers)
         layout.pointerVisitsCatcherAreas()
         #expect(catchers.shownCount == layer.catcherAreas.count, "\(catchers.shownCount) for \(layer.catcherAreas)")
+    }
+
+    /// The window's pointer moves reach the catchers through the app's input tap, the page window's too: the
+    /// first move over a divider on the page window makes its panel, a move elsewhere makes none.
+    @Test func aMoveOnAPageWindowMakesItsDividersPanel() throws {
+        let layout = Layout()
+        defer { layout.close() }
+        let layer = layout.layer
+        let area = try #require(layer.dividerAreas.first, "the split has a divider area")
+        let page = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        layout.addChild(page, over: CGRect(x: 0, y: 0, width: 1200, height: 800))
+        defer { layout.removeChild(page) }
+        let catchers = try #require(layer.catchers, "a page window takes the mouse: the catchers exist")
+        #expect(catchers.shownCount == 0, "no panel before the pointer comes to a divider")
+
+        layout.tap.deliverObserve(layout.event(.mouseMoved, at: CGPoint(x: area.rect.minX - 60, y: area.rect.midY), on: page))
+        #expect(catchers.shownCount == 0, "a move off every divider makes no panel")
+        layout.tap.deliverObserve(layout.event(.mouseMoved, at: CGPoint(x: area.rect.midX, y: area.rect.midY), on: page))
+        #expect(catchers.framesInWindow[area.id] == area.rect, "the move made the divider's panel: \(catchers.framesInWindow)")
+    }
+
+    /// A press on a page window over a divider with no move before it (the app was not active, or a flick)
+    /// still goes to the divider, not the page: it makes the panel, and the press, its drags and its release
+    /// go to the window. A press elsewhere stays the page's.
+    @Test func aPressWithNoMoveBeforeItGoesToTheDivider() throws {
+        let layout = Layout()
+        defer { layout.close() }
+        let layer = layout.layer
+        let area = try #require(layer.dividerAreas.first, "the split has a divider area")
+        let page = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        layout.addChild(page, over: CGRect(x: 0, y: 0, width: 1200, height: 800))
+        defer { layout.removeChild(page) }
+        let catchers = try #require(layer.catchers, "a page window takes the mouse: the catchers exist")
+        let point = CGPoint(x: area.rect.midX, y: area.rect.midY)
+
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: CGPoint(x: 40, y: 40), on: page)) == .pass,
+                "a press off every divider is the page's")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: point, on: page)) == .consume,
+                "the press over the divider went to the window, not the page")
+        #expect(catchers.framesInWindow[area.id] == area.rect, "the press made the divider's panel: \(catchers.framesInWindow)")
+        let moved = CGPoint(x: point.x + 30, y: point.y)
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDragged, at: moved, on: page)) == .consume,
+                "the press's drag follows it to the window")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: moved, on: page)) == .consume,
+                "the press's release follows it to the window")
+        #expect(catchers.wantsPresses == catchers.wantsPointer, "the release ended the forwarded press")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDragged, at: point, on: page)) == .pass,
+                "a drag after the release is the page's")
+    }
+
+    /// The page window hides before the pointer came to a divider: no area waits any more, and a later move
+    /// over a divider makes no panel over a window whose dividers take the mouse themselves.
+    @Test func aHiddenPageWindowLeavesNoDividerWaiting() throws {
+        let layout = Layout()
+        defer { layout.close() }
+        let layer = layout.layer
+        let area = try #require(layer.dividerAreas.first, "the split has a divider area")
+        let page = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        layout.addChild(page, over: CGRect(x: 0, y: 0, width: 1200, height: 800))
+        let catchers = try #require(layer.catchers, "a page window takes the mouse: the catchers exist")
+        #expect(catchers.wantsPointer)
+
+        layout.removeChild(page)
+
+        #expect(!layer.pageWindowsTakeMouse)
+        #expect(!catchers.wantsPointer, "an area of the hidden page window still waits for the pointer")
+        #expect(!catchers.wantsPresses)
+        layout.tap.deliverObserve(layout.event(.mouseMoved, at: CGPoint(x: area.rect.midX, y: area.rect.midY)))
+        #expect(layout.catcherPanels.isEmpty, "a panel was made with no page window")
     }
 
     /// A remote page's popup panel alone lifts the overlay above it, and no catcher panel covers it.

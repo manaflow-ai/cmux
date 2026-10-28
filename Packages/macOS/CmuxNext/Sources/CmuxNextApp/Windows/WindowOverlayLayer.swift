@@ -83,6 +83,12 @@ final class WindowOverlayLayer {
     /// The window's pointer moves (its page windows' too), heard only while a catcher area has no panel yet: the
     /// first move into an area makes its panel (``DividerMouseCatchers/pointerMoved(toScreen:)``).
     private var catcherPointer: InputSubscription?
+    /// The window's presses, drags and releases, heard only while a catcher area has no panel yet or a press
+    /// sent on holds the mouse: a press with no move before it still reaches the divider
+    /// (``DividerMouseCatchers/intercept(_:atScreen:)``).
+    private var catcherPresses: InputSubscription?
+    /// The app's input tap, read when the catchers are made (nil: every catcher area gets its panel at once).
+    private let inputTap: @MainActor () -> InputEventTap?
     /// A visible page window takes the mouse over the layout (``takesMouse(_:)``): its divider hit areas
     /// need catcher panels above it.
     private(set) var pageWindowsTakeMouse = false
@@ -124,10 +130,12 @@ final class WindowOverlayLayer {
     /// Placement and order checks run (`evaluate()` past its guards; tests).
     private(set) var evaluations = 0
 
-    /// `center`: where windows post (tests pass their own); `currentTurn`: the main run loop's turn number.
+    /// `center`: where windows post (tests pass their own); `inputTap`: the app's input tap (the divider catchers
+    /// wait for the pointer through it); `currentTurn`: the main run loop's turn number.
     init(window: NSWindow, signposter: Signposter = Signposter.cef, center: NotificationCenter = .default,
-         currentTurn: @escaping @MainActor () -> UInt64) {
+         inputTap: @escaping @MainActor () -> InputEventTap? = { nil }, currentTurn: @escaping @MainActor () -> UInt64) {
         self.window = window
+        self.inputTap = inputTap
         self.signposter = signposter
         self.currentTurn = currentTurn
         pageSurface = PageSurface.of(window)
@@ -183,6 +191,7 @@ final class WindowOverlayLayer {
         sidebarResizeArea = nil
         catchers?.teardown()
         catcherPointer = nil
+        catcherPresses = nil
         subscriptions.forEach { $0.cancel() }
         observers.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
@@ -453,6 +462,7 @@ final class WindowOverlayLayer {
     /// Click-catching panels over divider hit areas while a page window takes the mouse, in one
     /// `cef.geometry` slice. With none, and no catcher panel left to hide, the sync costs no slice.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
+        // A catcher still waiting for the pointer hears that its page windows stopped taking the mouse too.
         guard pageWindowsTakeMouse || (catchers?.shownCount ?? 0) > 0 else { return }
         inGeometrySlice(.catcherSync) { applyCatchers() }
     }
@@ -479,7 +489,8 @@ final class WindowOverlayLayer {
     }
 
     private func makeCatchers() -> DividerMouseCatchers {
-        let made = DividerMouseCatchers(window: window)
+        let tap = inputTap()
+        let made = DividerMouseCatchers(window: window, lazy: tap != nil)
         made.onHover = { [weak self] id, hovered in
             if id == Self.sidebarResizeAreaID {
                 (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
@@ -488,11 +499,18 @@ final class WindowOverlayLayer {
             for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
         }
         catchers = made
+        guard let tap else { return made }
         // The first move into a divider area makes its panel; with every wanted area covered, moves cost one check.
-        catcherPointer = (window as? ShellWindow)?.inputTap?.subscribe(class: .pointerMove, window: .window(window),
-                                                                       while: { [weak made] in made?.wantsPointer == true }) { [weak made] event in
+        catcherPointer = tap.subscribe(class: .pointerMove, window: .window(window),
+                                       while: { [weak made] in made?.wantsPointer == true }) { [weak made] event in
             guard let made, let source = event.window else { return }
             made.pointerMoved(toScreen: source.convertPoint(toScreen: event.locationInWindow))
+        }
+        // A press with no move before it (the app or the window was not active, or a flick) still reaches the divider.
+        catcherPresses = tap.subscribe(class: [.button, .drag], phase: .intercept(order: .layout), window: .window(window),
+                                       while: { [weak made] in made?.wantsPresses == true }) { [weak made] event in
+            guard let made, let source = event.window else { return .pass }
+            return made.intercept(event, atScreen: source.convertPoint(toScreen: event.locationInWindow)) ? .consume : .pass
         }
         return made
     }

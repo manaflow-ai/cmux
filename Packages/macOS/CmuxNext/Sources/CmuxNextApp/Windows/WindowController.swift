@@ -426,7 +426,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var pageSurface: PageSurface = .childWindows
     /// The app's main run-loop turn meter: a layout depth counts only in the turn that began its pass.
     weak var turnMeter: MainTurnMeter?
-    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self) { [weak self] in self?.turnMeter?.turnNumber ?? 0 }
+    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self, inputTap: { [weak self] in self?.inputTap }) { [weak self] in
+        self?.turnMeter?.turnNumber ?? 0
+    }
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()

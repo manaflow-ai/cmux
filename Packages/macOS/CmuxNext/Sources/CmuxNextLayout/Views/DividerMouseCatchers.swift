@@ -30,9 +30,11 @@ import CmuxNextDesign
 ///
 /// A panel is made the first time the pointer comes to its area (``pointerMoved(toScreen:)``, fed by the
 /// window's pointer moves, the page windows' included), or at once for an area that appears under the
-/// pointer, so a click there without a move still reaches the divider. A landed layout makes none: a new
-/// window's first turns made one NSPanel per divider hit area, 386 ms (first-5s bench, 2026-10-28), for dividers
-/// the person mostly never touches. A panel once made follows its area until the area goes.
+/// pointer, so a click there without a move still reaches the divider. A press that still finds no panel (no
+/// move came first: the app was not active, or a flick) goes to the divider all the same (``intercept(_:atScreen:)``).
+/// A landed layout makes none: a new window's first turns made one NSPanel per divider hit area, 386 ms
+/// (first-5s bench, 2026-10-28), for dividers the person mostly never touches. A panel once made follows its
+/// area until the area goes. With no pointer moves to read (`lazy` false), every area gets its panel at once.
 @MainActor
 public final class DividerMouseCatchers {
     private unowned let window: NSWindow
@@ -49,19 +51,30 @@ public final class DividerMouseCatchers {
     private var waiting = 0
     /// Where the pointer is now, in screen coordinates (tests pass their own).
     private let pointerLocation: @MainActor () -> CGPoint
+    /// Panels wait for the pointer (the window's pointer moves and presses come to ``pointerMoved(toScreen:)``
+    /// and ``intercept(_:atScreen:)``); false makes every area's panel at once.
+    private let lazy: Bool
+    /// A press ``intercept(_:atScreen:)`` sent to the window: its drags and its release follow it there.
+    private var forwardingPress = false
 
     /// - Parameters:
     ///   - window: The window whose divider areas get panels.
+    ///   - lazy: The caller feeds the window's pointer moves and presses; false when it has none to feed.
     ///   - pointerLocation: The pointer's screen point now; read once per update, for an area that appears
     ///     under a pointer that does not move.
-    public init(window: NSWindow,
+    public init(window: NSWindow, lazy: Bool = true,
                 pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }) { // global-input-allow: read once per layout landing, outside any dispatch, for an area that appears under a still pointer
         self.window = window
+        self.lazy = lazy
         self.pointerLocation = pointerLocation
     }
 
     /// Some wanted area has no panel yet: the window's pointer moves are worth reading.
     public var wantsPointer: Bool { waiting > 0 }
+
+    /// Some wanted area has no panel yet, or a press sent on still holds the mouse: the window's presses,
+    /// drags and releases are worth reading (``intercept(_:atScreen:)``).
+    public var wantsPresses: Bool { waiting > 0 || forwardingPress }
 
     /// The wanted areas with no panel yet, in window coordinates (tests move the pointer into them).
     var waitingRects: [CGRect] { wanted.filter { panels[$0.key] == nil }.map(\.area.rect) }
@@ -111,8 +124,21 @@ public final class DividerMouseCatchers {
     /// wanted area under it gets its panel, the first time only. Returns whether a panel was made.
     @discardableResult
     public func pointerMoved(toScreen point: CGPoint) -> Bool {
-        guard waiting > 0, let piece = wanted.first(where: { panels[$0.key] == nil && window.convertToScreen($0.area.rect).contains(point) })
-        else { return false }
+        guard waiting > 0 else { return false }
+        return placeWaiting(under: window.convertPoint(fromScreen: point))
+    }
+
+    /// A press, drag or release in the window or one of its page windows, at `point` (screen coordinates).
+    /// A press on a page window inside an area with no panel yet makes the panel and goes to the window, where
+    /// the divider takes it, as the panel would have sent it; its drags and its release follow it there.
+    /// Returns whether the event was sent on: the caller drops it then, so the page never sees it.
+    public func intercept(_ event: NSEvent, atScreen point: CGPoint) -> Bool {
+        false // red: no press fallback yet
+    }
+
+    /// Makes the panel of the waiting area under `point` (window coordinates). Returns whether one was there.
+    private func placeWaiting(under point: CGPoint) -> Bool {
+        guard let piece = wanted.first(where: { panels[$0.key] == nil && $0.area.rect.contains(point) }) else { return false }
         place(piece)
         waiting -= 1
         return true
@@ -176,6 +202,7 @@ public final class DividerMouseCatchers {
 
     public func teardown() {
         update([], active: false)
+        forwardingPress = false
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
@@ -292,9 +319,14 @@ final class DividerMouseCatcherView: NSView {
     }
 
     private func forward(_ event: NSEvent) {
-        guard let parent = window?.parent,
-              let forwarded = NSEvent.mouseEvent(
-                  with: event.type, location: parent.convertPoint(fromScreen: event.screenLocation),
+        guard let parent = window?.parent else { return }
+        Self.forward(event, atScreen: event.screenLocation, to: parent)
+    }
+
+    /// Sends `event`, which happened at `point` (screen coordinates), to `parent` at the same point.
+    static func forward(_ event: NSEvent, atScreen point: CGPoint, to parent: NSWindow) {
+        guard let forwarded = NSEvent.mouseEvent(
+                  with: event.type, location: parent.convertPoint(fromScreen: point),
                   modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: parent.windowNumber,
                   context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
               )

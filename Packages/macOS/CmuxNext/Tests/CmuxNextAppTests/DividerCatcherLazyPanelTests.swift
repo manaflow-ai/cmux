@@ -93,4 +93,18 @@ import Testing
         #expect(!catchers.wantsPointer, "with no page window taking the mouse no area waits")
         #expect(!(window.childWindows ?? []).contains { $0 is DividerMousePanel })
     }
+
+    /// With no pointer moves to feed (no input tap), every area gets its panel at once, as before panels waited.
+    @Test func withNoPointerFeedEveryAreaGetsItsPanelAtOnce() {
+        let window = Self.window()
+        defer { window.close() }
+        let catchers = DividerMouseCatchers(window: window, lazy: false, pointerLocation: { .zero })
+        defer { catchers.teardown() }
+
+        catchers.update([Self.area], active: true)
+
+        #expect(catchers.shownCount == 1)
+        #expect(!catchers.wantsPointer)
+        #expect(!catchers.wantsPresses)
+    }
 }
