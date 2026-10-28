@@ -307,14 +307,21 @@ def latest_wins_feed(run: Mapping[str, Any]) -> str | None:
 
 
 def never_publishes(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]], *, tip_sha: str | None,
-                    published_sha: str | None, contains: Contains) -> tuple[bool, str]:
+                    published_sha: str | None, contains: Contains,
+                    jobs: Sequence[Mapping[str, Any]] | None = None,
+                    jobs_of: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]] | None] | None = None,
+                    ) -> tuple[bool, str]:
     """(True, why) when a latest-wins run can never publish: the feed already has a newer build, or a newer commit
     sits at the branch tip with its own run building or built. (False, why not) otherwise, or when anything is
-    unread."""
+    unread. For the tip, `jobs` (the run's own) and `jobs_of(tip run)` must show the tip run doing the same build:
+    each build job of this run's current attempt that is not skipped is listed there, live or succeeded (a
+    cache-only or throttled tip run skips them)."""
     if run.get("status") not in WAITING_JOB_STATUSES and run.get("status") != "in_progress":
         return False, f"it is {run.get('status') or 'in an unknown state'}"
     if not latest_wins_feed(run):
         return False, "it publishes to no latest-wins feed"
+    if not _head_repo(run) or not run.get("head_branch"):
+        return False, "its head repository or branch could not be read"
     head = str(run.get("head_sha") or "").lower()
     if not _SHA.fullmatch(head):
         return False, "its head could not be read"
@@ -329,18 +336,30 @@ def never_publishes(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]], *
         return False, f"it builds the tip of {run.get('head_branch')}"
     if contains(head, tip) is not True:
         return False, f"the tip {tip[:12]} could not be shown to contain its head {head[:12]}"
+    mine = attempt_jobs(run, jobs) if jobs is not None else None
+    if mine is None or jobs_of is None:
+        return False, "its jobs, or which attempt they belong to, could not be read"
+    builds = [str(job.get("name") or "") for job in mine if job.get("conclusion") != "skipped" and is_build_job(job)]
+    if not builds:
+        return False, "it lists no build job, so a tip run doing the same build cannot be shown"
+    why_not = f"the tip {tip[:12]} has no run building it"
     for other in runs:
         if (str(other.get("head_sha") or "").lower() != tip or _workflow_key(other) != _workflow_key(run)
                 or other.get("head_branch") != run.get("head_branch") or _head_repo(other) != _head_repo(run)
                 or not is_delivery_run(other.get("path"), other.get("name"), other.get("display_title"))):
             continue
         status = other.get("status")
-        if status in WAITING_JOB_STATUSES or status == "in_progress" or (
-                status == "completed" and other.get("conclusion") == "success"):
-            return True, (f"the newer commit {tip[:12]} is promoted at the tip of {run.get('head_branch')} and run "
-                          f"{other.get('id')} is {'building' if status != 'completed' else 'done with'} it, so "
-                          "under latest-wins this run can never publish")
-    return False, f"the tip {tip[:12]} has no run building it"
+        if not (status in WAITING_JOB_STATUSES or status == "in_progress" or (
+                status == "completed" and other.get("conclusion") == "success")):
+            continue
+        problem = builds_the_same(builds, jobs_of(other))
+        if problem:
+            why_not = f"run {other.get('id')} at the tip {tip[:12]} does not show the same build: {problem}"
+            continue
+        return True, (f"the newer commit {tip[:12]} is promoted at the tip of {run.get('head_branch')} and run "
+                      f"{other.get('id')} is {'building' if status != 'completed' else 'done building'} it, so "
+                      "under latest-wins this run can never publish")
+    return False, why_not
 
 
 def known_bad_entries(text: str | None) -> list[dict[str, Any]] | None:

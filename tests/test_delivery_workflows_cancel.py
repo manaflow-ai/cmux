@@ -107,9 +107,12 @@ class LatestWinsTests(unittest.TestCase):
     old = run(sha("a"), status="in_progress")
     edges = {sha("c"): {sha("a")}, sha("b"): {sha("a")}}
 
-    def judge(self, runs=(), tip=None, published=None, edges=None):
+    def judge(self, runs=(), tip=None, published=None, edges=None, tip_jobs=..., old_jobs=...):
+        # `...` is the default (the gate shape); None is unread.
         return dw.never_publishes(self.old, [self.old, *runs], tip_sha=tip, published_sha=published,
-                                  contains=history(self.edges if edges is None else edges))
+                                  contains=history(self.edges if edges is None else edges),
+                                  jobs=gates() if old_jobs is ... else old_jobs,
+                                  jobs_of=lambda other: gates() if tip_jobs is ... else tip_jobs)
 
     def test_the_feed_already_has_a_newer_build(self):
         ok, why = self.judge(published=sha("c"))
@@ -136,10 +139,22 @@ class LatestWinsTests(unittest.TestCase):
             "the ancestry is unread": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), edges={}),
             "the tip is not after it": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), edges={sha("b"): set()}),
             "the feed is older": dict(published=sha("d"), edges={sha("d"): set()}),
+            "the tip run skipped the build": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), tip_jobs=[
+                *gates()[:-1], job("build-nightly-app", "completed", "skipped")]),
+            "the tip run's build failed": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), tip_jobs=[
+                *gates()[:-1], job("build-nightly-app", "completed", "failure")]),
+            "the tip run's jobs are unread": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), tip_jobs=None),
+            "its own jobs are unread": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), old_jobs=None),
+            "its head repository is unread": dict(runs=[{**run(sha("b"), ident=2), "head_repository": None}],
+                                                  tip=sha("b")),
         }
         for label, kwargs in cases.items():
             with self.subTest(label):
                 self.assertFalse(self.judge(**kwargs)[0])
+        unread_repo = {**self.old, "head_repository": None}
+        self.assertFalse(dw.never_publishes(unread_repo, [unread_repo, {**run(sha("b"), ident=2), "head_repository": None}],
+                                            tip_sha=sha("b"), published_sha=None, contains=history(self.edges),
+                                            jobs=gates(), jobs_of=lambda other: gates())[0])
         main = {**self.old, "head_branch": "main"}
         self.assertFalse(dw.never_publishes(main, [], tip_sha=sha("b"), published_sha=sha("c"),
                                             contains=history(self.edges))[0])
@@ -199,6 +214,9 @@ class LiveReplayTests(unittest.TestCase):
              40624308094: ("9fc2bb455930926cc3bc42f785f5b4f13dfc70f1", 3, "2026-10-28T03:01:35Z"),
              40623450445: ("2aafb0fcdee5de336881214697cc35263992d0aa", 3, "2026-10-28T02:52:23Z")}
 
+    # The tip run 40631810292 skipped its build (decide chose no build), so latest-wins by the tip does not
+    # apply; the feed (PUBLISHED) precedes all three heads. The known-bad list is what allows them.
+
     def setUp(self):
         heads = [head for head, _, _ in self.HEADS.values()]
         self.contains = history({**{h: {BAD, PUBLISHED} for h in heads}, TIP: {BAD, PUBLISHED, *heads},
@@ -213,8 +231,17 @@ class LiveReplayTests(unittest.TestCase):
                 live = run(head, attempt=attempt, status="in_progress", created=created, ident=ident)
                 entry, why = dw.known_bad(live, entries, self.contains)
                 self.assertIsNotNone(entry, why)
+                own = [{**j, "run_attempt": attempt} for j in gates()]
+                skipped = [{**j, "status": "completed", "conclusion": "skipped" if j["name"] != "decide" else "success"}
+                           for j in gates()]
                 ok, why = dw.never_publishes(live, [live, self.tip_run], tip_sha=TIP, published_sha=PUBLISHED,
-                                             contains=self.contains)
+                                             contains=self.contains, jobs=own, jobs_of=lambda other: skipped)
+                self.assertFalse(ok)
+                self.assertIn("does not show the same build", why)
+                ok, why = dw.never_publishes(live, [live, self.tip_run], tip_sha=TIP, published_sha=PUBLISHED,
+                                             contains=self.contains, jobs=own,
+                                             jobs_of=lambda other: [{**j, "status": "completed", "conclusion": "success"}
+                                                                    for j in gates()])
                 self.assertTrue(ok, why)
 
 
