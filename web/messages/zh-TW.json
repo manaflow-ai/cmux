@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "以百分比縮放 cmux 自行繪製的所有內容：終端機文字、分頁標題、側邊欄、設定、浮層和視窗外框。瀏覽器 surface 中的網頁會維持各自的大小。"
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "當窗格中的處理程序使記憶體使用量達到臨界水準時，停止該窗格中失控的工作。",
           "adaptiveDefaultTheme": "為 true（預設）時，除非已設定 Ghostty 主題或終端機顏色，否則 cmux 會提供隨外觀變更的預設配色。字體和其他設定會保留。為 false 時，Ghostty 使用固定的內建配色。明確指定的主題和顏色一律優先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",

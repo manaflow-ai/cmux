@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "Prozentualer Zoom für alles, was cmux selbst zeichnet: Terminaltext, Tab-Titel, Seitenleisten, Settings, Overlays und Fensterrahmen. Webseiten in Browser-Surfaces behalten ihre eigene Größe."
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "Beendet die außer Kontrolle geratenen Jobs eines Teilfensters, wenn dessen Prozesse die Speicherauslastung auf ein kritisches Niveau treiben.",
           "adaptiveDefaultTheme": "Bei true (Standard) stellt cmux eine an das Erscheinungsbild angepasste Standardpalette bereit, sofern kein Ghostty-Theme und keine Terminalfarben konfiguriert sind. Schrift- und andere Einstellungen bleiben erhalten. Bei false verwendet Ghostty seine feste integrierte Palette. Explizite Themes und Farben haben immer Vorrang, einschließlich theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Optionale maximale Breite in Punkten für Terminalinhalte und den integrierten Agentenchat. Mit false wird die gesamte Breite des Bereichs verwendet.",
           "sessionContentAlignment": "Horizontale Position von Terminalinhalten und integriertem Agentenchat, wenn sessionContentMaxWidth aktiviert ist.",

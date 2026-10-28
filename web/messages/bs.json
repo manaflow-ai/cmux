@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "Procentualno uvećanje za sve što cmux sam iscrtava: tekst terminala, naslove kartica, bočne trake, Settings, preklopne elemente i okvir prozora. Web stranice unutar površina preglednika zadržavaju vlastitu veličinu."
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "Zaustavlja nekontrolisane zadatke u panelu kada njihovi procesi podignu upotrebu memorije na kritičan nivo.",
           "adaptiveDefaultTheme": "Kada je true (zadano), cmux koristi zadanu paletu koja prati izgled, osim ako su podešeni Ghostty tema ili boje terminala. Font i ostale postavke se zadržavaju. Kada je false, Ghostty koristi svoju fiksnu ugrađenu paletu. Izričito zadane teme i boje uvijek imaju prednost, uključujući theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",

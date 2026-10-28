@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "Prosentvis zoom for alt cmux tegner selv: terminaltekst, fanetitler, sidefelt, Settings, overlegg og vindusrammer. Nettsider i nettleserflater beholder sin egen størrelse."
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "Stopper løpske jobber i en rute når prosessene deres øker minnebruken til et kritisk nivå.",
           "adaptiveDefaultTheme": "Når true (standard), bruker cmux en standardpalett som følger utseendet, med mindre et Ghostty-tema eller terminalfarger er konfigurert. Skrifttype og andre innstillinger beholdes. Når false, bruker Ghostty sin faste innebygde palett. Eksplisitte temaer og farger har alltid prioritet, inkludert theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",

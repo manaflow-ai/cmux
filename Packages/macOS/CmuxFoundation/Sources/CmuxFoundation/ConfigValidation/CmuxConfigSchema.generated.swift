@@ -1186,7 +1186,8 @@ enum CmuxEmbeddedConfigSchema {
             "enabled": {
               "type": "boolean",
               "default": false,
-              "description": "Stop a pane's runaway jobs when its process tree crosses the threshold under critical memory pressure."
+              "description": "Stops a pane's runaway jobs when its processes push memory use to a critical level.",
+              "descriptionKey": "schemaDescriptions.terminal.runawayMemoryGuardrailEnabled"
             },
             "thresholdGB": {
               "type": "number",

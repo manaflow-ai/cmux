@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "cmux'un kendi çizdiği her şey için yüzde cinsinden yakınlaştırma: terminal metni, sekme başlıkları, kenar çubukları, Settings, katmanlar ve pencere çerçevesi. Tarayıcı yüzeylerindeki web sayfaları kendi boyutlarını korur."
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "Bir bölmenin süreçleri bellek kullanımını kritik düzeye çıkardığında kontrolden çıkan işleri durdurur.",
           "adaptiveDefaultTheme": "true (varsayılan) olduğunda cmux, bir Ghostty teması veya terminal renkleri yapılandırılmadıkça görünüme uyarlanan varsayılan bir palet sağlar. Yazı tipi ve diğer ayarlar korunur. false olduğunda Ghostty sabit yerleşik paletini kullanır. theme = light:X,dark:Y dahil açıkça belirtilen temalar ve renkler her zaman önceliklidir.",
           "sessionContentMaxWidth": "Terminal ve yerleşik ajan sohbeti içeriği için puan cinsinden isteğe bağlı maksimum genişlik. Bölmenin tamamını kullanmak için false olarak ayarlayın.",
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",

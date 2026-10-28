@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "Procentvis zoom for alt, hvad cmux selv tegner: terminaltekst, fanetitler, sidebjælker, Settings, overlays og vinduesrammer. Websider i browserflader beholder deres egen størrelse."
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "Stopper løbske job i en rude, når deres processer presser hukommelsesforbruget op på et kritisk niveau.",
           "adaptiveDefaultTheme": "Når true (standard), bruger cmux en standardpalet, der følger udseendet, medmindre et Ghostty-tema eller terminalfarver er konfigureret. Skrifttype og andre indstillinger bevares. Når false, bruger Ghostty sin faste indbyggede palet. Eksplicitte temaer og farver har altid forrang, herunder theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalindhold og den indbyggede agentchat. Angiv false for at bruge hele rudens bredde.",
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
