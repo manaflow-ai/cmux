@@ -1024,14 +1024,13 @@ import Testing
         let socketPath = "/tmp/cmux-missing-cwd-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = UUID().uuidString
-        environment["CWD_TEST_LAUNCH_MARKER"] = marker.path
+        let environment = [
+            "HOME": root.path, "CFFIXED_USER_HOME": root.path, "PATH": "/usr/bin:/bin",
+            "CMUX_CLI_SENTRY_DISABLED": "1", "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_SURFACE_ID": UUID().uuidString, "CWD_TEST_LAUNCH_MARKER": marker.path,
+            "AppleLanguages": "(en)", "AppleLocale": "en_US_POSIX",
+            "LANG": "en_US.UTF-8", "LC_ALL": "C",
+        ]
 
         let result = runProcess(
             executablePath: cliPath,

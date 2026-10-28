@@ -39,11 +39,11 @@ struct CMUXCLIMissingWorkingDirectoryTests {
         #expect(result.methods == ["surface.resume.get"])
     }
 
-    @Test(arguments: ["missing", "file", "directory"], [false, true])
+    @Test(arguments: ["missing", "file", "directory", "relative-directory"], [false, true])
     func legacyCodexForkChecksDirectoryBeforeClearingBinding(pathKind: String, plannerFallback: Bool) throws {
         let fixture = try Fixture(pathIsFile: pathKind == "file")
         defer { fixture.remove() }
-        if pathKind == "directory" {
+        if pathKind == "directory" || pathKind == "relative-directory" {
             try FileManager.default.createDirectory(at: fixture.savedDirectory, withIntermediateDirectories: true)
         }
         let sessions = fixture.codexHome.appendingPathComponent("sessions")
@@ -56,6 +56,9 @@ struct CMUXCLIMissingWorkingDirectoryTests {
         ])
         try rollout.write(to: sessions.appendingPathComponent("rollout-\(fixture.checkpoint).jsonl"))
         var record = fixture.record(kind: "codex")
+        if pathKind == "relative-directory" {
+            record["working_directory"] = fixture.savedDirectory.lastPathComponent
+        }
         record["legacy_command"] = "'\(fixture.executable.path)' --fork '\(fixture.checkpoint)'"
         if plannerFallback {
             // A management command cannot supply structured continuation argv.
@@ -65,7 +68,7 @@ struct CMUXCLIMissingWorkingDirectoryTests {
             ]
         }
         let result = try fixture.run(verb: "fork", record: record)
-        if pathKind == "directory" {
+        if pathKind == "directory" || pathKind == "relative-directory" {
             #expect(!result.process.timedOut && result.process.status == 0,
                     Comment(rawValue: result.process.diagnostics))
             #expect(result.methods == ["surface.resume.get", "surface.resume.clear"])
@@ -153,6 +156,7 @@ struct CMUXCLIMissingWorkingDirectoryTests {
                     "AppleLanguages": "(en)", "AppleLocale": "en_US_POSIX",
                     "LANG": "en_US.UTF-8", "LC_ALL": "C",
                 ],
+                currentDirectoryURL: root,
                 timeout: 15
             )
             let methods = try responder.receivedRequests.map { request in
