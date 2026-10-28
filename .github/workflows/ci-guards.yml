@@ -1620,6 +1620,7 @@ jobs:
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+          python3 tests/test_ci_killpg_tolerates_eperm.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
