@@ -102,12 +102,27 @@ grep -q "origin' does not appear to be a git repository" <<<"$out" && fail "the 
 grep -q '^ACPMUX-PERF before light\._acpmux/status ' <<<"$out" || fail "no before rows without an origin remote: $out"
 "$GIT" -C "$TMP/repo" remote add origin "$TMP/repo"
 
-# 7. A worker without a tool the bench calls says which one, before any build, and exits 2.
-mv "$TMP/bin/cargo" "$TMP/cargo.off"
-run --
-mv "$TMP/cargo.off" "$TMP/bin/cargo"
+# 7. A worker without a tool the bench calls says which, before anything runs, and exits 2. PATH holds
+#    only git and the stubs, so nothing else can be found; no work directory means nothing was set up.
+mkdir -p "$TMP/iso"
+ln -sf "$GIT" "$TMP/iso/git"
+cp "$TMP/bin/sysctl" "$TMP/bin/sw_vers" "$TMP/iso/"
+iso() {  # iso ARGS...: the script under PATH=$TMP/iso; output in $out, exit in $code.
+  rm -rf "$WORK"
+  code=0
+  out=$(cd "$TMP/repo" && env -i PATH="$TMP/iso" HOME="$TMP" /bin/bash scripts/measure/acpmux-overhead.sh "$@" 2>&1) \
+    || code=$?
+}
+iso bench=daemon
 [[ "$code" -eq 2 ]] || fail "a missing cargo exited $code: $out"
-grep -q '^ACPMUX-OVERHEAD-MISSING-TOOL cargo:' <<<"$out" || fail "the missing tool is not named: $out"
-grep -q 'Compiling' <<<"$out" && fail "it built before it found the missing tool: $out"
+grep -q '^ACPMUX-OVERHEAD-MISSING-TOOL cargo:' <<<"$out" || fail "the missing cargo is not named: $out"
+[[ ! -e "$WORK" ]] || fail "bench=daemon set up a run before it found the missing tool"
+
+# 8. bench=hibernate on a worker without npm (cmux20-bench) names npm before any build.
+iso bench=hibernate harness=claude
+[[ "$code" -eq 2 ]] || fail "bench=hibernate without npm exited $code: $out"
+grep -qE '^ACPMUX-OVERHEAD-MISSING-TOOL ([a-z0-9]+ )*npm( |:)' <<<"$out" || fail "the missing npm is not named: $out"
+grep -q 'cargo' <<<"${out%%:*}" && fail "bench=hibernate refused a worker for cargo, which only a build needs: $out"
+[[ ! -e "$WORK" ]] || fail "bench=hibernate set up a run before it found the missing tool"
 
 echo "PASS acpmux-overhead-daemon"

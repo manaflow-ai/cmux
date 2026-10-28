@@ -70,19 +70,25 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
 [[ "$bench" =~ ^(harness|daemon|prewarm|hibernate)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm or hibernate" >&2; exit 2; }
+# Every tool this bench always calls, checked before anything runs, so a worker without one says
+# which at once instead of failing after a build (cmux20-bench had no npm). Build tools are checked
+# where a build happens: cargo for the cmux fallback below, cargo and rustup in build-acpmux.sh when
+# no acpmux is cached, so a worker with cached builds is never refused for lacking them.
+need_tools() {  # need_tools WHAT TOOL...: exit 2 naming every TOOL not on PATH.
+  local what="$1" tool missing=()
+  shift
+  for tool in "$@"; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+  (( ${#missing[@]} == 0 )) && return 0
+  echo "ACPMUX-OVERHEAD-MISSING-TOOL ${missing[*]}: $what needs $* on PATH; run the step on a worker that has them" >&2
+  exit 2
+}
+if [[ "$bench" == daemon ]]; then
+  need_tools "bench=daemon" git sysctl sw_vers cargo
+else
+  need_tools "bench=$bench" git sysctl sw_vers curl shasum awk python3 npm ps
+fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-# Every tool this bench calls, checked before any build, so a worker without one says which at once
-# instead of failing after the build (cmux20-bench had no npm). The fleet routes by label; a missing
-# tool is the worker's, and the step names it.
-need=(git sysctl sw_vers cargo)
-[[ "$bench" == daemon ]] || need+=(curl python3 npm)
-missing=()
-for tool in "${need[@]}"; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
-if (( ${#missing[@]} )); then
-  echo "ACPMUX-OVERHEAD-MISSING-TOOL ${missing[*]}: bench=$bench needs ${need[*]} on PATH; run the step on a worker that has them" >&2
-  exit 2
-fi
 # Where before= is fetched from: a cmux-ci step tree has no `origin` remote, so origin's URL when
 # there is one, else the repository's own URL.
 fetch_url="${ACPMUX_OVERHEAD_FETCH_URL:-$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
@@ -149,6 +155,7 @@ if curl -fsSL --proto '=https' "$tree/cmux-tui-aarch64-apple-darwin" -o "$work/c
   sum="$(curl -fsSL --proto '=https' "$tree/cmux-tui-aarch64-apple-darwin.sha256" | awk '{print $1}')"
   [[ "$(shasum -a 256 "$work/cmux" | awk '{print $1}')" == "$sum" ]] || { echo "ACPMUX-OVERHEAD cmux sha256 mismatch ($key)" >&2; exit 1; }
 else
+  need_tools "the cmux build (no published cmux-tui tree for $key)" cargo
   (cd cmux-tui && CARGO_TARGET_DIR="$work/target" cargo build --release --locked -p cmux-tui)
   cp "$work/target/release/cmux-tui" "$work/cmux"
 fi
