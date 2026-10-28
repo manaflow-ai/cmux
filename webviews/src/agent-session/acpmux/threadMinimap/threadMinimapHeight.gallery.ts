@@ -15,6 +15,7 @@ const rowsOf = (count: number) =>
 
 const medium = rowsOf(18);
 const long = rowsOf(70);
+const tall = rowsOf(260);
 
 export default agentPaneEntry({
   id: "agent-pane.thread-minimap-height",
@@ -50,6 +51,18 @@ export default agentPaneEntry({
         await ctx.scroll({ selector: ".acpmux-scroll" }, 3600);
         // Each arm reaches a different transcript landing row. The shared acceptance condition is
         // the thing this gallery compares: the rail list has more tick content than its viewport.
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__list");
+          return !!list && list.scrollHeight > list.clientHeight;
+        });
+      },
+    },
+    "tall-pane-caps": {
+      note: "Two hundred sixty prompts in a tall pane. The four arms reach distinct row caps before the viewport clearance bound.",
+      height: 2100,
+      snapshot: chat(tall, { title: "Thread minimap height: distinct caps" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="200"]')) return;
         await ctx.waitFor(() => {
           const list = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__list");
           return !!list && list.scrollHeight > list.clientHeight;
