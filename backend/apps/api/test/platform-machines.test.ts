@@ -255,10 +255,20 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
       const original = instance.platformHost.bind(instance)
       instance.platformHost = (team: string) => { const host = original(team); return { ...host, providerInfo: () => ({ ...host.providerInfo(), available: false }) } }
     })
-    await stub.fakeControl({ advance_ms: 10_000 })
-    await fireAlarm(stub)
-    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0, starts: 1 })
+    // The failed start could have reached the provider despite its missing answer. Compensation
+    // must confirm a real memory pause, and may not give up after the ordinary five attempts.
+    const providerName = ((await stub.fakeControl({})) as any).vms[0].name as string
+    await stub.fakeControl({ vm_state: { name: providerName, state: "running" }, power_refuse: 100 })
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await stub.fakeControl({ advance_ms: 6 * 60_000 })
+      await fireAlarm(stub)
+    }
     const owner = { identity: `user:${c.user}`, kind: "session" as const, user: c.user, team: c.team }
+    expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine: id })).value).toMatchObject({ status: "starting" })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0, starts: 1, pauses: 2 })
+    await stub.fakeControl({ power_refuse: 0, advance_ms: 6 * 60_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0, starts: 1, pauses: 3 })
     expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine: id })).value).toMatchObject({ status: "paused" })
   })
 
