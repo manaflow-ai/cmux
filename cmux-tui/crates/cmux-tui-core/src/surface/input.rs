@@ -1,7 +1,71 @@
 //! Input delivery on `Surface`: raw and receipted writes and bounded paste.
+//!
+//! A local PTY with a descriptor writes through its input sink
+//! (`pty_write::PtyInputSink`, p05-ipc-157): one nonblocking try, the rest
+//! queued in order and drained by the read loop, so no input caller waits
+//! for a child that does not read. Hosted input goes to the host, whose
+//! own PTY writes go through the same sink.
 
 use super::*;
+#[cfg(unix)]
+use crate::pty_write::{InputFailure, InputReceipt, InputSinkError, Submitted};
 use std::sync::PoisonError;
+#[cfg(unix)]
+use std::sync::mpsc::SyncSender;
+
+/// How long receipted local input waits for queued bytes to reach the PTY
+/// before its delivery becomes indeterminate: the hosted receipt's bound.
+#[cfg(unix)]
+const LOCAL_CONFIRMED_INPUT_WAIT: Duration = crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
+
+/// Writes `bytes` to a local runtime's PTY: through its input sink when it
+/// has one (never waits), else synchronously through `writer`. `Ok(false)`:
+/// wheel or motion input the child had no room for was dropped.
+fn write_local(
+    writer: &mut dyn Write,
+    master: Option<&dyn MasterPty>,
+    #[cfg(unix)] input: Option<&crate::pty_write::LocalInput>,
+    bytes: &[u8],
+    #[cfg(unix)] receipt: Option<Arc<dyn InputReceipt>>,
+) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    if let Some(sink) = input.map(crate::pty_write::LocalInput::sink) {
+        if let Some(master) = master
+            && !crate::pty_input_room::admits_behind(master, bytes, sink.backlog_bytes())
+        {
+            return Ok(false);
+        }
+        sink.submit(bytes, receipt)?;
+        return Ok(true);
+    }
+    // Waits while the child does not read its input.
+    crate::request_path::will_block(|| crate::pty_input_room::write_input(master, writer, bytes))
+}
+
+/// The `input-failed` reason of an error from [`Surface::submit_input_flow`].
+#[cfg(unix)]
+pub(crate) fn input_failure_of(error: &std::io::Error) -> InputFailure {
+    match error.get_ref().and_then(|inner| inner.downcast_ref::<InputSinkError>()) {
+        Some(error) => error.failure(),
+        None => InputFailure::WriteFailed,
+    }
+}
+
+/// Receipted local input that waits in the sink's backlog: the bytes'
+/// last chunk reached the PTY, or they never will.
+#[cfg(unix)]
+struct ConfirmedLocalInput(SyncSender<Result<(), InputFailure>>);
+
+#[cfg(unix)]
+impl InputReceipt for ConfirmedLocalInput {
+    fn failed(&self, reason: InputFailure, _bytes: usize) {
+        let _ = self.0.try_send(Err(reason));
+    }
+
+    fn written(&self) {
+        let _ = self.0.try_send(Ok(()));
+    }
+}
 
 /// How long hosted input waits for a lost host connection to come back (a
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
@@ -53,6 +117,26 @@ impl Surface {
     /// next read (a holder terminal's: the holder's next output). Input
     /// that is dropped or fails arms nothing.
     pub(crate) fn write_bytes_flow(&self, bytes: &[u8], flow: u64) -> std::io::Result<()> {
+        self.submit_input_flow(
+            bytes,
+            flow,
+            #[cfg(unix)]
+            None,
+        )
+    }
+
+    /// [`Self::write_bytes_flow`] for a sender that hears what becomes of
+    /// queued input: a local PTY with an input sink takes the bytes without
+    /// waiting, and `receipt` is told once if queued bytes never reach the
+    /// PTY. An error here means none of `bytes` was written or queued: a
+    /// full backlog is an error whose inner error is the sink's
+    /// `InputSinkError::Overflow` ([`input_failure_of`]).
+    pub(crate) fn submit_input_flow(
+        &self,
+        bytes: &[u8],
+        flow: u64,
+        #[cfg(unix)] receipt: Option<Arc<dyn InputReceipt>>,
+    ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -83,12 +167,15 @@ impl Surface {
         let reached_pty = {
             let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
             match &mut *runtime {
+                #[cfg(unix)]
+                PtyRuntime::Local { writer, master, input, .. } => {
+                    let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                    write_local(writer.as_mut(), master, input.as_ref(), bytes, receipt)
+                }
+                #[cfg(not(unix))]
                 PtyRuntime::Local { writer, master, .. } => {
                     let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                    // Waits while the child does not read its input.
-                    crate::request_path::will_block(|| {
-                        crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
-                    })
+                    write_local(writer.as_mut(), master, bytes)
                 }
                 // The host stamps its own read of the echo.
                 #[cfg(any(unix, windows))]
@@ -133,10 +220,12 @@ impl Surface {
             // the wait below, so no reconnect is missed.
             let observed = pty.stream_progress.revision();
             let sent = match &*pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
-                // Waits while the host does not read its socket.
-                PtyRuntime::Hosted(host) => {
+                // Waits while the host does not read its socket: the host
+                // reads it continuously, and its own PTY writes go through
+                // its input sink, so this waits only for a stalled host.
+                PtyRuntime::Hosted(host) => cmux_threads::work::will_block(|| {
                     crate::request_path::will_block(|| host.send_flow(kind, bytes, flow))
-                }
+                }),
                 // Keep-on-exit: the final screen drops input (see
                 // write_bytes). Input that already failed to reach the host
                 // did not arrive: it keeps its error.
@@ -186,6 +275,35 @@ impl Surface {
         };
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         match &mut *runtime {
+            #[cfg(unix)]
+            PtyRuntime::Local { input: Some(input), .. } => {
+                let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+                let receipt: Arc<dyn InputReceipt> = Arc::new(ConfirmedLocalInput(sender));
+                let submitted = input.sink().submit(bytes, Some(receipt));
+                drop(runtime);
+                match submitted {
+                    Ok(Submitted::Written) => Ok(()),
+                    // Nothing of it was written or queued.
+                    Err(error) => Err(ConfirmedInputFailure::Known(error.into())),
+                    Ok(Submitted::Queued) => crate::request_path::will_block(|| {
+                        match cmux_threads::checked::sync::recv_timeout(
+                            &receiver,
+                            LOCAL_CONFIRMED_INPUT_WAIT,
+                        ) {
+                            Ok(Ok(())) => Ok(()),
+                            Ok(Err(reason)) => Err(std::io::Error::new(
+                                std::io::ErrorKind::BrokenPipe,
+                                format!("receipted terminal input failed: {}", reason.as_str()),
+                            )),
+                            Err(_) => Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "the program did not read receipted terminal input in time",
+                            )),
+                        }
+                    })
+                    .map_err(ConfirmedInputFailure::Indeterminate),
+                }
+            }
             PtyRuntime::Local { writer, .. } => crate::request_path::will_block(|| {
                 writer.write_all(bytes).and_then(|()| writer.flush())
             })
@@ -250,7 +368,21 @@ impl Surface {
             let term = pty.term.lock().unwrap_or_else(PoisonError::into_inner);
             term.mode(2004, false)
         };
+        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
+        if bracketed {
+            payload.extend_from_slice(b"\x1b[200~");
+        }
+        payload.extend_from_slice(bytes);
+        if bracketed {
+            payload.extend_from_slice(b"\x1b[201~");
+        }
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
+        // Behind the input sink a paste waits for nothing: it goes in order
+        // after earlier input, or is refused whole.
+        #[cfg(unix)]
+        if let PtyRuntime::Local { input: Some(input), .. } = &*runtime {
+            return input.sink().submit(&payload, None).map(drop).map_err(Into::into);
+        }
         #[allow(
             clippy::unreachable,
             reason = "INVARIANT: send_hosted_input took every hosted runtime, and a local \
@@ -260,16 +392,8 @@ impl Surface {
             unreachable!("hosted paste returned above")
         };
         #[cfg(not(unix))]
-        let _ = master;
-        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
-        if bracketed {
-            payload.extend_from_slice(b"\x1b[200~");
-        }
-        payload.extend_from_slice(bytes);
-        if bracketed {
-            payload.extend_from_slice(b"\x1b[201~");
-        }
-        // Waits while the child does not read its input.
+        let _ = (master, timeout);
+        // A writer with no input sink: waits while the child does not read its input.
         crate::request_path::will_block(|| {
             #[cfg(unix)]
             if let Some(timeout) = timeout

@@ -44,6 +44,12 @@ pub(crate) struct HostShared {
     pub(crate) default_colors: Mutex<DefaultColors>,
     pub(crate) stream_progress: TerminalStreamProgress,
     pub(crate) writer: Mutex<Box<dyn Write + Send>>,
+    /// The PTY's input sink (p05-ipc-157): client input, pastes and query
+    /// answers are written without waiting for the program to read, the
+    /// rest queued in order. `None` for a master with no descriptor (a
+    /// test master), which `writer` writes synchronously.
+    #[cfg(unix)]
+    pub(crate) input: Option<crate::pty_write::LocalInput>,
     pub(crate) master: Mutex<Box<dyn MasterPty + Send>>,
     pub(crate) killer: Mutex<Box<dyn ChildKiller + Send>>,
     pub(crate) pid: Option<u32>,
@@ -103,6 +109,41 @@ pub(crate) struct HostShared {
     pub(crate) trace_control: super::host_trace::HostTraceQueue,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
+}
+
+/// Where [`HostShared::submit_pty_input`] left its bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PtyInputWrite {
+    /// The PTY took all of them.
+    Written,
+    /// Some wait in the input sink's backlog; its receipt hears the rest.
+    Queued,
+}
+
+/// A receipted `Input`'s acknowledgement when its bytes waited in the input
+/// sink: sent once they reached the PTY. Bytes that never do close the
+/// client, as a failed write does.
+#[cfg(unix)]
+struct InputAckWhenWritten {
+    host: Weak<HostShared>,
+    request_id: u64,
+    target: HostTap,
+}
+
+#[cfg(unix)]
+impl crate::pty_write::InputReceipt for InputAckWhenWritten {
+    fn failed(&self, _reason: crate::pty_write::InputFailure, _bytes: usize) {
+        self.target.close();
+    }
+
+    fn written(&self) {
+        let Some(host) = self.host.upgrade() else { return };
+        let mut response = Frame::new(MessageKind::InputAck, Vec::new());
+        response.request_id = self.request_id;
+        let _broadcast = host.broadcast_lock.lock().recover_poison();
+        // A full client queue closes the client (`HostTap::try_send`).
+        let _ = self.target.try_send(response);
+    }
 }
 
 /// What one [`HostShared::write_input`] did with its payload: the `task.host_input_write` end's
@@ -190,6 +231,35 @@ impl InputWrite {
 }
 
 impl HostShared {
+    /// Writes `bytes` to the program's input behind every earlier input:
+    /// through the input sink when there is one (never waits), else through
+    /// [`Self::pty_writer`]. `receipt` hears what becomes of queued bytes.
+    pub(crate) fn submit_pty_input(
+        &self,
+        bytes: &[u8],
+        #[cfg(unix)] receipt: Option<Arc<dyn crate::pty_write::InputReceipt>>,
+    ) -> std::io::Result<PtyInputWrite> {
+        #[cfg(unix)]
+        if let Some(input) = self.input.as_ref() {
+            return Ok(match input.sink().submit(bytes, receipt)? {
+                crate::pty_write::Submitted::Written => PtyInputWrite::Written,
+                crate::pty_write::Submitted::Queued => PtyInputWrite::Queued,
+            });
+        }
+        let mut writer = self.pty_writer();
+        writer.write_all(bytes).and_then(|()| writer.flush())?;
+        Ok(PtyInputWrite::Written)
+    }
+
+    /// Input bytes waiting for the program to read them.
+    pub(crate) fn queued_pty_input(&self) -> usize {
+        #[cfg(unix)]
+        if let Some(input) = self.input.as_ref() {
+            return input.sink().backlog_bytes();
+        }
+        0
+    }
+
     /// The PTY writer, for a write to the program's input. The write, and the wait for the lock
     /// another thread's write holds, last until the program reads its input: the program's time,
     /// not the host's. So it stops blaming the calling thread's hang-watch scope (Chrome's
@@ -421,6 +491,20 @@ impl HostShared {
                     observed_progress = progress;
                 }
                 ParserClearHistoryResult::EncodedFallback(encoded) => {
+                    // Behind queued input the key goes in order after it: a
+                    // bounded write now would pass it.
+                    if self.queued_pty_input() > 0 {
+                        return self
+                            .submit_pty_input(
+                                &encoded,
+                                #[cfg(unix)]
+                                None,
+                            )
+                            .map(|_| ClearHistoryAckDisposition::Pending)
+                            .map_err(|error| {
+                                ClearHistoryFailure::known_not_delivered(anyhow::Error::from(error))
+                            });
+                    }
                     let mut writer = self.pty_writer();
                     let master = self.master.lock().recover_poison();
                     return write_clear_history_fallback(
@@ -471,7 +555,7 @@ impl HostShared {
     /// carries, which the reader's next PTY read takes (`last_input_flow`)
     /// when the bytes reached the PTY.
     pub(crate) fn write_input(
-        &self,
+        self: &Arc<Self>,
         payload: &[u8],
         request_id: u64,
         flow: u64,
@@ -487,29 +571,44 @@ impl HostShared {
                 cmux_trace::terminal_hash(self.terminal_id.as_bytes()),
                 payload.len()
             );
-            let mut writer = self.pty_writer();
             // Receipted input certifies delivery, so none of it is dropped. The master is
-            // held only to read the queue, never across a write that can block.
+            // held only to read the queue, never across a write.
             let admitted = request_id != 0 || {
                 let master = self.master.lock().recover_poison();
-                crate::pty_input_room::admits(&**master, payload)
+                let queued = self.queued_pty_input();
+                crate::pty_input_room::admits_behind(&**master, payload, queued)
             };
-            let outcome = if !admitted {
-                InputWrite::Dropped
+            #[cfg(unix)]
+            let receipt = (request_id != 0).then(|| {
+                Arc::new(InputAckWhenWritten {
+                    host: Arc::downgrade(self),
+                    request_id,
+                    target: target.clone(),
+                }) as Arc<dyn crate::pty_write::InputReceipt>
+            });
+            let (outcome, queued) = if !admitted {
+                (InputWrite::Dropped, false)
             } else {
                 // Armed before the write: the echo can be read before the write returns.
                 self.last_input_flow.arm(flow);
-                if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
-                    InputWrite::Written
-                } else {
-                    // No echo comes: the next unrelated read must not take the flow.
-                    self.last_input_flow.withdraw(flow);
-                    InputWrite::Failed
+                match self.submit_pty_input(
+                    payload,
+                    #[cfg(unix)]
+                    receipt,
+                ) {
+                    Ok(PtyInputWrite::Written) => (InputWrite::Written, false),
+                    Ok(PtyInputWrite::Queued) => (InputWrite::Written, true),
+                    Err(_) => {
+                        // No echo comes: the next unrelated read must not take the flow.
+                        self.last_input_flow.withdraw(flow);
+                        (InputWrite::Failed, false)
+                    }
                 }
             };
             write.set_end_args(outcome.bytes_written(payload), outcome as u8);
-            outcome != InputWrite::Failed
+            (outcome != InputWrite::Failed, queued)
         };
+        let (delivered, queued) = delivered;
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
         if request_id == 0 {
@@ -517,6 +616,10 @@ impl HostShared {
         }
         if !delivered {
             return false;
+        }
+        if queued {
+            // `InputAckWhenWritten` acknowledges once the PTY took the rest.
+            return true;
         }
         let mut response = Frame::new(MessageKind::InputAck, Vec::new());
         response.request_id = request_id;

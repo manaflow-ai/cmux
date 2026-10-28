@@ -527,3 +527,103 @@ fn stream_pending_a_bound_stream_carries_input_past_the_pending_cap() {
     assert_eq!(capture.written().len(), STREAM_INPUT_CAPACITY + 1);
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
+
+/// p05-ipc-157: a child that never reads while 10k INPUT frames arrive on
+/// its stream. Every frame is taken without a worker waiting for the child
+/// (no lane item inside `will_block`, no `host_wait`), pings on the control
+/// sequence stay fast meanwhile, and once the child reads, every byte
+/// arrives in order with no `input-failed`.
+#[cfg(unix)]
+#[test]
+fn async_input_sink_a_child_that_does_not_read_blocks_no_worker() {
+    use std::io::Read;
+    use std::time::Instant;
+
+    const FRAMES: usize = 10_000;
+    const PING_EVERY: usize = 100;
+    let mut client = Client::granted_with("async-input-sink", &[VIEW_ATTACHMENT_LEASE_CAPABILITY]);
+    let surface = client.mux.new_workspace(None, Some((80, 24))).unwrap();
+    let mut child = surface.sink_pty_input_for_test(Arc::downgrade(&client.mux));
+    client.send(&stream_request(7, 10, &attach(surface.id)));
+    let opened = until_answer(&mut client, 10);
+    let (kind, _, body) = answer(&opened, 10);
+    assert_eq!(kind, FrameKind::Reply, "{body}");
+
+    // 64 bytes a frame: 640 KB, past any socket buffer, inside the backlog.
+    let mut expected = Vec::with_capacity(FRAMES * 64);
+    let mut pings = Vec::new();
+    let mut blocked = 0;
+    for index in 0..FRAMES {
+        let key = format!("{index:063};");
+        client.send(&input(7, 0, key.as_bytes()));
+        expected.extend_from_slice(key.as_bytes());
+        if (index + 1) % PING_EVERY == 0 {
+            let request_id = 1_000 + u32::try_from(index).unwrap();
+            let started = Instant::now();
+            client.send(&request(request_id, &json!({"cmd": "ping"})));
+            let seen = until_answer(&mut client, request_id);
+            pings.push(started.elapsed());
+            assert!(!seen.iter().any(|seen| is_event(seen, "input-failed", 7)), "{seen:?}");
+            blocked += client.mux.work.stats().iter().map(|lane| lane.blocked).sum::<usize>();
+        }
+    }
+    client.send(&stream_request(7, 11, &fence(surface.id)));
+    let seen = until_answer(&mut client, 11);
+    assert!(!seen.iter().any(|seen| is_event(seen, "input-failed", 7)), "{seen:?}");
+
+    pings.sort();
+    let p99 = pings[pings.len() * 99 / 100];
+    assert!(p99 < Duration::from_millis(2), "ping p99 {p99:?} behind a child that does not read");
+    assert_eq!(blocked, 0, "a worker waited for the child");
+    let request_path =
+        crate::request_path::RequestPathIoSnapshot::of(client.mux.request_path_stats());
+    assert_eq!(request_path.host_wait, 0);
+
+    // The child reads at last: every byte, in the order sent.
+    child.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut received = vec![0; expected.len()];
+    child.read_exact(&mut received).unwrap();
+    assert!(received == expected, "the PTY got the input out of order");
+    assert_eq!(client.mux.ipc_stats().snapshot().bad_message, 0);
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// p05-ipc-157: INPUT the sink refuses (its backlog full) is reported in an
+/// `input-failed{overflow}` with its bytes, and the stream goes on.
+#[cfg(unix)]
+#[test]
+fn async_input_sink_a_full_backlog_reports_overflow_and_keeps_the_stream() {
+    let mut client =
+        Client::granted_with("async-input-overflow", &[VIEW_ATTACHMENT_LEASE_CAPABILITY]);
+    let surface = client.mux.new_workspace(None, Some((80, 24))).unwrap();
+    let _child = surface.sink_pty_input_for_test(Arc::downgrade(&client.mux));
+    client.send(&stream_request(7, 10, &attach(surface.id)));
+    let opened = until_answer(&mut client, 10);
+    let (kind, _, body) = answer(&opened, 10);
+    assert_eq!(kind, FrameKind::Reply, "{body}");
+
+    let block = vec![b'b'; 1 << 20];
+    let blocks = crate::pty_write::INPUT_SINK_CAPACITY / block.len() + 2;
+    for _ in 0..blocks {
+        client.send(&input(7, 0, &block));
+    }
+    client.send(&stream_request(7, 11, &fence(surface.id)));
+    let seen = until_answer(&mut client, 11);
+    let failures: Vec<&Value> = seen
+        .iter()
+        .filter_map(|seen| match seen {
+            Seen::Event(event) if event["event"] == "input-failed" => Some(event),
+            _ => None,
+        })
+        .collect();
+    assert!(!failures.is_empty(), "the backlog took more than its cap: {seen:?}");
+    for event in failures {
+        assert_eq!(event["stream"], json!(7), "{event}");
+        assert_eq!(event["reason"], json!("overflow"), "{event}");
+        assert_eq!(event["bytes"], json!(block.len()), "a refusal is whole: {event}");
+    }
+    let (kind, stream, body) = answer(&seen, 11);
+    assert_eq!((kind, stream), (FrameKind::Reply, 7), "the stream goes on: {body}");
+    assert!(!seen.iter().any(|seen| is_event(seen, "stream-end", 7)), "{seen:?}");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}

@@ -195,6 +195,8 @@ impl Surface {
                         killer: Box::new(TestChildKiller),
                         #[cfg(unix)]
                         holder: None,
+                        #[cfg(unix)]
+                        input: None,
                     },
                 ),
                 lifetime,
@@ -284,6 +286,28 @@ impl Surface {
         };
         *writer = Box::new(capture.clone());
         capture
+    }
+
+    /// Routes this test surface's PTY input through an input sink
+    /// (p05-ipc-157) over one end of a socket pair, drained on `owner`'s
+    /// read loop, and returns the other end: the child, which reads only
+    /// when the test does.
+    #[cfg(all(test, unix))]
+    pub(crate) fn sink_pty_input_for_test(
+        &self,
+        owner: Weak<Mux>,
+    ) -> std::os::unix::net::UnixStream {
+        use std::os::fd::AsRawFd;
+        let (master, child) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
+        let sink = crate::pty_write::PtyInputSink::new(master.as_raw_fd(), owner)
+            .expect("an input sink over the socket");
+        let pty = self.as_pty().expect("a terminal surface");
+        let mut runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let PtyRuntime::Local { input, .. } = &mut *runtime else {
+            panic!("a test surface writes its PTY itself");
+        };
+        *input = Some(crate::pty_write::LocalInput::new(sink));
+        child
     }
 }
 

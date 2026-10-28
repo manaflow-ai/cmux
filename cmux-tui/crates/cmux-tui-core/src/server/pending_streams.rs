@@ -24,7 +24,10 @@
 //! Only a frame naming a stream that was never announced is a bad message.
 //!
 //! The caps are a Pending stream's only: a bound stream's INPUT goes to its
-//! PTY's writer as it comes (a bounded terminal input sink is p05-ipc-157).
+//! terminal's input sink as it comes (p05-ipc-157), which never waits for
+//! the child to read. Bytes the sink refuses (its backlog is full) or later
+//! fails to write (the PTY ended) are reported in one `input-failed` per
+//! refusal or failure, with the sink's reason.
 //!
 //! Chrome: an associated endpoint is usable as soon as it is sent, and the
 //! router queues the messages of an endpoint that has no client bound yet,
@@ -67,6 +70,21 @@ const STREAM_OPENERS: [&str; 1] = ["attach-surface"];
 /// The `input-failed` reason of INPUT that reached a bound stream and could
 /// not be written (the surface closed, or is not a terminal).
 const INPUT_WRITE_FAILED: &str = "write_failed";
+
+/// A bound stream's sender in its terminal's input sink: one `input-failed`
+/// for all of the stream's queued bytes the PTY will never take.
+#[cfg(unix)]
+struct StreamInputReceipt {
+    stream: u16,
+    writer: MessageWriter,
+}
+
+#[cfg(unix)]
+impl crate::pty_write::InputReceipt for StreamInputReceipt {
+    fn failed(&self, reason: crate::pty_write::InputFailure, bytes: usize) {
+        let _ = self.writer.send_control(&input_failed_json(self.stream, reason.as_str(), bytes));
+    }
+}
 
 /// Why a stream ended before it carried its items (`stream-end.reason`, the
 /// strings of spec/events.md "stream-end").
@@ -199,6 +217,9 @@ pub(super) struct StreamEndpoint {
     /// (the view detached or overflowed) the stream ended and its id is
     /// free.
     view: OnceLock<OutboundStream>,
+    /// Its sender in the input sink, made with its first INPUT.
+    #[cfg(unix)]
+    input_receipt: OnceLock<Arc<dyn crate::pty_write::InputReceipt>>,
     #[cfg(test)]
     probe: Option<Arc<dyn StreamProbe>>,
 }
@@ -217,6 +238,8 @@ impl StreamEndpoint {
                 held: Held::default(),
             }),
             view: OnceLock::new(),
+            #[cfg(unix)]
+            input_receipt: OnceLock::new(),
             #[cfg(test)]
             probe: None,
         }
@@ -455,19 +478,39 @@ impl StreamEndpoint {
     }
 
     fn write_input(&self, mux: &Weak<Mux>, surface: SurfaceId, bytes: &[u8], flow: u64) {
-        // The mux is held only to find the surface, not across the write,
-        // which waits while the program does not read.
+        // The mux is held only to find the surface, not across the write.
         let target = mux.upgrade().and_then(|mux| get_surface(&mux, surface).ok());
-        let written = target
-            .is_some_and(|target| will_block(|| target.write_bytes_flow(bytes, flow)).is_ok());
-        if !written {
-            let _ = self.writer.send_control(&input_failed_json(
-                self.stream,
-                INPUT_WRITE_FAILED,
-                bytes.len(),
-            ));
-        } else if let Some(mux) = mux.upgrade() {
-            mux.note_terminal_input(surface, self.client);
+        let written = match target {
+            // A local PTY's sink never waits for the program to read; a
+            // hosted terminal's send marks its own wait (`send_hosted_input`).
+            #[cfg(unix)]
+            Some(target) => {
+                let receipt = self.input_receipt.get_or_init(|| {
+                    Arc::new(StreamInputReceipt {
+                        stream: self.stream,
+                        writer: self.writer.clone(),
+                    })
+                });
+                target
+                    .submit_input_flow(bytes, flow, Some(receipt.clone()))
+                    .map_err(|error| crate::surface::input_failure_of(&error).as_str())
+            }
+            #[cfg(not(unix))]
+            Some(target) => {
+                will_block(|| target.write_bytes_flow(bytes, flow)).map_err(|_| INPUT_WRITE_FAILED)
+            }
+            None => Err(INPUT_WRITE_FAILED),
+        };
+        match written {
+            Err(reason) => {
+                let _ =
+                    self.writer.send_control(&input_failed_json(self.stream, reason, bytes.len()));
+            }
+            Ok(()) => {
+                if let Some(mux) = mux.upgrade() {
+                    mux.note_terminal_input(surface, self.client);
+                }
+            }
         }
     }
 

@@ -149,6 +149,10 @@ fn echo_flow_a_failed_write_arms_nothing() {
         }
     }
     let (reader, mut child) = UnixStream::pair().unwrap();
+    // The input sink writes the master's descriptor (p05-ipc-157): a master
+    // that takes no input fails the write there, as `Failing` does for a
+    // writer with no descriptor.
+    reader.shutdown(std::net::Shutdown::Write).unwrap();
     let master = File::from(OwnedFd::from(reader.try_clone().unwrap()));
     let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
     let (end_tx, end_rx) = std::sync::mpsc::channel::<()>();

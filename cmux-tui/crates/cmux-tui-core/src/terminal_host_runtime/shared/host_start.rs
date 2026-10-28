@@ -112,6 +112,12 @@ pub(crate) fn start_host_runtime(
         default_colors: Mutex::new(launch.default_colors),
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(pty_writer),
+        #[cfg(unix)]
+        input: master
+            .as_raw_fd()
+            .map(|fd| crate::pty_write::PtyInputSink::new(fd, std::sync::Weak::new()))
+            .transpose()?
+            .map(crate::pty_write::LocalInput::new),
         master: Mutex::new(master),
         killer: Mutex::new(killer),
         pid,

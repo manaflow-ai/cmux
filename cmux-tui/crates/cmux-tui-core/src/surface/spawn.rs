@@ -167,6 +167,12 @@ impl Surface {
         )));
         #[cfg(unix)]
         let shared_output = read_fd.map(|_| output.clone());
+        #[cfg(unix)]
+        let input = master
+            .as_raw_fd()
+            .map(|fd| crate::pty_write::PtyInputSink::new(fd, mux.clone()))
+            .transpose()?
+            .map(crate::pty_write::LocalInput::new);
         let pty = PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -212,6 +218,8 @@ impl Surface {
                         killer,
                         #[cfg(unix)]
                         holder,
+                        #[cfg(unix)]
+                        input,
                     },
                 ),
                 lifetime,

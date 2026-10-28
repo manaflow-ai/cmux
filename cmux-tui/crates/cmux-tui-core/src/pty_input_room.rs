@@ -10,6 +10,10 @@
 //! (https://github.com/manaflow-ai/cmux/issues/22265). Wheel and motion
 //! reports are only ever written whole, while the queue keeps room for keys:
 //! one that would not fit is dropped, as a terminal coalesces the wheel.
+//!
+//! Behind the input sink's backlog (`pty_write`, p05-ipc-157) the child is
+//! not reading at all: wheel and motion reports are dropped there too, on
+//! every platform, instead of queueing scroll the child would act on late.
 
 use std::io::{self, Write};
 #[cfg(unix)]
@@ -46,6 +50,15 @@ pub(crate) fn admits(master: &dyn MasterPty, payload: &[u8]) -> bool {
         None
     };
     admits_fd(master_fd, payload)
+}
+
+/// [`admits`] behind `backlog` input bytes that wait for the child to read:
+/// wheel and motion reports go only when nothing waits.
+pub(crate) fn admits_behind(master: &dyn MasterPty, payload: &[u8], backlog: usize) -> bool {
+    if backlog > 0 && is_lossy_mouse_input(payload) {
+        return false;
+    }
+    admits(master, payload)
 }
 
 #[cfg(unix)]

@@ -155,9 +155,12 @@ pub(crate) fn run_host_parser(
     let flush_pending_responses = || {
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         if !responses.is_empty() {
-            let mut writer = parser_host.pty_writer();
-            let _ = writer.write_all(&responses);
-            let _ = writer.flush();
+            // Behind earlier input, never waiting for the program to read.
+            let _ = parser_host.submit_pty_input(
+                &responses,
+                #[cfg(unix)]
+                None,
+            );
         }
     };
     let hang_watch = HostLoop::Parser.register();

@@ -35,6 +35,11 @@
 //!   the descriptor before [`ReadSource::finish`] may close it. A dropped
 //!   owner never cuts a live terminal off: the loop and its workers end
 //!   once the last source finished.
+//! - **Input.** A terminal's input sink (`pty_write`, p05-ipc-157) drains on
+//!   the same loop: [`TerminalReads::register_writable`] watches its
+//!   descriptor for room to write while it holds bytes, and a run that
+//!   empties it returns [`ReadFlow::Park`], which watches nothing until the
+//!   next [`ReadKick`]. An empty sink costs no wakeup.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -42,7 +47,7 @@ use std::io;
 use std::os::fd::RawFd;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
-use super::read_poller::{Poller, WAKE_TOKEN};
+use super::read_poller::{Interest, Poller, WAKE_TOKEN};
 
 /// Chunks one run reads before its source yields to the other ready ones.
 pub(crate) const READS_PER_RUN: usize = 4;
@@ -64,6 +69,8 @@ pub(crate) const READ_WORKER_THREAD: &str = "mux-terminal-read";
 pub(crate) enum ReadFlow {
     /// Watch the descriptor again.
     Continue,
+    /// Watch nothing until the next [`ReadKick`] (an empty input sink).
+    Park,
     /// The stream ended: stop watching, then [`ReadSource::finish`].
     Finished,
 }
@@ -177,6 +184,8 @@ impl ReadKick {
 enum Phase {
     /// Waiting for its descriptor (watched and armed).
     Armed,
+    /// Registered, not armed: only a kick queues its next run.
+    Parked,
     /// In the run queue.
     Queued,
     /// On a worker; `again` when it became ready during the run.
@@ -185,6 +194,7 @@ enum Phase {
 
 struct Entry {
     fd: RawFd,
+    interest: Interest,
     phase: Phase,
     /// `None` while a worker runs it.
     source: Option<Box<dyn ReadSource>>,
@@ -255,6 +265,25 @@ impl TerminalReads {
         fd: RawFd,
         source: Box<dyn ReadSource>,
     ) -> Result<ReadKick, Box<dyn ReadSource>> {
+        self.register_for(fd, Interest::Readable, source)
+    }
+
+    /// [`Self::register`] for a source that writes: its run comes when
+    /// `fd` has room to write, or on a kick after it parked.
+    pub(crate) fn register_writable(
+        &self,
+        fd: RawFd,
+        source: Box<dyn ReadSource>,
+    ) -> Result<ReadKick, Box<dyn ReadSource>> {
+        self.register_for(fd, Interest::Writable, source)
+    }
+
+    fn register_for(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+        source: Box<dyn ReadSource>,
+    ) -> Result<ReadKick, Box<dyn ReadSource>> {
         let Ok(shared) = self.shared() else { return Err(source) };
         let token = {
             let mut state = shared.lock();
@@ -266,10 +295,11 @@ impl TerminalReads {
             }
             let token = state.next_token;
             state.next_token += 1;
-            state.entries.insert(token, Entry { fd, phase: Phase::Armed, source: Some(source) });
+            let entry = Entry { fd, interest, phase: Phase::Armed, source: Some(source) };
+            state.entries.insert(token, entry);
             token
         };
-        if shared.poller.add(fd, token).is_err() {
+        if shared.poller.add(fd, token, interest).is_err() {
             let entry = shared.lock().entries.remove(&token);
             let source = entry.and_then(|entry| entry.source);
             // Not watched yet and no kick handed out, so nothing ran it.
@@ -320,7 +350,7 @@ impl Shared {
         let mut state = self.lock();
         let Some(entry) = state.entries.get_mut(&token) else { return };
         match &mut entry.phase {
-            Phase::Armed => entry.phase = Phase::Queued,
+            Phase::Armed | Phase::Parked => entry.phase = Phase::Queued,
             Phase::Queued => return,
             Phase::Running { again } => {
                 *again = true;
@@ -392,17 +422,22 @@ impl Shared {
         let mut state = self.lock();
         let entry = state.entries.get_mut(&token).expect("a running source stays registered");
         match flow {
-            Ok(ReadFlow::Continue) => {
+            Ok(flow @ (ReadFlow::Continue | ReadFlow::Park)) => {
                 entry.source = Some(source);
-                let fd = entry.fd;
+                let (fd, interest) = (entry.fd, entry.interest);
                 if matches!(entry.phase, Phase::Running { again: true }) {
                     entry.phase = Phase::Queued;
                     state.runnable.push_back(token);
                     return;
                 }
+                if flow == ReadFlow::Park {
+                    // A kick after this point queues its next run.
+                    entry.phase = Phase::Parked;
+                    return;
+                }
                 // Armed under the lock, so no kick can run it before its
                 // descriptor is watched again.
-                if self.poller.rearm(fd, token).is_ok() {
+                if self.poller.rearm(fd, token, interest).is_ok() {
                     entry.phase = Phase::Armed;
                     return;
                 }
@@ -453,7 +488,7 @@ impl Shared {
             (entry, done)
         };
         if let Some(entry) = entry.as_ref() {
-            let _ = self.poller.delete(entry.fd);
+            let _ = self.poller.delete(entry.fd, entry.interest);
         }
         if done {
             let _ = self.poller.wake();

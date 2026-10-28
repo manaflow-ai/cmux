@@ -33,6 +33,51 @@ fn clicks_keys_text_and_mixed_input_are_never_lossy() {
     }
 }
 
+/// A master with no descriptor: only the backlog decides.
+struct NoFdMaster;
+
+impl MasterPty for NoFdMaster {
+    fn resize(&self, _size: cmux_pty::PtySize) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<cmux_pty::PtySize> {
+        Ok(cmux_pty::PtySize::default())
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn io::Read + Send>> {
+        anyhow::bail!("no reader")
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+        anyhow::bail!("no writer")
+    }
+
+    #[cfg(unix)]
+    fn process_group_leader(&self) -> Option<libc::pid_t> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn as_raw_fd(&self) -> Option<RawFd> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn tty_name(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+#[test]
+fn wheel_reports_behind_a_backlog_are_dropped_and_keys_are_not() {
+    let wheel = b"\x1b[<65;27;20M";
+    assert!(admits_behind(&NoFdMaster, wheel, 0));
+    assert!(!admits_behind(&NoFdMaster, wheel, 1));
+    assert!(admits_behind(&NoFdMaster, b"a", 1 << 20));
+    assert!(admits_behind(&NoFdMaster, b"\x1b[<0;10;5M", 1 << 20));
+}
+
 #[cfg(target_os = "macos")]
 mod queue {
     use super::*;

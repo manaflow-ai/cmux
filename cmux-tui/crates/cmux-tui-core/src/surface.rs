@@ -21,6 +21,8 @@ mod holder_spawn;
 mod host_launch;
 mod host_state;
 mod input;
+#[cfg(unix)]
+pub(crate) use input::input_failure_of;
 mod local_output;
 mod local_reader;
 mod metadata;

@@ -112,6 +112,16 @@ impl Surface {
                 }
                 ClearHistoryTransition::EncodedFallback(encoded) => {
                     let mut runtime = pty.runtime.lock().recover_poison();
+                    // Behind queued input the key goes in order after it
+                    // (p05-ipc-157): a bounded write now would pass it.
+                    #[cfg(unix)]
+                    if let PtyRuntime::Local { input: Some(input), .. } = &*runtime
+                        && input.sink().backlog_bytes() > 0
+                    {
+                        return input.sink().submit(&encoded, None).map(drop).map_err(|error| {
+                            ClearHistoryFailure::known_not_delivered(anyhow::Error::from(error))
+                        });
+                    }
                     #[allow(
                         clippy::unreachable,
                         reason = "INVARIANT: the hosted runtimes returned above, and a runtime \

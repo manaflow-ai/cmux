@@ -3,9 +3,11 @@
 //! (base/message_loop/message_pump_kqueue.cc) and `MessagePumpEpoll`
 //! (base/message_loop/message_pump_epoll.cc).
 //!
-//! Every descriptor is watched one-shot: a delivered readiness disarms it
-//! until [`Poller::rearm`] (`EV_DISPATCH` / `EPOLLONESHOT`), so one source
-//! never has two runs in flight. [`Poller::wake`] interrupts a [`Poller::wait`]
+//! Every descriptor is watched one-shot for one [`Interest`]: a delivered
+//! readiness disarms it until [`Poller::rearm`] (`EV_DISPATCH` /
+//! `EPOLLONESHOT`), so one source never has two runs in flight. Output is
+//! watched for input to read; a terminal's input sink (`pty_write`) watches
+//! its own duplicate of the descriptor for room to write. [`Poller::wake`] interrupts a [`Poller::wait`]
 //! that has no timeout (`EVFILT_USER` / an eventfd): the poller has no timer
 //! and an idle loop never wakes.
 
@@ -14,6 +16,15 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
 /// The token [`Poller::wait`] reports for a [`Poller::wake`].
 pub(super) const WAKE_TOKEN: u64 = u64::MAX;
+
+/// What a watched descriptor is ready for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Interest {
+    /// Input to read, or its end.
+    Readable,
+    /// Room to write.
+    Writable,
+}
 
 /// Readiness events one [`Poller::wait`] returns at most.
 const EVENTS_PER_WAIT: usize = 64;
@@ -84,19 +95,28 @@ impl Poller {
         .map(drop)
     }
 
-    /// Watches `fd` for input (or its end) under `token`, armed.
-    pub(super) fn add(&self, fd: RawFd, token: u64) -> io::Result<()> {
-        self.change(fd as usize, libc::EVFILT_READ, libc::EV_ADD | libc::EV_DISPATCH, 0, token)
+    fn filter(interest: Interest) -> i16 {
+        match interest {
+            Interest::Readable => libc::EVFILT_READ,
+            Interest::Writable => libc::EVFILT_WRITE,
+        }
+    }
+
+    /// Watches `fd` for `interest` under `token`, armed.
+    pub(super) fn add(&self, fd: RawFd, token: u64, interest: Interest) -> io::Result<()> {
+        let filter = Self::filter(interest);
+        self.change(fd as usize, filter, libc::EV_ADD | libc::EV_DISPATCH, 0, token)
     }
 
     /// Arms `fd` again after a delivered readiness.
-    pub(super) fn rearm(&self, fd: RawFd, token: u64) -> io::Result<()> {
-        self.change(fd as usize, libc::EVFILT_READ, libc::EV_ENABLE | libc::EV_DISPATCH, 0, token)
+    pub(super) fn rearm(&self, fd: RawFd, token: u64, interest: Interest) -> io::Result<()> {
+        let filter = Self::filter(interest);
+        self.change(fd as usize, filter, libc::EV_ENABLE | libc::EV_DISPATCH, 0, token)
     }
 
     /// Stops watching `fd`; call it before `fd` closes.
-    pub(super) fn delete(&self, fd: RawFd) -> io::Result<()> {
-        self.change(fd as usize, libc::EVFILT_READ, libc::EV_DELETE, 0, 0)
+    pub(super) fn delete(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
+        self.change(fd as usize, Self::filter(interest), libc::EV_DELETE, 0, 0)
     }
 
     /// Ends the [`Poller::wait`] in progress, or the next one.
@@ -168,18 +188,27 @@ impl Poller {
             .map(drop)
     }
 
-    /// Watches `fd` for input (or its end) under `token`, armed.
-    pub(super) fn add(&self, fd: RawFd, token: u64) -> io::Result<()> {
-        self.control(libc::EPOLL_CTL_ADD, fd, libc::EPOLLIN | libc::EPOLLONESHOT, token)
+    fn events(interest: Interest) -> libc::c_int {
+        match interest {
+            Interest::Readable => libc::EPOLLIN | libc::EPOLLONESHOT,
+            Interest::Writable => libc::EPOLLOUT | libc::EPOLLONESHOT,
+        }
+    }
+
+    /// Watches `fd` for `interest` under `token`, armed. One descriptor
+    /// number has one interest in the set: a second interest in the same
+    /// file watches a duplicate of the descriptor.
+    pub(super) fn add(&self, fd: RawFd, token: u64, interest: Interest) -> io::Result<()> {
+        self.control(libc::EPOLL_CTL_ADD, fd, Self::events(interest), token)
     }
 
     /// Arms `fd` again after a delivered readiness.
-    pub(super) fn rearm(&self, fd: RawFd, token: u64) -> io::Result<()> {
-        self.control(libc::EPOLL_CTL_MOD, fd, libc::EPOLLIN | libc::EPOLLONESHOT, token)
+    pub(super) fn rearm(&self, fd: RawFd, token: u64, interest: Interest) -> io::Result<()> {
+        self.control(libc::EPOLL_CTL_MOD, fd, Self::events(interest), token)
     }
 
     /// Stops watching `fd`; call it before `fd` closes.
-    pub(super) fn delete(&self, fd: RawFd) -> io::Result<()> {
+    pub(super) fn delete(&self, fd: RawFd, _interest: Interest) -> io::Result<()> {
         self.control(libc::EPOLL_CTL_DEL, fd, 0, 0)
     }
 

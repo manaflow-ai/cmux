@@ -6,7 +6,6 @@
 
 use crate::panic_free::RecoverPoison;
 use std::borrow::Cow;
-use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
@@ -605,15 +604,20 @@ impl ClientFrames {
                     return FrameStep::Close;
                 }
                 let bracketed = ctx.host.term.lock().recover_poison().mode(2004, false);
-                let mut writer = ctx.host.pty_writer();
+                let mut payload = Vec::with_capacity(frame.payload.len() + 12);
                 if bracketed {
-                    let _ = writer.write_all(b"\x1b[200~");
+                    payload.extend_from_slice(b"\x1b[200~");
                 }
-                let _ = writer.write_all(&frame.payload);
+                payload.extend_from_slice(&frame.payload);
                 if bracketed {
-                    let _ = writer.write_all(b"\x1b[201~");
+                    payload.extend_from_slice(b"\x1b[201~");
                 }
-                let _ = writer.flush();
+                // Best effort, as before: a paste the PTY refuses is dropped whole.
+                let _ = ctx.host.submit_pty_input(
+                    &payload,
+                    #[cfg(unix)]
+                    None,
+                );
             }
             MessageKind::ViewerSize if frame.payload.len() == 4 => {
                 if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {

@@ -147,6 +147,15 @@ impl Surface {
                 {
                     let mut runtime = pty.runtime.lock().recover_poison();
                     match &mut *runtime {
+                        #[cfg(unix)]
+                        PtyRuntime::Local { killer, input, .. } => {
+                            // Queued input will never be read: its senders hear it now.
+                            if let Some(input) = input.as_ref() {
+                                input.sink().close();
+                            }
+                            let _ = killer.kill();
+                        }
+                        #[cfg(not(unix))]
                         PtyRuntime::Local { killer, .. } => {
                             let _ = killer.kill();
                         }

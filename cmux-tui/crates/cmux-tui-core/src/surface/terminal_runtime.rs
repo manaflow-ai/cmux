@@ -387,6 +387,12 @@ pub(super) enum PtyRuntime {
         /// daemon shutdown detaches instead of killing it.
         #[cfg(unix)]
         holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
+        /// The input sink of a master with a descriptor (p05-ipc-157):
+        /// every input write goes through it and none waits for the child.
+        /// `None` for a writer with no descriptor (a byte backend, a test
+        /// writer), which `writer` writes synchronously.
+        #[cfg(unix)]
+        input: Option<crate::pty_write::LocalInput>,
     },
     #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
