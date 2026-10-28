@@ -305,23 +305,23 @@ test.each(["inline", "strip"] as const)("× removes the chip and puts nothing in
 test.each(["inline", "strip"] as const)(
   "a click on the chip puts its text back in the prompt to edit, exactly as pasted, and the chip goes (%s view)",
   async (view) => {
-  const sent: Sent[] = [];
-  const composer = await openComposer(sent);
-  await showAttachments(view);
-  await paste(SPACED);
-  const open = chipButtons(view).open()!;
-  expect(open).not.toBeNull();
-  await act(async () => open.click());
-  expect(chips(composer)).toEqual([]);
-  expect(placed()).toEqual([]);
-  expect(field().textContent).toContain("line 1 of the build log");
-  expect(field().textContent).toContain("line 25 of the build log");
-  // The same text a raw paste gives: its lines and its blank line, nothing between the others.
-  expect(markdownField().agentText(markdownField().value())).toBe(SPACED);
-  await act(async () => {
-    composer.current!.send();
-  });
-  expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
+    const sent: Sent[] = [];
+    const composer = await openComposer(sent);
+    await showAttachments(view);
+    await paste(SPACED);
+    const open = chipButtons(view).open()!;
+    expect(open).not.toBeNull();
+    await act(async () => open.click());
+    expect(chips(composer)).toEqual([]);
+    expect(placed()).toEqual([]);
+    expect(field().textContent).toContain("line 1 of the build log");
+    expect(field().textContent).toContain("line 25 of the build log");
+    // The same text a raw paste gives: its lines and its blank line, nothing between the others.
+    expect(markdownField().agentText(markdownField().value())).toBe(SPACED);
+    await act(async () => {
+      composer.current!.send();
+    });
+    expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
   },
 );
 

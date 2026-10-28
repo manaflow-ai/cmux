@@ -11,11 +11,7 @@ import { act, createRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import {
-  inlineTokenIds,
-  withoutInlineTokens,
-  type ComposerAttachment,
-} from "../src/agent-session/acpmux/attachments";
+import { inlineTokenIds, withoutInlineTokens, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { useWebSwapHold } from "../src/pages/shared/useWebSwapHold";
 import { KEPT_ATTACHMENTS_SETTLE_MS, type KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import {

@@ -254,37 +254,40 @@ function keptStore() {
 test.each(["inline", "strip"] as const)(
   "a pasted screenshot shows a chip in the paste's own frame, before its bytes are read (%s view)",
   async (shown) => {
-  const composer = await openComposer();
-  showAttachments(shown);
-  const shot = slowScreenshot();
-  await paste([shot.file]);
-  // Nothing is read yet, and the prompt (or the strip) already holds the image's chip.
-  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
-  expect(chips()).toHaveLength(1);
-  expect(placeholders()).toHaveLength(1);
-  if (shown === "strip") expect(placeholders()[0]!.classList.contains("acpmux-attachment-image")).toBe(true);
-  else expect(placeholders()[0]!.dataset.state).toBe("loading");
-  // Once read, the image's own chip takes the placeholder's place.
-  shot.release();
-  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
-  expect(placeholders()).toHaveLength(0);
-  expect(chips()).toHaveLength(1);
-  expect(composer.current!.wakeState().attachments![0]!.kind).toBe("image");
+    const composer = await openComposer();
+    showAttachments(shown);
+    const shot = slowScreenshot();
+    await paste([shot.file]);
+    // Nothing is read yet, and the prompt (or the strip) already holds the image's chip.
+    expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+    expect(chips()).toHaveLength(1);
+    expect(placeholders()).toHaveLength(1);
+    if (shown === "strip") expect(placeholders()[0]!.classList.contains("acpmux-attachment-image")).toBe(true);
+    else expect(placeholders()[0]!.dataset.state).toBe("loading");
+    // Once read, the image's own chip takes the placeholder's place.
+    shot.release();
+    await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
+    expect(placeholders()).toHaveLength(0);
+    expect(chips()).toHaveLength(1);
+    expect(composer.current!.wakeState().attachments![0]!.kind).toBe("image");
   },
 );
 
-test.each(["inline", "strip"] as const)("two screenshots pasted at once show two chips at once (%s view)", async (shown) => {
-  await openComposer();
-  showAttachments(shown);
-  const first = slowScreenshot();
-  const second = slowScreenshot();
-  await paste([first.file, second.file]);
-  expect(placeholders()).toHaveLength(2);
-  first.release();
-  second.release();
-  await until(() => placeholders().length === 0, "the read chips");
-  expect(chips()).toHaveLength(2);
-});
+test.each(["inline", "strip"] as const)(
+  "two screenshots pasted at once show two chips at once (%s view)",
+  async (shown) => {
+    await openComposer();
+    showAttachments(shown);
+    const first = slowScreenshot();
+    const second = slowScreenshot();
+    await paste([first.file, second.file]);
+    expect(placeholders()).toHaveLength(2);
+    first.release();
+    second.release();
+    await until(() => placeholders().length === 0, "the read chips");
+    expect(chips()).toHaveLength(2);
+  },
+);
 
 test("a prompt sent while its screenshot is still being read goes once the chip is ready, with it", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
