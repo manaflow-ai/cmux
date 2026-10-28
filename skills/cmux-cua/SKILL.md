@@ -64,7 +64,9 @@ text; it calls the tool, and cmux shows its own card when one is needed.
    authentication dialogs, Keychain Access, Passwords, System Settings). Such
    a call returns `target_not_allowed`: do not retry it. Other apps are not
    blocked, third-party password managers and editors with a terminal
-   included.
+   included. Only the default helper refuses these calls. With
+   `computerUse.driver` set to `upstream`, nothing refuses them yet: never
+   target these apps yourself.
 4. Whole-screen captures are not filtered. A capture of the whole screen shows
    every window on it, blocked apps included. Capture a window, not the whole
    screen, when a window capture works.

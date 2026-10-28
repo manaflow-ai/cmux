@@ -482,7 +482,7 @@ fn the_helper_v2_bridge_gets_no_cmux_rules() {
         command: "/bin/cua".into(),
         args: Vec::new(),
         env,
-        call_timeout: std::time::Duration::from_secs(1),
+        call_timeout: Duration::from_secs(1),
     };
     let legacy = spec(Vec::new());
     assert_eq!(upstream::rules(&legacy, None).as_deref(), Some(acpmux::agent_tools::CUA_RULES));
