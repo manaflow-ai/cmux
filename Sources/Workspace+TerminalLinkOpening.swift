@@ -43,11 +43,12 @@ extension Workspace: TerminalLinkOpenContainer {
     /// daemon's published `cwd` stays at the spawn directory until the shell sends an
     /// accepted OSC 7, which managed login shells usually never do.
     func remoteTerminalLiveWorkingDirectoryLookup(for surfaceID: UUID) -> (@MainActor @Sendable () async -> String?)? {
-        guard usesSSHTui,
+        guard usesSSHTui, let configuration = remoteConfiguration,
               let resource = SurfaceCatalog.shared.resource(forPanel: surfaceID),
               resource.kind == .terminal,
+              resource.machine == SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id),
               SurfaceCatalog.shared.provider(for: resource.machine) != nil else { return nil }
-        return { await SurfaceCatalog.shared.provider(for: resource.machine)?.currentWorkingDirectory(of: resource) }
+        return { await SurfaceCatalog.shared.provider(for: resource.machine)?.connectedWorkingDirectory(of: resource) }
     }
 
     func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool {

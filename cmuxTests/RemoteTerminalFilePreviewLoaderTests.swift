@@ -72,6 +72,16 @@ import Testing
             remoteWorkspaceID: provider.remote.id, remoteTabID: "tab-live"))
         let lookup = try #require(workspace.remoteTerminalLiveWorkingDirectoryLookup(for: panelID))
         #expect(await lookup() == "/remote/project")
+        // A projection from another machine must never answer for this connection.
+        let other = CloudTerminalPlacementTestProvider()
+        catalog.register(other)
+        defer { catalog.unregister(machine: other.machine) }
+        let foreign = other.resource(key: "term_" + UUID().uuidString)
+        catalog.upsert(foreign, from: other)
+        catalog.endProjections(panelID: panelID, reason: .replaced)
+        catalog.record(SurfaceProjection(resource: foreign.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: other.remote.id, remoteTabID: "tab-foreign"))
+        #expect(workspace.remoteTerminalLiveWorkingDirectoryLookup(for: panelID) == nil)
     }
 
     @Test func relativeTokensResolveAgainstTheLiveDirectoryNotTheSpawnDirectory() async throws {
