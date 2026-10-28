@@ -11,8 +11,13 @@ const family = (id: string, name: string, mark = id): QuickFamily => ({
 });
 
 test("Claude and Codex each have one rail entry, with exact launch IDs retained inside", () => {
-  const input = [family("claude", "Claude Code"), family("claude-work", "Work", "claude"),
-    family("codex", "Codex"), family("codex-team", "Team", "codex"), family("gemini", "Gemini")];
+  const input = [
+    family("claude", "Claude Code"),
+    family("claude-work", "Work", "claude"),
+    family("codex", "Codex"),
+    family("codex-team", "Team", "codex"),
+    family("gemini", "Gemini"),
+  ];
   const rows = canonicalHarnesses(input, "claude-work");
   expect(rows.map((row) => row.name)).toEqual(["Claude Code", "Codex", "Gemini"]);
   expect(rows[0]?.id).toBe("claude-work");
@@ -22,16 +27,28 @@ test("Claude and Codex each have one rail entry, with exact launch IDs retained 
 });
 
 test("a folded profile with an arbitrary id stays under its reported harness", () => {
-  const rows = canonicalHarnesses([family("claude", "Claude Code"), {
-    ...family("personal", "Personal", "claude"), models: [], launch: true,
-  }], "claude");
+  const rows = canonicalHarnesses(
+    [
+      family("claude", "Claude Code"),
+      {
+        ...family("personal", "Personal", "claude"),
+        models: [],
+        launch: true,
+      },
+    ],
+    "claude",
+  );
   expect(rows).toHaveLength(1);
   expect(rows[0]?.variants?.[0]?.id).toBe("personal");
   expect(rows[0]?.launch).toBe(false);
 });
 
 test("unknown harnesses and Starred keep their identity and order", () => {
-  const input = [{ ...family("starred", "Starred"), starred: true }, family("private", "Private"),
-    family("gemini-work", "Gemini work", "gemini"), family("gemini", "Gemini")];
+  const input = [
+    { ...family("starred", "Starred"), starred: true },
+    family("private", "Private"),
+    family("gemini-work", "Gemini work", "gemini"),
+    family("gemini", "Gemini"),
+  ];
   expect(canonicalHarnesses(input, "private")).toEqual(input);
 });

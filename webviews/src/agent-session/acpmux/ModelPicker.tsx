@@ -39,6 +39,7 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
+import { canonicalHarnesses } from "./canonicalHarnesses";
 import { quantizePickerRail } from "./pickerRailGeometry";
 
 type HarnessChoice = {
@@ -119,7 +120,10 @@ function quickSections(
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+function sectionsFor(entry: HarnessChoice | undefined): {
+  latest: ModelChoice[];
+  older: ModelChoice[];
+} {
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
   if (cached) return cached;
@@ -154,7 +158,10 @@ function shownSections(
   const sections = sectionsFor(entry);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
-  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
+  return {
+    latest: [...sections.latest, runs],
+    older: sections.older.filter((choice) => choice !== runs),
+  };
 }
 
 /// Every model of a harness, newest first, older versions included.
@@ -251,7 +258,12 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
-      ? { offers: model.offers.map((offer) => ({ ...quickRow(family, offer), provider: offer.provider })) }
+      ? {
+          offers: model.offers.map((offer) => ({
+            ...quickRow(family, offer),
+            provider: offer.provider,
+          })),
+        }
       : {}),
   };
 }
@@ -272,7 +284,10 @@ function railByHarness(
     if (seen.has(family.id)) return [];
     seen.add(family.id);
     const folded = profiles[family.id] ?? [];
-    const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
+    const named = folded.map((profile) => ({
+      ...profile,
+      name: launchName(family.name, profile.name, profile.id),
+    }));
     // Resolve branded suffixes first: `claude-work` becomes Work (work), leaving a profile
     // whose ID is just `work` free to keep Work. Raw IDs distinguish any names still repeated.
     const names = ensureDistinctLaunchNames(
@@ -295,7 +310,16 @@ function railByHarness(
         )
           return [];
         seen.add(profile.id);
-        return [{ id: profile.id, name: profile.name, mark: family.mark, models: [], more: [], launch: true }];
+        return [
+          {
+            id: profile.id,
+            name: profile.name,
+            mark: family.mark,
+            models: [],
+            more: [],
+            launch: true,
+          },
+        ];
       }),
     ];
   });
@@ -850,7 +874,10 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
+    const rail = canonicalHarnesses(
+      railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined),
+      current?.id,
+    );
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.
