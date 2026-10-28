@@ -118,7 +118,7 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
 | F5 | Work follows what exists, not what changed | idle main wakes 27-107/s, 358 KB/s idle disk writes, 368 indicators per Cmd-Tab (fixed), sidebar 17 % CPU ticking at 400 ws | one observer per visible thing; no timers; writes only on new information | batch 2 |
 | F6 | One process per terminal | 392 processes heavy (172 terminal hosts), 8.2 MB per workspace | keep crash isolation another way: a holder keeps PTY fds + byte rings, VT parsing in a small worker pool that restarts from the ring (PL-daemon, terminal-host-model-DESIGN.md) | now: holder items 1-3 and the item 5 prerequisites landed (flag still off); item 4 GUI dogfood queued as exclusive measure steps (scripts/measure/holder-dogfood.sh, allowlisted in hq ebe0d8c61fc; aws-m4pro-9, cmuxs-Mac-mini-3, cmux12s); default on (item 5, branch pl-daemon-holder-6, 454518e270a, its suite green on the fleet) lands after the dogfood |
 | F7 | Creates wait for the daemon's echo; stand-ins added per command | terminals instant, browser tabs not | one intent + stand-in path for every create | PL-cef-tab now |
-| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
+| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture; budgets from RAM, one memory coordinator per process, renderer limit from RAM (PL-memory, [memory-DESIGN.md](memory-DESIGN.md); done checks DC1-DC18 there, results recorded here) | batch 2 |
 | F10 | Daemon requests are slow | split 107-112 ms p50, new terminal 114/660 ms p50/p95 loaded | profile each op, fix causes; local request < 2 ms (PL-daemon) | now |
 | F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
 | F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Lawrence 2026-10-23: KEEP BOTH ENGINES. Every perf target applies to both; no removal | closed |
@@ -224,6 +224,36 @@ push), and writes its before/after table into this file's section 5.
   [chrome-parity/p04-input.md](chrome-parity/p04-input.md).
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
+
+### One shared CEF fork train and pin (chrome-parity p07-memory 074)
+
+Every program's fork export ships in one manaflow-ai/cef build and one pin, as Chrome ships every
+feature of a milestone from one branch with one version number (chrome/VERSION). No program bumps
+`scripts/cmux-next/cef-manifest.json` alone.
+
+- The ledger is `scripts/cmux-next/cef-fork-train.json`: each export with its program, the fork API
+  number its cmux gate checks (null until the train numbers it) and its fork commit. The train branch
+  is `cp/p07-memory-074` on manaflow-ai/cef, started 2026-10-26 at the p01-process 178 train
+  (746f1220, API 31). Each program's train task merges its exports into it: p01-process 178 (176, 227),
+  p03-rendering 041/042 (API 32 resize fence), p13-webui 086 (011, 017, 018, 020, 077),
+  p14-energy 136 (037 and the rest of its bundle), and the p07 fork work (051 voter, 101 BFCache
+  flush, 069 PartitionAlloc purge; 046 rides on the API 29 renderer paths, 049 on p13-webui 011).
+- `scripts/cmux-next/cef-fork-train.py status --fork-repo <cef clone>` shows each export merged,
+  ready (pushed, not merged), pending (no fork commit) or deferred; `ready` is the build gate: every
+  export that is not deferred is merged and the train's `CMUX_CEF_API_VERSION` is the ledger's. A
+  deferred export may not keep a number at or below the train's, so no gate reads the build as
+  having it. `check` also refuses an app gate (`...ForkAPI = N` newer than the pin) that no export claims.
+- Hole at 2026-10-26: API 28 (cmux.34 capture) and 29 (cmux.35 renderer paths, the gate of
+  `CEFForkFeatures.rendererPathsForkAPI` and of p07-memory 046) have no commit on the fork remote.
+  The API 31 line lacks them, so with a pin of that line alone `CEFForkFeatures.rendererPaths`
+  would read the renderer paths as present on a fork without them. Before the cut, push them to the train or move their gates past its number.
+- The cut: one `cmux-ci build cef` of the train (arm64, x86_64, debug assets), one GitHub release,
+  then `cef-fork-train.py pin --tag <tag> --sums SHA256SUMS --chromium <version> --fork-repo <clone>`
+  writes the manifest and the pin commit message (fork API, features per program, checksums). The
+  one outside step is the R2 upload: a person with R2 write access runs
+  `scripts/cmux-next/publish-cef-r2.sh <tag> --manifest scripts/cmux-next/cef-manifest.json`, and
+  its r2 fields go in the same pin commit. `check-manifest` refuses any other bump. The runtime pack
+  pin (`cef-runtime.json`) names the build's `fork_api`.
 
 ## 5. Results log
 
@@ -342,7 +372,55 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-26 | p08-startup-070 (done check 13) | perf/chrome-parity at `5ac4dd1680c` | 18: launch correctness matrix, 16 cases | - | **FAIL (tree)**: task 071's cases are not in `relaunch-e2e.py` or `restore-trace.py` |
 | 2026-10-26 | p08-startup-070 (done check 14) | perf/chrome-parity at `5ac4dd1680c` | 18: idle after launch, 3 restored Chromium tabs | - | **not measured**; `bench-idle.sh`, then `startup-queue.py arms` |
 | 2026-10-26 | p08-startup-070 (done check 15) | perf/chrome-parity at `5ac4dd1680c` | 18: edge launches (no-activate, quit at 100 ms) | - | **not measured** |
+| 2026-10-26 | p07-memory-067 (F8 done checks DC1-DC18) | perf/chrome-parity fb08b6548fe (docs only) | F8: DC1-DC18 of chrome-parity/p07-memory.md section 5 | no hour-0 baseline: task 075 is not on perf/chrome-parity, so every "today" value is the spec's quoted number, not a same-base A/B | static and Linux parts measured at fb08b6548fe (table "Memory done checks" below): DC2 kernel sources pass, DC2 observe and DC3 fail with named hits, DC1 static 86 -> 44 files; every fleet run NOT run (no build of this sha, no 075 base) |
 | | | | | | |
+
+### Memory done checks (F8, p07-memory-067)
+
+The done checks DC1-DC18 of [chrome-parity/p07-memory.md](chrome-parity/p07-memory.md) section 5, run
+2026-10-26 at perf/chrome-parity `fb08b6548fe`. `memory-DESIGN.md` (task 007) is not on perf/chrome-parity
+yet, so this table is the one record; 007's section 8 points here.
+
+Two rules for this run:
+
+- There is no hour-0 baseline. Task 075 is not on perf/chrome-parity, so there is no same-base A/B. Each
+  "today" value is the spec's quoted number at 772cdfc45ac, not a measurement at a base sha.
+- This run did no fleet run. A fleet run needs a build of this sha, and the lead does the one fleet compile
+  per round. So every check that needs the app, the daemon or a Mac is "Not run". Each such row names the
+  command for the run.
+
+Static checks ran on a Linux host (360 cores, load 63-115) with `rg` 14 and
+`scripts/cmux-next/memory-queues.sh all` (exit 0). Rust tests ran with `cargo test`, Linux, Debug.
+
+| DC | Check | Today (spec) | Measured at fb08b6548fe | Result |
+|---|---|---|---|---|
+| DC1 caches | MQ-CACHE prints 0 files; each cache > 1 MB at STRESS is a registered consumer | 86 files | 44 files (23 in Packages/Shared). The STRESS half: Not run (needs `memory-report.py --pid APP` on a fleet GUI host, STRESS session) | static: open, 86 -> 44; runtime: Not run |
+| DC2 one source per process | `makeMemoryPressureSource` only in KernelMemoryPressureSource.swift; `_dispatch_source_type_memorypressure` only in cmux-memory/src/pressure_macos.rs; `memoryPressure.observe` only in CmuxNextMemory | 3 files / - / 3 hits | 1 file, KernelMemoryPressureSource.swift; 1 file, pressure_macos.rs; 1 hit, `CmuxNextInput/IntentPrewarmService.swift:105` (outside CmuxNextMemory) | sources: pass; observe: fail, 1 hit left (task 047) |
+| DC3 budgets from RAM | `physicalMemory` only in SubsystemBudget.swift and HardwareClass.swift; MQ-CAPS 0 outside SubsystemBudget.swift; MQ-RUST-CAPS literals only in cmux-memory budget.rs or derived; budget tables pass at 8/16/24/32/64/128 GB | 2 / 34 / 37 hits | `physicalMemory`: 3 code reads, also `CmuxNextBridge/WarmSetBudget.swift:33` (fail). MQ-CAPS: 38 hits, all outside SubsystemBudget.swift (9 in Packages/Shared; several are trace rings, not memory caps). MQ-RUST-CAPS: 54 hits; the definitions in cmux-holder, ghostty-vt and cmux-tui-core derive from `cmux_memory::budget`, but `cmux-holder-v3/src/holder.rs:30,33` keep the literals `RING_BYTES = 1 << 20` and `LINK_QUEUE_BYTES = 1 << 20` (fail). `cargo test -p cmux-memory`: 26 passed, incl. `budget_table_at_8_16_24_32_64_128_gb`. SubsystemBudgetTests (Swift): Not run (no Swift on Linux) | fail: WarmSetBudget read, 38 MQ-CAPS, 2 holder-v3 literals; Rust table: pass |
+| DC4 every kind discardable | ContentDiscardPlannerTests and InternalPageDiscardPolicyCoverageTests pass; STRESS idle 35 min, toggles on: 0 live+eligible rows past their timeout | 33 / 7 / 13 | the queues the coverage test must cover: MQ-PAGES 33, MQ-CONTENT 7, MQ-BROWSERTAB 13 (same as the spec). The test files exist. Suites: Not run (Swift). STRESS idle: Not run; no script reads `debug.discards` rows for this rule yet | Not run |
+| DC5 hidden cost after discard | Chromium tab, WebKit tab, agent page, internal page, cmux page tab each <= 0.1 MB without the picture | 55 / 29 / 75 MB | Not run: `bench_hibernation.py` and `bench_memory.py --pressure critical` on a fleet GUI host, Release | Not run |
+| DC6 hidden workspace | `bench_memory.py --hidden-workspaces 100 --grace 960`, holder on: app <= 0.1 MB, daemon <= 0.3 MB, no process per workspace | 8.2 MB | Not run: needs a Release build and `CMUX_TUI_TERMINAL_HOST_MODEL=holder` on a fleet GUI host | Not run |
+| DC7 Home idle | 0 renderers for unshown cmux pages, <= 1 for shown, no icon picker, <= 1 spare; final tree <= 250 MB, app <= 120 MB | 793 / 361 MB | Not run: `bench_memory.py --app APP --workspaces 1 --settle 30 --top 50`. The interim target ("075 baseline minus removed items") has no base, as 075 has not run | Not run |
+| DC8 heavy session | 60 ws STRESS and 150 ws heavy, 35 min idle: cmux-owned <= 600 MB, threads <= 300 | 3,538 MB tree | Not run: `perf-stress-session.py` 60 ws and budgets-heavy 150 ws on cmux20-bench | Not run |
+| DC9 renderer limit | `bench_renderer_sharing.py --tabs 100 --sites 20` (both engines) and `bench_memory.py --tabs 60 --urls local` vs Chrome | 11.8 vs 7.4 GB (#20856) | Not run on a Mac. Its logic tests: `tests/test_bench_renderer_sharing.py` 25 passed (Linux) | Not run |
+| DC10 pressure response | override and kernel pressure critical: >= 80 % of managed bytes freed in 5 s, consumers at limit in 1 s / 2 s, 0 main turns > 4 ms, daemon and acpmux in 1 s | - | Not run: `bench_memory.py --pressure critical` and `--kernel-pressure critical`. Phase logic tests: `test_bench_memory_phases.py` 14, `test_bench_memory_cold.py` 30, `test_bench_memory_slope.py` 34 passed (Linux) | Not run |
+| DC11 terminal GPU | 30 hidden terminals + 1 minimized window of 6: `terminal.hidden_nonvolatile_iosurface_bytes == 0` | - | Not run: needs a GhosttyNextKit pin with `ghostty_surface_set_gpu_resident` (task 037 gates on it) and a fleet GUI host | Not run |
+| DC12 leaks | `memory-soak.sh` 2 h STRESS: <= 5 / 5 / 2 MB/h app / daemon / acpmux, renderers within 5 %, MQ-LEAK empty | - | Not run: `cmux-ci run --class exclusive --script scripts/measure/memory-soak.sh --ref SHA`. `memory-soak.py --self-test`: ok (Linux) | Not run |
+| DC13 idle | 60 s idle: 0 wakeups owned by MemoryCoordinator, ContentDiscardPlanner or a consumer; daemon `idle_wakeups` and acpmux `daemon_idle` green | - | WakeupLedger: Not run (app). acpmux `daemon_idle` (Linux, `--test-threads=1`, private TMPDIR with umask 077, memoryAcpmuxPressure on): `has_no_periodic_wakeups` passed; `with_a_pending_wait` failed, daemon about 22 context switches per 10 s window (budget 5); `with_a_watched_transcript` failed, about 126 per window. The test does not name the thread; the plain-idle case has the same memory source on and passes, so the memory source is not the likely owner. The red is on a loaded Linux host, so the macOS verdict is still open. cmux-tui `idle_wakeups`: Not run (ghostty-next submodule empty in this checkout) | acpmux: red on Linux (2 of 3); rest Not run |
+| DC14 latency not worse | browser wake p95 <= 100 ms, picture in first frame; discarded page first frame p99 <= 16.7 ms; unmounted ws p99 <= 16.7 ms, remount p95 <= 50 ms | - | Not run: `bench-tab-switch.sh` and anim ws-switch, light and STRESS, fleet GUI host | Not run |
+| DC15 attribution | `memory-report.py --pid APP`: unattributed <= 10 % | - | Not run on a Mac. `test_memory_report.py`: 43 passed (Linux) | Not run |
+| DC16 macOS 14/15 | `os-matrix.sh --build JOB --os 14,15` runs the coordinator, kernel source, hibernation, purgeable IOSurface and parked suites | - | Not run: needs a fleet build job of this sha | Not run |
+| DC17 flapping | override warning/normal 20x a minute: <= 1 release pass per consumer per minute, 0 dropped frames | - | Not run: needs the app and an anim sidebar run | Not run |
+| DC18 per agent | `acpmux-overhead.sh` with 100 fake agents: acpmux <= 2 MB per agent, relays <= 1 MB, 2 fewer processes, <= 8 MB total | about 64 MB | Not run: the script measures time against real harness CLIs (and `bench=daemon` budgets); it has no 100-fake-agent memory mode yet | Not run; tool missing |
+
+What blocks the rest of the table, in order:
+
+1. Task 075 (hour-0 baseline at a base sha on reserved exclusive minis). Without it no row has a same-base A/B.
+2. A fleet build of the perf/chrome-parity sha, then the exclusive runs above on cmux20-bench (light and
+   STRESS), each with host, macOS, Hz, sha and step ID.
+3. Missing tools: a `debug.discards` check for DC4 and a fake-agent memory mode for DC18.
+4. Static findings for their tasks: the WarmSetBudget `physicalMemory` read (DC3), the IntentPrewarmService
+   observe (DC2, task 047), the cmux-holder-v3 literals (DC3), MQ-CAPS (DC3) and MQ-CACHE (DC1).
 
 ### Process-model baseline and per-role budgets (p01-process-005)
 
