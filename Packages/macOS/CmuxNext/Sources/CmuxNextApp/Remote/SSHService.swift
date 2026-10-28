@@ -216,7 +216,14 @@ final class SSHService {
 
     func reconnect(_ session: SSHMachineSession) {
         guard !policyDisabled else { return }
-        if session.linkStatus == .offline { session.connect() } else { session.wake(.user) }
+        switch session.linkStatus {
+        case .offline, .unreachable, .failed:
+            // These failures leave the gate open for automatic backoff, so a user
+            // Retry must start a fresh attempt rather than only waking the loop.
+            session.connect()
+        default:
+            session.wake(.user)
+        }
     }
 
     func disconnect(_ session: SSHMachineSession) {
