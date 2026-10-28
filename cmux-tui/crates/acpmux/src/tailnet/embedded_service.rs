@@ -17,16 +17,19 @@ const NODE_CLOSE_BOUND: Duration = Duration::from_secs(3);
 pub(crate) struct Service {
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
+    controller: Arc<Controller>,
 }
 
 impl Service {
     pub(crate) fn spawn(hub: Arc<Hub>) -> Self {
         let (stop, stopping) = watch::channel(false);
+        let controller = hub.tailnet_controller();
         let task = tokio::spawn(run(hub, stopping));
-        Self { stop, task }
+        Self { stop, task, controller }
     }
 
     pub(crate) async fn shutdown(mut self) {
+        self.controller.begin_shutdown();
         self.stop.send_replace(true);
         drain(&mut self.task, DRAIN_BOUND + NODE_CLOSE_BOUND + Duration::from_secs(1)).await;
     }
@@ -35,6 +38,7 @@ impl Service {
 impl Drop for Service {
     fn drop(&mut self) {
         // Covers a daemon error return as well as its normal shutdown path.
+        self.controller.begin_shutdown();
         self.stop.send_replace(true);
     }
 }
@@ -126,9 +130,10 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
             } => {
                 // A failed listener stays stopped until explicit retry. Do not
                 // spin against a port or certificate configuration failure.
-                active.take();
-                close_node(&controller).await;
-                controller.note_listener_error();
+                if let Some(failed) = active.take() {
+                    let _ = tokio::time::timeout(NODE_CLOSE_BOUND,
+                        controller.listener_failed(&failed.node)).await;
+                }
             }
             change = changes.recv() => {
                 if matches!(change, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
