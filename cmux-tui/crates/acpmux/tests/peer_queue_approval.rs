@@ -92,6 +92,13 @@ fn prompt(id: &str, approval: Option<&str>) -> Value {
            "_meta": {"acpmux": {"promptId": id, "author": author}}})
 }
 
+/// The prompts and queue answers a fake peer got (it also gets the attach a prompt makes).
+fn prompts(got: &Mutex<Vec<(String, Value)>>) -> Vec<Value> {
+    let asks = [method::SESSION_PROMPT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE];
+    let got = got.lock().unwrap();
+    got.iter().filter(|(m, _)| asks.contains(&m.as_str())).map(|(_, p)| p.clone()).collect()
+}
+
 fn reason(v: &Value) -> &Value {
     v.pointer("/error/data/reason").unwrap_or(&Value::Null)
 }
@@ -111,11 +118,11 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
         let refused = call(&old, m, answer).await;
         assert_eq!(reason(&refused), "queue.approval_unsupported", "{m}: {refused}");
     }
-    assert!(old_got.lock().unwrap().is_empty(), "forwarded: {:?}", old_got.lock().unwrap());
+    assert!(prompts(&old_got).is_empty(), "forwarded: {:?}", old_got.lock().unwrap());
     // A person's prompt that waits for no one still goes.
     let plain = call(&old, method::SESSION_PROMPT, prompt("p-1", None)).await;
     assert!(plain.get("error").is_none(), "{plain}");
-    assert_eq!(old_got.lock().unwrap().len(), 1);
+    assert_eq!(prompts(&old_got).len(), 1, "{:?}", old_got.lock().unwrap());
 
     let (new_port, new_got) = fake_peer(json!(["trustGate", "queueApproval"])).await;
     let new = hub();
@@ -124,9 +131,8 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
         .unwrap();
     let sent = call(&new, method::SESSION_PROMPT, prompt("g-2", Some("owner"))).await;
     assert!(sent.get("error").is_none(), "{sent}");
-    let got = new_got.lock().unwrap().clone();
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!(got[0].0, method::SESSION_PROMPT);
-    let author = &got[0].1["_meta"]["acpmux"]["author"];
+    let got = prompts(&new_got);
+    assert_eq!(got.len(), 1, "{:?}", new_got.lock().unwrap());
+    let author = &got[0]["_meta"]["acpmux"]["author"];
     assert_eq!(author["approval"], "owner", "it lost its hold on the way: {author}");
 }
