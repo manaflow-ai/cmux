@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -57,8 +57,6 @@ function inputForKey(key: string): CardInput | undefined {
       return { type: "confirm" };
     case " ":
       return { type: "toggle" };
-    case "Escape":
-      return { type: "escape" };
     default:
       return undefined;
   }
@@ -76,13 +74,11 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// nothing else has it or the composer is empty. A click chooses an option and never sends it (Leo,
 /// 2026-10-24: "just clicking it directly just automatically sends the input. So it makes the skip
 /// and submit buttons redundant"): Submit or ⌘↩ sends, Enter sends the highlighted row, and a
-/// double-click on a single-choice option chooses and sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
-/// it hands the keyboard back to the composer and keeps every answer given so far, so the next Esc
-/// is the composer's (on an empty prompt, the press that stops a turn). The card leaves the key to
-/// the pane's own listeners, except in the floating chat, where an Esc nobody claimed hides the
-/// panel. In the Other field it only leaves the field. Skip
-/// declines. A reply acpmux refuses shows its error on the card, which takes input again for a
-/// retry. Only a person's click or key sends an answer.
+/// double-click on a single-choice option chooses and sends it. Escape skips the waiting ask,
+/// including from Other, and claims the key so it cannot also stop the turn or hide the floating
+/// chat. Other accepts Enter to submit and Shift-Enter for a newline. A reply acpmux refuses shows
+/// its error on the card, which takes input again for a retry. Only a person's click or key sends
+/// an answer.
 export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   if (question.state.kind === "answered")
     return <AnsweredQuestion question={question} answer={question.state.answer} />;
@@ -238,8 +234,14 @@ function PendingQuestion({
     if (!card) return;
     // Focus follows the highlight (a roving tab stop) while the keyboard is in the list, and a
     // clicked row takes it so its keys work next; the Other field takes it while editing.
-    if (next.editingOther) card.querySelector<HTMLInputElement>(".acpmux-question-other input")?.focus();
-    else if (keyboardInList || input.type === "click" || input.type === "next")
+    if (next.editingOther) card.querySelector<HTMLTextAreaElement>(".acpmux-question-other textarea")?.focus();
+    else if (
+      keyboardInList ||
+      input.type === "click" ||
+      input.type === "next" ||
+      input.type === "up" ||
+      input.type === "down"
+    )
       card.querySelector<HTMLElement>(`[data-row="${highlightedRow(next)}"]`)?.focus();
   };
   const dispatch = (input: CardInput) => {
@@ -262,33 +264,36 @@ function PendingQuestion({
       if (!event.repeat) dispatch(canSubmit(state) ? { type: "submit" } : { type: "confirm" });
       return;
     }
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement;
     const inOther = target.closest(".acpmux-question-other") !== null;
-    // In the Other field, typing is text: only Enter and Escape act.
+    // Ctrl-N/P are list navigation, never text-editing shortcuts in Other.
+    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !inOther) {
+      const key = event.key.toLowerCase();
+      if (key === "n" || key === "p") {
+        event.preventDefault();
+        dispatch({ type: key === "n" ? "down" : "up" });
+        return;
+      }
+    }
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!event.repeat) skip();
+      return;
+    }
+    // In Other, plain Enter submits; Shift-Enter and every other editing key stay native.
     if (inOther) {
-      if (event.key !== "Enter" && event.key !== "Escape") return;
+      if (event.key !== "Enter") return;
     } else if (
       target.closest(".acpmux-question-actions, .acpmux-question-tabs") &&
-      !/^[1-9]$|^Escape$/.test(event.key)
+      !/^[1-9]$|^Arrow(?:Up|Down)$/.test(event.key)
     ) {
       return; // Enter and Space press the focused Submit, Skip or tab button.
     }
-    if (event.shiftKey) return;
     const input = inputForKey(event.key);
     if (!input) return;
-    // Escape never answers. Outside the Other field it hands the keyboard to the composer (in one
-    // press, even with an Other answer left open) and keeps every answer. The key is left to the
-    // pane's own listeners, except in the floating chat: there an Esc nobody claimed hides the
-    // panel (paneSurface.ts useEscapeToDismiss, QuickComposerPanel.cancelOperation).
-    if (input.type === "escape" && !inOther) {
-      if (target.closest('[data-surface="quick"]')) event.preventDefault();
-      if (!event.repeat) resign();
-      return;
-    }
     event.preventDefault();
     if (event.repeat && !REPEATS.has(event.key)) return;
-    // In the Other field the reducer's Escape only leaves the field.
     dispatch(input);
   };
   // The keys reach the card from its focused rows, field and buttons, so it listens natively:
@@ -550,6 +555,29 @@ function OtherRow({
   onHover(): void;
   onText(text: string): void;
 }) {
+  const field = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const node = field.current;
+    const view = node?.ownerDocument.defaultView;
+    if (!node || view?.CSS?.supports?.("field-sizing", "content")) return;
+    // macOS 14 WebKit keeps rows=1 fixed; grow and shrink before painting each edit.
+    const resize = () => {
+      node.style.height = "auto";
+      node.style.height = `${node.scrollHeight}px`;
+    };
+    resize();
+    let width = node.clientWidth;
+    const observer = view?.ResizeObserver
+      ? new view.ResizeObserver(() => {
+          if (node.clientWidth === width) return;
+          width = node.clientWidth;
+          resize();
+        })
+      : undefined;
+    observer?.observe(node);
+    return () => observer?.disconnect();
+  }, [draft, editing]);
+
   const key = row < 9 ? String(row + 1) : undefined;
   if (editing)
     return (
@@ -560,8 +588,9 @@ function OtherRow({
         onMouseEnter={onHover}
       >
         <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
-        <input
-          type="text"
+        <textarea
+          ref={field}
+          rows={1}
           aria-label={t("question.other")}
           placeholder={t("question.otherPlaceholder")}
           value={draft}

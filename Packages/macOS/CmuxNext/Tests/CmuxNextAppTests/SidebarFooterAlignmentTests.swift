@@ -106,6 +106,8 @@ import Testing
         // Half a point of slack for the lens drop (one device pixel).
         #expect(line.height <= rowHeight + 0.5, "footer line \(line.height) pt is taller than the row \(rowHeight) pt")
         let reserve = h.sidebar.bounds.maxY - line.minY
-        #expect(reserve <= rowHeight + SidebarStyle.bottomInset + 0.5, "bottom reserve \(reserve) pt exceeds row + margin")
+        // The margin is the 4 pt grid step (Metrics.space2 at compact), was 8 pt (space4).
+        #expect(SidebarStyle.bottomInset == Metrics.space2, "margin \(SidebarStyle.bottomInset) pt is not the 4 pt step \(Metrics.space2)")
+        #expect(reserve <= rowHeight + Metrics.space2 + 0.5, "bottom reserve \(reserve) pt exceeds row + 4 pt margin")
     }
 }
