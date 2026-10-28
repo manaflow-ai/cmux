@@ -110,9 +110,28 @@ class PerTest(unittest.TestCase):
                     "✘ Test a() failed after 0.1 seconds with 1 issue.", SUMMARY)
         self.assertEqual(reds.read(whole).truncated, [])
 
+    def test_a_run_cut_off_between_tests_is_the_heads_own(self):
+        cut = log("◇ Test run started.", "◇ Suite S started.", "◇ Test a() started.", failed("a()"),
+                  "✘ Test a() failed after 0.1 seconds with 1 issue.")
+        verdict = reds.classify(cut, log(failed("a()"), SUMMARY))
+        self.assertTrue(verdict.own)
+        self.assertIn("printed no `Test run with` summary", verdict.reasons[0])
+
+    def test_assertion_text_that_quotes_a_crash_or_a_hang_is_not_one(self):
+        quoting = log("◇ Test run started.", "◇ Test parsesCrash() started.",
+                      '✘ Test parsesCrash() recorded an issue at A.swift:1:2: Expectation failed: (message → '
+                      '"EXC_BAD_ACCESS Fatal error: x never finished") == "other"',
+                      "✘ Test parsesCrash() failed after 0.1 seconds with 1 issue.",
+                      "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.")
+        found = reds.read(quoting)
+        self.assertEqual((found.crashes, found.truncated), ([], []))
+        self.assertFalse(reds.classify(quoting, quoting).own)
+
     def test_a_hang_sampler_crash_with_no_report_and_a_shell_abort_count(self):
         for line in ("##[error]the test helper died on signal 6; crashed thread: no crash report from this run",
-                     "/tmp/run.sh: line 5: 1234 Aborted (core dumped) cargo test"):
+                     "/tmp/run.sh: line 5: 1234 Aborted (core dumped) cargo test",
+                     "/tmp/run.sh: line 5: 1234 Abort trap: 6 ./helper", "/tmp/run.sh: line 5: 1234 Aborted ./helper",
+                     "Fatal error: unexpected warning: bad input"):
             with self.subTest(line):
                 self.assertTrue(reds.read(log(line)).crashes)
 

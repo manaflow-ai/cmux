@@ -639,7 +639,8 @@ class BaseReds(unittest.TestCase):
             {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
             {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
         ]}
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: x\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x"})
         self.assertIn("event=push", controller.gh.runs.call_args.args[1])
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):

@@ -51,19 +51,30 @@ SIGNAL = re.compile(r"exited with unexpected signal code (\d+)|died on signal (\
                     r"\(signal: (\d+)|terminated by signal (\d+)|signal (\d+) \(SIG[A-Z]+\)")
 SIGNAL_NAMES = {"SIGABRT": "6", "SIGSEGV": "11", "SIGBUS": "10", "SIGILL": "4", "SIGTRAP": "5", "SIGKILL": "9",
                 "SIGFPE": "8"}
-CRASH = re.compile(r"exited with unexpected signal|died on signal|exited with signal|\(signal: \d+|terminated by signal|"
-                   r"\bEXC_[A-Z_]+|^(?:\S+:\d+: )?Fatal error: |Terminating app due to uncaught exception|"
-                   r"terminating due to uncaught exception|Test Case '[^']*' crashed|Thread \d+ Crashed|Restarting after unexpected exit|"
-                   r"Fatal Python error|panicked at .* SIGSEGV|\bAborted \(core dumped\)|\bSegmentation fault\b|"
-                   r"\bIllegal instruction\b|\bBus error\b|Trace/breakpoint trap")
-# Text that names a crash without one having happened.
-NOT_CRASH = re.compile(r"^\s*\d+ \| |^\s*\[\d+/\d+\] Compiling|\bwarning:|^[◇✔↪] Test ")
+# What a tool or the runtime prints when a test process dies: matched anywhere in a line.
+CRASH = re.compile(r"exited with unexpected signal code|died on signal \d|Terminating app due to uncaught exception|"
+                   r"terminating due to uncaught exception|Restarting after unexpected exit, crash, or test timeout|"
+                   r"Test Case '[^']*' crashed|Fatal Python error|process didn't exit successfully: .*\(signal: \d+")
+# Crash words a test's own assertion text may quote: a crash only at the start of a line (after an optional
+# `file:line: `, `##[error]` or a shell's `script: line N: PID `), never in a test's result line.
+CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+:\d+: )?(?:\S+: line \d+: +)?(?:\d+ +)?"
+                            r"(?:Fatal error: |Thread \d+ Crashed|Exception Type: +EXC_|Abort(?:ed|\s+trap)\b|"
+                            r"Segmentation fault|Illegal instruction|Bus error|Trace/breakpoint trap|"
+                            r"(?:the )?(?:swift test run|test process|test helper) (?:exited|terminated) (?:with|by) signal)")
+# A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
+TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
-TRUNCATED = re.compile(r"no \"Test run with\" summary line|swift test ended early|reported fewer tests than it ran|"
-                       r"swift test stuck|has exceeded the maximum execution time|The operation was canceled|"
-                       r"This log was truncated|log (?:is|was) truncated|\bnever finished\b")
+# What the CI wrapper or GitHub prints when a run's results are cut short: an error line, never test output.
+TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
+                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
+                       r"The job running on runner .* has exceeded the maximum execution time|"
+                       r"The operation was canceled|.*\blog (?:is|was) truncated)|^This log was truncated")
+RUN_STARTED = re.compile(r"^◇ Test run started\.")
+RUN_ENDED = re.compile(r"^[✔✘] Test run with \d+ tests?")
+SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
+SUITE_ENDED = re.compile(r"^[✔✘] Suite (.+?) (?:passed|failed)\b")
 # Swift Testing's start line, for naming the test a crash stack runs.
 STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\.")
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
@@ -197,9 +208,13 @@ def crashed_tests(stack: list[str], started: set[str]) -> list[str]:
 def signal_of(text: str) -> str | None:
     if match := SIGNAL.search(text):
         return next(group for group in match.groups() if group)
+    if match := re.search(r"Abort trap: (\d+)", text):
+        return match.group(1)
     for name, number in SIGNAL_NAMES.items():
         if name in text:
             return number
+    if re.search(r"\bAbort(?:ed|\s+trap)\b", text):
+        return "6"
     return None
 
 
@@ -225,13 +240,14 @@ def read(log: str | None) -> Result:
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
-        if CRASH.search(text) and not NOT_CRASH.search(text):
+        runtime = CRASH.search(text) or (CRASH_AT_START.search(text) and not TEST_LINE.search(text))
+        if runtime:
             crashed = True
             if number := signal_of(text):
                 signals.append(number)
         if crashed and ("$s" in text or re.match(r"^\s*\d+\s+\S+\s+0x[0-9a-f]+ ", text)):
             stack.append(text)
-        if TRUNCATED.search(text) and not NOT_CRASH.search(text):
+        if TRUNCATED.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
@@ -240,6 +256,14 @@ def read(log: str | None) -> Result:
     if unfinished:
         result.truncated.append(f"{len(unfinished)} test(s) started and never finished: "
                                 + "; ".join(sorted(unfinished)[:5]))
+    runs = sum(1 for text in lines if RUN_STARTED.search(text))
+    if runs > sum(1 for text in lines if RUN_ENDED.search(text)):
+        result.truncated.append(f"{runs - sum(1 for text in lines if RUN_ENDED.search(text))} Swift Testing run(s) "
+                                "started and printed no `Test run with` summary")
+    suites = ({m.group(1) for text in lines for m in [SUITE_STARTED.search(text)] if m}
+              - {m.group(1) for text in lines for m in [SUITE_ENDED.search(text)] if m})
+    if suites:
+        result.truncated.append(f"{len(suites)} suite(s) started and never finished: " + "; ".join(sorted(suites)[:5]))
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
