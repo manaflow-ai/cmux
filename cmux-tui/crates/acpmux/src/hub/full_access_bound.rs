@@ -893,6 +893,24 @@ pub(super) fn merge_asked_option(options: &mut Vec<Value>, asked: Value) {
     }
 }
 
+/// Records a `set_config_option` answer `res` to the request that asked `asked`
+/// (`asked_option`), from a client's switch (`turns.rs`) or the replay of a chat's options on a
+/// new agent (`replay_config`). A bare answer (no options, or null ones) took the value asked:
+/// the full-access bound reads it (reviews 60 and 61 of #23322). An answer with its options says
+/// what each holds now. Kept in answer order: the harness's own option reports never clear it, as
+/// one sent before this answer may be applied after it (review 1 of #26058).
+pub(super) fn record_option_answer(session: &Session, res: &Value, asked: Option<Value>) {
+    let mut kept = session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner());
+    match res.get("configOptions").and_then(Value::as_array) {
+        Some(reported) => kept.retain(|o| !reported.iter().any(|r| r.get("id") == o.get("id"))),
+        None => {
+            if let Some(asked) = asked {
+                merge_asked_option(&mut kept, asked);
+            }
+        }
+    }
+}
+
 impl Hub {
     /// `session` is idle unless it was closed.
     fn idle_unless_closed(&self, session: &Session) {
