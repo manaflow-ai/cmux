@@ -3,27 +3,19 @@
 # checkout (cargo --release), measured by cmux-tui/scripts/bench-daemon-latency.py:
 # raw ping / identify / list-workspaces / send / new-tab, 10 concurrent clients,
 # and the CLI end to end, at 1 terminal and at 50 workspaces / 200 terminals.
-# storm=N adds N automation clients against the app's echo and split
-# (bench --automation-storm). After each scenario's load it reads
-# debug-daemon-locks: PERF-DAEMON-LOCKS lines give wait_us and hold_us count,
-# p95, p99 and max per lock (mux.state, workspace.registry) for the frontend
-# and automation callers. Frontend is the signed, verified app only: the
-# bench's unsigned app handshake counts as automation.
 # Run alone on an idle worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-daemon.sh --ref SHA
-#     [--arg=n=300] [--arg=cli_n=40] [--arg=scenarios=small,scale] [--arg=storm=8]
-# Output: PERF-DAEMON and PERF-DAEMON-LOCKS lines; JSON at .build/perf-daemon/result.json.
+#     [--arg=n=300] [--arg=cli_n=40] [--arg=scenarios=small,scale]
+# Output: PERF-DAEMON lines; JSON at .build/perf-daemon/result.json.
 set -euo pipefail
 n=300
 cli_n=40
 scenarios="small,scale"
-storm=0
 for arg in "$@"; do
   case "$arg" in
     n=*) n="${arg#n=}" ;;
     cli_n=*) cli_n="${arg#cli_n=}" ;;
     scenarios=*) scenarios="${arg#scenarios=}" ;;
-    storm=*) storm="${arg#storm=}" ;;
     *) echo "perf-10x-daemon.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -50,4 +42,4 @@ bin="$CARGO_TARGET_DIR/release/cmux-tui"
 echo "PERF-DAEMON-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
 ulimit -n "$(ulimit -Hn)" 2>/dev/null || ulimit -n 65536 2>/dev/null || true
 python3 scripts/bench-daemon-latency.py --bin "$bin" --n "$n" --cli-n "$cli_n" --scenarios "$scenarios" \
-  --automation-storm "$storm" --out "$work/result.json"
+  --out "$work/result.json"

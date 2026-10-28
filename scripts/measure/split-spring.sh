@@ -30,32 +30,15 @@
 #   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
 #                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
 #                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
-#   --suite=input-latency  measure with scripts/cmux-next/input-latency-bench.py (input to presented
-#                   frame per surface with real HID input, storms, stalls and 1000 Hz drags; DC1, DC2, DC5) instead of
-#                   split-spring-terminal.py's suites; the other options go to it (--sessions=light,stress,
-#                   --storm=cli=10hz,sidebar-churn=400, --drag=divider,tab --rate=1000). Real input needs the
-#                   step's GUI session to hold the Accessibility grant; the report says input_reached false otherwise.
-#   --suite=scroll-jank  measure with scripts/cmux-next/scroll-jank-bench.py (Chrome's scroll jank,
-#                   Event.ScrollJank.*, per scroll target with real trackpad gestures at the display rate; DC4); the
-#                   other options go to it (--sessions=light,stress, --stall=none,50ms/100ms, --targets=sidebar,strip).
-#                   Real input needs the Accessibility grant as above.
-#   --suite=first5s  the first 5 s of typing after a new terminal tab, split, New Tab page and browser tab
-#                   (scripts/cmux-next/first-5s-typing.py through split-spring-terminal.py; --apps-sha256=A,B measures
-#                   fleet builds; its sender reports its own lateness, `--self-check` checks it with no app).
-#   --suite=bench-idle  idle wakeups and CPU (scripts/cmux-next/bench_idle.py; its options follow, e.g. --scenarios=...).
-#   --suite=responsive-scroll  run scripts/cmux-next/responsive-scroll-live.py (a 50 ms main stall
-#                   during momentum still scrolls the sidebar and the palette results, feature responsiveScrolling on
-#                   and off); it exits 1 when the check fails. Real input needs the Accessibility grant as above.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
 # The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
 # commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
-SPLIT_SPRING_MEASURE_VERSION=5  # 5: suites first5s and bench-idle; first-5s numbers before 5 came from a sender whose late time.sleep stamped keys with their plan (a fake 100-150 ms floor), so they are not comparable; 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
+SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
-bench_script=scripts/cmux-next/split-spring-terminal.py
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
@@ -64,9 +47,6 @@ for arg in "$@"; do
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
-    --suite=input-latency) bench_script=scripts/cmux-next/input-latency-bench.py ;;
-    --suite=scroll-jank) bench_script=scripts/cmux-next/scroll-jank-bench.py ;;
-    --suite=responsive-scroll) bench_script=scripts/cmux-next/responsive-scroll-live.py ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -101,7 +81,10 @@ if [[ -z "$app" ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
+  # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
+  # cargo and web-bundle builds) until it exited, which read as a hang (cmux20-bench step 0b17cb3f). The
+  # xcodebuild compile itself still prints nothing until reload.sh exits (it keeps that in its own log).
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
@@ -237,7 +220,7 @@ fi
 status=0
 measuring=1
 # In the background and waited for, so a TERM reaches the trap at once (bash runs a trap only between commands).
-python3 "$bench_script" --tag "$tag" --app "$app" --out "$out" --json "$out/report.json" \
+python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --out "$out" --json "$out/report.json" \
   ${args[@]+"${args[@]}"} &
 bench_pid=$!
 wait "$bench_pid" || status=$?

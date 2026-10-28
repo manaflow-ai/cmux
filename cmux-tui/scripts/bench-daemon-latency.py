@@ -145,6 +145,17 @@ Usage:
   bench-daemon-latency.py --bin ... --sha SHA --build-config release --out DIR
 """
 
+# Scratch (cp/audit-11-bench, never lands): `--scenarios suite` runs the pro audit 11 daemon suite instead, through
+# feat-cmux-next's reviewed scripts/measure/perf-10x-daemon.sh (the fleet runs that script on Linux and macOS).
+import os as _os, sys as _sys  # noqa: E401,E402
+if "--scenarios" in _sys.argv and _sys.argv[_sys.argv.index("--scenarios") + 1] in ("suite", "suite-quick"):
+    _argv = _sys.argv
+    _cmd = [_sys.executable, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "bench-daemon-suite.py"),
+            "--bin", _argv[_argv.index("--bin") + 1], "--out", _argv[_argv.index("--out") + 1]]
+    if _argv[_argv.index("--scenarios") + 1] == "suite-quick":
+        _cmd.append("--quick")
+    _os.execv(_sys.executable, _cmd)
+
 import argparse
 import binascii
 import ctypes

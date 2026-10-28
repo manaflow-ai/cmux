@@ -61,6 +61,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=first5s" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
+# `--suite=competitors`: pro audit 11, cmux against Ghostty, Rex, WezTerm, Kitty and Alacritty on this host (scratch ref
+# cp/audit-11-bench only; competitor-bench.py).
+if "--suite=competitors" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "competitor-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=competitors"])
 # `--suite=bench-idle`: wakeups and CPU of an idle app and hidden workspaces (bench_idle.py; its own options after the
 # suite, for example `--scenarios=terminals,mixed-hidden`).
 if "--suite=bench-idle" in sys.argv:
