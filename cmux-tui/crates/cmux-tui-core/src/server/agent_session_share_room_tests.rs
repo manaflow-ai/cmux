@@ -15,6 +15,7 @@ use std::sync::Condvar;
 use std::time::Instant;
 
 const OWNER_TOKEN: &str = "owner-access-token";
+type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 
 /// What the fake room saw, in order.
 #[derive(Debug)]
@@ -33,7 +34,7 @@ struct Shared {
     /// Overrides the next successful `PUT`'s URL base (used to exercise bad room responses).
     url_base_once: Mutex<Option<String>>,
     /// Holds every `DELETE` response until the test releases it.
-    delete_gate: Mutex<Option<Arc<(Mutex<bool>, Condvar)>>>,
+    delete_gate: Mutex<Option<DeleteGate>>,
     /// Signals a test watcher as each `DELETE` enters the fake room.
     delete_entered: Mutex<Option<Sender<()>>>,
     delete_active: AtomicU64,
@@ -104,7 +105,7 @@ impl FakeRoom {
         }
     }
 
-    fn block_deletes(&self) -> Arc<(Mutex<bool>, Condvar)> {
+    fn block_deletes(&self) -> DeleteGate {
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
         *self.shared.delete_gate.lock().unwrap() = Some(gate.clone());
         gate

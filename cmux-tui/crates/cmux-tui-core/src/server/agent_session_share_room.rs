@@ -487,10 +487,10 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                 acknowledged = true;
                 continue;
             }
-            if let Some(mux) = weak.upgrade() {
-                if view(&mux, &id).is_some_and(|v| shares(&mux).now() >= v.expires_at) {
-                    return done(&mux, &id, &op);
-                }
+            if let Some(mux) = weak.upgrade()
+                && view(&mux, &id).is_some_and(|v| shares(&mux).now() >= v.expires_at)
+            {
+                return done(&mux, &id, &op);
             }
             tokio::time::sleep(wait).await;
             wait = (wait * 2).min(timing.backoff_max);
