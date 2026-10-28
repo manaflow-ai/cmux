@@ -66,8 +66,8 @@ nonisolated struct CEFRendererHang: Equatable, Sendable {
 /// minimize, its occlusion and its occlusion family's flips.
 struct CEFRendererHangWindowWatch {
     weak var window: NSWindow?
-    var events: [EventSubscription] = []
-    var occlusion: WindowOcclusionSubscription?
+    /// The window's visibility node's flips (``ChromiumHostPageVisibility/Source/node``).
+    var flips: VisibilitySubscription?
 }
 
 extension CEFTab {
@@ -81,9 +81,7 @@ extension CEFTab {
     /// the shown tab's window (``followRendererHangWindow()``).
     var showsForRendererHang: Bool {
         guard showsInPaneForRendererHang, let window = container.window else { return false }
-        let covered = WindowOcclusionFamily.installed(on: window)?.isOccluded ?? false
-        let state = runtime.rendererHangWindows.windowState(window)
-        return !covered && ChromiumHostPageVisibility.WindowState.visibility(of: state) == .visible
+        return runtime.rendererHangWindows.visibility(of: window) == .visible
     }
 
     /// The tab's part of ``showsForRendererHang``: its pane shows it and the content lifecycle does not hide it.
@@ -119,28 +117,19 @@ extension CEFTab {
         applyRendererHang(rendererHang.shownChanged(shown: showsForRendererHang, prompting: state.isUnresponsive))
     }
 
-    /// Watches the window of the tab its pane shows, and nothing for a hidden tab: a minimize, an
-    /// occlusion change (an app hide or unhide changes every window's) or a flip of the window's
-    /// ``WindowOcclusionFamily`` reaches ``rendererHangVisibilityChanged()``. The window's notices come
-    /// through ``CEFRuntime/rendererHangWindows`` (its shared ``WindowEvents``; a test's own).
+    /// Watches the window of the tab its pane shows, and nothing for a hidden tab: each flip of the
+    /// window's visibility node (a minimize, an occlusion change, an app hide, a flip of its
+    /// ``WindowOcclusionFamily``) reaches ``rendererHangVisibilityChanged()``. The node comes through
+    /// ``CEFRuntime/rendererHangWindows`` (the window's ``WindowVisibilitySource``; a test's own).
     private func followRendererHangWindow() {
         let window = showsInPaneForRendererHang ? container.window : nil
         guard window !== rendererHangWindowWatch.window else { return }
         rendererHangWindowWatch = CEFRendererHangWindowWatch()
         guard let window else { return }
-        let events = runtime.rendererHangWindows.events(window)
-        let owner = "CEFTab.rendererHang"
-        let update: @MainActor () -> Void = { [weak self] in self?.rendererHangVisibilityChanged() }
+        let node = runtime.rendererHangWindows.node(window)
         rendererHangWindowWatch = CEFRendererHangWindowWatch(
             window: window,
-            events: [
-                events.subscribe(NSWindow.didMiniaturizeNotification, owner: owner, update),
-                events.subscribe(NSWindow.didDeminiaturizeNotification, owner: owner, update),
-                events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, update),
-            ],
-            occlusion: WindowOcclusionFamily.of(window).subscribe(.content, owner: owner) { [weak self] _ in
-                self?.rendererHangVisibilityChanged()
-            })
+            flips: node.subscribe(owner: "CEFTab.rendererHang") { [weak self] _ in self?.rendererHangVisibilityChanged() })
     }
 
     private func applyRendererHang(_ step: CEFRendererHang.Step) {

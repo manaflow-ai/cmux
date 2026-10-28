@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// What the person sees of a hosted page: `cmux_shim_page_visibility_t`, the value of
@@ -40,15 +41,27 @@ nonisolated enum ChromiumHostPageVisibility: Int32, Sendable {
     /// Where a page view reads its window's state and hears it change.
     struct Source {
         let windowState: @MainActor (NSWindow) -> WindowState
-        /// The window's notifications, one observer per window (``WindowEvents``).
+        /// The window's notifications, one observer per window (``WindowEvents``), for what is not
+        /// visibility (key and main changes).
         let events: @MainActor (NSWindow) -> WindowEvents
+        /// The window's one visibility source (``WindowVisibilitySource``): its node flips on the window's
+        /// occlusion and minimize notices, its occlusion family and its app's hide. Readers follow it and
+        /// never observe those notices themselves.
+        let node: @MainActor (NSWindow) -> VisibilityNode
 
-        /// AppKit's state and the window's shared ``WindowEvents``.
+        /// AppKit's state, the window's shared ``WindowEvents`` and its ``WindowVisibilitySource``.
         static var appKit: Source {
             Source(windowState: { window in
                 WindowState(isShown: window.isVisible && !window.isMiniaturized && !(NSApp?.isHidden ?? false),
                             isOccluded: !window.occlusionState.contains(.visible))
-            }, events: { WindowEvents.of($0) })
+            }, events: { WindowEvents.of($0) }, node: { WindowVisibilitySource.of($0).node })
+        }
+
+        /// What `window` shows of its views: the window's state (ordered in, minimized, its app hidden),
+        /// capped by its visibility node, which also knows a cover by an opaque cmux window.
+        @MainActor func visibility(of window: NSWindow?) -> Visibility {
+            guard let window else { return .hidden }
+            return min(WindowState.visibility(of: windowState(window)), node(window).effective)
         }
     }
 }
@@ -74,26 +87,21 @@ extension ChromiumHostPageView {
         pageNode.set(.visible)
     }
 
-    /// Follows the window's minimize and occlusion (an app hide orders out every window, which
-    /// changes its occlusion) and sets ``windowNode`` from it. Called when the view changes window
-    /// and when the source changes.
+    /// Follows the window's visibility node (its minimize, occlusion, occlusion family and app hide: an app
+    /// hide orders out every window) and sets ``windowNode`` from it. Called when the view changes window and
+    /// when the source changes.
     func observeVisibility() {
-        visibilitySubscriptions = []
+        windowVisibilityWatch = nil
         guard let window else { return windowNode.set(.hidden) }
-        let events = visibilitySource.events(window)
-        let owner = "ChromiumHostPageView.visibility"
-        let update: @MainActor () -> Void = { [weak self] in self?.updateWindowVisibility() }
-        // Always delivered: the page's own visibility is what the host hides or shows it by.
-        visibilitySubscriptions = [
-            events.subscribe(NSWindow.didMiniaturizeNotification, owner: owner, update),
-            events.subscribe(NSWindow.didDeminiaturizeNotification, owner: owner, update),
-            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, update),
-        ]
+        // Every flip is delivered: the page's own visibility is what the host hides or shows it by.
+        windowVisibilityWatch = visibilitySource.node(window).subscribe(owner: "ChromiumHostPageView.visibility") { [weak self] _ in
+            self?.updateWindowVisibility()
+        }
         updateWindowVisibility()
     }
 
     private func updateWindowVisibility() {
-        windowNode.set(ChromiumHostPageVisibility.WindowState.visibility(of: window.map { visibilitySource.windowState($0) }))
+        windowNode.set(visibilitySource.visibility(of: window))
     }
 
     /// Whether the page shows over this view, for the content invariant (``CEFTab/contentVisibility``

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -210,14 +211,20 @@ import Testing
         let center = NotificationCenter()
         let events: WindowEvents
         var state = ChromiumHostPageVisibility.WindowState(isShown: true, isOccluded: false)
+        /// The window's one visibility source, reading ``state`` and hearing this window's own center.
+        private(set) var visibility: WindowVisibilitySource!
 
         init() {
             events = WindowEvents(window: window, center: center)
             window.contentView?.addSubview(container)
+            visibility = WindowVisibilitySource(window: window, name: "fake", app: nil, events: events) { [unowned self] _ in
+                ChromiumHostPageVisibility.WindowState.visibility(of: state)
+            }
         }
 
         var source: ChromiumHostPageVisibility.Source {
-            ChromiumHostPageVisibility.Source(windowState: { [unowned self] _ in state }, events: { [unowned self] _ in events })
+            ChromiumHostPageVisibility.Source(windowState: { [unowned self] _ in state }, events: { [unowned self] _ in events },
+                                              node: { [unowned self] _ in visibility.node })
         }
 
         /// Sets `key` and posts `name` from the window, as AppKit does after such a change.
