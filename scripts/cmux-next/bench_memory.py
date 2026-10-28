@@ -455,6 +455,17 @@ def tail(path: str, lines: int = 20) -> str:
     return ("\napp output:\n" + "\n".join(text)) if text else ""
 
 
+def exception_records(home: str) -> str:
+    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), which
+    lives in the scratch HOME that a failed launch deletes: printed so the run says why."""
+    import glob
+    out = ""
+    for path in glob.glob(os.path.join(home, "Library", "Application Support", "cmux-next", "*", "run.exception")):
+        with open(path, errors="replace") as handle:
+            out += f"\n--- {path}\n{handle.read()[:4000]}"
+    return out
+
+
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
@@ -514,7 +525,7 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
         seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
         raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
                          f"(app pid {pid or 'none: it did not start'}; {state}: {seen}; "
-                         f"launch {'direct' if direct else 'open'})" + tail(log_path))
+                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(home))
     except BaseException:
         end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
