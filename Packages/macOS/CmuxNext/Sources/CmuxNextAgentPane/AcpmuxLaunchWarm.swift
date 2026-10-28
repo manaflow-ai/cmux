@@ -1,64 +1,42 @@
 import Foundation
 import os
 
-/// Sends one warm RPC per session. Retries preserve both the daemon launch and stop generation.
+/// Sends one warm RPC per session and records exactly the sessions Quit must account for.
 actor AcpmuxLaunchWarm {
-    nonisolated struct Fence: Sendable, Equatable {
-        let epoch: String
-        let stops: UInt64
-
-        init(epoch: String, stops: UInt64) { self.epoch = epoch; self.stops = stops }
-
-        init?(result: [String: Any]) {
-            guard let epoch = result["daemonEpoch"] as? String,
-                  let failures = result["failed"] as? [[String: Any]],
-                  let retry = failures.first(where: { $0["retryable"] as? Bool == true }),
-                  let stops = retry["stops"] as? NSNumber else { return nil }
-            self.init(epoch: epoch, stops: stops.uint64Value)
-        }
-    }
-
     private var requested = Set<String>()
     var hasRequests: Bool { !requested.isEmpty }
 
-    private var fences: [String: Fence] = [:]
-    private let call: @Sendable (String, [String: any Sendable]) async throws -> Fence?
+    private let call: @Sendable (String, [String: any Sendable]) async throws -> Bool
 
     init() {
         call = { socket, params in
             let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params,
                                                           deadline: .seconds(60), requiredFeature: "launchWarm")
-            return Fence(result: result)
+            guard let failed = result["failed"] as? [[String: Any]] else {
+                throw AcpmuxStatusClient.Failure.rpc("Missing launch warm result")
+            }
+            return failed.isEmpty
         }
     }
 
-    init(call: @escaping @Sendable (String, [String: any Sendable]) async throws -> Fence?) { self.call = call }
+    init(call: @escaping @Sendable (String, [String: any Sendable]) async throws -> Bool) { self.call = call }
 
     func warm(_ sessions: [String], socket: String) async throws {
         var failed: [String] = []
         for session in sessions {
             try Task.checkCancellation()
-            var params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
-            if let fence = fences[session] {
-                params["expectedStopCounts"] = [session: fence.stops]
-                params["expectedDaemonEpoch"] = fence.epoch
-            }
             // Record before dispatch: a cancelled/lost reply can still have started this chat.
             requested.insert(session)
             do {
-                fences[session] = try await call(socket, params)
-                if fences[session] != nil { failed.append(session) }
+                let succeeded = try await call(socket, ["sessionIds": [session], "limit": 1])
+                if !succeeded { failed.append(session) }
             } catch {
+                // Capability refusal happens before dispatch, so it cannot have started a chat.
+                if case .unsupportedFeature = error as? AcpmuxStatusClient.Failure { requested.remove(session) }
                 try Task.checkCancellation()
-                // A lost reply may have started the agent. Without a prior fence, retrying could
-                // undo a person's subsequent Stop. Endpoint/startup failures are retried upstream.
-                if case .unsupportedFeature = error as? AcpmuxStatusClient.Failure {
-                    requested.remove(session)
-                } else if fences[session] != nil { failed.append(session) }
-                else {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "agent.launch")
-                        .error("launch warm reply unavailable; restoration unknown, no unfenced retry: \(String(describing: error), privacy: .public)")
-                }
+                failed.append(session)
+                Logger(subsystem: "com.cmuxterm.app.next", category: "agent.launch")
+                    .error("launch warm failed: \(String(describing: error), privacy: .public)")
             }
         }
         if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed) }

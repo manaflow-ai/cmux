@@ -87,7 +87,7 @@ public actor ChiefHomeDirectory {
         if await own.starting.hasWarmedSessions { launchHomes.insert(host) }
     }
 
-    /// Ends only older homes warmed by this launch, and only while no other build owns the home.
+    /// Ends this launch’s restored sessions in older homes without shutting down shared daemons.
     /// Called after launch cancellation/drain. Failed ends stay recorded so Quit's Retry can try again.
     public func endLaunchSessions(waitForShutdown: Bool, excludingAttachedHome: URL? = nil,
                                   end: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil) async -> [AcpmuxQuit.EndResult] {

@@ -42,6 +42,16 @@ struct AcpmuxLaunchSharedDaemonTests {
             let rows = try #require(listing["sessions"] as? [[String: Any]])
             #expect(rows.first { $0["sessionId"] as? String == mineID }?["status"] as? String == "idle")
             #expect(rows.first { $0["sessionId"] as? String == otherID }?["status"] as? String == "ready")
+            // A second launch can restore the ended chat without replacing the shared daemon.
+            try await tabs.warm(sessionIds: [mineID])
+            let restored = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(5)).value
+            let restoredRows = try #require(restored["sessions"] as? [[String: Any]])
+            #expect(restoredRows.first { $0["sessionId"] as? String == mineID }?["status"] as? String == "ready")
+            #expect(restoredRows.first { $0["sessionId"] as? String == otherID }?["status"] as? String == "ready")
+            #expect(try await AcpmuxStatusClient.status(socketPath: socket).pid == before.pid)
+            // A tab can reference a session already deleted by its daemon. Ending it is idempotent.
+            let missing = await AcpmuxLaunchCleanup(environment: owner).end(["already-deleted"])
+            #expect(missing == ["already-deleted"])
         } catch {
             _ = await AcpmuxQuit.endAgents(owner, keep: .nothing)
             throw error

@@ -3,7 +3,6 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import os
-import CmuxNextWakeups
 
 extension AgentTabStore {
     /// `install:<id>` of this Mac. Only that host attaches a tab to its acpmux; nil refuses new
@@ -77,53 +76,38 @@ extension AgentTabStore {
         return batches
     }
 
-    /// Warms every local host batch without constructing pages. Failed batches are retained for
-    /// at most two retries, so a transient acpmux handoff does not depend on another tree mutation.
-    /// Successful batches are never submitted again in this run.
+    /// Warms each local host batch once without constructing pages. A failed batch is reported
+    /// without repeating successful or ambiguously accepted requests.
     @discardableResult
-    func resumeChatsAtLaunch(clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
+    func resumeChatsAtLaunch() async -> Bool {
         guard !Task.isCancelled, localHost != nil else { return false }
-        var pending = resumeTargetsAtLaunch()
-        var backoff = Backoff(initial: .seconds(1), maximum: .seconds(2), jitter: 0)
-        for attempt in 0..<3 {
-            guard !Task.isCancelled else { return false }
-            if pending.isEmpty { return true }
-            let targets = pending
-            let failed = await withTaskGroup(of: (Int, [String])?.self) { group in
-                var next = 0
-                var failures: [(Int, [String])] = []
-                func add(_ index: Int) {
-                    let target = targets[index]
-                    group.addTask {
-                        do {
-                            try Task.checkCancellation()
-                            try await target.host.warm(sessionIds: target.sessions)
-                            return nil
-                        } catch {
-                            if !Task.isCancelled {
-                                Self.launchLogger.error("launch resume failed: \(String(describing: error), privacy: .public)")
-                            }
-                            let retry = (error as? AgentPaneWarmFailure)?.sessionIds ?? target.sessions
-                            return (index, retry)
+        let targets = resumeTargetsAtLaunch()
+        return await withTaskGroup(of: Bool.self) { group in
+            var next = 0
+            var succeeded = true
+            func add(_ index: Int) {
+                let target = targets[index]
+                group.addTask {
+                    do {
+                        try Task.checkCancellation()
+                        try await target.host.warm(sessionIds: target.sessions)
+                        return true
+                    } catch {
+                        if !Task.isCancelled {
+                            Self.launchLogger.error("launch resume failed: \(String(describing: error), privacy: .public)")
                         }
+                        return false
                     }
                 }
-                while next < min(Self.launchResumesInFlight, targets.count) { add(next); next += 1 }
-                for await failure in group {
-                    if let failure { failures.append(failure) }
-                    guard !Task.isCancelled else { group.cancelAll(); continue }
-                    if next < targets.count { add(next); next += 1 }
-                }
-                return failures.sorted { $0.0 < $1.0 }
             }
-            guard !Task.isCancelled else { return false }
-            pending = failed.map { (sessions: $0.1, host: targets[$0.0].host) }
-            if pending.isEmpty { return true }
-            guard attempt < 2 else { break }
-            // concurrency-allow: bounded error backoff through an injected Clock; no readiness polling.
-            do { try await backoff.wait(owner: "agent.launchResume", clock: clock) } catch { return false }
+            while next < min(Self.launchResumesInFlight, targets.count) { add(next); next += 1 }
+            for await result in group {
+                succeeded = succeeded && result
+                guard !Task.isCancelled else { group.cancelAll(); continue }
+                if next < targets.count { add(next); next += 1 }
+            }
+            return succeeded && !Task.isCancelled
         }
-        return false
     }
 
     /// Cancels launch work and drains its client requests before Quit's existing daemon shutdown
@@ -137,32 +121,29 @@ extension AgentTabStore {
 
     /// Waits for the confirmed local tree, then loads this Mac's identity off the main thread.
     /// One owner runs the launch operation; releasing the tab store or quitting cancels it.
-    func resumeChatsWhenLoaded(_ store: DaemonStore, clock: any Clock<Duration> = ContinuousClock()) {
+    func resumeChatsWhenLoaded(_ store: DaemonStore) {
         guard launchResumeTask == nil else { return }
         // task-owner: AgentTabStore cancels in deinit; Quit cancels and drains before ending agents.
         launchResumeTask = Task { [weak self] in
             for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
                 guard !Task.isCancelled else { return }
-                var backoff = Backoff(initial: .seconds(1), maximum: .seconds(2), jitter: 0)
-                for attempt in 0..<3 {
-                    do {
-                        // Do not retain the tab store while the background identity read waits.
-                        let load = self?.loadLocalHostForLaunch
-                        if let load {
-                            let host = try await load()
-                            try Task.checkCancellation()
-                            self?.localHost = host
-                        }
-                        break
-                    } catch {
-                        guard !Task.isCancelled, attempt < 2 else { return }
-                        // concurrency-allow: bounded error backoff after a failed identity read.
-                        do { try await backoff.wait(owner: "agent.launchIdentity", clock: clock) } catch { return }
+                do {
+                    // Do not retain the tab store while the background identity read waits.
+                    let load = self?.loadLocalHostForLaunch
+                    if let load {
+                        let host = try await load()
+                        try Task.checkCancellation()
+                        self?.localHost = host
                     }
+                } catch {
+                    if !Task.isCancelled {
+                        Self.launchLogger.error("launch identity read failed: \(String(describing: error), privacy: .public)")
+                    }
+                    return
                 }
                 guard !Task.isCancelled else { return }
                 guard store.liveTabListRevision != nil else { continue }
-                _ = await self?.resumeChatsAtLaunch(clock: clock)
+                _ = await self?.resumeChatsAtLaunch()
                 return
             }
         }

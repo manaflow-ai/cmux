@@ -25,8 +25,6 @@ nonisolated struct AcpmuxLaunchCleanup {
     private func stop(_ sessions: [String]) async throws -> Set<String> {
         let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
         guard status.serves(home: environment.home) else { throw AcpmuxStatusClient.Failure.otherHome(status.home ?? "") }
-        let listing = try await AcpmuxStatusClient.sessions(socketPath: environment.socketPath, deadline: .seconds(2)).value
-        let known = Set((listing["sessions"] as? [[String: Any]] ?? []).compactMap { $0["sessionId"] as? String })
         let stopped = await withTaskGroup(of: String?.self) { group in
             var next = 0
             var ended = Set<String>()
@@ -35,7 +33,7 @@ nonisolated struct AcpmuxLaunchCleanup {
                 group.addTask {
                     do {
                         try Task.checkCancellation()
-                        if known.contains(session) { try await environment.warmStopSession(id: session) }
+                        try await environment.warmStopSession(id: session)
                         return session
                     } catch { return nil }
                 }

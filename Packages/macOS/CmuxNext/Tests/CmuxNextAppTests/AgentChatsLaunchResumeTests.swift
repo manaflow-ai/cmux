@@ -98,36 +98,44 @@ struct AgentChatsLaunchResumeTests {
         await tabs.launchResumeTask?.value
     }
 
-    @Test func aTransientWarmFailureRetriesWithoutAnotherTreeEvent() async {
+    @Test func aWarmFailureIsReportedAfterOneAttempt() async {
         let host = AgentChatsLaunchResumeRecordingHost(failures: 1)
-        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "retry"))], host: host)
-        #expect(await tabs.resumeChatsAtLaunch(clock: AgentLaunchTestClock()))
-        #expect(await host.warmed == [["retry"], ["retry"]])
+        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "failed"))], host: host)
+        #expect(await tabs.resumeChatsAtLaunch() == false)
+        #expect(await host.warmed == [["failed"]])
     }
 
-    @Test func retryLeavesSuccessfulAndExplicitlyStoppedSessionsAlone() async {
-        let host = AgentChatsLaunchResumeRecordingHost(failures: 1, retrySessions: ["failed"])
+    @Test func failedLocalBatchDoesNotPreventTheChiefBatch() async {
+        let host = AgentChatsLaunchResumeRecordingHost(failures: 1), chief = AgentChatsLaunchResumeRecordingHost()
         let tabs = Self.tabs([
-            (key: "a", record: AgentSessionRef(host: Self.thisMac, session: "ready")),
-            (key: "b", record: AgentSessionRef(host: Self.thisMac, session: "stopped")),
-            (key: "c", record: AgentSessionRef(host: Self.thisMac, session: "failed")),
-        ], host: host)
-        #expect(await tabs.resumeChatsAtLaunch(clock: AgentLaunchTestClock()))
-        #expect(await host.warmed == [["ready", "stopped", "failed"], ["failed"]])
+            (key: "a", record: AgentSessionRef(host: Self.thisMac, session: "failed")),
+            (key: "b", record: AgentSessionRef(host: "chief:launch-resume-test", session: "chief")),
+        ], host: host, chief: chief)
+        #expect(await tabs.resumeChatsAtLaunch() == false)
+        #expect(await host.warmed == [["failed"]])
+        #expect(await chief.warmed == [["chief"]])
     }
 
-    @Test func persistentWarmFailureHasABoundedNumberOfAttempts() async {
-        let host = AgentChatsLaunchResumeRecordingHost(failures: 10)
-        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "retry"))], host: host)
-        #expect(await tabs.resumeChatsAtLaunch(clock: AgentLaunchTestClock()) == false)
-        #expect(await host.warmed.count == 3)
+    @Test func identityFailureEndsLaunchWithoutRetryOrStartingChats() async {
+        let host = AgentChatsLaunchResumeRecordingHost()
+        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "chat"))], host: host)
+        tabs.localHost = nil
+        var reads = 0
+        tabs.loadLocalHostForLaunch = { reads += 1; throw AgentPaneHostError.daemonStopped }
+        let store = DaemonStore()
+        tabs.resumeChatsWhenLoaded(store)
+        store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "identity-error")), generationChanged: false))
+        store.apply(snapshot: DaemonTree(workspaces: []))
+        await tabs.launchResumeTask?.value
+        #expect(reads == 1)
+        #expect(await host.warmed.isEmpty)
     }
 
     @Test func quitCancelsAndDrainsAnInFlightWarm() async throws {
         let host = AgentChatsLaunchResumeRecordingHost(blocked: true)
         let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "stop"))], host: host)
         let store = DaemonStore()
-        tabs.resumeChatsWhenLoaded(store, clock: AgentLaunchTestClock())
+        tabs.resumeChatsWhenLoaded(store)
         store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "quit")), generationChanged: false))
         store.apply(snapshot: DaemonTree(workspaces: []))
         let first = try await withAgentPaneDeadline(.seconds(5), label: "warm starts") {
