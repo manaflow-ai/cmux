@@ -83,8 +83,25 @@ extension KeyRouter {
         guard Self.mayQueueTyping(focus.resolved), let pane = focus.resolved.pane,
               let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness else { return false }
         let surface = String(describing: ObjectIdentifier(readiness))
-        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface
+        // A dead key taken for this page still waits for the key it composes with.
+        let heldDeadKey = typeAheadComposer.deadKeyState != 0 && typeAheadFocus == focus.resolved
+        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || heldDeadKey
         let facts = Facts(pageInputPending: !readiness.isReady || waiting)
+        let pending = facts.pageInputPending && !Self.isChord(event.modifierFlags) && Self.mayHavePrimaryInput(focus.resolved)
+        // The queue holds what the input source types (TypeAheadComposer): a dead key is taken and
+        // kept as state, its next key queues the composed character; an input method's keys are never
+        // queued (its text exists only in its engine), so they go on to the page undecided.
+        let key = pending ? typeAheadKey(event) : .notComposable
+        if key == .deadKey {
+            decided.add(event)
+            typeAheadFocus = focus.resolved
+            return true
+        }
+        if pending, key == .notComposable, Self.isPrintable(event) {
+            // An input method's key: the page's own text input runs the input method once it can.
+            if waiting { dropTypeAhead() }
+            return false
+        }
         guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .typeAhead else {
             guard waiting else { return false }
             if event.keyCode == Self.deleteKeyCode {
@@ -98,7 +115,8 @@ extension KeyRouter {
             return false
         }
         decided.add(event)
-        typeAhead.append(event.characters ?? "", surface: surface, now: .now)
+        let text: String = if case .text(let composed) = key { composed } else { event.characters ?? "" }
+        typeAhead.append(text, surface: surface, now: .now)
         typeAheadFocus = focus.resolved
         readiness.onReady = { [weak self, weak readiness] in
             guard let self, let readiness else { return }
@@ -110,9 +128,16 @@ extension KeyRouter {
 
     nonisolated static let deleteKeyCode: UInt16 = 51
 
-    /// The type-ahead reading of a key-down: its characters when it is printable.
+    /// The type-ahead reading of a key-down (no Command or Control): what the selected input source
+    /// types, with the dead key typed before it (``TypeAheadComposer``); a key that types no text
+    /// (an arrow, Return) or a key of an input method is not queued (`.notComposable`).
     func typeAheadKey(_ event: NSEvent) -> TypeAheadComposer.Outcome {
-        Self.isPrintable(event) ? .text(event.characters ?? "") : .notComposable
+        guard event.type == .keyDown, !Self.isChord(event.modifierFlags), Self.isPrintable(event) || Self.isDeadKey(event) else {
+            return .notComposable
+        }
+        let outcome = typeAheadComposer.compose(keyCode: event.keyCode, modifiers: event.modifierFlags, translate: typeAheadTranslate)
+        if outcome == .text(""), Self.isPrintable(event) { return .text(event.characters ?? "") }
+        return outcome == .text("") ? .notComposable : outcome
     }
 
     /// Delivers the queued text, one insertion at a time; keys typed while
@@ -150,6 +175,7 @@ extension KeyRouter {
 
     /// A chord or another key ends the queue.
     func dropTypeAhead() {
+        typeAheadComposer.reset()
         if deliveringTypeAhead == nil {
             typeAhead.drop()
         } else {
