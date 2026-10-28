@@ -199,6 +199,26 @@ import Testing
         #expect(store.publicKey == ContentSignature.publicKey)
     }
 
+    /// A stable install's feed is a GitHub release asset (`releases/latest/download/appcast.xml`, or a
+    /// tag's thin feed). An asset name cannot hold `/`, so `<feed folder>/notes/flags.json` can never exist
+    /// there, and a remote kill switch never reached a Release build (pro-audit 19). Stable reads its
+    /// notes, and so its flags document, from the stable bucket beside `stable/appcast.xml`.
+    @Test func aStableInstallReadsItsFlagsFromTheStableBucket() throws {
+        let cache = FileManager.default.temporaryDirectory
+        for feed in ["https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml",
+                     "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-arm64.xml",
+                     "https://github.com/manaflow-ai/cmux/releases/download/v1.2.0/appcast-x86_64.xml"] {
+            let store = try #require(ReleaseNotesStore(feedURL: feed, cache: cache))
+            #expect(store.flagsDocument().documentURL.absoluteString == "https://files.cmux.com/stable/notes/flags.json", "\(feed)")
+            #expect(store.flagsDocument().signatureURL.absoluteString == "https://files.cmux.com/stable/notes/flags.json.sig", "\(feed)")
+        }
+        // Every other feed keeps its notes beside its appcast.
+        let nightly = try #require(ReleaseNotesStore(feedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", cache: cache))
+        #expect(nightly.flagsDocument().documentURL.absoluteString == "https://files-next.cmux.com/nightly-next/next/notes/flags.json")
+        let otherRepo = try #require(ReleaseNotesStore(feedURL: "https://github.com/someone/fork/releases/latest/download/appcast.xml", cache: cache))
+        #expect(otherRepo.flagsDocument().documentURL.absoluteString == "https://github.com/someone/fork/releases/latest/download/notes/flags.json")
+    }
+
     // MARK: - The updater runs it at start
 
     /// A build with no Sparkle driver, automatic checks off and `DisableAutoUpdate` forced.
