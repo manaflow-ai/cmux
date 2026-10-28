@@ -187,10 +187,11 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       const inputFields = input(item);
       const inputCommand = field(inputFields.command);
       const command = item.command ? pullRequestSourceCommand(item.command) : inputCommand ?? "";
+      const title = item.command || inputCommand ? pullRequestSourceCommand(item.command ?? inputCommand ?? item.title) : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
       const inputText = inputCommand ? "" : item.inputSummary ?? "";
-      const text = `${item.title} ${command} ${inputText} ${item.output ?? ""}`;
+      const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
       addUrls(text, rowIndex);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, rowIndex);
