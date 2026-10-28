@@ -56,9 +56,25 @@ jobs:
       # App's own budget (GITHUB_TOKEN's, which every workflow shares, ran out on 2026-10-21);
       # a failed mint or a refused read uses GITHUB_TOKEN. Pull requests only: a merge group
       # runs the queued commit's copy of this file.
+      # Most pull requests change no migration and the step below decides that from git
+      # alone, so the glaeda-route token is minted only for a head whose
+      # backend/db/migrations tree differs from the base (the only case that lists files
+      # through the API). A mint spends the shared installation budget even when unused.
+      - name: Compare the migration trees
+        id: trees
+        if: github.event_name == 'pull_request_target'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"
+          base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
+          head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
+          if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
       - name: Mint the glaeda-route token
         id: glaeda-token
-        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request_target'
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request_target' && steps.trees.outputs.same == 'false'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -68,6 +84,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: read
+          skip-token-revoke: true
       - name: Changed files and head migrations
         id: files
         env:
