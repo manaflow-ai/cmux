@@ -129,9 +129,12 @@ final class NewTabInputCoordinator {
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         weak var opening: Entry?  // weak: the entry owns the buffer that holds this closure
         let buffer = NewTabInputBuffer(began: now(), fieldReady: { [weak pane] in
-            // This opening's page (``didShow(in:)``), still shown, has its field focused now (an adopted spare).
-            guard let pane, let key = pane.currentTabKey, key == opening?.shownKey, pane.services.agentTabs.isNewTabPage(key) else { return false }
-            return pane.services.agentTabs.existingView(key)?.inputReadiness.isEditableFocused == true
+            // This opening's page (``didShow(in:)``), still shown under its provisional or its daemon key, has its field
+            // focused now (an adopted spare).
+            let tabs = pane?.services.agentTabs
+            guard let pane, let tabs, let key = pane.currentTabKey, let shown = opening?.shownKey,
+                  tabs.resolve(key) == tabs.resolve(shown), tabs.isNewTabPage(key) else { return false }
+            return tabs.existingView(key)?.inputReadiness.isEditableFocused == true
         }, focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
@@ -344,7 +347,9 @@ final class NewTabInputCoordinator {
     func didShow(in window: NSWindow?) {
         guard let window, let entry = buffers[window.windowNumber] else { return }
         entry.shown = true
-        entry.shownKey = entry.pane?.currentTabKey
+        // The pane may not show the new tab yet (a remote store selects it when reported): then only the token counts.
+        let key = entry.pane?.currentTabKey
+        entry.shownKey = key != entry.opened ? key : nil
         watchField(of: entry.shownKey.flatMap { router?.services?.agentTabs.existingView($0) }, for: entry)
     }
 
