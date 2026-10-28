@@ -285,22 +285,30 @@ class NextApp:
         return self.control.rpc("debug.key", params, timeout=20)
 
     def play(self, name, modifiers, typed):
-        """One `debug.key` sequence: the open shortcut, then a letter every --interval, posted to the app's own event
-        queue by the app, each stamped with its intended press time (DebugKey+Sequence.swift)."""
-        steps = [{"key_code": MODIFIER_CODES[m], "down": True} for m in modifiers]
-        steps += [{"key_code": KEY_CODES[name], "down": True}, {"key_code": KEY_CODES[name], "down": False, "after_ms": 8}]
-        steps += [{"key_code": MODIFIER_CODES[m], "down": False, "after_ms": 2} for m in reversed(modifiers)]
-        used = 8 + 2 * len(modifiers)
+        """The open shortcut, then a letter every --interval. Each key is its own `debug.key` request on its own
+        connection, sent at its scheduled time from a thread and never waited for, stamped with that time (the
+        client's CLOCK_UPTIME_RAW, the probe's clock): so a key that waits for a busy main thread counts the wait, and
+        a slow reply never delays the next key. (`debug.key {sequence}` refuses on hosts whose CGEvent has no
+        timestamp: "no event timestamp to start the sequence from".)"""
+        open_ns = NOW_NS()
+        reply = self.key(name, modifiers, stamp=open_ns / 1e9)
+        sent = [{} for _ in typed]
+        threads = []
         for k, letter in enumerate(typed):
-            gap = (k + 1) * opts.interval * 1000 - used
-            steps.append({"key_code": KEY_CODES[letter], "down": True, "after_ms": round(gap, 3)})
-            steps.append({"key_code": KEY_CODES[letter], "down": False, "after_ms": 8})
-            used = (k + 1) * opts.interval * 1000 + 8
-        t0 = NOW_NS()
-        reply = self.control.rpc("debug.key", {"sequence": steps}, timeout=20) or {}
-        base = reply.get("base_s") if isinstance(reply, dict) else None
-        open_ns = int(base * 1e9) if isinstance(base, (int, float)) and base > 0 else t0
-        return [], reply, open_ns
+            when = open_ns + int((k + 1) * opts.interval * 1e9)
+            wait = (when - NOW_NS()) / 1e9
+            if wait > 0:
+                time.sleep(wait)
+            def one(k=k, letter=letter, when=when):
+                s0 = NOW_NS()
+                self.key(letter, stamp=when / 1e9)
+                sent[k]["send_late_ms"] = round((s0 - when) / 1e6, 2)
+            t = threading.Thread(target=one, daemon=True)
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join(30)
+        return sent, reply, open_ns
 
     def close(self, scenario):
         self.control.action("closeTab")
@@ -394,6 +402,19 @@ class ClassicApp:
             raise LaunchError("classic: no socket answered ping", {"sockets": self._sockets()})
         note(f"first5s: classic socket {self.sock}")
         time.sleep(6)
+        if self.process.poll() is not None or not self._send(self.sock, "ping", timeout=3).startswith("PONG"):
+            tail = ""
+            try:
+                tail = open(os.path.join(self.out, "app-classic.log")).read()[-3000:]
+            except OSError:
+                pass
+            dbg = ""
+            try:
+                dbg = open(self.log).read()[-2000:]
+            except OSError:
+                pass
+            note(f"first5s: classic DIED after its socket answered: exit {self.process.poll()}\n--- app log tail\n{tail}\n--- debug log tail\n{dbg}")
+            raise LaunchError("classic: the app stopped answering 6 s after launch", {"exit": self.process.poll()})
         hid_input.bring_front(self.pid)
         note(f"first5s: classic activate {self._send(self.sock, 'activate_app')}")
         time.sleep(4)
@@ -644,7 +665,7 @@ def measure(app_path, zdot, result, family):
         try:
             app.launch()
         except LaunchError as error:
-            entry["launch_failure"] = getattr(error, "reason", str(error))
+            entry["launch_failure"] = str(getattr(error, "reason", None) or error)
             note(f"first5s: launch failed {entry['launch_failure']}")
             return
         app.photon = Photon(app.pid, os.path.join(out, "photon.txt"))
