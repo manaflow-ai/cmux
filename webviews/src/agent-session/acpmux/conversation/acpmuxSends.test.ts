@@ -264,8 +264,13 @@ describe("acpmuxSend", () => {
       `reach box 'acpmux send "$FIRST" hi'; acpmux send second hi`,
       `bash -c "$SCRIPT"; acpmux send lane hi`,
       `reach "$HOST" 'acpmux send first hi'; acpmux send second hi`,
-    ])
-      expect(read(command)).toBeUndefined();
+    ]) {
+      try {
+        expect(read(command)).toBeUndefined();
+      } catch (error) {
+        throw new Error(`${command}: ${error}`);
+      }
+    }
   });
 
   test("a send anywhere in a compound command, with the other work counted", () => {

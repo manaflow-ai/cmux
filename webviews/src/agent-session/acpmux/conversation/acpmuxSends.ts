@@ -869,6 +869,18 @@ function readAcpmuxSend(
       direct = name !== "reach" && !SHELLS.has(name);
     }
   }
+  if (!found) {
+    // A command substitution can contain a send even when the nested parser cannot resolve it
+    // (for example, a dynamic target). Scan its executable runs before returning so an outer send
+    // cannot be mistaken for the only message; quoted mentions produce no runs and stay harmless.
+    for (const command of commands) {
+      const busy = (command.runs ?? []).filter((script) => !onlyReads(script, depth));
+      if (busy.some((script) => /\bacp/.test(script))) {
+        sendScan.opaque = true;
+        break;
+      }
+    }
+  }
   if (!found || sendScan.sends > 1 || sendScan.opaque) return undefined;
   // Every other step that does more than set up, report, feed the send or filter what it printed
   // is other work, and so is a step that writes a file or runs a substitution that does more than
