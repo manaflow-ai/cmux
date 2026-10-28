@@ -684,6 +684,58 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertIn("<<<<<<<", counts.read_text())
         self.assertIn('"decode": 5', counts.read_text())
 
+    def test_design_result_json_merges_task_by_task(self):
+        """design-result.json is one 1.6 MB line: two task branches that each edit
+        their own task merge cleanly, keeping both edits on one line; the same
+        field changed two ways conflicts with markers."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        design = self.repo / "plans/cmux-next/chrome-parity/design-result.json"
+        design.parent.mkdir(parents=True, exist_ok=True)
+
+        def document(a_size="S", b_files=("b.swift",), c_title=None):
+            tasks = [{"id": "p01-001", "title": "A", "size": a_size},
+                     {"id": "p01-002", "title": "B", "files": list(b_files)}]
+            if c_title:
+                tasks.append({"id": "p01-003", "title": c_title})
+            return {"programs": {"p01": {"program": "p01", "tasks": tasks}},
+                    "plan": {"branches": ["p01"]}, "critic": "ok \u2014 fine"}
+
+        def write(doc):
+            design.write_text(json.dumps(doc), encoding="utf-8")
+
+        write(document())
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "lane")
+        write(document(a_size="M"))
+        self.commit_all("lane edits p01-001")
+        self.git("checkout", "--quiet", "main")
+        write(document(b_files=("b.swift", "b2.swift"), c_title="C"))
+        self.commit_all("main edits p01-002 and adds p01-003")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        expected = document(a_size="M", b_files=("b.swift", "b2.swift"), c_title="C")
+        self.assertEqual(design.read_text(encoding="utf-8"), json.dumps(expected))
+
+        self.git("checkout", "--quiet", "-b", "other", base)
+        write(document(a_size="L"))
+        self.commit_all("other edits p01-001 the other way")
+        self.git("checkout", "--quiet", "lane")
+        clash = self.git("merge", "--no-edit", "other", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        text = design.read_text(encoding="utf-8")
+        self.assertIn("<<<<<<< ours\n", text)
+        self.assertIn("\n=======\n", text)
+        self.assertIn("\n>>>>>>> theirs", text)
+        self.assertIn('"size": "M"', text)
+        self.assertIn('"size": "L"', text)
+        self.git("merge", "--abort")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
