@@ -157,7 +157,11 @@ final class LinkOpener {
         }
         return open(from: from, background: background) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
-            let opener = here ? from?.selectedTab?.surface : nil
+            // The right column is an area with its own active tab. Preserve Chrome's insertion
+            // order there too: a document link follows the active top-right tab, rather than
+            // landing at the strip's end. This is the LinkOpener half of RightPanePlacement;
+            // same-pane opens continue to use the clicked tab as their opener.
+            let opener = pane.selectedTab?.surface
             let back = background || here ? nil : from
             var then = placed
             if back != nil {
