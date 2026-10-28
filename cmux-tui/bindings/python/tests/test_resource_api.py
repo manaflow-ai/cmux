@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import select
 import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -285,8 +286,6 @@ class ResourceApiTests(unittest.TestCase):
 
         with UnixJsonServer(handler) as server:
             with JsonLineConnection(server.path, timeout=1) as connection:
-                import select
-
                 select_socket = select.select
                 first_wait = True
 
@@ -304,6 +303,34 @@ class ResourceApiTests(unittest.TestCase):
                 self.assertEqual(
                     connection.recv(), {"value": "still within deadline"}
                 )
+
+    def test_expired_socket_readiness_does_not_dispatch(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                send_frame(connection, request)
+
+        with UnixJsonServer(handler) as server:
+            with JsonLineConnection(server.path, timeout=1) as connection:
+                select_socket = select.select
+                dispatched = []
+                with patch("cmux.transport.time") as clock:
+                    clock.monotonic.return_value = 0
+
+                    def delayed_readiness(readers, writers, exceptional, timeout):
+                        ready = select_socket(readers, writers, exceptional, timeout)
+                        clock.monotonic.return_value = 2
+                        return ready
+
+                    with patch(
+                        "cmux.transport.select.select", side_effect=delayed_readiness
+                    ), self.assertRaises(cmux.TimeoutError):
+                        connection.send(
+                            {"value": "expired"}, timeout=1,
+                            on_sent=lambda: dispatched.append(True),
+                        )
+                self.assertEqual(dispatched, [])
+                connection.send({"value": "reused"}, timeout=1)
+                self.assertEqual(connection.recv(), {"value": "reused"})
 
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
