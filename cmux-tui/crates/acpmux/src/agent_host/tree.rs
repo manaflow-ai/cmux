@@ -11,15 +11,19 @@ pub struct Started {
     start: String,
 }
 
+/// `ps -axww -o <fields>`: whether it exited 0, and what it printed. The one process listing in
+/// acpmux's agent host code: ending what a harness left behind and the idle census.
+fn ps(fields: &str) -> Option<(bool, String)> {
+    let out = std::process::Command::new("ps").args(["-axww", "-o", fields]).output().ok()?;
+    Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned()))
+}
+
 /// Every process, from `ps`; empty when `ps` fails.
 fn process_table() -> Vec<Started> {
-    let Ok(out) =
-        std::process::Command::new("ps").args(["-axww", "-o", "pid=,ppid=,lstart="]).output()
-    else {
+    let Some((_, out)) = ps("pid=,ppid=,lstart=") else {
         return Vec::new();
     };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
+    out.lines()
         .filter_map(|line| {
             let mut fields = line.split_whitespace();
             let pid = fields.next()?.parse().ok()?;
@@ -86,14 +90,11 @@ pub struct Under {
 /// they run nothing. `None` when `ps` fails, prints a line it cannot read, or lists no `leader`:
 /// a census that is not whole never says nothing runs.
 pub fn under(leader: u32) -> Option<Vec<Under>> {
-    let out = std::process::Command::new("ps")
-        .args(["-axww", "-o", "pid=,ppid=,pgid=,stat=,args="])
-        .output()
-        .ok()?;
-    if !out.status.success() {
+    let (ok, out) = ps("pid=,ppid=,pgid=,stat=,args=")?;
+    if !ok {
         return None;
     }
-    under_in(&String::from_utf8_lossy(&out.stdout), leader, own_group())
+    under_in(&out, leader, own_group())
 }
 
 fn own_group() -> u32 {

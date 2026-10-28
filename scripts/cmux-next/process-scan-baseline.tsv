@@ -6,7 +6,7 @@
 # (peer authentication of one connected socket, one held child, this process's
 # own children); a new `keep` row needs a review note in the commit.
 cmux-tui/crates/acpmux/src/adopt_live.rs	1	remove	cx-t2sqm.2 (OpenCode only; Claude and Codex use their recorded holders)
-cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3
+cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them
 cmux-tui/crates/acpmux/src/hub/pool/reaper.rs	1	remove	cx-t2sqm.3
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	2	remove	cx-t2sqm.4
