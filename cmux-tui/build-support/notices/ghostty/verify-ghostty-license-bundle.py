@@ -80,12 +80,12 @@ def regular_files(root: Path) -> set[str]:
             path = directory_path / name
             require(not path.is_symlink(), f"license tree contains a symlink: {path}")
             require(
-                stat.S_ISDIR(path.stat(follow_symlinks=False).st_mode),
+                stat.S_ISDIR(path.lstat().st_mode),
                 f"license tree contains a non-directory entry: {path}",
             )
         for name in file_names:
             path = directory_path / name
-            metadata = path.stat(follow_symlinks=False)
+            metadata = path.lstat()
             require(
                 stat.S_ISREG(metadata.st_mode),
                 f"license tree contains a non-regular file: {path}",
