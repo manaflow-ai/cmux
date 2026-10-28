@@ -350,7 +350,8 @@ export function NewTabScreen(props: Props) {
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<MarkdownFieldHandle | null>(null);
   const fieldElement = () => field.current?.element() ?? null;
-  const fieldText = () => field.current?.text() ?? { value: text, selectionStart: text.length, selectionEnd: text.length };
+  const fieldText = () =>
+    field.current?.text() ?? { value: text, selectionStart: text.length, selectionEnd: text.length };
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -363,7 +364,9 @@ export function NewTabScreen(props: Props) {
   });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
-  const inlinePlace = useRef<((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined>();
+  const inlinePlace = useRef<
+    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+  >();
   const {
     attachments,
     setAttachments,
@@ -504,7 +507,8 @@ export function NewTabScreen(props: Props) {
           peer: machine.peer,
         },
       );
-    if (sentAttachments.length > 0) return props.onAsk(agent, sent.text, cwd, model, none || undefined, sentAttachments);
+    if (sentAttachments.length > 0)
+      return props.onAsk(agent, sent.text, cwd, model, none || undefined, sentAttachments);
     return none ? props.onAsk(agent, sent.text, cwd, model, true) : props.onAsk(agent, sent.text, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
@@ -1025,7 +1029,13 @@ export function NewTabScreen(props: Props) {
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
   const worktreePending = useRef(false);
-  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string, sentAttachments?: ComposerAttachment[]) {
+  function askInEnvironment(
+    picked: SavedEnvironment,
+    agent: string,
+    prompt: string,
+    model?: string,
+    sentAttachments?: ComposerAttachment[],
+  ) {
     const extra = sentAttachments?.length ? sentAttachments : attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
@@ -1314,7 +1324,13 @@ export function NewTabScreen(props: Props) {
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
-          <div className="nt-input" onMouseDown={(event) => { if (fieldElement()?.contains(event.target as Node)) setDismissed(undefined); focusFromRow(event); }}>
+          <div
+            className="nt-input"
+            onMouseDown={(event) => {
+              if (fieldElement()?.contains(event.target as Node)) setDismissed(undefined);
+              focusFromRow(event);
+            }}
+          >
             {split && attachmentPicker}
             <div className="nt-field-slot">
               {(shell || sections.prompt) && (
@@ -1377,8 +1393,16 @@ export function NewTabScreen(props: Props) {
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
           <AttachmentStrip
-            attachments={attachmentView === "inline" ? attachments.filter((item) => !new Set(inlineTokenIds(text)).has(item.id)) : attachments}
-            pending={attachmentView === "inline" ? reading.filter((item) => !new Set(inlineTokenIds(text)).has(item.id)) : reading}
+            attachments={
+              attachmentView === "inline"
+                ? attachments.filter((item) => !new Set(inlineTokenIds(text)).has(item.id))
+                : attachments
+            }
+            pending={
+              attachmentView === "inline"
+                ? reading.filter((item) => !new Set(inlineTokenIds(text)).has(item.id))
+                : reading
+            }
             {...(attachError ? { error: attachError } : {})}
             codex={harness === "codex"}
             onRemove={(id) => {
@@ -1717,7 +1741,10 @@ function listStep(event: KeyboardEvent): 1 | -1 | undefined {
 
 /// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
 /// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
-function movesCaretInPrompt(event: KeyboardEvent, field: { value: string; selectionStart: number; selectionEnd: number }): boolean {
+function movesCaretInPrompt(
+  event: KeyboardEvent,
+  field: { value: string; selectionStart: number; selectionEnd: number },
+): boolean {
   if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
   if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
   if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");
