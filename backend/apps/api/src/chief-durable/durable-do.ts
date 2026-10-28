@@ -42,7 +42,7 @@ import { batchMarker, runRequest } from "./run-view.ts"
  * copied from P's conversation brain on the first wake (`memoryExport`).
  */
 const SCHEMA_D = [
-  `CREATE TABLE IF NOT EXISTS cd_batch (n INTEGER PRIMARY KEY AUTOINCREMENT, request TEXT UNIQUE NOT NULL, run TEXT NOT NULL, first_seq INTEGER NOT NULL, last_seq INTEGER NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, created INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS cd_batch (n INTEGER PRIMARY KEY AUTOINCREMENT, request TEXT UNIQUE NOT NULL, run TEXT NOT NULL, first_seq INTEGER NOT NULL, last_seq INTEGER NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, created INTEGER NOT NULL, submitted INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS cd_run (id TEXT PRIMARY KEY, first INTEGER NOT NULL, covered TEXT NOT NULL, view TEXT NOT NULL, state TEXT NOT NULL, created INTEGER NOT NULL, post_key INTEGER NOT NULL DEFAULT 0)`
 ]
 export const HOST_D = "cloud-chief-d"
@@ -376,6 +376,8 @@ export class ChiefDurableDO extends DurableObject<Env> {
     }
     const input = [{ type: "text" as const, text: `${batchMarker(n)}${rows.map((r) => r.text).join("\n\n")}` }]
     await this.harness.submit(input, { operationId: request, whenBusy: "steer" })
+    // Only a submitted batch is waited on (pi answers an unknown id "not_found", which is not a failed run).
+    this.sql.exec(`UPDATE cd_batch SET submitted = 1 WHERE n = ?`, n)
     this.watchOpen()
     return { queued: rows.length }
   }
@@ -394,8 +396,11 @@ export class ChiefDurableDO extends DurableObject<Env> {
         for (let seen = ""; ; ) {
           const still = this.openRun()
           if (!still || still.id !== run.id) return
-          const newest = this.sql.exec<{ request: string }>(`SELECT request FROM cd_batch WHERE run = ? ORDER BY n DESC LIMIT 1`, run.id).toArray()[0]?.request
+          const newest = this.sql.exec<{ request: string }>(`SELECT request FROM cd_batch WHERE run = ? AND submitted = 1 ORDER BY n DESC LIMIT 1`, run.id).toArray()[0]?.request
           if (!newest) return
+          // A batch recorded but not yet submitted (its wake is still in take, or MuxDO sends it again): take submits it.
+          const pending = this.sql.exec(`SELECT 1 FROM cd_batch WHERE run = ? AND submitted = 0`, run.id).toArray().length > 0
+          if (newest === seen && pending) return
           if (newest === seen) {
             // Settled and still open with no newer input: onYield was skipped for a queued write; close on the last talk.
             const talk = readSteps(this.sql, run.id, 0, 2000).filter((s) => s.kind === "talk" && s.text).at(-1)?.text ?? ""

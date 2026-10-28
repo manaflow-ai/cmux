@@ -43,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Callable, Protocol
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_pages  # noqa: E402
 import nightly_next_train as train  # noqa: E402
 
 GATE_JOB = "nightly-next train Release compile"
@@ -192,6 +193,16 @@ def gh(*args: str, input: str | None = None, check: bool = True) -> str:
     return proc.stdout
 
 
+def comments(repo: str, number: int) -> list[dict]:
+    """Every comment on an issue or pull request, one bounded page per call (scripts/ci/gh_pages.py:
+    the gh quota wrapper refuses an unbounded paginating call). Past the page cap it raises
+    TrainError, so a marker is never missed for a list cut short."""
+    try:
+        return gh_pages.items(lambda url: json.loads(gh("api", url)), f"repos/{repo}/issues/{number}/comments")
+    except (gh_pages.PageCapError, TypeError) as error:
+        raise train.TrainError(str(error)) from None
+
+
 class GitHubBuilder:
     """Push each candidate to refs/heads/nightly-train/<run>/<n> and run
     nightly-next-train.yml mode `build` there; read its gate job."""
@@ -284,8 +295,8 @@ def comment_quarantine(repo: str, cars: list[train.Car], outcome_ids: list[str],
                 f"Owner: @{car.owner or 'unknown'}. This car rejoins the train once a fix lands on feat-cmux-next.")
         try:
             if car.pr:
-                existing = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/issues/{car.pr}/comments?per_page=100"))
-                if any(marker in (c.get("body") or "") for page in existing for c in page):
+                existing = comments(repo, car.pr)
+                if any(marker in (c.get("body") or "") for c in existing):
                     continue
                 gh("api", f"repos/{repo}/issues/{car.pr}/comments", "-f", f"body={body}")
             else:
@@ -293,8 +304,8 @@ def comment_quarantine(repo: str, cars: list[train.Car], outcome_ids: list[str],
                     found = json.loads(gh("api", f"repos/{repo}/issues?state=open&per_page=100&creator=github-actions%5Bbot%5D"))
                     match = next((i for i in found if i.get("title") == QUARANTINE_ISSUE and not i.get("pull_request")), None)
                     issue = match["number"] if match else json.loads(gh("api", f"repos/{repo}/issues", "-f", f"title={QUARANTINE_ISSUE}", "-f", "body=Direct pushes that the cmux NEXT nightly train left out. One line per car."))["number"]
-                existing = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/issues/{issue}/comments?per_page=100"))
-                if any(marker in (c.get("body") or "") for page in existing for c in page):
+                existing = comments(repo, issue)
+                if any(marker in (c.get("body") or "") for c in existing):
                     continue
                 gh("api", f"repos/{repo}/issues/{issue}/comments", "-f", f"body={body}\nCommits: {', '.join(c[:12] for c in car.commits)}")
             posted.append(car_id)

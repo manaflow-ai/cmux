@@ -101,6 +101,7 @@ final class AppControl {
         let errors = ErrorJournalService.make(environment: services.environment)
         errors.start()
         errorJournal = errors
+        services.errorJournal = errors
         service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
