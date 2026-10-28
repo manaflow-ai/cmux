@@ -77,14 +77,13 @@ const COMMON_ARGUMENTS: [&str; 5] =
 /// Selector arguments, whose long shared description [`INSTRUCTIONS`] gives.
 const SELECTORS: [&str; 6] = ["workspace", "screen", "pane", "tab", "terminal", "window"];
 /// Sentences every daemon tool or app action description repeats.
-const BOILERPLATE: [&str; 5] = [
+const BOILERPLATE: [&str; 4] = [
     " Changes state on the cmux session daemon. A call that fails with state in_progress may \
      have applied; retry it with the idempotency_key the error returns.",
     " Reads the cmux session daemon and changes nothing.",
     " Runs in the cmux app and waits until its work is done.",
     " An MCP run changes the user's focus only when focus is true or the action's purpose is \
      focus.",
-    "Default false: the user's view stays as it is.",
 ];
 
 pub(super) const INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
@@ -95,7 +94,7 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts;
     rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
     in_progress, retry with the key from the error; another server's call that fails \
     in_progress has no key and may have run, so check its effect first. Tools never move the \
-    person's focus unless the call passes focus: true. Name workspaces and tabs to the person \
+    person's focus unless the call passes focus: true or the tool's purpose is focus. Name workspaces and tabs to the person \
     by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
     attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
 
@@ -235,6 +234,8 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         return json!({"query": query, "families": families(tools)});
     }
     let needed = terms.len().div_ceil(2);
+    // A tool's own name ("tab_list", "tab list") comes first.
+    let exact_name = query.trim().replace([' ', '.', '-'], "_");
     let mut scored = tools
         .iter()
         .filter_map(|tool| {
@@ -256,16 +257,18 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
                 matched += usize::from(points > 0);
                 score += points;
             }
-            (matched >= needed).then_some((matched, score, name.starts_with("app_"), tool))
+            let exact = name == exact_name;
+            (matched >= needed).then_some((exact, matched, score, name.starts_with("app_"), tool))
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| {
-        b.1.cmp(&a.1)
-            .then(b.0.cmp(&a.0))
-            .then(a.2.cmp(&b.2))
-            .then_with(|| a.3["name"].as_str().cmp(&b.3["name"].as_str()))
+        b.0.cmp(&a.0)
+            .then(b.2.cmp(&a.2))
+            .then(b.1.cmp(&a.1))
+            .then(a.3.cmp(&b.3))
+            .then_with(|| a.4["name"].as_str().cmp(&b.4["name"].as_str()))
     });
-    let scored = scored.into_iter().map(|(_, score, _, tool)| (score, tool)).collect::<Vec<_>>();
+    let scored = scored.into_iter().map(|(_, _, score, _, tool)| (score, tool)).collect::<Vec<_>>();
     let more = scored
         .iter()
         .skip(limit)

@@ -213,7 +213,7 @@ impl<B: Backend> Server<B> {
     /// no app owns, while the same CLI call worked (tests/tool-evals
     /// `no-app-current`, 2026-10-27).
     fn daemon_caller(&self) -> Option<Value> {
-        let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())?;
+        let terminal = self.backend.caller_terminal()?;
         let mut caller = Map::new();
         caller.insert("terminal_id".into(), json!(terminal));
         let mut id = terminal;

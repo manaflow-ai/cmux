@@ -41,6 +41,9 @@ struct Fake {
     beside: Value,
     /// `Backend::identity` fails, as with no app on the socket.
     identity_fails: bool,
+    /// What `Backend::caller_terminal` answers (none by default, whatever
+    /// terminal the test runs in).
+    caller_terminal: Option<String>,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     /// The app's `computer_use.status` through `Backend::app_caller`; no
@@ -342,6 +345,10 @@ impl Backend for Fake {
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "focus"}));
         Ok(self.focus.clone())
+    }
+
+    fn caller_terminal(&self) -> Option<String> {
+        self.caller_terminal.clone()
     }
 
     fn acpmux(
@@ -1628,6 +1635,10 @@ fn cmux_docs_finds_a_tool_from_a_sentence() {
     assert!(split["alsoTakes"].to_string().contains("idempotency_key"), "{split}");
     assert!(split["inputSchema"]["properties"]["direction"]["enum"].is_array(), "{split}");
 
+    // A tool's own name finds that tool first, not a longer one that holds it.
+    let exact = call(&mut server, "cmux_docs", json!({"query": "tab_list"}));
+    assert_eq!(exact["structuredContent"]["tools"][0]["name"], "tab_list", "{exact}");
+
     // A script that calls a name no tool has hears the near ones.
     let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
     let ran = call(&mut server, "cmux_exec", json!({"script": script}));
@@ -1660,7 +1671,17 @@ mod upstream_tests;
 /// no-app placement fallback, 2026-10-27).
 #[test]
 fn open_url_without_an_app_stays_on_the_daemon() {
-    let fake = Fake { identity_fails: true, ..Fake::default() };
+    // The daemon places the caller (terminal, tab, pane, screen and
+    // workspace, and a pane to its right), so the fallback would find a
+    // place for the link if it took links.
+    let place = json!({"tab_id": "tab_1", "pane_id": "pane_1", "screen_id": "screen_1",
+                       "workspace_id": "ws_1", "pane": {"id": "pane_2"}});
+    let fake = Fake {
+        identity_fails: true,
+        caller_terminal: Some("term_1".into()),
+        resource_result: Some(place),
+        ..Fake::default()
+    };
     let mut server = Server::new(fake, None);
     server
         .call(&json!({"name": "workspace_open_url",

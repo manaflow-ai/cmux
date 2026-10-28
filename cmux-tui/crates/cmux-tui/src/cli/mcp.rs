@@ -183,6 +183,11 @@ pub(super) trait Backend {
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
     }
+    /// The terminal this server's client runs in (`CMUX_TUI_TERMINAL_ID`),
+    /// for placing it without an app (placement.rs `daemon_caller`).
+    fn caller_terminal(&self) -> Option<String> {
+        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with
