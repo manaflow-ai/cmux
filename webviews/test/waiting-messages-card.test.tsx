@@ -132,6 +132,8 @@ test("three steered messages from two sessions are one card; open, each is its r
     "lane-b",
   ]);
   expect(card.querySelector(".cv-received__queued")?.textContent).toBe(translate("message.readAfterStep"));
+  // No Copy of its own over the note: each message has its own.
+  expect(card.closest("[data-floating-copy]")).toBeNull();
   // Closed, no message draws on its own.
   expect(received()).toHaveLength(0);
 

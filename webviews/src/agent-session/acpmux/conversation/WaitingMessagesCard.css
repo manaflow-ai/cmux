@@ -2,8 +2,9 @@
    26px line in the received line's place and type, in `.cv-received`'s 2px margins (model.ts
    estimates that): the chevron in the icon column, the count, the senders muted and cut with an
    ellipsis, the quiet delivery note at the end. Open, the messages sit under it, each as its own
-   received card, in from the icon column. Never an opaque or bordered box, and nothing animates
-   in: only the chevron turns (`.cv-rotor`). */
+   received card in its own place (an indent would push a steer's line, its hover actions and its
+   note past a narrow pane's edge). Never an opaque or bordered box, and nothing animates in: only
+   the chevron turns (`.cv-rotor`). */
 .cv-waiting {
   margin: 2px 0;
 }
@@ -57,9 +58,6 @@
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
   border-radius: 4px;
-}
-.cv-waiting__messages {
-  margin-left: 22px;
 }
 .cv-waiting__messages[hidden] {
   display: none;

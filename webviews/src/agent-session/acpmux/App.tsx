@@ -1492,6 +1492,8 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== RENDER &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
+  // Each message in a card of waiting messages has its own Copy.
+  row.kind !== WAITING_MESSAGES &&
   rowKind(row) !== "editedFiles" &&
   // A row that draws nothing has nothing to copy, and its Copy would give it a box.
   !onlyQuietThoughts(row) &&

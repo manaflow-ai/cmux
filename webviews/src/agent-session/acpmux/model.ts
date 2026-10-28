@@ -1346,7 +1346,7 @@ function measuredRowHeight(
     const head = finish(2 + 26 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
     return row.waiting.rows.reduce(
-      (height, member) => height + measuredRowHeight(member, width - 22, cache, false, false, sessionId),
+      (height, member) => height + measuredRowHeight(member, width, cache, false, false, sessionId),
       head,
     );
   }
