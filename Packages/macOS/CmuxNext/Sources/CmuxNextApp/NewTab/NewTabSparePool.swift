@@ -209,6 +209,8 @@ final class NewTabSparePool {
         if target == nil, let window { retarget(window) }
         defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
+        snapshotGeneration &+= 1
+        view.isHidden = false
         // The launch's page took the prewarmed spare: the next one starts once that page painted,
         // not after quiet input, so a Cmd-N right after launch finds a page loading (cx-ec99).
         if !warmedOnce {
@@ -221,15 +223,29 @@ final class NewTabSparePool {
 
     /// The spare taken last and the size its opening shows it at, when known.
     private var opening: (view: ObjectIdentifier, size: NSSize?)?
+    /// Only the latest parked capture may put its page to sleep.
+    private var snapshotGeneration: UInt64 = 0
     func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
 
     /// The parked spare's own frame at its size: its adoption's cover (`AgentTabContent.coverMove`),
     /// not the last New Tab page shown, drawn at another size or moment (4 px off, 2026-10-15).
     private func snapshotParked() {
         guard let view = slot.peek, view.superview === parking else { return }
+        snapshotGeneration &+= 1
+        let generation = snapshotGeneration
+        // Rendering is needed only until this capture finishes, including after a parked resize.
+        view.isHidden = false
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         view.model.whenPainted { [weak self, weak view] in
-            if let view, view.superview === self?.parking { view.redraw.rememberFrame(of: view, appearance: appearance) }
+            guard let self, let view, snapshotGeneration == generation, slot.peek === view,
+                  view.superview === parking else { return }
+            view.redraw.rememberFrame(of: view, appearance: appearance) { [weak self, weak view] in
+                guard let self, let view, snapshotGeneration == generation, slot.peek === view,
+                      view.superview === parking else { return }
+                // A transparent offscreen view still receives frames. Hiding stops its renderer's
+                // animations and lets the transport hold nonurgent pushes until adoption.
+                view.isHidden = true
+            }
         }
     }
 

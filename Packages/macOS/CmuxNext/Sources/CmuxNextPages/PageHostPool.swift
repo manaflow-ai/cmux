@@ -94,6 +94,7 @@ public final class PageHostPool {
         let start = ContinuousClock.now
         spare = nil
         spareReady = false
+        host.isHidden = false
         claimed[ObjectIdentifier(host)] = WeakHost(host)
         host.removeFromSuperview()
         host.countsTouches = true
@@ -123,6 +124,7 @@ public final class PageHostPool {
             Task { @MainActor [weak self, weak host] in
                 await host?.resetPooledPage()
                 guard let self, let host, self.spare === host else { return }
+                self.suspendAfterPaint(host)
                 self.spareReady = true
                 self.onSpareReady?(host)
             }

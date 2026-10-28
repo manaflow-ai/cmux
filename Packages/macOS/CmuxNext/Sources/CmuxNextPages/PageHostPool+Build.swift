@@ -55,8 +55,18 @@ extension PageHostPool {
             if spare === host { dropSpare() }
             return
         }
+        suspendAfterPaint(host)
         spareReady = true
         onSpareReady?(host)
+    }
+
+    /// Opacity keeps the spare out of sight but leaves its renderer visible to WebKit. Let the
+    /// first frame finish, then hide it until a claim; a late paint cannot hide an adopted page.
+    func suspendAfterPaint(_ host: PageWebView) {
+        host.whenPainted { [weak self, weak host] in
+            guard let self, let host, spare === host else { return }
+            host.isHidden = true
+        }
     }
 
     private func measure<T>(_ name: String, _ body: () -> T) -> T {
