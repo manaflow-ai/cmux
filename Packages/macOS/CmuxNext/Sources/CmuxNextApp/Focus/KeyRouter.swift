@@ -345,10 +345,11 @@ final class KeyRouter: BrowserKeyRouting {
         switch candidate.source {
         case .registry(let argument):
             ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
-                                                    keyContext: context.bits)
+                                                    keyContext: context.bits, windowID: window)
         case .ghostty(let arguments):
             var invocation = ActionInvocation(arguments: arguments)
             invocation.keyContext = context.bits
+            invocation.windowID = window  // the window the key was typed in
             ran = registry.perform(candidate.id, invocation: invocation)
         }
         // A refused run (Cmd-W on a top page) is still a cmux shortcut; debug.key says it did not run.

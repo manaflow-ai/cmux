@@ -178,8 +178,7 @@ extension AppActions {
         // shows it once it exists only if no text input has the person's keyboard then (`hasTextInputKeyboard`): decided
         // when it would show, so a person who started typing meanwhile keeps their input.
         let quiet = !byPerson && show && hasOpenWindow
-            ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false,
-                             windowID: invocation.windowID, runID: ActionRunScope.current?.runID ?? 0) : nil
+            ? ActionRunScope.keepingWindow(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false) : nil
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create: () async throws -> String = BenchSpans.measure("cmdN.start") {
             guard let quiet else { return windows.startWorkspace(spawn, on: daemon, into: target) }

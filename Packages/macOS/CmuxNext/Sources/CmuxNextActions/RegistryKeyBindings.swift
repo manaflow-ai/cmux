@@ -54,8 +54,10 @@ public struct RegistryKeyBindings {
     /// ran it, so availability is checked against that window, never
     /// against the context another window published.
     @discardableResult
-    public func run(_ binding: KeyBinding, keyContext: ActionContext) -> Bool {
+    /// `windowID`: the window the key was typed in (the run's `WindowTarget`, named by the input itself).
+    public func run(_ binding: KeyBinding, keyContext: ActionContext, windowID: String? = nil) -> Bool {
         var invocation = ActionInvocation(arguments: binding.arguments)
+        invocation.windowID = windowID
         if let argument = binding.argument {
             let schema = registry.descriptor(for: binding.command)?.arguments.first
             invocation.arguments[schema?.name ?? "value"] = schema?.parse(argument) ?? .string(argument)

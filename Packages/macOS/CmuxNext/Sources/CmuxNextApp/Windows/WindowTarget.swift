@@ -114,7 +114,7 @@ extension WindowManager {
     var personWindow: WindowController? {
         if let origin = eventOriginWindow { return origin }
         if let lastActive, controllers.contains(where: { $0 === lastActive }) { return lastActive }
-        return ambientTarget().flatMap { controller(for: $0.id) }
+        return registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window != nil } ?? controllers.last
     }
 
     /// The current action run's window: the window its own code brought forward since it started

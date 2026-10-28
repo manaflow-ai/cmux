@@ -65,6 +65,12 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
 /// The one question every focus, selection, shown-workspace and key-window
 /// change asks before it happens.
 public extension ActionRunScope {
+    /// A scope of `origin` and `allowsViewChange` for work inside the current run: it keeps the run's
+    /// window and run id (multiwindow.md), so the work acts in the window the run acts in.
+    nonisolated static func keepingWindow(origin: ActionOrigin, allowsViewChange: Bool) -> ActionRunScope {
+        ActionRunScope(origin: origin, allowsViewChange: allowsViewChange, windowID: current?.windowID, runID: current?.runID ?? 0)
+    }
+
     /// Whether the code running now may change this client's view: the
     /// current run's permission, else true (no run: a direct gesture of
     /// this client's user).
@@ -94,7 +100,9 @@ extension ActionRegistry {
         let press = Self.inputTimestamp(of: dispatchingInputEvent()) ?? invocation.inputTimestamp
         var run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false, inputTimestamp: press)
             .nested(in: ActionRunScope.current)
-        if run.runID == 0 {
+        // A run of its own: the outermost one, or a nested one whose input names another window than the outer
+        // run's (its later work follows what it brings forward, not what the outer run did).
+        if run.runID == 0 || (invocation.windowID != nil && invocation.windowID != ActionRunScope.current?.windowID) {
             runCount &+= 1
             run.runID = runCount
         }

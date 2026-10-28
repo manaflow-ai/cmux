@@ -137,7 +137,7 @@ enum AgentBesidePlacement {
                             // pane, and focus follows the chat back to where the person had it (as
                             // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so
                             // it is not the person acting for another open in flight (`personActed`).
-                            ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
+                            ActionRunScope.carrying(.keepingWindow(origin: .script, allowsViewChange: true)) {
                                 content.focus.send(.focusPane(dock.id, source: .programmatic))
                             }
                         }

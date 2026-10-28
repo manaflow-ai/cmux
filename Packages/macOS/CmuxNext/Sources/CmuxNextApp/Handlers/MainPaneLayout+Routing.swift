@@ -112,7 +112,7 @@ extension MainPaneLayout {
                 } else if chatHadFocus, let dock {
                     // Not a view change of the open: the chat moved out of the focused pane, and focus follows
                     // it back to where the person had it (FocusCoordinator.followMovedTab does so for a move).
-                    ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
+                    ActionRunScope.carrying(.keepingWindow(origin: .script, allowsViewChange: true)) {
                         PaneHandlers.focus(LayoutPaneID(dock.id), in: content)
                     }
                 }
