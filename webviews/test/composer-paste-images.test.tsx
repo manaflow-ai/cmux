@@ -655,3 +655,36 @@ test("a retried attachment keeps its id and its place in the text, wherever the 
   // Pasted at "before |after": nothing between the attachment and "after".
   expect(blocks.at(-1)).toEqual({ type: "text", text: "after" });
 });
+
+// 2df2917eec9 kept every sent attachment out of the text for good, so a prompt the host put back after
+// its send (a refusal, Edit on a failed prompt) lost its attachments: the same ids come back, and
+// they are the composer's again.
+test("a prompt put back after its send keeps its inline attachment, and sends it again", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "put-back",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  const prompt = `before ${inlineToken(image.id)} after`;
+  await act(async () => composer.current!.restore(prompt, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  // The host refused it: the composer gets the prompt back, then the person types on.
+  await act(async () => composer.current!.restore(sent[0]!.text, sent[0]!.attachments));
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped("!"));
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(field().querySelector("[data-inline-attachment] img")).not.toBeNull();
+  expect((composer.current!.wakeState().attachments ?? []).map((attachment) => attachment.id)).toEqual([image.id]);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.text).toBe(`${prompt}!`);
+  expect(sent[1]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+});
