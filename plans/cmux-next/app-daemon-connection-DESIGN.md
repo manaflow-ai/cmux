@@ -401,19 +401,30 @@ generator) must not slow the edit-build loop. `scripts/cmux-next/build-timing.sh
   `clients: macos` command, `ping` before 011 adds `clients`). Recorded: seconds, the rebuilt target count and
   names, and whether the generator ran. `--rust` also times `cargo build -p cmux-tui`.
 
-Targets rebuilt come from SwiftPM's `Compiling <module>` and `Emitting module <module>` lines. The script
-writes `artifacts/build-timing/<sha>.json`, prints the rows below, and puts every edited file back. It refuses
-to run outside a fleet step. Run it at the last sha before 025/027 and at the first sha with both, on the same
-host class:
+Targets rebuilt come from SwiftPM's `Compiling <module>` and `Emitting module <module>` lines; "generator ran"
+is a build step that names `CmuxNextWireGen` (the plugin's build command). The script writes
+`artifacts/build-timing/<sha>.json`, prints the rows below, and puts every edited file back. It refuses to run
+outside a fleet step. Its `layout` column names the dependencies the tree has: `before-025/027`, `after-027`
+or `after-025/027`. Run it on the same host class at three shas:
+
+- Before: `18384acbfe85`, the last perf/chrome-parity first-parent sha without the 027 plugin (027 came in
+  with the merge `716f004a06e9`). That tree has no build-timing script, so the step takes the script from
+  perf/chrome-parity: `build_timing.py` is one stdlib-only file that takes `--repo-root`.
+- After 027: a perf/chrome-parity sha with this script, before 025 lands.
+- After 025 and 027: the first sha with `Sources/CmuxNextDaemonWire`.
 
 ```
-cmux-ci run --class isolated --ref SHA --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit --label "before 025/027"'
+cmux-ci run --class isolated --ref 18384acbfe85 --script 'git fetch -q origin perf/chrome-parity && git show FETCH_HEAD:scripts/cmux-next/build_timing.py > "${TMPDIR:-/tmp}/build_timing.py" && python3 "${TMPDIR:-/tmp}/build_timing.py" --repo-root "$PWD" --leaf-edit --schema-edit --rust --label "before 025/027"'
+cmux-ci run --class isolated --ref SHA --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit --rust --label "after 027"'
 cmux-ci run --class isolated --ref SHA --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit --rust --label "after 025/027"'
 ```
 
 | Date | Edit | Layout | Host / cores / macOS | sha | Seconds p50 / max | Targets rebuilt | Generator ran | Note |
 |---|---|---|---|---|---|---|---|---|
-| | leaf (swift) | before-025/027 | | | | | | not run yet |
-| | schema (swift) | before-025/027 | | | | | | not run yet |
-| | leaf (swift) | after-025/027 | | | | | | waits for 025 and 027 |
-| | schema (swift) | after-025/027 | | | | | | waits for 025 and 027 |
+| | leaf (swift) | before-025/027 | | 18384acbfe85 | | | | not run yet |
+| | schema (swift) | before-025/027 | | 18384acbfe85 | | | | not run yet |
+| | leaf (swift) | after-027 | | | | | | not run yet |
+| | schema (swift) | after-027 | | | | | | not run yet |
+| | schema (cargo) | after-027 | | | | | | not run yet |
+| | leaf (swift) | after-025/027 | | | | | | waits for 025 |
+| | schema (swift) | after-025/027 | | | | | | waits for 025 |

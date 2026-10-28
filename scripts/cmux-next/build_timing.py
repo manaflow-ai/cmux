@@ -310,9 +310,11 @@ def layout_of(root: Path) -> str:
     plugin = (root / PLUGIN_DIR).is_dir()
     if wire and plugin:
         return "after-025/027"
-    if not wire and not plugin:
-        return "before-025/027"
-    return "partial: " + ("025" if wire else "027")
+    if plugin:
+        return "after-027"
+    if wire:
+        return "after-025"
+    return "before-025/027"
 
 
 def leaf_file(root: Path, requested: Optional[str]) -> Path:

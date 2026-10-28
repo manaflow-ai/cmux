@@ -248,6 +248,13 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("fleet step", result.stderr)
         self.assertFalse(self.calls.exists())
 
+    def test_layout_names_each_dependency(self) -> None:
+        self.assertEqual(bt.layout_of(self.repo), "before-025/027")
+        (self.repo / bt.PLUGIN_DIR).mkdir(parents=True)
+        self.assertEqual(bt.layout_of(self.repo), "after-027")
+        (self.repo / bt.WIRE_TARGET_DIR).mkdir(parents=True)
+        self.assertEqual(bt.layout_of(self.repo), "after-025/027")
+
     def test_needs_an_edit(self) -> None:
         result = self.run_script()
         self.assertEqual(result.returncode, 2)

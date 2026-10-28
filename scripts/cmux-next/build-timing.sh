@@ -5,8 +5,8 @@
 # Times a warm CmuxNext `swift build` after a leaf edit (a private function
 # body in DaemonRequest.swift) and after a one-field schema edit (one optional
 # request field in cmux-tui/spec/sdk-schema.json), and records host, sha,
-# seconds, the rebuilt targets and whether the wire generator ran. Run it at a
-# sha before p05-ipc-025/027 and at one after them. Fleet only:
+# seconds, the rebuilt targets and whether the wire generator ran. Run it before
+# p05-ipc-027, after 027 and after 025 (shas in section 9.1). Fleet only:
 #
 #   cmux-ci run --class isolated --ref SHA \
 #     --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit'
