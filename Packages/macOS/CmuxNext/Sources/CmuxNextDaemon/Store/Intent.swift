@@ -85,6 +85,7 @@ extension Intent {
         case .setScreenIcon: "setScreenIcon"
         case .setScreenPinned: "setScreenPinned"
         case .renameWorkspace: "renameWorkspace"
+        case .setWorkspaceColor: "setWorkspaceColor"
         case .moveWorkspace: "moveWorkspace"
         case .setWorkspaceGroup: "setWorkspaceGroup"
         case .placeWorkspace: "placeWorkspace"

@@ -19,7 +19,9 @@ final class SidebarTabRowView: SidebarRowView {
     /// The tab's own status, on the trailing column as a workspace row's (the tab bar's dot).
     private let activity: StatusIndicatorView = {
         let view = StatusIndicatorView()
-        (view.tracksWindowOcclusion, view.usesStatusColors) = (true, true)
+        // No occlusion flag: the indicator's loop runs only while its visibility node is visible, which an
+        // occluded window's node is not (StatusIndicatorView, WindowVisibilitySource).
+        view.usesStatusColors = true
         return view
     }()
     /// Whether the icon is a template agent mark (tinted with the text) rather than a page favicon.

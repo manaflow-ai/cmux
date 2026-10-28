@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxUpdater
 public import CmuxNextPages
 public import CmuxNextSettings
+public import CmuxNextWakeups
 
 /// Settings > Updates' Channels card (`cmux.settings.channels.*`), routed here by prefix: every
 /// ring's recent builds, read on demand, and the Go Back button into a kept build of a slower
@@ -10,6 +11,7 @@ public import CmuxNextSettings
 public final class ChannelsPageProvider: PageProvider {
     public static let prefix = "cmux.settings.channels."
     private let updater: UpdaterService
+    private let mainWork: MainWorkScheduler
     /// The card's acpmux daemon line, its title and value (the app's local daemon); nil without one.
     private let daemon: (@Sendable () async -> (title: String, value: String)?)?
     /// The card's row of other machines (the daemon update board): those that cannot update in
@@ -41,9 +43,13 @@ public final class ChannelsPageProvider: PageProvider {
     /// shows in the row at once.
     public static let machinesStream = "cmux.settings.channels.machines.changed"
 
+    /// - Parameter mainWork: the app's main-thread scheduler, on which the machines stream's observation
+    ///   flushes (``machinesStream``); a test's own by default.
     public init(updater: UpdaterService, daemon: (@Sendable () async -> (title: String, value: String)?)? = nil,
                 machines: (@MainActor @Sendable () -> Machines?)? = nil,
-                updateMachine: (@MainActor @Sendable (String) async -> String?)? = nil) {
+                updateMachine: (@MainActor @Sendable (String) async -> String?)? = nil,
+                mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+        self.mainWork = mainWork
         self.updater = updater
         self.daemon = daemon
         self.machines = machines
@@ -95,16 +101,17 @@ public final class ChannelsPageProvider: PageProvider {
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.machinesStream, let machines else { throw PageError.unknownOp(stream) }
-        let read: @MainActor @Sendable () -> JSONValue = { Self.json(machines()) }
-        // task-owner: the page's subscription; its cancel ends this loop
-        let task = Task { @MainActor in
-            var last = read()
-            for await value in ObservationStream(read) where value != last {
-                last = value
-                onEvent(value)
-            }
+        // The page's router holds events while the page is hidden: a service observation, one flush per
+        // frame, an equal value applying nothing. The first value is what the page reads now; only changes
+        // after the subscribe returned are events, and the newest one says all the dropped ones did.
+        let subscribed = PageStreamStart()
+        let observation = ServiceObservation(.visible, owner: "settings.channels.machines", on: mainWork) {
+            Self.json(machines())
+        } apply: { value in
+            if subscribed.isDone { onEvent(value) }
         }
-        return PageSubscription { task.cancel() }
+        subscribed.finish()
+        return PageSubscription(frozenDelivery: .latest) { observation.cancel() }
     }
 
     nonisolated static func json(_ machines: Machines?) -> JSONValue {

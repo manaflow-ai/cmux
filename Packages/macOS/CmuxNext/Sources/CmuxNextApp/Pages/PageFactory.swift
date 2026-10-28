@@ -253,7 +253,7 @@ struct PageFactory {
                                 updateMachine: { id in
                                     await DaemonUpdateBoard.shared.update(id) { await DaemonUpdatePolicy.shared.retry($0) }
                                         ? nil : DaemonUpdateBoard.updateRefused
-                                })),
+                                }, mainWork: services.mainWork)),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),

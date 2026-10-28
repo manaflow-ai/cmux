@@ -426,11 +426,11 @@ impl HostNames<'_> {
         if self.chain.len() > SSH_CONFIG_MAX_DEPTH || self.read >= SSH_CONFIG_MAX_FILES {
             return;
         }
-        let identity = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let identity = cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         if self.chain.contains(&identity) {
             return;
         }
-        let Ok(contents) = fs::read_to_string(path) else { return };
+        let Ok(contents) = cmux_blocking::fs::read_to_string(path) else { return };
         self.read += 1;
         self.chain.push(identity);
         for (keyword, values) in contents.lines().filter_map(ssh_config_line) {

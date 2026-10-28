@@ -15,7 +15,7 @@ final class SidebarTunablesWatch {
                          rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool)
 
     private var current: Values?
-    private var tabLook: SidebarTabLineLook?
+    private var currentTabLook: SidebarTabLineLook?
 
     /// The current values, read once and kept until ``drop()``.
     func values() -> Values {
@@ -30,9 +30,9 @@ final class SidebarTunablesWatch {
     /// The listed tab rows' look (`sidebar.tabLines`), read once and kept until ``drop()``; the
     /// sidebar's look watch redraws the live tab rows when it changes (``SidebarLook/tabLines``).
     func tabLook() -> SidebarTabLineLook {
-        if let tabLook { return tabLook }
+        if let currentTabLook { return currentTabLook }
         let look = SidebarTunables.tabLines.value
-        tabLook = look
+        currentTabLook = look
         return look
     }
 
@@ -41,7 +41,7 @@ final class SidebarTunablesWatch {
     /// it right after the set.
     func drop() {
         current = nil
-        tabLook = nil
+        currentTabLook = nil
     }
 
     /// ``drop()``, by its earlier name: a test that sets a tunable then configures a row (or tells a live
