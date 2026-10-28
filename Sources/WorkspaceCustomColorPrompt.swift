@@ -8,13 +8,16 @@ enum WorkspaceCustomColorPrompt {
     /// Asks for a hex color and adds it to the custom palette.
     ///
     /// - Parameters:
-    ///   - currentHex: The workspace's current color, used as the initial text.
+    ///   - title: The alert title; nil uses "Custom Workspace Color". Group
+    ///     headers pass their own title.
+    ///   - currentHex: The current color, used as the initial text.
     ///   - presentingWindow: The window the alert attaches to.
     /// - Returns: The normalized `#RRGGBB` value, or nil when the user cancels
     ///   or enters an invalid color.
-    static func run(currentHex: String?, presentingWindow: NSWindow?) -> String? {
+    static func run(title: String? = nil, currentHex: String?, presentingWindow: NSWindow?) -> String? {
         let alert = NSAlert()
-        alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
+        alert.messageText = title
+            ?? String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
         alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
         let seed = currentHex ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
         let input = NSTextField(string: seed)

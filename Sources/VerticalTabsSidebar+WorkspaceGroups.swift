@@ -110,6 +110,7 @@ extension VerticalTabsSidebar {
             name: group.name,
             iconSymbol: effectiveIcon,
             tintHex: effectiveColor,
+            hasCustomColor: group.customColor != nil,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -300,6 +301,7 @@ extension VerticalTabsSidebar {
             name: group.name,
             iconSymbol: effectiveIcon,
             tintHex: effectiveColor,
+            hasCustomColor: group.customColor != nil,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -355,6 +357,7 @@ extension VerticalTabsSidebar {
             name: snapshot.name,
             iconSymbol: snapshot.iconSymbol,
             tintHex: snapshot.tintHex,
+            hasCustomColor: snapshot.hasCustomColor,
             isCollapsed: snapshot.isCollapsed,
             isPinned: snapshot.isPinned,
             isAnchorActive: snapshot.isAnchorActive,
@@ -506,6 +509,22 @@ extension VerticalTabsSidebar {
             },
             onTogglePinned: { [weak tabManager] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
+            },
+            onSetColor: { [weak tabManager] hex in
+                tabManager?.setWorkspaceGroupColor(groupId: groupId, hex: hex)
+            },
+            onChooseCustomColor: { [weak tabManager, resolveLiveAnchor] in
+                guard let tabManager else { return }
+                let currentHex = tabManager.workspaceGroups
+                    .first(where: { $0.id == groupId })?.customColor
+                guard let hex = WorkspaceCustomColorPrompt.run(
+                    title: String(localized: "alert.customGroupColor.title", defaultValue: "Custom Group Color"),
+                    currentHex: currentHex,
+                    presentingWindow: resolveLiveAnchor().flatMap {
+                        AppDelegate.shared?.mainWindowContainingWorkspace($0.1)
+                    }
+                ) else { return }
+                tabManager.setWorkspaceGroupColor(groupId: groupId, hex: hex)
             },
             onMarkRead: { [resolveLiveAnchor, weak notificationStore] in
                 guard let (_, anchorId) = resolveLiveAnchor(),

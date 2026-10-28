@@ -13,6 +13,8 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let name: String
     let iconSymbol: String
     let tintHex: String?
+    /// Whether the group has its own color; see ``SidebarGroupHeaderRowModel/hasCustomColor``.
+    var hasCustomColor = false
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
