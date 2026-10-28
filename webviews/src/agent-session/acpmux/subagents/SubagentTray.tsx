@@ -161,8 +161,7 @@ export const SubagentTray = memo(function SubagentTray({
   if (fresh > 0) seen.current = new Set(keys);
   // A page that is away (hidden, or in its first frames back) starts no entrance: the shared
   // page-reveal gate, read only when new lines came.
-  const moves =
-    open && fresh > 0 && fresh <= ARRIVALS_PER_UPDATE && !foldMotion.reducedMotion() && entranceMayRun();
+  const moves = open && fresh > 0 && fresh <= ARRIVALS_PER_UPDATE && !foldMotion.reducedMotion() && entranceMayRun();
   const arrivals = useArrivals(keys, moves ? drawnKeys : NO_KEYS);
   const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
   if (items.length === 0 && finished.length === 0) return null;

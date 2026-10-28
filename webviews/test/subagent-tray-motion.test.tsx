@@ -61,12 +61,11 @@ const reduceListeners = new Set<(event: { matches: boolean }) => void>();
   },
   media: query,
   addEventListener: (_: string, listener: (event: { matches: boolean }) => void) => reduceListeners.add(listener),
-  removeEventListener: (_: string, listener: (event: { matches: boolean }) => void) =>
-    reduceListeners.delete(listener),
+  removeEventListener: (_: string, listener: (event: { matches: boolean }) => void) => reduceListeners.delete(listener),
 });
 const setReduce = (on: boolean) => {
   reduce = on;
-  for (const listener of [...reduceListeners]) listener({ matches: on });
+  for (const listener of reduceListeners) listener({ matches: on });
 };
 const setVisibility = (state: string) => {
   visibility = state;
@@ -236,7 +235,12 @@ describe("subagent tray motion", () => {
 });
 
 describe("subagent tray motion edges", () => {
-  const draw = (root: ReturnType<typeof createRoot>, shown: { current: string | undefined }, items: TrayItem[], enters: boolean) =>
+  const draw = (
+    root: ReturnType<typeof createRoot>,
+    shown: { current: string | undefined },
+    items: TrayItem[],
+    enters: boolean,
+  ) =>
     act(async () =>
       root.render(
         items.length

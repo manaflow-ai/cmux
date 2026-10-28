@@ -492,12 +492,18 @@ describe("the tray", () => {
     const realSet = globalThis.setInterval;
     const realClear = globalThis.clearInterval;
     let ids = 0;
-    globalThis.setInterval = (() => {
+    // Only the tray clock's one-second interval is recorded; the page's frame loop (jsdom's
+    // requestAnimationFrame, which the shared page-reveal gate uses) keeps its real timers.
+    globalThis.setInterval = ((handler: () => void, ms?: number) => {
+      if (ms !== 1000) return realSet(handler, ms);
       ids += 1;
       intervals.add(ids);
       return ids;
     }) as unknown as typeof setInterval;
-    globalThis.clearInterval = ((id?: number) => void intervals.delete(id as number)) as typeof clearInterval;
+    globalThis.clearInterval = ((id?: unknown) => {
+      if (typeof id === "number" && intervals.has(id)) intervals.delete(id);
+      else realClear(id as Parameters<typeof clearInterval>[0]);
+    }) as typeof clearInterval;
     let visibility = "visible";
     Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
     const shown = (state: string) =>
