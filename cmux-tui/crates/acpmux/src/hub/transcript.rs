@@ -235,4 +235,33 @@ mod tests {
             assert_eq!(new(&events, max), old(&events, max), "max={max}");
         }
     }
+
+    #[test]
+    fn bounded_builder_matches_original_across_stream_boundaries() {
+        let long = " \t\n\u{2003}".repeat(5000);
+        let alphabet = ["", "x", "漢🙂", " ", "\n", "\t", "\u{2003}", &long];
+        let mut seed = 0x9367_4271_u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as usize
+        };
+        for case in 0..512 {
+            let events: Vec<_> = (0..32)
+                .map(|_| {
+                    let text = alphabet[next() % alphabet.len()];
+                    match next() % 8 {
+                        0 => Event::UserMissing,
+                        1 => Event::User(text),
+                        2 => Event::Summary(text),
+                        _ => Event::Agent(text),
+                    }
+                })
+                .collect();
+            for max in [0, 1, 7, 37, 128, 24_000] {
+                assert_eq!(new(&events, max), old(&events, max), "case={case}, max={max}");
+            }
+        }
+    }
 }
