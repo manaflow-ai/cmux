@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -69,9 +70,12 @@ final class NotificationsPanelView: NSView {
     private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
     private var scrollerStyleObserver: MainActorObservation?
+    /// The panel's node: an appearance change while the panel is closed recolors it when it shows.
+    let node: VisibilityNode
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    init(node: VisibilityNode) {
+        self.node = node
+        super.init(frame: .zero)
         background.wantsLayer = true
         background.translatesAutoresizingMaskIntoConstraints = false
         body.translatesAutoresizingMaskIntoConstraints = false
@@ -212,7 +216,7 @@ final class NotificationsPanelView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
+        node.deferUntilVisible(key: "notifications.panel.colors") { [weak self] in self?.applyColors() }
     }
 
     private func applyColors() {

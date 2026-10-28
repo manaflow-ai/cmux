@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextAgentPane
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// What a file page tab asks of its owner (``FilePageService``): the workspace roots, the
@@ -61,7 +62,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private(set) var file: URL?
     /// Strong: the tab host holds its service weakly, so no cycle.
     private(set) var host: (any FilePageHosting)?
-    private let clock: any Clock<Duration>
+    /// The app's deadline scheduler and lanes: the file's change watch debounces on the one and reads on the other.
+    private let deadlines: MainDeadlineScheduler
+    private let work: BackgroundWork
     let libraries: URL?
     let images: any RemoteImageFetching
     private var watch: FileChangeWatch?
@@ -115,9 +118,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript). `access`: the tab's previous
     /// provider's, for a tab made again after a discard; it replaces `userChose` and `readOnly`.
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, access: FileWorkspaceRoots.Grants? = nil,
-         host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(), libraries: URL?,
+         host: any FilePageHosting, libraries: URL?,
          images: any RemoteImageFetching, tableWidths: (any MarkdownTableWidthStoring)? = nil,
-         comments: (any MarkdownCommentStoring)? = nil) {
+         comments: (any MarkdownCommentStoring)? = nil,
+         deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+         work: BackgroundWork = BackgroundWork(label: "files.page")) {
+        self.deadlines = deadlines
+        self.work = work
         self.kind = kind
         self.tableWidths = tableWidths
         self.comments = comments
@@ -129,7 +136,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             self.access = FileWorkspaceRoots.Grants(file: file.path, userChose: userChose, readOnly: readOnly)
         }
         self.host = host
-        self.clock = clock
         self.libraries = libraries
         self.images = images
     }
@@ -414,7 +420,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         watch?.stop()
         watch = nil
         guard let file, !isClosed else { return }
-        let watch = FileChangeWatch(url: file, inWorkspace: { [weak self] in self?.inWorkspace(file) ?? false }, clock: clock) { [weak self] snapshot in
+        let watch = FileChangeWatch(url: file, inWorkspace: { [weak self] in self?.inWorkspace(file) ?? false }, deadlines: deadlines,
+                                    work: work) { [weak self] snapshot in
             self?.publishChange(snapshot, of: file)
         }
         watch.knownHash = known
