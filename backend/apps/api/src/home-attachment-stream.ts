@@ -149,3 +149,28 @@ export const streamInto = async (bucket: R2Bucket, key: string, request: Request
   }
   return { ok: true, etag }
 }
+
+/**
+ * Error codes of a multipart completion that no retry can fix: the parts cannot form the file.
+ * R2's numeric codes (InvalidPart 10025, EntityTooSmall 10011, BadDigest 10037, BadUpload 10048)
+ * and the self-hosted bucket's FsBucketError codes. NoSuchUpload (10024) means the upload is
+ * closed: completed (its answer lost) or aborted. Any other error is transient.
+ */
+const INTEGRITY_CODES: ReadonlySet<number | string> = new Set([10011, 10025, 10037, 10048, "InvalidPart", "InvalidPartOrder", "EntityTooSmall", "BadDigest", "BadUpload"])
+const CLOSED_CODES: ReadonlySet<number | string> = new Set([10024, "NoSuchUpload"])
+/**
+ * The error's code: `code` where the runtime sets it (R2Error.code, FsBucketError.code); else the
+ * R2 v4 code the binding appends to every R2 error as "(<code>)" (workerd's local binding throws a
+ * plain Error that carries only that). Never the message's words.
+ */
+const errorCode = (error: unknown): number | string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const code = (error as { code?: unknown }).code
+  if (typeof code === "number" || typeof code === "string") return code
+  const v4 = /\((\d{5,6})\)$/.exec(String((error as { message?: unknown }).message ?? ""))
+  return v4 ? Number(v4[1]) : undefined
+}
+export const completionFailure = (error: unknown): "integrity" | "closed" | "transient" => {
+  const code = errorCode(error)
+  return code === undefined ? "transient" : INTEGRITY_CODES.has(code) ? "integrity" : CLOSED_CODES.has(code) ? "closed" : "transient"
+}

@@ -7,7 +7,7 @@ import { principalForOwner } from "./team-select.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
 import { derivedReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
-import { ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
+import { completionFailure, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
 
@@ -478,31 +478,6 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
     }
   }
   return finish(env, conversation, slot, etag)
-}
-
-/**
- * Error codes of a multipart completion that no retry can fix: the parts cannot form the file.
- * R2's numeric codes (InvalidPart 10025, EntityTooSmall 10011, BadDigest 10037, BadUpload 10048)
- * and the self-hosted bucket's FsBucketError codes. NoSuchUpload (10024) means the upload is
- * closed: completed (its answer lost) or aborted. Any other error is transient.
- */
-const INTEGRITY_CODES: ReadonlySet<number | string> = new Set([10011, 10025, 10037, 10048, "InvalidPart", "InvalidPartOrder", "EntityTooSmall", "BadDigest", "BadUpload"])
-const CLOSED_CODES: ReadonlySet<number | string> = new Set([10024, "NoSuchUpload"])
-/**
- * The error's code: `code` where the runtime sets it (R2Error.code, FsBucketError.code); else the
- * R2 v4 code the binding appends to every R2 error as "(<code>)" (workerd's local binding throws a
- * plain Error that carries only that). Never the message's words.
- */
-const errorCode = (error: unknown): number | string | undefined => {
-  if (typeof error !== "object" || error === null) return undefined
-  const code = (error as { code?: unknown }).code
-  if (typeof code === "number" || typeof code === "string") return code
-  const v4 = /\((\d{5,6})\)$/.exec(String((error as { message?: unknown }).message ?? ""))
-  return v4 ? Number(v4[1]) : undefined
-}
-export const completionFailure = (error: unknown): "integrity" | "closed" | "transient" => {
-  const code = errorCode(error)
-  return code === undefined ? "transient" : INTEGRITY_CODES.has(code) ? "integrity" : CLOSED_CODES.has(code) ? "closed" : "transient"
 }
 
 /**
