@@ -681,6 +681,11 @@ class Soak:
             self.samples.write(json.dumps(record) + "\n")
             self.samples.flush()
             hour_rows.append(record)
+            if len(hour_rows) % 10 == 1:  # a line at least every 10 samples: the fleet stops a measurement silent 45 min
+                app = processes.get("app") or {}
+                say(f"TICK {record['elapsed_s'] // 60} min {record['phase']} turns {record['turns_done']}/{record['turns']} "
+                    f"app {app.get('footprint_mb')} MB fds {app.get('fds')} thr {app.get('threads')} cpu {app.get('cpu_percent')}% "
+                    f"sys_cpu {record['system_cpu_percent']}% ping {ping_ms} ms")
             if time.monotonic() >= next_hour:
                 self.hourly(hour_rows)
                 hour_rows, next_hour = [], next_hour + 3600
