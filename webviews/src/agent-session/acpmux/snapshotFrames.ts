@@ -19,6 +19,9 @@ export function snapshotFrames(schedule: (run: () => void) => void, publish: (va
   let queued = false;
   let pending: AcpmuxSnapshot | undefined;
   return {
+    guard<Args extends unknown[]>(receive: (...args: Args) => void) {
+      return receive;
+    },
     push(value: AcpmuxSnapshot) {
       if (!active) return;
       pending = keepHandoff(pending, value);

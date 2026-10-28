@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxSnapshot } from "./model";
 import { noChat as emptySnapshot } from "../../gallery/fixtures/acpmux";
-import { snapshotFrames } from "./snapshotFrames";
+import { keepHandoff, snapshotFrames } from "./snapshotFrames";
 
 function rig() {
   const frames: (() => void)[] = [];
@@ -110,4 +110,91 @@ test("coalescing keeps the current delivery failure and queued prompt intact", (
   paint();
   expect(shown[0]!.rows[0]!.delivery?.error).toBe("refused");
   expect(shown[0]!.queue).toEqual(next.queue);
+});
+
+test("a retained closed-client callback cannot change bookkeeping or shared stores", () => {
+  const frames: (() => void)[] = [];
+  const reconciled: string[] = [];
+  const sharedSessions: string[] = [];
+  let snapshotRef = emptySnapshot();
+  let rowsRef = snapshotRef.rows;
+  let shown = snapshotRef;
+  const connect = () => {
+    const presentation = snapshotFrames(
+      (run) => frames.push(run),
+      (next) => {
+        shown = next;
+      },
+    );
+    const receive = presentation.guard((next: AcpmuxSnapshot) => {
+      reconciled.push(next.sessionId!);
+      rowsRef = next.rows;
+      snapshotRef = next;
+      sharedSessions.push(next.sessionId!);
+      presentation.push(next);
+    });
+    return { presentation, receive };
+  };
+  const old = connect();
+  old.receive({ ...emptySnapshot(), sessionId: "old" });
+  old.presentation.stop();
+  const current = connect();
+  const latest: AcpmuxSnapshot = {
+    ...emptySnapshot(),
+    sessionId: "current",
+    rows: [{ id: "user-current", version: 1, at: 1, kind: "user", text: "Current" }],
+  };
+  current.receive(latest);
+  // Protocol bookkeeping is synchronous, before either connection's presentation frame.
+  expect(snapshotRef.sessionId).toBe("current");
+  expect(rowsRef).toBe(latest.rows);
+  expect(reconciled).toEqual(["old", "current"]);
+  expect(sharedSessions).toEqual(["old", "current"]);
+  expect(shown.sessionId).toBeUndefined();
+  // Deliberately invoke a retained old callback after the replacement is current.
+  old.receive({ ...emptySnapshot(), sessionId: "retained-old" });
+  expect(snapshotRef.sessionId).toBe("current");
+  expect(rowsRef).toBe(latest.rows);
+  expect(reconciled).toEqual(["old", "current"]);
+  expect(sharedSessions).toEqual(["old", "current"]);
+  frames.shift()?.();
+  expect(shown.sessionId).toBeUndefined();
+  frames.shift()?.();
+  expect(shown).toBe(latest);
+});
+
+test("a stopped connection cannot run a second disconnect callback", () => {
+  const { presenter } = rig();
+  let disconnected = 0;
+  const lost = presenter.guard(() => {
+    presenter.stop();
+    disconnected += 1;
+  });
+  lost();
+  lost();
+  expect(disconnected).toBe(1);
+});
+
+test("the publish fold keeps the newer handoff record carried by a coalesced snapshot", () => {
+  const frames: (() => void)[] = [];
+  let shown = {
+    ...emptySnapshot(),
+    sessionId: "chat",
+    canHandoff: true,
+    handoff: { ready: true, record: { id: "committed-A" } },
+  } as unknown as AcpmuxSnapshot;
+  const presenter = snapshotFrames(
+    (run) => frames.push(run),
+    (next) => {
+      shown = keepHandoff(shown, next);
+    },
+  );
+  const newer = {
+    ...shown,
+    handoff: { ready: true, record: { id: "newer-B" } },
+  } as unknown as AcpmuxSnapshot;
+  presenter.push(newer);
+  presenter.push({ ...shown, handoff: { ready: false } } as AcpmuxSnapshot);
+  frames.shift()?.();
+  expect(shown.handoff?.record).toBe(newer.handoff!.record);
 });
