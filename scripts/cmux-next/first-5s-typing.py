@@ -410,6 +410,15 @@ class NextApp:
             self.key("t", ["command"])
             time.sleep(0.15)
 
+    def new_tab_log(self):
+        """The New Tab hold's own log (`debug.focus` new_tab_key_log: begin, ready, drain or release and why, with
+        ms since the open), newest last; [] on an app without it."""
+        try:
+            got = self.control.rpc("debug.focus", {}, timeout=30) or {}
+        except Exception:
+            return []
+        return [line for line in (got.get("new_tab_key_log") or []) if isinstance(line, str)]
+
     def holds(self):
         """Each hold path's stage since launch (`debug.input late_keys` `holds`, HeldKeyReplay): {held_by: stage};
         {} on an app without the seam."""
@@ -740,6 +749,7 @@ def run_round(app, scenario, index, sampled):
     hangs = app.hangs(open_ns, end_ns)
     late_rows = app.input_rows("late_keys", open_ns, end_ns) if app.family == "next" else []
     round_holds = hold_delta(holds_before, app.holds() if hasattr(app, "holds") else {})
+    new_tab_log = app.new_tab_log() if scenario in ("newtab", "newtabcold", "workspace", "window") and hasattr(app, "new_tab_log") else []
     slot_rows = app.input_rows("slots", open_ns, end_ns) if app.family == "next" else []
     if app.family == "next":
         mid.join(30)
@@ -807,7 +817,7 @@ def run_round(app, scenario, index, sampled):
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal, "late_keys": late_rows, "holds": round_holds,
+           "frames": frames, "journal": journal, "late_keys": late_rows, "holds": round_holds, "new_tab_log": new_tab_log[-40:],
            "slot_errors": [r for r in slot_rows if "error" in r][:3]}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
@@ -821,6 +831,8 @@ def run_round(app, scenario, index, sampled):
          f"{'ok' if ok else 'LINE ' + repr(line[-50:])}; probe max {max(probe) if probe else None} photon max "
          f"{max(photon) if photon else None}; first frame {rec['first_frame_ms']} big {rec['first_big_frame_ms']}; "
          f"hangs {len((hangs or {}).get('window') or []) if isinstance(hangs, dict) else None}")
+    for line in new_tab_log[-20:] if index < 2 else []:
+        note(f"      NEWTAB-HOLD {line}")
     if index == 0 and journal:
         for item in journal[:70]:
             note(f"      J {item['ms']} {item['kind'][:200]}")
