@@ -162,12 +162,19 @@ export class HandoffDO extends DurableObject<Env> {
     }
   }
 
-  /** One change: its rows and the index retry alarm in the same write (no await between them), then the index. */
-  private async commit(change: () => void): Promise<void> {
-    this.ctx.storage.transactionSync(change)
+  /**
+   * One decision and its write, in one transaction: `decide` reads the row there and either writes
+   * (and returns null) or returns the answer without writing. So no check can go stale before its
+   * write, whatever awaits a caller adds later. A write arms the index retry alarm in the same
+   * write (no await between them), then wakes waits and writes the index; a refusal or a no-op does neither.
+   */
+  private async commit<T>(decide: (r: Row) => HandoffResult<T> | null, wrote: () => HandoffResult<T>): Promise<HandoffResult<T>> {
+    const answer = this.ctx.storage.transactionSync(() => decide(this.row()!))
+    if (answer !== null) return answer
     // Called before any await, so the alarm commits with the change's rows.
     await this.ctx.storage.setAlarm(Date.now() + INDEX_RETRY_MS)
     await this.changed()
+    return wrote()
   }
 
   override async alarm(): Promise<void> {
@@ -192,13 +199,15 @@ export class HandoffDO extends DurableObject<Env> {
     }
     const now = Date.now()
     const token = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("")
-    await this.commit(() => {
+    this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS handoff (k INTEGER PRIMARY KEY CHECK (k = 1), id TEXT NOT NULL, owner TEXT NOT NULL, request_digest TEXT NOT NULL, session_id TEXT NOT NULL, machine TEXT NOT NULL, vcpus REAL, memory_gb REAL, size_pick TEXT, size_reason TEXT, machine_token TEXT NOT NULL, turn INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL DEFAULT 'open', status TEXT NOT NULL, summary TEXT, version INTEGER NOT NULL, indexed_version INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, status_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER)`)
       this.ctx.storage.sql.exec(
         `INSERT INTO handoff (k, id, owner, request_digest, session_id, machine, vcpus, memory_gb, size_pick, size_reason, machine_token, status, version, created_at, updated_at, status_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', 1, ?, ?, ?)`,
         input.id, input.owner, input.requestDigest, input.sessionId, input.machine, input.size.vcpus, input.size.memoryGb, input.size.pick, input.size.reason, token, now, now, now
       )
     })
+    await this.ctx.storage.setAlarm(Date.now() + INDEX_RETRY_MS)
+    await this.changed()
     return ok({ handoff: view(this.row()!), machineToken: token })
   }
 
@@ -225,13 +234,16 @@ export class HandoffDO extends DurableObject<Env> {
     }
   }
 
+  private current = (): HandoffResult<HandoffView> => ok(view(this.row()!))
+
   /** The owner stops the current turn (Stop): a turn not yet ended becomes cancelled; the machine learns on its next report. */
   async cancel(owner: string): Promise<HandoffResult<HandoffView>> {
-    const r = this.owned(owner)
-    if (!r) return notFound
-    if (r.state === "closed" || FINISHED.has(r.status)) return ok(view(r))
-    await this.commit(() => this.set(Date.now(), "cancelled", null))
-    return ok(view(this.row()!))
+    if (!this.owned(owner)) return notFound
+    return this.commit((r) => {
+      if (r.state === "closed" || FINISHED.has(r.status)) return ok(view(r))
+      this.set(Date.now(), "cancelled", null)
+      return null
+    }, this.current)
   }
 
   /**
@@ -239,33 +251,31 @@ export class HandoffDO extends DurableObject<Env> {
    * caller last saw, so a repeat answers the turn it already opened and a stale caller is refused.
    */
   async beginTurn(owner: string, after: number): Promise<HandoffResult<HandoffView>> {
-    const r = this.owned(owner)
-    if (!r) return notFound
-    if (r.turn === after + 1) return ok(view(r))
-    if (r.state === "closed") return refuse("handoff.closed", "the hand-off is closed", r)
-    if (r.turn !== after) return refuse("handoff.turn_conflict", `the current turn is ${r.turn}, not ${after}`, r)
-    if (!FINISHED.has(r.status)) return refuse("handoff.turn_running", `turn ${r.turn} is still ${r.status}; send to it instead`, r)
-    await this.commit(() => {
+    if (!this.owned(owner)) return notFound
+    return this.commit((r) => {
+      if (r.turn === after + 1) return ok(view(r))
+      if (r.state === "closed") return refuse("handoff.closed", "the hand-off is closed", r)
+      if (r.turn !== after) return refuse("handoff.turn_conflict", `the current turn is ${r.turn}, not ${after}`, r)
+      if (!FINISHED.has(r.status)) return refuse("handoff.turn_running", `turn ${r.turn} is still ${r.status}; send to it instead`, r)
       const now = Date.now()
       this.ctx.storage.sql.exec(
         `UPDATE handoff SET turn = turn + 1, status = 'starting', summary = NULL, status_at = ?, started_at = NULL, finished_at = NULL, updated_at = ?, version = version + 1 WHERE k = 1`,
         now, now
       )
-    })
-    return ok(view(this.row()!))
+      return null
+    }, this.current)
   }
 
   /** The owner ends the hand-off: the one terminal change. A turn still going is cancelled with it. */
   async close(owner: string): Promise<HandoffResult<HandoffView>> {
-    const r = this.owned(owner)
-    if (!r) return notFound
-    if (r.state === "closed") return ok(view(r))
-    await this.commit(() => {
+    if (!this.owned(owner)) return notFound
+    return this.commit((r) => {
+      if (r.state === "closed") return ok(view(r))
       const now = Date.now()
       if (!FINISHED.has(r.status)) this.set(now, "cancelled", null)
       this.ctx.storage.sql.exec(`UPDATE handoff SET state = 'closed', updated_at = ?, version = version + 1 WHERE k = 1`, now)
-    })
-    return ok(view(this.row()!))
+      return null
+    }, this.current)
   }
 
   /** Whether `cred` speaks for this hand-off's machine: its machine token, or a VM install of the owner bound to its machine. */
@@ -282,21 +292,25 @@ export class HandoffDO extends DurableObject<Env> {
    * The machine's report on `turn`: a status and, when the turn ends, its summary. Only the current
    * turn changes: an older turn is stale, a later one was never opened (only the owner opens turns),
    * and an ended turn refuses more, except an exact repeat of its final report (a retry), which
-   * answers it unchanged. A refusal carries the hand-off, so the machine learns the current turn from
-   * it (a machine starts at turn 1 and retries on the turn a `handoff.stale` names).
+   * answers it unchanged. A report that changes nothing (the same status, no new summary) moves no
+   * version, so no wait wakes for it. A refusal carries the hand-off, so the machine learns the current
+   * turn from it (a machine starts at turn 1 and retries on the turn a `handoff.stale` names).
    */
   async report(cred: MachineCredential, turn: number, status: string, summary: string | null): Promise<HandoffResult<HandoffView>> {
-    const r = this.row()
+    const found = this.row()
     // Anyone but its machine learns nothing, not even that it exists.
-    if (!r || !this.machineMay(r, cred)) return notFound
-    if (r.state === "closed") return refuse("handoff.closed", "the hand-off is closed", r)
-    if (turn < r.turn) return refuse("handoff.stale", `turn ${turn} is over; the current turn is ${r.turn}`, r)
-    if (turn > r.turn) return refuse("handoff.turn_out_of_order", `turn ${turn} has not begun; the current turn is ${r.turn}`, r)
+    if (!found || !this.machineMay(found, cred)) return notFound
     const text = summary === null ? null : summary.slice(0, SUMMARY_MAX_CHARS)
-    if (FINISHED.has(r.status)) {
-      return status === r.status && (text === null || text === r.summary) ? ok(view(r)) : refuse("handoff.turn_finished", `turn ${r.turn} is already ${r.status}`, r)
-    }
-    await this.commit(() => this.set(Date.now(), status as HandoffStatus, text))
-    return ok(view(this.row()!))
+    return this.commit((r) => {
+      if (r.state === "closed") return refuse("handoff.closed", "the hand-off is closed", r)
+      if (turn < r.turn) return refuse("handoff.stale", `turn ${turn} is over; the current turn is ${r.turn}`, r)
+      if (turn > r.turn) return refuse("handoff.turn_out_of_order", `turn ${turn} has not begun; the current turn is ${r.turn}`, r)
+      if (FINISHED.has(r.status)) {
+        return status === r.status && text === r.summary ? ok(view(r)) : refuse("handoff.turn_finished", `turn ${r.turn} is already ${r.status}`, r)
+      }
+      if (status === r.status && (text === null || text === r.summary)) return ok(view(r))
+      this.set(Date.now(), status as HandoffStatus, text)
+      return null
+    }, this.current)
   }
 }

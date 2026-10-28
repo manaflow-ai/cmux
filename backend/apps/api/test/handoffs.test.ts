@@ -43,6 +43,8 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     const id = body.handoff.id as string
     const machine = { "x-cmux-handoff-token": body.machineToken as string }
     expect((await report(id, machine, "running")).body.handoff).toMatchObject({ status: "running", version: 2 })
+    // The same status again changes nothing, so no version moves and no wait wakes.
+    expect((await report(id, machine, "running")).body.handoff.version).toBe(2)
     expect((await report(id, machine, "needs-you")).body.handoff.status).toBe("needs-you")
     expect((await report(id, machine, "starting")).status).toBe(400)
     const done = await report(id, machine, "done", "Fixed the flaky test and opened a PR.")
@@ -53,6 +55,8 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect([late.status, late.body.error.code, late.body.handoff.status]).toEqual([409, "handoff.turn_finished", "done"])
     const retry = await report(id, machine, "done", "Fixed the flaky test and opened a PR.")
     expect([retry.status, retry.body.handoff.version]).toEqual([200, done.body.handoff.version])
+    // Only an exact repeat passes: the final status without its summary is not one.
+    expect((await report(id, machine, "done")).body.error.code).toBe("handoff.turn_finished")
     expect((await report(id, machine, "running", undefined, 0)).status).toBe(400)
     const list = await call("GET", "/v1/handoffs", as(t))
     expect(list.body.handoffs[0]).toMatchObject({ id, sessionId: "acp_session_1", turn: 1, state: "open", status: "done", summary: "Fixed the flaky test and opened a PR." })
