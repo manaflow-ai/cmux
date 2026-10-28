@@ -39,11 +39,11 @@ fn strip_ansi(input: &str) -> String {
                         }
                     }
                 }
-                Some(next) if ('@'..='~').contains(next) => {
+                Some(next) if ('@'..='~').contains(&next) => {
                     // A two-byte escape sequence (for example, ESC 7 or ESC c).
                     chars.next();
                 }
-                Some(next) if (' '..='/').contains(next) => {
+                Some(next) if (' '..='/').contains(&next) => {
                     // An escape sequence with intermediate bytes, such as ESC ( B.
                     chars.next();
                     while let Some(next) = chars.next() {
