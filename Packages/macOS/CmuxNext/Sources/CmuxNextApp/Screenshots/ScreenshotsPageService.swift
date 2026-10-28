@@ -9,6 +9,7 @@ import CmuxNextScreenshots
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// Opens `cmux://screenshots` and makes its pages. Every page shares one
 /// thumbnail cache and follows the `screenshots.*` settings: a change finds
@@ -22,7 +23,7 @@ final class ScreenshotsPageService {
     private var thumbnailsMemory: AsyncMemoryConsumerRegistration?
     private let workspace = AppScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
-    private let files = FileOperator()
+    private let files: FileOperator
     private let detector = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment())
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
@@ -40,6 +41,7 @@ final class ScreenshotsPageService {
         self.services = services
         mainWork = services.mainWork
         thumbnailsMemory = AppMemoryConsumers(services: services).registerFileGridThumbnails(thumbnails)
+        files = FileOperator(work: services.work)
     }
 
     /// Selects the active window's Screenshots tab, else opens one beside the

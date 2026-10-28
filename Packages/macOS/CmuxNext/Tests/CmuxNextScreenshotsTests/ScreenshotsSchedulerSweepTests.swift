@@ -33,7 +33,8 @@ import Testing
         _ = NSApplication.shared
         let work = screenshotsTestWork()
         let model = ScreenshotsModel(watcher: SilentWatcher(), mainWork: work)
-        let view = ScreenshotsView(model: model, cache: ThumbnailCache(), workspace: RecordingWorkspace(), mainWork: work)
+        let view = ScreenshotsView(model: model, cache: ThumbnailCache(), workspace: RecordingWorkspace(),
+                                   files: FileOperator(work: BackgroundWork(label: "test.screenshots")), mainWork: work)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         // The window's node reads visible (the window is never ordered in), so the pane's node follows only its own hide.

@@ -33,7 +33,8 @@ Inputs (paths relative to --root, the repository by default):
            post     one-way: the remote returns at once (1 for an int); a Swift caller that reads
                     the result is refused (--check-return-use)
            mirror   served from cmux's main-thread cache; `mirror_key` is scope.field[args], its
-                    params the export's arguments (out-parameters excluded); `refresh_events` are
+                    params the export's arguments (out-parameters excluded: an int buffer's capacity
+                    is the reader's, and the host pushes MIRROR_OUT_CAPACITY ints); `refresh_events` are
                     event kinds, KIND:<request> (a CMUX_SHIM_TAB_EVENT sub-kind) or a pseudo event
            async    sent with a token and awaited by it: the REPLY frame carries the result and the
                     out-parameters (the start result, when `reply_event` is an event that answers it
@@ -244,6 +245,10 @@ STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFLibraryLoader.swift", "CEFLibraryLoade
 CHANNELS = ("control", "input")
 MAX_RECORDS = 1 << 16
 MAX_OUT_CAPACITY = 1 << 16
+# A mirror's int buffer (an int* with its capacity) as the host pushes it: the capacity is the reader's,
+# not part of the key, so the host fills this many and each read copies what fits its own buffer
+# (TlvReader::I32Array). Far under the frame bound (control::kMaxBody).
+MIRROR_OUT_CAPACITY = 64
 EVENT_OP, REPLY_OP, MIRROR_OP, ACK_OP = 0x8001, 0x8002, 0x8003, 0x8004
 
 # Wire kinds of one C argument. Sent: i u l d s b v L R; out-params (in the reply): I A B;
@@ -975,8 +980,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror export needs mirror_key")
         if not op.refresh_events:
             out.append("a mirror export needs refresh_events")
-        if any(k in ("v", "b", "L", "R", "C", "A", "B") for k in kinds):
-            out.append("a mirror key is ints and strings only; its only out-parameters are int*")
+        if any(k in ("v", "b", "L", "R", "C", "B") for k in kinds):
+            out.append("a mirror key is ints and strings only; its only out-parameters are int* and int buffers")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
     if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
@@ -1423,10 +1428,18 @@ def host_case(op: Op, model: Model) -> list[str]:
     return lines
 
 
+def mirror_out_buffer(a: Arg, lines: list[str]) -> str:
+    """A mirror's int buffer: kMirrorOutCapacity ints, never read from the key (key_args leaves the
+    capacity out, as the client's MirrorLookup key does)."""
+    lines.append(f"      std::vector<int> {a.var}(static_cast<size_t>(kMirrorOutCapacity));")
+    return f"{a.var}.data(), static_cast<{a.pair.ctype}>(kMirrorOutCapacity)"
+
+
 def mirror_case(op: Op, model: Model) -> list[str]:
     e = op.export
     lines = [f"    case {op_const(e)}: {{"]
-    call_args = [host_decode(a, model.header.structs, lines) for a in e.wire]
+    call_args = [mirror_out_buffer(a, lines) if a.kind == "A" else host_decode(a, model.header.structs, lines)
+                 for a in e.wire]
     lines.append("      if (!r.ok() || !r.AtEnd()) return false;")
     host_call(e, call_args, lines, "call_result")
     lines.append("      TlvWriter key_w;")
@@ -1435,8 +1448,6 @@ def mirror_case(op: Op, model: Model) -> list[str]:
             lines.append(f"      key_w.{WIRE_NUMBER[a.kind]}({a.var});")
         elif a.kind == "s":
             lines.append(f"      key_w.Str({a.var} ? {a.var}->c_str() : nullptr);")
-        elif a.kind in ("A", "B"):
-            lines.append(f"      key_w.I32({a.var}_capacity);")
     lines.append("      TlvWriter value_w;")
     host_value(e, "value_w", lines, "call_result")
     lines += [f"      ctx.PushMirror({op_const(e)}, key_w, value_w);", "      return true;", "    }"]
@@ -1451,7 +1462,8 @@ def render_host(model: Model) -> str:
            "",
            "namespace cmux_host {", *op_enum(model),
            f"inline constexpr int32_t kMaxRecords = {MAX_RECORDS};",
-           f"inline constexpr int32_t kMaxOutCapacity = {MAX_OUT_CAPACITY};", ""]
+           f"inline constexpr int32_t kMaxOutCapacity = {MAX_OUT_CAPACITY};",
+           f"inline constexpr int32_t kMirrorOutCapacity = {MIRROR_OUT_CAPACITY};", ""]
     optional = [e for e in model.exports if e.optional]
     out += ["// Exports the header does not declare yet (fork API symbols): the host resolves each in its shim,",
             "// lists the ones it found in the HELLO, and answers an op whose symbol is missing with zero.",

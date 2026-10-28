@@ -769,9 +769,11 @@ impl HeadlessSession {
             let browsers = self.browsers.clone();
             let source = Arc::downgrade(&self.source);
             // supervise-allow: one browser's linger timer holding weak references; a panic keeps that one idle browser open until the host exits, and every other browser is unaffected.
-            let spawned = std::thread::Builder::new()
-                .name("headless-linger".into())
-                .spawn(move || release_after_linger(&browsers, &source));
+            let spawned = cmux_threads::spawn(
+                "headless-linger",
+                cmux_threads::ThreadQos::Utility,
+                move || release_after_linger(&browsers, &source),
+            );
             if spawned.is_err() {
                 // No thread: close it now, as before the linger.
                 release_now(&self.browsers, &self.source);

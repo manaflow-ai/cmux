@@ -225,7 +225,7 @@ fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, r
     let (finished_tx, finished_rx) = mpsc::sync_channel(1);
     let reaper_name = format!("{runtime_name}-startup-reaper");
     // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
-    let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
+    let reaper = cmux_threads::spawn(reaper_name, cmux_threads::ThreadQos::Utility, move || {
         let _ = finished_tx.send(crate::blocking::thread::join(runtime_thread));
     });
     if reaper.is_ok() {
@@ -655,9 +655,10 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
-    let thread = thread::Builder::new()
-        .name("cmux-remote-client".into())
-        .spawn(move || {
+    let thread = cmux_threads::spawn(
+        "cmux-remote-client",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
             let result =
@@ -665,8 +666,9 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
-        })
-        .context("could not start remote client thread")?;
+        },
+    )
+    .context("could not start remote client thread")?;
     let ready = match crate::blocking::sync::recv_timeout(&ready_rx, startup_timeout) {
         Ok(Ok(ready)) => ready,
         Ok(Err(error)) => {
@@ -2099,9 +2101,10 @@ fn start_daemon_runtime_with_timeout(
     let finished = Arc::new(AtomicBool::new(false));
     let thread_finished = finished.clone();
     // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
-    let thread = thread::Builder::new()
-        .name(format!("cmux-remote-{}", options.session))
-        .spawn(move || {
+    let thread = cmux_threads::spawn(
+        format!("cmux-remote-{}", options.session),
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             // The headless owner loop blocks until this runtime ends, on
             // every return path including a failed runtime build.
             let _finished = FinishedSignal(thread_finished);
@@ -2121,8 +2124,9 @@ fn start_daemon_runtime_with_timeout(
             );
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             result
-        })
-        .context("could not start remote daemon thread")?;
+        },
+    )
+    .context("could not start remote daemon thread")?;
 
     let info = match crate::blocking::sync::recv_timeout(&ready_rx, startup_timeout) {
         Ok(Ok(info)) => info,

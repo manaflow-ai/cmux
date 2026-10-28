@@ -12,8 +12,9 @@ pub(super) fn start_surface_thread(
     route_session_id: String,
 ) -> anyhow::Result<()> {
     let id = surface.id;
-    supervised::spawn(
+    supervised::spawn_at(
         format!("browser-surface-{id}-events"),
+        cmux_threads::ThreadQos::UserInitiated,
         Fatal,
         ShutdownBehavior::Continue,
         move || {
@@ -254,8 +255,9 @@ pub(super) fn start_browser_worker(
     done_tx: Option<Sender<()>>,
 ) {
     let id = surface.id;
-    let _ = supervised::spawn(
+    let _ = supervised::spawn_at(
         format!("browser-surface-{id}-worker"),
+        cmux_threads::ThreadQos::UserInitiated,
         Fatal,
         ShutdownBehavior::Continue,
         move || {

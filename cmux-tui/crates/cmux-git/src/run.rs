@@ -9,7 +9,6 @@
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::thread;
 use std::time::Duration;
 
 use cmux_process::{Child, Command, Stdio};
@@ -115,12 +114,12 @@ fn run(
         return Err(GitFailure::Unavailable("git output pipes are missing".to_string()));
     };
     // supervise-allow: joined below in this function on every path; a panic reads as empty output.
-    let stdout = thread::spawn(move || match keep {
+    let stdout = pipe_thread(&mut child, "git-stdout", move || match keep {
         Some(keep) => drain_records(stdout, max_stdout, keep),
         None => drain(stdout, max_stdout),
-    });
+    })?;
     // supervise-allow: joined below in this function on every path; a panic reads as empty output.
-    let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
+    let stderr = pipe_thread(&mut child, "git-stderr", move || drain(stderr, MAX_STDERR_BYTES))?;
     let status = match child.wait_timeout(deadline) {
         Ok(Some(status)) => status,
         Ok(None) => {
@@ -270,6 +269,21 @@ fn explained(stderr: &str) -> String {
     } else {
         stderr.to_string()
     }
+}
+
+/// Starts a thread that feeds or drains one of git's pipes while the caller
+/// waits for git, at the caller's class. When it cannot start, git is
+/// stopped, which closes the pipes a thread started before it reads.
+pub(crate) fn pipe_thread<T: Send + 'static>(
+    child: &mut Child,
+    name: &'static str,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<std::thread::JoinHandle<T>, GitFailure> {
+    cmux_threads::spawn(name, cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility), work)
+        .map_err(|error| {
+            stop(child);
+            GitFailure::Unavailable(format!("cannot start {name}: {error}"))
+        })
 }
 
 /// Kills git and anything it started, so the output pipes close.

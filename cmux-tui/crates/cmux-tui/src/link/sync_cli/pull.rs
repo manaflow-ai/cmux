@@ -549,12 +549,14 @@ fn ignored(local: &Path, paths: &[(String, bool, Found)]) -> anyhow::Result<BTre
         input.push(0);
     }
     let mut stdin = child.stdin.take().context("no stdin")?;
-    let output = std::thread::scope(|scope| {
-        let writer = scope.spawn(move || stdin.write_all(&input));
-        let output = child.wait_with_output();
-        let _ = writer.join();
-        output
-    })?;
+    let writer = cmux_threads::spawn(
+        "sync-git-stdin",
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+        move || stdin.write_all(&input),
+    )
+    .context("cannot start the git input thread")?;
+    let output = child.wait_with_output()?;
+    let _ = writer.join();
     // 0: some are ignored; 1: none is.
     if !matches!(output.status.code(), Some(0 | 1)) {
         bail!("git check-ignore failed");

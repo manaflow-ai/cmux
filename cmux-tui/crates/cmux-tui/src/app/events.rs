@@ -253,8 +253,10 @@ impl OwnerReloadWorker {
         let cancellation = EventCancellation::new();
         let worker_cancellation = cancellation.clone();
         // supervise-allow: owned by OwnerReloadWorker and joined at its stop; a panic ends config-reload forwarding only, and drops its app-event sender.
-        let thread =
-            std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
+        let thread = cmux_threads::spawn(
+            "owner-config-reload",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 while !worker_cancellation.stop.load(Ordering::Acquire) {
                     let Ok(event) = events.recv() else { return };
                     if !matches!(event, MuxEvent::ConfigReloadRequested) {
@@ -270,7 +272,8 @@ impl OwnerReloadWorker {
                         return;
                     }
                 }
-            })?;
+            },
+        )?;
         Ok(Self { stop: Some(stop), cancellation, thread: Some(thread) })
     }
 

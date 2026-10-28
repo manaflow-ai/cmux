@@ -545,23 +545,27 @@ fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
     use std::io::BufRead;
     let (tx, rx) = mpsc::unbounded_channel();
     // A thread that cannot start leaves `rx` closed: the caller reads end of file.
-    let _ = crate::supervised::scoped_thread("acpmux-cli-agent-lines", move || {
-        let mut reader = std::io::BufReader::new(file);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    let line = String::from_utf8_lossy(&buf);
-                    let line = line.trim_end_matches(['\n', '\r']).to_owned();
-                    if tx.send(line).is_err() {
-                        break;
+    let _ = crate::supervised::scoped_thread(
+        "acpmux-cli-agent-lines",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            let mut reader = std::io::BufReader::new(file);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let line = String::from_utf8_lossy(&buf);
+                        let line = line.trim_end_matches(['\n', '\r']).to_owned();
+                        if tx.send(line).is_err() {
+                            break;
+                        }
                     }
                 }
             }
-        }
-    });
+        },
+    );
     rx
 }
 
