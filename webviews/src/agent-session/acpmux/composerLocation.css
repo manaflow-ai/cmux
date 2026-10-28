@@ -531,9 +531,11 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan[aria-pressed="true"]:is(:hover, :focus-visible) {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
-.acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child,
-.acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child {
-  /* Match the location strip's optical correction for the shared down-chevron. */
+.acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child:not(:first-child),
+.acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child) {
+  /* Match the location strip's optical correction for the shared down-chevron. Only a chevron: a
+     button whose one icon is its glyph (the + button) is centered as it is, so :not(:first-child)
+     keeps the correction off it (the + glyph sat 0.75 px low: composer-alignment-centers.test.ts). */
   transform: translateY(0.75px);
 }
 .acpmux-composer-bar .acpmux-model-name,
@@ -1168,6 +1170,10 @@
 .acpmux-composer-foot .acpmux-access {
   order: -1;
   margin-inline-end: auto;
+  /* The mode's shield sits under the + glyph: its chip starts 10 px in from the box, its shield 8 px
+     further, so the chip moves 5 px left to put the shield's center 22 px in, as + and the mic's glyph
+     are (composer-alignment-centers.test.ts). */
+  margin-inline-start: -5px;
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
