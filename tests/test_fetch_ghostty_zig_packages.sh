@@ -50,7 +50,7 @@ run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   touch -t 202001010000 "$TMP/cache/p/N-old.tar.gz"
   status=0
   local start=$SECONDS
-  PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
+  env -u ZIG_GLOBAL_CACHE_DIR PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
     FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
     CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT=2 CMUX_ZIG_FETCH_RETRY_DELAY=0 \
     "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 || status=$?
