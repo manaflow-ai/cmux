@@ -317,6 +317,7 @@ fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
     const ATTACHES: usize = 5;
     let (mut harness, _records, _last, _content) = cold_session("cold-start-end-hold", COUNT);
     harness.extra_env.push(("CMUX_TUI_TEST_END_HOLD_MS".to_string(), "200".to_string()));
+    let restarted = Instant::now();
     harness.restart();
     // The ends run: the owner said ready and some already committed.
     let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
@@ -331,8 +332,10 @@ fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
     // The premise: most ends still wait when the app attaches.
     assert!(
         queued_before >= COUNT / 2,
-        "only {queued_before} of {COUNT} ends still waited when the app attached: the queue \
-         this test is about had already drained"
+        "only {queued_before} of {COUNT} ends still waited when the app attached, {:?} after \
+         the restart; lifecycles {}: the queue this test is about had already drained",
+        restarted.elapsed(),
+        lifecycles(&harness.socket)
     );
     let tree = request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"}));
     let targets = tabs(&tree)
@@ -389,4 +392,16 @@ fn ends_not_run(socket: &Path) -> usize {
         .flatten()
         .filter(|terminal| terminal["lifecycle"] == "adopting")
         .count()
+}
+
+/// How many terminals are in each lifecycle, for a failure message.
+fn lifecycles(socket: &Path) -> serde_json::Value {
+    let mut counts = serde_json::Map::new();
+    let listed = request(socket, serde_json::json!({"cmd": "list-terminals"}));
+    for terminal in listed["terminals"].as_array().into_iter().flatten() {
+        let key = terminal["lifecycle"].as_str().unwrap_or("?").to_owned();
+        let count = counts.get(&key).and_then(serde_json::Value::as_u64).unwrap_or(0);
+        counts.insert(key, serde_json::json!(count + 1));
+    }
+    serde_json::Value::Object(counts)
 }
