@@ -100,7 +100,7 @@ import Testing
         #expect(question["prompt"]?.stringValue == "Which database?")
         #expect(question["options"]?.arrayValue?.compactMap { $0["label"]?.stringValue } == ["Postgres", "SQLite"])
         let list = try #require(line.sent.first { $0.method == "_acpmux/sessions" })
-        #expect(list.params["status"] as? String == "waiting")
+        #expect(list.params["status"] == nil)
         #expect(list.params["limit"] as? Int == 64)
         #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String } == ["s-tool", "offline", "s-ask"])
     }

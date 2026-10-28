@@ -65,15 +65,14 @@ final class AgentDialogDesk {
     }
 
     private func pending(on line: any AgentDialogLine) async -> [Pending] {
-        // Pending permissions are waiting sessions. Page that narrow status
-        // instead of asking for every local and peer chat (which can exceed
-        // the native reply cap on a long-lived daemon).
+        // Page the list until a server-side pending-permission filter is
+        // available. Status alone does not guarantee whether prompts remain.
         var sessions: [[String: Any]] = []
         var cursor: String?
         var seen: Set<String> = []
         var seenSessions: Set<String> = []
         while true { // wakeup-allow: each pass awaits a daemon page; a terminal page, malformed reply, or repeated cursor ends it
-            var params: [String: Any] = ["status": "waiting", "limit": 64]
+            var params: [String: Any] = ["limit": 64]
             if let cursor { params["cursor"] = cursor }
             guard let page = await line.call("_acpmux/sessions", params) else { return [] }
             guard let pageRows = page["sessions"] as? [[String: Any]] else { return [] }

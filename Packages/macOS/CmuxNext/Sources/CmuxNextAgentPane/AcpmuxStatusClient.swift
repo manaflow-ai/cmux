@@ -114,7 +114,7 @@ nonisolated enum AcpmuxStatusClient {
         let result: [String: Any]
         do {
             result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
-                                    params: ["exactSessionId": true, "sessionId": sessionId, "query": sessionId],
+                                    params: ["exactSessionId": true, "sessionId": sessionId],
                                     deadline: deadline, detailed: true)
         } catch let error as AcpmuxRPCError where error.code == -32002 {
             return nil

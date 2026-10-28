@@ -84,7 +84,12 @@ impl Hub {
             .session_summaries_of(&[query.to_owned()])
             .remove(query)
             .ok_or_else(|| RpcError::not_found(self.unfound(query, None, shown)))?;
-        Ok(json!({"session": summary.clone(), "matches": [summary], "link": null}))
+        let mut session = card(&summary, None);
+        // Preserve the summary's locality markers. A display-only machine
+        // name from the general resolver must not alter a folder decision.
+        session["host"] = summary["host"].clone();
+        session["hostKind"] = summary["hostKind"].clone();
+        Ok(json!({"session": session}))
     }
 
     /// Where `locate` looked, for its not-found error: this machine and its peers by name, which

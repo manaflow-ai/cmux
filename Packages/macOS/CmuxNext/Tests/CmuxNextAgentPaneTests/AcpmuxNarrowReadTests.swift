@@ -28,8 +28,12 @@ import Testing
         let local = AgentPaneSessionFolder(sessionId: "s2", info: ["sessionId": "s2", "cwd": "/work"])
         #expect(local?.isLocal == true)
         let resolvedLocal = AgentPaneSessionFolder(sessionId: "s3", info: [
-            "sessionId": "s3", "cwd": "/work", "host": "this-mac", "peer": NSNull(),
+            "sessionId": "s3", "cwd": "/work", "hostKind": "local", "peer": NSNull(),
         ])
         #expect(resolvedLocal?.isLocal == true)
+        let hostOnly = AgentPaneSessionFolder(sessionId: "s4", info: [
+            "sessionId": "s4", "cwd": "/work", "host": "remote",
+        ])
+        #expect(hostOnly?.isLocal == false)
     }
 }
