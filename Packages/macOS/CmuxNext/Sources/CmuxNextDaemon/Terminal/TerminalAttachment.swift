@@ -5,9 +5,11 @@ import CmuxNextWakeups
 import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
-/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Events
-/// flow through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's
-/// lane once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
+/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Streams
+/// are the default (feature `terminalStreams`, p05-ipc-094); for one release `CMUX_DISABLE_FEATURES=terminalStreams`
+/// keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Events flow
+/// through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's lane
+/// once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
 /// fire-and-forget, so a consumer that stops draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
@@ -157,7 +159,11 @@ public actor TerminalAttachment: TerminalByteChannel {
                       localHistory: Bool, images: Bool, clientName: String,
                       device: TerminalSizingDevice?, createIntent: UInt64) async throws {
         let sink = sink
-        transport.start(onEvent: { name, line, _ in sink.deliver(name: name, line: line) },
+        // The reader hands each line to the connection's decode lane: a snapshot or a replay always decodes there,
+        // never on the reader. The sink never waits there; the reader waits after the line for the view's queue,
+        // its lane and a held marker (p05-ipc-144).
+        transport.start(dispatch: sink.dispatch,
+                        onEvent: { name, line, _ in sink.deliver(name: name, line: line) },
                         onClose: { sink.close($0) })
         // Both in one round trip; the attach below needs the identity.
         let replies = await transport.pipeline([

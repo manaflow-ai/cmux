@@ -55,7 +55,13 @@ FAKE_ORACLE = textwrap.dedent('''
         oracle.queued_run_args = lambda args: []
         oracle.read_receipt = lambda directory: {"arm_exercised": None}
         oracle.merge_runs = lambda dirs, require_complete: (None, [])
-        args = argparse.Namespace(suite=[opt["--suite"]], fresh=False, run_id=None)
+        def native_plan(args, shas, out):
+            """linux_run.sh overlay when the base already has head's oracle: build the base as it is (overlay.py)."""
+            path = out / "overlay.json"
+            path.write_text(json.dumps({"mode": "native", "facets": "v1", "buildSha": shas[0]}))
+            return path
+        oracle.queued_overlay = native_plan
+        args = argparse.Namespace(suite=[opt["--suite"]], fresh=False, run_id=None, base=base, product="daemon")
         sides = tuple(oracle.Side(label, None, None, {}, ref, None) for label, ref in (("base", base), ("head", head)))
         try:
             return oracle.queued_diff(args, sides, [], out)

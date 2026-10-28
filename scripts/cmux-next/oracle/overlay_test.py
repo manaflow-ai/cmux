@@ -295,7 +295,8 @@ class DiffTests(unittest.TestCase):
                    "platform": "linux", "product": "daemon", "arm": None,
                    "config": {"product": "daemon", "build": "debug", "arm": None, "shard_total": 1, "seed": None,
                               "shard_index": 0},
-                   "fingerprint": "f", "host": {"name": "h", "os": "Linux", "osVersion": "1", "arch": "x86_64"},
+                   "fingerprint": "f", "host": {"name": "h", "os": "Linux", "osVersion": "1", "arch": "x86_64",
+                                                "display": "none"},
                    "selection": {"count": len(selection), "digest": oracle.digest(selection)}, "shards": [0],
                    "seeds": {"0": None}, "order": selection, "cases": cases,
                    **oracle.run_summary(cases, hits={}, readback={}, config={}, dry_run=False, infra_errors=[])}
