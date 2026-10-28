@@ -177,6 +177,9 @@ export function PaletteMenu({
     if (row.section.onPick?.(row.choice.id) !== "keep") close();
   };
   const keyDown = (event: React.KeyboardEvent) => {
+    // IME commit keys (including WebKit's keyCode 229 after compositionend) belong to the
+    // editor. Never dispatch or close the palette for them; the following plain Enter may pick.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
