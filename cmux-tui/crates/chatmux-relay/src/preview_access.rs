@@ -152,16 +152,17 @@ fn capability_query_item(item: &str) -> Option<String> {
 /// `(name, value)` byte pairs of every `Cookie` header. Raw bytes: a
 /// non-ASCII cookie of the app must neither break the check nor be dropped
 /// when the proxy strips its own cookies.
-fn cookie_pairs(headers: &hyper::HeaderMap) -> Vec<(&[u8], &[u8])> {
+pub(crate) fn cookie_pairs(headers: &hyper::HeaderMap) -> Vec<(&[u8], &[u8])> {
     headers
         .get_all(hyper::header::COOKIE)
         .iter()
         .flat_map(|value| value.as_bytes().split(|byte| *byte == b';'))
         .map(<[u8]>::trim_ascii)
         .filter(|item| !item.is_empty())
-        .map(|item| match item.iter().position(|byte| *byte == b'=') {
-            Some(at) => (item[..at].trim_ascii(), item[at + 1..].trim_ascii()),
-            None => (item, &item[item.len()..]),
+        .map(|item| {
+            let mut parts = item.splitn(2, |byte| *byte == b'=');
+            let name = parts.next().unwrap_or_default().trim_ascii();
+            (name, parts.next().unwrap_or_default().trim_ascii())
         })
         .collect()
 }
