@@ -41,12 +41,23 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
   }
 
-  async function reachable(row: Locator, viewport: Locator) {
+  async function viewportContained(popup: Locator, viewport: Locator) {
+    const outer = (await popup.boundingBox())!;
+    const area = (await viewport.boundingBox())!;
+    expect(area.y).toBeGreaterThanOrEqual(outer.y - 1);
+    expect(area.y + area.height).toBeLessThanOrEqual(outer.y + outer.height + 1);
+  }
+
+  async function reachable(row: Locator, viewport: Locator, popup: Locator) {
+    await viewportContained(popup, viewport);
     await row.scrollIntoViewIfNeeded();
     const item = (await row.boundingBox())!;
     const area = (await viewport.boundingBox())!;
+    const outer = (await popup.boundingBox())!;
     expect(item.y).toBeGreaterThanOrEqual(area.y - 1);
     expect(item.y + item.height).toBeLessThanOrEqual(area.y + area.height + 1);
+    expect(item.y).toBeGreaterThanOrEqual(outer.y - 1);
+    expect(item.y + item.height).toBeLessThanOrEqual(outer.y + outer.height + 1);
   }
 
   for (const height of [180, 560]) {
@@ -63,7 +74,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         }
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
-        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"));
+        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup);
         await contained(page, popup);
         expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
       } finally {
@@ -86,7 +97,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         expect(await gpu.count()).toBe(1);
         expect(await gpu.locator('[data-connected="true"]').count()).toBe(1);
         expect(await gpu.locator("kbd").innerText()).toBe("⌥⌘2");
-        await reachable(gpu, popup.locator(".acpmux-location-folders"));
+        await reachable(gpu, popup.locator(".acpmux-location-folders"), popup);
         await contained(page, popup);
       } finally {
         await page.close();
@@ -135,7 +146,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const actions = popup.locator(".ui-combobox-pinned");
         const before = await actions.boundingBox();
         const last = popup.locator('[role="option"]').filter({ has: page.locator(`[data-path$="/project-${count}"]`) });
-        await reachable(last, popup.locator(".ui-combobox-viewport"));
+        await reachable(last, popup.locator(".ui-combobox-viewport"), popup);
         expect(await actions.boundingBox()).toEqual(before);
         await contained(page, popup);
       } finally {
