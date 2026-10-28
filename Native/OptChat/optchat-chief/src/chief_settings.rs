@@ -116,7 +116,7 @@ impl ChiefSettings {
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
-            trace_full: false,
+            trace_full: value["trace"]["full"].as_bool().unwrap_or(false),
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
@@ -133,6 +133,9 @@ impl ChiefSettings {
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
         value["show"] = json!({"afterReport": self.show_after_report});
+        if self.trace_full {
+            value["trace"] = json!({"full": true});
+        }
         value["cloud"] = json!({
             "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
             "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
