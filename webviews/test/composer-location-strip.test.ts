@@ -546,7 +546,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(before.total).toBeGreaterThan(before.height);
     await list.hover();
     await page.mouse.wheel(0, 3000);
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => {
+      const list = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-location-folders");
+      return list != null && list.scrollTop > 0;
+    });
     expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
     const last = list.locator("[role=option]").last();
     expect(await last.isVisible()).toBe(true);
