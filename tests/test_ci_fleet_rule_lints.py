@@ -19,10 +19,11 @@ matches (occurrences, not lines) and a reason. The test fails when a file not on
 than its entry allows (a new violation), when it has fewer (lower the count, so the list only shrinks), and
 when an entry is stale or has no reason. Entries whose reason starts with "debt:" are known violations to fix.
 
-In CI, FLEET_RULE_BASE (or the guard runner's CMUX_GUARDS_BASE_SHA) names the base commit: an entry added or raised since that commit's allowlist fails too,
-so a PR cannot allowlist its own new violation. A genuinely safe new use (a kill of a process group the script
-started itself, say) is allowlisted first, in a PR that changes nothing but tests/fleet-rule-allowlist.json, so
-the reviewer sees exactly that; the code that uses it follows.
+In CI, FLEET_RULE_BASE (or the guard runner's CMUX_GUARDS_BASE_SHA) names the base commit: an entry added or
+raised since that commit's allowlist fails unless its reason starts with "safe:", so debt never grows and a PR
+cannot allowlist its own new violation as debt. A genuinely safe new use (a kill of a process group the script
+started itself, say) is added with its "safe:" entry in the same PR, where the reviewer sees the allowlist diff
+beside the code it covers.
 """
 
 from __future__ import annotations
@@ -41,9 +42,10 @@ SELF = {"tests/test_ci_fleet_rule_lints.py", "tests/fleet-rule-allowlist.json"}
 
 KEYCHAIN_SERVICE = "manaflow-fleet-sudo"
 KEYCHAIN_READ = re.compile(r"find-generic-password|SecItemCopyMatching|keyring\.get_password|get_generic_password")
-PKILL = re.compile(r"(?<![\w-])(?:pkill|killall)(?![\w-])"
-                   r"|(?<![\w-])kill\b[^\n;|&]*\$\(\s*(?:pgrep|pidof)\b"
-                   r"|(?<![\w-])(?:pgrep|pidof)\b[^\n;]*\|\s*xargs\b[^\n;|]*\bkill\b")
+# A kill whose PIDs a lookup supplies on the same command: `kill $(pgrep ...)`, `pgrep ... | xargs kill`.
+PKILL_LOOKUP = re.compile(r"(?<![\w-])kill\b[^\n;|&]*\$\(\s*(?:pgrep|pidof)\b"
+                          r"|(?<![\w-])(?:pgrep|pidof)\b[^\n;]*\|\s*xargs\b[^\n;|]*\bkill\b")
+PKILL = re.compile(r"(?<![\w-])(?:pkill|killall)(?![\w-])|" + PKILL_LOOKUP.pattern)
 # big-red, big_red, BIG_RED, bigred, Big Red; not prose like "a big red build".
 BIG_RED = re.compile(r"(?<![A-Za-z0-9])(?:(?i:big[-_]?red)|Big Red|BIG RED)(?![A-Za-z0-9])")
 
@@ -128,10 +130,12 @@ def pkill_lines(text: str) -> int:
         lookup_vars.update(LOOKUP_FOR.findall(line))
         kills = len(KILL_WORD.findall(line))
         if LOOKUP.search(line):
-            if re.search(r"\|\s*while\b", line):
+            # A loop that opens and closes on this line ends here.
+            opened = re.search(r"\|\s*while\b(.*)", line)
+            if opened and not re.search(r"\bdone\b", opened.group(1)):
                 piped = True
-            if not PKILL.search(line):
-                n += kills
+            # Every kill on a lookup line counts once: the ones PKILL_LOOKUP already counted are not added again.
+            n += max(0, kills - len(PKILL_LOOKUP.findall(line)))
             continue
         if piped:
             n += kills
@@ -206,22 +210,15 @@ def base_allowlist() -> dict | None:
     return json.loads(p.stdout) if p.returncode == 0 else None
 
 
-def only_the_allowlist_changed() -> bool:
-    """Whether the change since FLEET_RULE_BASE touches the allowlist and nothing else."""
-    base = base_ref()
-    p = subprocess.run(["git", "-C", str(ROOT), "diff", "--name-only", base, "HEAD"], capture_output=True, text=True)
-    return p.returncode == 0 and p.stdout.split() == [str(ALLOWLIST.relative_to(ROOT))]
-
-
 def grown(base: dict, allow: dict, rule: str) -> list[str]:
-    """Entries added or raised since the base allowlist."""
+    """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
     old = base.get(rule, {})
     for rel, entry in sorted(allow.get(rule, {}).items()):
         was = old.get(rel, {}).get("count", 0)
-        if entry.get("count", 0) > was:
-            out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: the list only shrinks "
-                       f"(a genuinely safe new use is allowlisted first, in a PR that changes only the allowlist)")
+        if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("safe:"):
+            out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: debt only shrinks "
+                       f"(a genuinely safe new use gets a reason starting with \"safe:\" that says why)")
     return out
 
 
@@ -236,30 +233,25 @@ class FleetRuleLints(unittest.TestCase):
         allowed = self.allow.get(rule, {})
         found = self.found[rule]
         problems = []
-        # An allowlist-only change may raise an entry ahead of the code that uses it (the allowlist-first
         # workflow): those entries may sit above their current count, or match nothing yet.
-        ahead = set()
-        if self.base is not None and only_the_allowlist_changed():
-            old = self.base.get(rule, {})
-            ahead = {rel for rel, e in allowed.items() if e.get("count", 0) > old.get(rel, {}).get("count", 0)}
         for rel, n in sorted(found.items()):
             entry = allowed.get(rel)
             if entry is None:
                 problems.append(f"{rel}: {n} new line(s) match; {HOW[rule]}")
             elif n > entry["count"]:
                 problems.append(f"{rel}: {n} matching lines, allowlist says {entry['count']}: a new one; {HOW[rule]}")
-            elif n < entry["count"] and rel not in ahead:
+            elif n < entry["count"]:
                 problems.append(f"{rel}: {n} matching lines, allowlist says {entry['count']}: lower the count in "
                                 f"tests/fleet-rule-allowlist.json (it only shrinks)")
         for rel, entry in sorted(allowed.items()):
             count = entry.get("count")
             if type(count) is not int or count < 1:
                 problems.append(f"{rel}: allowlist count must be a positive integer, not {count!r}")
-            if rel not in found and rel not in ahead:
+            if rel not in found:
                 problems.append(f"{rel}: allowlisted but no longer matches; remove its entry")
-            if not str(entry.get("reason", "")).strip():
-                problems.append(f"{rel}: allowlist entry has no reason")
-        if self.base is not None and not only_the_allowlist_changed():
+            if not re.match(r"(safe|debt): \S", str(entry.get("reason", ""))):
+                problems.append(f"{rel}: allowlist reason must start with \"safe: \" or \"debt: \" and say why")
+        if self.base is not None:
             problems += grown(self.base, self.allow, rule)
         self.assertEqual(problems, [], f"{rule} lint ({HOW[rule]}):\n  " + "\n  ".join(problems))
 
@@ -323,6 +315,8 @@ class Patterns(unittest.TestCase):
         self.assertEqual(grown(base, {"pkill": {"a.sh": {"count": 1, "reason": "r"}}}, "pkill"), [])
         self.assertEqual(len(grown(base, {"pkill": {"a.sh": {"count": 3, "reason": "r"}}}, "pkill")), 1)
         self.assertEqual(len(grown(base, {"pkill": {"b.sh": {"count": 1, "reason": "r"}}}, "pkill")), 1)
+        self.assertEqual(len(grown(base, {"pkill": {"b.sh": {"count": 1, "reason": "debt: x"}}}, "pkill")), 1)
+        self.assertEqual(grown(base, {"pkill": {"a.sh": {"count": 3, "reason": "safe: own pgid"}}}, "pkill"), [])
 
     def test_big_red_catches_the_names(self):
         for line in ("runs-on: big-red-owned-linux", "ssh big-red true", "BIG_RED_HOST=1", "Big Red"):
@@ -339,6 +333,10 @@ class Patterns(unittest.TestCase):
         self.assertEqual(pkill_lines('while read -r p; do\n  kill "$p"\ndone < <(pgrep -f worker)'), 1)
         self.assertEqual(pkill_lines('pgrep -f worker |\n  while read -r p; do\n  kill "$p"\ndone'), 1)
         self.assertEqual(pkill_lines('pgrep -f worker \\\n  | xargs kill'), 1)
+        self.assertEqual(pkill_lines('p=$(pgrep -f foo); pkill -x bar; kill "$p"'), 2)
+        self.assertEqual(pkill_lines('kill $(pgrep -f foo); pkill helper'), 2)
+        self.assertEqual(pkill_lines('pgrep worker | while read p; do echo "$p"; done\nkill "$owned_pid"'), 0)
+        self.assertEqual(pkill_lines('pgrep worker | while read p; do kill "$p"; done\nkill "$owned_pid"'), 1)
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@
     "scripts/mobile-stability-soak.sh": {"count": 1, "reason": "safe: the pattern is this soak's own tagged DerivedData app path"},
     "scripts/perf-activation-session.py": {"count": 1, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
     "scripts/reload-extension.sh": {"count": 1, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
-    "scripts/reload.sh": {"count": 4, "reason": "debt (1 line): the untagged branch's `pkill -f /<base app>.app/...` stops every untagged DEV app from any DerivedData; the other lines use the reload tag's own app path (safe)"},
+    "scripts/reload.sh": {"count": 4, "reason": "debt: (1 of the lines) the untagged branch's `pkill -f /<base app>.app/...` stops every untagged DEV app from any DerivedData; the other lines use the reload tag's own app path (safe)"},
     "scripts/reloadp.sh": {"count": 1, "reason": "safe: the exact Release bundle path this script built (APP_PATH), after refuse_if_stable_running"},
     "scripts/reloads.sh": {"count": 1, "reason": "debt: `pkill -f <staging app>.app/...` stops the staging app from any path; use the built bundle's exact path or a recorded PID"},
     "scripts/remote-tmux-brokered-harness.sh": {"count": 4, "reason": "safe: the patterns are this run's own temp script and log paths under its WORKDIR"},
@@ -40,7 +40,7 @@
     "tests_v2/test_ssh_remote_browser_favicon_uses_proxy.py": {"count": 1, "reason": "safe: the pattern is this test's own temp server script path on the test SSH host"},
     "tests_v2/test_ssh_remote_browser_move_rebinds_proxy.py": {"count": 1, "reason": "debt: `pkill -f 'python3 -m http.server PORT'` on the test SSH host; record the server PID"},
     "web/scripts/dev-local.sh": {"count": 1, "reason": "safe: -P <recorded pid>, the children of the dev server this script started"},
-    "web/services/vms/images/devbox/Dockerfile": {"count": 2, "reason": "safe: inside the image build, stops the work user's own boot processes in the container"},
+    "web/services/vms/images/devbox/Dockerfile": {"count": 3, "reason": "safe: inside the image build, stops the work user's own boot processes in the container"},
     "web/services/vms/images/devbox/desktop/start-vnc.sh": {"count": 1, "reason": "safe: -USR1 -U <own uid> -x tint2 inside the devbox VM tells its own panel to reload (not a kill)"},
     "web/services/vms/images/workUser.ts": {"count": 1, "reason": "safe: inside a devbox VM cmux owns, stops a renamed work user's processes before removing that user"}
   },
