@@ -214,8 +214,9 @@ RERUN_ATTEMPTS = 2
 def refused_on_owned(job: dict | None) -> bool:
     """The compile ran on an owned (glaeda-*) label and never reached its own steps.
 
-    No steps (a lost runner), a failed setup step (a refusal at job start), or a job
-    cancelled before any step of its own ran. A Blacksmith job, or one that failed in
+    Failed or cancelled before any step of its own ran: no steps (a lost runner), a
+    failed setup step (a refusal at job start), or only the runner's own steps (a runner
+    lost after setup). A Blacksmith job, or one that failed in
     the compile, is the candidate's own result.
     """
     if not job or not any(str(label).startswith("glaeda-") for label in job.get("labels") or []):
@@ -225,10 +226,9 @@ def refused_on_owned(job: dict | None) -> bool:
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     ran = [step for step in steps if step.get("name") not in RUNNER_STEPS
            and step.get("conclusion") not in (None, "skipped")]
-    if ran:
-        return False
-    return not steps or job.get("conclusion") == "cancelled" or any(
-        step.get("name") in SETUP_STEPS and step.get("conclusion") == "failure" for step in steps)
+    # Failed or cancelled with none of its own steps run: refused at setup, or the runner was lost
+    # after setup succeeded (only the runner's steps are listed).
+    return not ran
 
 
 class GitHubBuilder:

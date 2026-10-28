@@ -471,6 +471,8 @@ class OwnedRefusal(unittest.TestCase):
         self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", [])))
         self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", [self.SETUP, {"name": "Complete job", "conclusion": "success"}])))
         self.assertTrue(drive.refused_on_owned(self.job(owned, "cancelled", [{"name": "Set up job", "conclusion": "success"}])))
+        lost_after_setup = [{"name": "Set up job", "conclusion": "success"}, {"name": "Complete job", "conclusion": "success"}]
+        self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", lost_after_setup)))
         compile_red = [{"name": "Set up job", "conclusion": "success"}, {"name": "Release compile", "conclusion": "failure"}]
         self.assertFalse(drive.refused_on_owned(self.job(owned, "failure", compile_red)))
         self.assertFalse(drive.refused_on_owned(self.job(["blacksmith-6vcpu-macos-26"], "failure", [])))
