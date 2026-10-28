@@ -201,3 +201,10 @@ private final class HeldFrameView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
+
+/// A pane's shown frame handed from a terminal session to the one that replaces it on the same tab
+/// (``TerminalSession/carriedFrame()``, ``TerminalSession/holdCarriedFrame(_:)``).
+@MainActor
+public struct TerminalCarriedFrame {
+    let frame: TerminalFrameHold.HeldFrame
+}

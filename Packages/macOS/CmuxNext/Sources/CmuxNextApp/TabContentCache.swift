@@ -261,6 +261,8 @@ final class TabContentCache {
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
         // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
+        // The new view shows what the old one showed until its own content draws (no empty pane between them).
+        let carried = terminals[tab.id]?.session.carriedFrame()
         discardTerminal(tab.id)
         let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
                                              cursorDefault: .user)
@@ -272,6 +274,7 @@ final class TabContentCache {
                                   hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
+        if let carried { session.holdCarriedFrame(carried) }
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)
         terminals[tab.id] = entry

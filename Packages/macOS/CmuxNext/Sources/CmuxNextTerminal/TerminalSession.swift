@@ -299,6 +299,27 @@ public final class TerminalSession {
         return nil
     }
 
+    /// What this session's pane shows now, for a session that replaces it on the same tab (a daemon restart
+    /// gives the terminal a new generation, so the App makes a new view of it): the held frame while a hold
+    /// is on screen, else the surface's last presented frame once it drew content; nil when it shows nothing.
+    public func carriedFrame() -> TerminalCarriedFrame? {
+        if let held = frameHold.heldFrame { return TerminalCarriedFrame(frame: held) }
+        guard surfaceHasContent, let surface = surfaceView.presentedFrame else { return nil }
+        return TerminalCarriedFrame(frame: .surface(surface))
+    }
+
+    /// Shows `frame` (``carriedFrame()`` of the session this one replaces) until this session's first content
+    /// is drawn, as a launch or evicted terminal's last frame is: no empty pane between the two views.
+    /// Returns false when this session has content or holds a frame already.
+    @discardableResult
+    public func holdCarriedFrame(_ frame: TerminalCarriedFrame) -> Bool {
+        applyEvents()
+        guard !surfaceHasContent, !frameHold.isHolding else { return false }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: frame.frame, over: surfaceView, in: view)
+        return true
+    }
+
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
