@@ -6,7 +6,7 @@ import QuartzCore
 /// What a hover card shows.
 enum TabHoverCardContent: Equatable {
     /// A tab and its hover facts as the card shows them (`TabStripModel.hoverFacts`).
-    case tab(TabItem, facts: TabHoverFacts = TabHoverFacts())
+    case tab(TabItem, facts: TabHoverFacts)
     /// A group chip: the group and its member titles in order.
     case group(TabGroupItem, memberTitles: [String])
 
