@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """New splits and browser splits never vanish under rapid creation (#26695), on a tagged cmux DEV.
 
-Launches the tagged app (no activation, bounded window, isolated config), then, in a fresh
-workspace per phase, fires a burst of split actions at once (`action.run` on parallel
-connections, as a person pressing Cmd-D and Split Browser Right fast) and samples the panes the
+Attaches to a running tagged app (a capture slot's `capture-host launch`) through its control
+socket and never launches or quits it. In a fresh workspace per phase, it sends a burst of
+creates back to back: real Cmd-D presses (`debug.key`, which, unlike `action.run`, never waits for
+the daemon, so a second press lands on the pane the first still shows provisionally) and split
+actions at once (`action.run` on parallel connections). It samples the panes the
 window shows (`debug.tab_drag` strips) every 50 ms until they settle. A phase fails when:
 
 - the shown pane count ever goes down (no action in the burst closes a pane);
@@ -13,21 +15,21 @@ window shows (`debug.tab_drag` strips) every 50 ms until they settle. A phase fa
 
 It takes a window snapshot mid-burst and after each phase into OUT_DIR.
 
-Usage: split-vanish-live.py TAG APP OUT_DIR
+Usage: split-vanish-live.py SOCKET OUT_DIR [PID]
 Exit 0 = every phase clean. Writes OUT_DIR/split-vanish.json.
 """
-import json, os, pwd, signal, socket, subprocess, sys, tempfile, threading, time
+import json, os, socket, sys, threading, time
 
-TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
-BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
-SOCKET = "/tmp/cmux-debug-%s.sock" % TAG
-ACCOUNT_HOME = pwd.getpwuid(os.getuid()).pw_dir
-ACPMUX_HOME = os.path.join(ACCOUNT_HOME, ".cmux/chief/isolated", TAG, "acpmux")
+SOCKET, OUT = sys.argv[1], sys.argv[2]
+PID = int(sys.argv[3]) if len(sys.argv) > 3 else None
 ROUNDS = int(os.environ.get("SPLIT_VANISH_ROUNDS", "3"))
-# Each phase: the actions fired at once in a fresh workspace.
+# Each phase: the steps sent back to back in a fresh workspace. `key:` presses a key as a person
+# does (`debug.key`, no read-your-writes wait), so a second Cmd-D lands on the pane the first one
+# still shows provisionally (the #26695 race: its client-only handle was refused and the split
+# vanished); a bare name is `action.run` on its own connection, all at once.
 PHASES = [
+    ("cmd-d presses", ["key:d", "key:d", "key:d", "key:d"]),
+    ("cmd-d then browser split", ["key:d", "splitBrowserRight", "key:d"]),
     ("terminal splits", ["splitRight", "splitDown", "splitRight", "splitDown"]),
     ("browser splits", ["splitBrowserRight", "splitBrowserDown", "splitBrowserRight"]),
     ("mixed", ["splitRight", "splitBrowserRight", "splitDown", "splitBrowserDown", "newColumn"]),
@@ -63,20 +65,40 @@ def shown_panes():
 
 
 def burst(actions):
-    """Fires every action at once; returns their replies in order."""
+    """Sends every step back to back (key presses in order, actions at once); returns their replies."""
     replies = [None] * len(actions)
 
     def run(i, name):
         replies[i] = rpc("action.run", {"id": name})
 
-    threads = [threading.Thread(target=run, args=(i, name)) for i, name in enumerate(actions)]
-    for t in threads:
-        t.start()
+    threads = []
+    for i, name in enumerate(actions):
+        if name.startswith("key:"):
+            replies[i] = rpc("debug.key", {"key": name[4:], "modifiers": ["command"]})
+            continue
+        thread = threading.Thread(target=run, args=(i, name))
+        thread.start()
+        threads.append(thread)
     return threads, replies
 
 
 def accepted(reply):
     return not (isinstance(reply, dict) and reply.get("error"))
+
+
+class App:
+    """The attached app: `poll()` is its exit (None while it runs), as a Popen's."""
+    returncode = None
+
+    def poll(self):
+        if PID is None:
+            return None
+        try:
+            os.kill(PID, 0)
+            return None
+        except OSError:
+            self.returncode = "gone"
+            return self.returncode
 
 
 def phase(app, label, actions, round_index):
@@ -126,60 +148,27 @@ def phase(app, label, actions, round_index):
         failures.append("%s: workspace view pane counts went down %s" % (name, view_counts))
     print("%s %s: counts %s view %s expected %d" % ("FAIL" if failures else "PASS", name,
           sorted(set(counts), key=counts.index), view_counts, expected), flush=True)
+    # The phase's workspace and its terminals go, so later phases have PTYs to start.
+    closed = rpc("action.run", {"id": "closeWorkspace", "args": {"confirm": True}})
+    if isinstance(closed, dict) and closed.get("error"):
+        print("close %s: %s" % (name, json.dumps(closed)[:200]), flush=True)
     return failures, samples
 
 
-def quit_end_sessions():
-    reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-    if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
-        reply = rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
-    return reply
+app, failures, record = App(), [], {}
+deadline = time.time() + 120
+while time.time() < deadline and not (rpc("debug.windows") or {}).get("windows"):
+    time.sleep(0.5)  # attach wait only (no runtime sync)
+if not (rpc("debug.windows") or {}).get("windows"):
+    failures.append("the app does not answer on %s" % SOCKET)
+else:
+    for r in range(ROUNDS):
+        for label, actions in PHASES:
+            found, samples = phase(app, label, actions, r)
+            failures += found
+            record["%s-%d" % (label, r)] = samples
 
-
-if os.path.exists(SOCKET):
-    sys.exit("%s exists: pick a fresh tag" % SOCKET)
-scratch = tempfile.mkdtemp(prefix="split-vanish-")
-open(os.path.join(scratch, "cmux.json"), "w").write("{}")
-open(os.path.join(scratch, "ghostty"), "w").write("")
-env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-       "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1600,1000"}
-log = open(os.path.join(OUT, "app-%s.log" % TAG), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-print("launched pid %d" % app.pid, flush=True)
-failures, record = [], {}
-try:
-    deadline = time.time() + 180
-    wins = None
-    while time.time() < deadline and app.poll() is None:
-        if os.path.exists(SOCKET):
-            wins = (rpc("debug.windows") or {}).get("windows")
-            if wins:
-                break
-        time.sleep(0.5)  # launch wait only (no runtime sync)
-    if not wins:
-        failures.append("no window within 180 s")
-    else:
-        for r in range(ROUNDS):
-            for label, actions in PHASES:
-                found, samples = phase(app, label, actions, r)
-                failures += found
-                record["%s-%d" % (label, r)] = samples
-                if app.poll() is not None:
-                    break
-finally:
-    print("quit:", json.dumps(quit_end_sessions())[:200], flush=True)
-    try:
-        app.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
-                   "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
-    subprocess.run([CLI, "server", "stop", "--session", "cmux-app-%s" % TAG, "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-
-json.dump({"tag": TAG, "failures": failures, "samples": record}, open(os.path.join(OUT, "split-vanish.json"), "w"), indent=1)
+json.dump({"socket": SOCKET, "failures": failures, "samples": record}, open(os.path.join(OUT, "split-vanish.json"), "w"), indent=1)
 for f in failures:
     print("FAIL", f, flush=True)
 print("RESULT", "PASS" if not failures else "FAIL (%d)" % len(failures), flush=True)
