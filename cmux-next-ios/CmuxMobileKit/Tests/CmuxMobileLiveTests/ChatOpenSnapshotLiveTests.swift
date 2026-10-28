@@ -180,7 +180,7 @@ import Testing
             func page(after: Int) -> (String, Bool) {
                 let turn = max((after - 1) / 5 + 1, firstMissed)
                 let last = firstMissed + missedTurns - 1
-                return (turnRecords(turn).joined(separator: ","), turn < last)
+                return (Self.turnRecords(turn).joined(separator: ","), turn < last)
             }
             switch method {
             case "initialize": return [reply(#"{"protocolVersion":1}"#)]
