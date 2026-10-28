@@ -78,7 +78,7 @@ import Testing
             case .item(let item): item.id
             }
         }
-        let band = projection.layout.scopedToWindow { hidden.contains($0.id.rawValue) }.sections.flatMap(\.items).map(\.id.rawValue)
+        let band = projection.layout.scopedToWindow(hiding: { hidden.contains($0.id.rawValue) }).sections.flatMap(\.items).map(\.id.rawValue)
         return rows + band
     }
 
@@ -122,5 +122,62 @@ import Testing
         #expect(bands.items(of: "L") == ["itm_ge", "itm_link", "itm_url"])
         bands.adopt(Self.projection().windowItems, registered: ["L"], front: "L") { _ in nil }
         #expect(bands.items(of: "L") == ["itm_ge", "itm_gs", "itm_link", "itm_tab", "itm_url"])
+    }
+
+    /// A pin goes to the window it was made in, even when another window is in front (a drop on a window that is
+    /// not key, a sidebar's own menu); it keeps that owner while it leaves the document and comes back (Undo, a
+    /// move into a group and out); an incognito window's pins never go to a normal window.
+    @Test func aPinGoesToTheActingWindowAndKeepsItsOwner() {
+        let base = Self.projection(), later = Self.projection(extra: [("itm_url_a", .url("https://manaflow.com", title: nil))])
+        var bands = WindowBandOwnership()
+        bands.adopt(base.windowItems, registered: ["A", "B"], front: "A") { _ in nil }
+        bands.adopt(later.windowItems, registered: ["A", "B"], acting: "A", front: "B") { _ in nil }
+        #expect(bands.owner(of: "itm_url_a") == "A")
+        bands.adopt(base.windowItems, registered: ["A", "B"], front: "B") { _ in nil } // removed (or nested)
+        bands.adopt(later.windowItems, registered: ["A", "B"], front: "B") { _ in nil } // back (Undo)
+        #expect(bands.owner(of: "itm_url_a") == "A")
+        #expect(bands.items(of: "A").contains("itm_url_a"))
+        var incognito = WindowBandOwnership()
+        incognito.adopt(later.windowItems, registered: ["A", "I"], incognito: ["I"], acting: "I", front: "A") { _ in nil }
+        incognito.adopt(later.windowItems, registered: ["A"], front: "A") { _ in nil } // the incognito window closed
+        #expect(incognito.items(of: "A").isEmpty, "a normal window took the incognito window's pins: \(incognito.items(of: "A"))")
+        #expect(incognito.hidden(in: "A").contains("itm_url_a"))
+    }
+
+    /// Another window's empty Pinned group stays out even when the live rows carry it (a group with no open member
+    /// passes the membership filter), and a nested group this window lists a workspace of keeps its parent header.
+    @Test func anEmptyBandGroupOfAnotherWindowStaysOutAndANestedGroupKeepsItsParent() {
+        var bands = WindowBandOwnership()
+        bands.adopt(Self.projection().windowItems, registered: ["A", "B"], front: "A") { _ in nil }
+        let live = [SidebarSection(kind: .machine(Self.thisMac), nodes: [
+            .workspace(SidebarWorkspace(id: WorkspaceID("ws-2"), title: "ws-2")),
+            .group(SidebarGroup(id: GroupID("itm_gs"), name: "Saved", workspaces: [])),
+        ])]
+        let arranged = Self.projection().arrange(live, drag: Self.drag(hidden: bands.hidden(in: "B")))
+        let groups = arranged.flatMap(\.nodes).compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } }
+        #expect(!groups.contains("itm_gs"), "B lists A's Pinned group: \(groups)")
+
+        // A's Pinned "Projects" > "Foo"; Foo's workspace moved to B.
+        let pinned = Self.pinned, machine = Self.machine
+        let records = SidebarDocRecords(sections: [
+            pinned: SidebarDocSection(id: pinned, kind: .pinned, region: .top),
+            machine: SidebarDocSection(id: machine, kind: .machine(session: Self.session)),
+        ], items: [
+            "itm_gp": SidebarDocItem(id: "itm_gp", section: pinned, body: .group(name: "Projects", color: nil, icon: nil, collapsed: false)),
+            "itm_gf": SidebarDocItem(id: "itm_gf", section: pinned, parent: "itm_gp", body: .group(name: "Foo", color: nil, icon: nil, collapsed: false)),
+            "itm_5": SidebarDocItem(id: "itm_5", section: pinned, parent: "itm_gf", body: .workspace(Self.ref("ws-5"))),
+        ])
+        let nested = SidebarDocProjection(rows: [
+            SidebarDocRow(key: "itm_gp", kind: "group", section: pinned, item: "itm_gp"),
+            SidebarDocRow(key: "itm_gf", kind: "group", section: pinned, parent: "itm_gp", depth: 1, item: "itm_gf"),
+            SidebarDocRow(key: "itm_5", kind: "item", section: pinned, parent: "itm_gf", depth: 2, item: "itm_5", ref: Self.ref("ws-5")),
+        ], records: records, revision: 1)
+        var owners = WindowBandOwnership()
+        owners.adopt(nested.windowItems, registered: ["A", "B"], front: "A") { _ in nil }
+        var foo = SidebarGroup(id: GroupID("itm_gf"), name: "Foo", workspaces: [SidebarWorkspace(id: WorkspaceID("ws-5"), title: "ws-5")])
+        foo.parent = GroupID("itm_gp")
+        let inB = nested.arrange([SidebarSection(kind: .machine(Self.thisMac), nodes: [.group(foo)])], drag: Self.drag(hidden: owners.hidden(in: "B")))
+        let shown = inB.flatMap(\.nodes).compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } }
+        #expect(Set(shown) == ["itm_gp", "itm_gf"], "groups listed in B: \(shown)")
     }
 }

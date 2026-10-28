@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSidebar
 import CmuxNextWakeups
 import Observation
 

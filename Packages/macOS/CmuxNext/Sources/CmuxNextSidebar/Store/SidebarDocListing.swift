@@ -51,6 +51,13 @@ extension SidebarDocProjection {
         // list rows; the machine lists follow; a section after them lists its groups only.
         var before: [SidebarSection] = [], after: [SidebarSection] = []
         var passedMachines = false
+        // A group drawn here (it holds a workspace this window lists) keeps the groups above it (#26632).
+        let parents = Dictionary(projection.bandGroups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
+        var drawnTrees = Set<String>()
+        for (id, shown) in pulled where !shown.workspaces.isEmpty {
+            var current: String? = id
+            while let group = current, drawnTrees.insert(group).inserted { current = parents[group] ?? nil }
+        }
         for layoutSection in projection.layout.sections {
             if layoutSection.content == .workspaces {
                 passedMachines = true
@@ -58,9 +65,12 @@ extension SidebarDocProjection {
             }
             let id = layoutSection.id.rawValue
             let nodes = projection.bandGroups.filter { $0.section == id }.compactMap { group -> SidebarNode? in
-                if let shown = pulled[group.id] { return .group(shown) }
+                if let shown = pulled[group.id], drawnTrees.contains(group.id) || !projection.bandGroupHidden(group.id, drag: drag) {
+                    return .group(shown)
+                }
                 // Not listed here: another window lists an open workspace of it, or none does (its header alone, also while
                 // its last one closes or a new one waits for its window's row). Another window's own group lists there (#26632).
+                if drawnTrees.contains(group.id) { return .group(Self.emptyGroup(group)) }
                 return elsewhere.contains(group.id) || projection.bandGroupHidden(group.id, drag: drag) ? nil : .group(Self.emptyGroup(group))
             }
             guard !passedMachines || !nodes.isEmpty else { continue }

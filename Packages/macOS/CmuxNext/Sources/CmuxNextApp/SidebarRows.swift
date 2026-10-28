@@ -78,13 +78,13 @@ final class SidebarRows {
                               registry: WindowRegistry, hidden: Set<String> = [], showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
         let refs = WorkspaceLayoutRefs(machines: machines)
-        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow { item in
+        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow(hiding: { item in
             // An open workspace's item follows the window that lists it, wherever it was pinned.
             if item.ref.kind == LayoutItemRef.workspaceKind, let id = refs.workspaceID(for: item.ref), let owner = registry.owner(of: id) {
                 return owner != windowID
             }
             return hidden.contains(item.id.rawValue)
-        }
+        })
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the

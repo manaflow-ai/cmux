@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -456,8 +457,9 @@ extension WindowManager {
 }
 
 /// Keeps `WindowRegistryStore.bands` (#26632) in step with the sidebar document and the windows: an item the document
-/// gains goes to the window that lists one of its workspaces, else to the front window (where it was made); a new
-/// window gains nothing, so it opens clean. Event-driven: one pass per document or membership change.
+/// gains goes to the window its change was made in (`noteBandEdit`), else to the window that lists one of its
+/// workspaces, else to the front window; a new window gains nothing, so it opens clean. Event-driven: one pass per
+/// document or membership change.
 extension WindowManager {
     func observeBands() {
         let registry = registry
@@ -466,8 +468,8 @@ extension WindowManager {
         bandsObservation = Task { [weak self] in
             for await inputs in ObservationStream({ () -> WindowBandOwnership.Inputs? in
                 guard let shown = SidebarDocStore.current?.shown else { return nil }
-                return WindowBandOwnership.Inputs(items: shown.windowItems,
-                                  windows: Dictionary(registry.value.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first }))
+                return WindowBandOwnership.Inputs(items: shown.windowItems, windows: Dictionary(registry.value.windows.map { ($0.id, $0.workspaceIDs) },
+                                                                                            uniquingKeysWith: { first, _ in first }))
             }) {
                 guard let self, let inputs else { continue }
                 adoptBands(inputs.items)
@@ -475,14 +477,20 @@ extension WindowManager {
         }
     }
 
+    /// A local change to the sidebar document (`SidebarDocStore.onLocalChange`): the items it adds belong to the
+    /// window it was made in, the sidebar's own (`SidebarBridge.handle`), else the window actions act in.
+    func noteBandEdit() {
+        registry.actingBandWindow = registry.bandEditWindow ?? active?.state.id
+    }
+
     /// One ownership pass (`WindowBandOwnership.adopt`); a change is saved in the window records.
     func adoptBands(_ items: [SidebarDocProjection.WindowItem]) {
         let value = registry.value, refs = WorkspaceLayoutRefs(machines: services.machines)
-        let front = value.recency.first { value.window($0)?.isOpen == true }
         var memberIDs: [SidebarDocWorkspaceRef: String]?
         let machines = services.machines
         var bands = registry.bands
-        let changed = bands.adopt(items, registered: Set(value.windows.map(\.id)), front: front) { item in
+        let changed = bands.adopt(items, registered: Set(value.windows.map(\.id)), incognito: value.incognito, acting: registry.actingBandWindow,
+                                  front: value.mostRecentOpen()) { item in
             if let ref = item.ref { return refs.workspaceID(for: ref).flatMap(value.owner(of:)) }
             guard !item.members.isEmpty else { return nil }
             let ids = memberIDs ?? Dictionary(machines.daemons.flatMap { daemon in

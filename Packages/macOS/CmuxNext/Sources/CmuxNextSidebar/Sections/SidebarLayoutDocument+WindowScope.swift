@@ -14,7 +14,7 @@ extension SidebarLayoutDocument {
     /// and the sections themselves stay.
     /// The stored document is not changed (no user data is removed).
     public nonisolated func scopedToWindow(ownedElsewhere: (String) -> Bool) -> SidebarLayoutDocument {
-        scopedToWindow { $0.ref.kind == LayoutItemRef.workspaceKind && ownedElsewhere($0.ref.value) }
+        scopedToWindow(hiding: { $0.ref.kind == LayoutItemRef.workspaceKind && ownedElsewhere($0.ref.value) })
     }
 
     /// The layout one window draws: without the items of any items section that `hides`. The sections stay.
