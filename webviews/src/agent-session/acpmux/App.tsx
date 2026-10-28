@@ -414,7 +414,13 @@ import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
-import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand } from "./cmuxCommands";
+import {
+  continueTargets,
+  mergedCommands,
+  resolveHarnessTarget,
+  type CmuxCommand,
+  type CmuxCommandResult,
+} from "./cmuxCommands";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
@@ -6388,13 +6394,10 @@ function AcpmuxPane() {
     );
   }, [showsWhatItIs, drewKeptTail]);
   const composerSnapshot = useMemo(() => {
-    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
-    if (snapshot.summary) enabledCmuxActions.add("status");
-    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
-    if (continueAvailable) enabledCmuxActions.add("continue");
-    // A side session asks nothing aside: its composer answers in it.
-    if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
-    const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
+    // Keep cmux-owned commands recognizable even when their current state refuses them. The
+    // composer preserves the draft and shows the handler's inline reason instead of sending a
+    // literal `/fork`, `/continue`, `/status` or `/btw` prompt to the harness.
+    const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands) };
     // Prompts still waiting for a new chat to take them follow acpmux's queue.
     if (startingRows.length)
       withCommands.queue = [
@@ -6402,7 +6405,7 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession, startingRows]);
+  }, [snapshot, projectDraft, startingRows]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -7706,6 +7709,49 @@ function AcpmuxPane() {
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
+  /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
+  /// literal harness prompt. A string is an inline refusal; Composer/NewTab keep the draft intact.
+  const handleCmuxCommand = (command: CmuxCommand, args?: string): CmuxCommandResult => {
+    if (command.action === "status") {
+      if (!snapshot.summary) return t("composer.cmuxStatusUnavailable");
+      setStatusCardOpen(true);
+      return true;
+    }
+    if (command.action === "btw") {
+      const question = args?.trim();
+      if (!question) return t("composer.cmuxBtwQuestion");
+      if (!opensSideSessions || !snapshot.sessionId || isSideSession) return t("composer.cmuxBtwDisabled");
+      setBtwFailure(undefined);
+      // Not a prompt: the chat's turn keeps running and nothing joins its queue. The composer
+      // keeps the question until the side session has started.
+      const sessionId = snapshot.sessionId;
+      const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
+      const started = callNative<string>("chat.btw", { question });
+      // Started is sent: the question clears even when the app can't open the side session, so
+      // sending it again can't start a second one.
+      started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
+      return started;
+    }
+    if (command.action === "fork") {
+      if (args?.trim()) return t("composer.cmuxForkArgs");
+      if (!forkable || forkSeq === undefined) return t("composer.cmuxForkBusy");
+      ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
+      return true;
+    }
+    if (command.action === "continue") {
+      if (!canContinue) return t("composer.cmuxContinueBusy");
+      if (!args?.trim()) {
+        setContinuing(true);
+        return true;
+      }
+      const target = resolveHarnessTarget(args, handoffTargets);
+      if (!target) return t("composer.cmuxContinueUnknown");
+      setContinuing(false);
+      ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
+      return true;
+    }
+    return false;
+  };
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
   const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) => {
@@ -8845,41 +8891,7 @@ function AcpmuxPane() {
             draft={draft}
             onUnsentDraft={quick ? undefined : postUnsentDraft}
             keptAttachments={quick ? undefined : keptAttachments}
-            onCmuxCommand={(command, args) => {
-              if (command.action === "status") {
-                setStatusCardOpen(true);
-                return true;
-              }
-              if (command.action === "btw") {
-                const question = args?.trim();
-                const sessionId = snapshot.sessionId;
-                if (!opensSideSessions || !question || !sessionId) return false;
-                setBtwFailure(undefined);
-                // Not a prompt: the chat's turn keeps running and nothing joins its queue. The
-                // composer keeps the question until the side session has started.
-                const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
-                const started = callNative<string>("chat.btw", { question });
-                // Started is sent: the question clears even when the app can't open the side session,
-                // so sending it again can't start a second one.
-                started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
-                return started;
-              }
-              if (command.action === "fork") {
-                if (!forkable || forkSeq === undefined || args?.trim()) return false;
-                ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
-                return true;
-              }
-              if (command.action !== "continue" || !canContinue) return false;
-              if (!args?.trim()) {
-                setContinuing(true);
-                return true;
-              }
-              const target = resolveHarnessTarget(args, handoffTargets);
-              if (!target) return false;
-              setContinuing(false);
-              ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
-              return true;
-            }}
+            onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
@@ -9350,6 +9362,8 @@ function AcpmuxPane() {
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
+              onCmuxCommand={handleCmuxCommand}
+              onImportFile={importFile}
               onCommands={(harness, cwd) => {
                 void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                   () => undefined,

@@ -90,6 +90,8 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { commandArgs, mergedCommands, type CmuxCommand, type CmuxCommandResult } from "../cmuxCommands";
+import { cliOnlyCommand } from "../cliOnlyCommands";
 import { useHarnessesListed } from "../catalog";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
@@ -148,6 +150,11 @@ export type NewTabScreenActions = {
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
   onNowPlaying?(command: NowPlayingCommand): void;
+  /// Handles the same cmux-owned command registry as a chat composer. A string keeps the draft and
+  /// renders the inline refusal; accepted commands never become a literal first prompt.
+  onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
+  /// Reads a transcript chosen by `/import` before a New Tab has a chat session.
+  onImportFile?(file: File): void | Promise<void>;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -272,6 +279,8 @@ export function NewTabScreen(props: Props) {
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
   const [text, setText] = useState(location ?? "");
+  const [commandError, setCommandError] = useState<string>();
+  const importInput = useRef<HTMLInputElement>(null);
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
@@ -454,8 +463,12 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
+  // New Tab uses the same cmux-owned rows as an attached chat. Keeping them in the registry even
+  // before a session exists lets submit explain a disabled command instead of sending its spelling
+  // as the first literal prompt.
+  const commands = useMemo(() => mergedCommands(snapshot.commands), [snapshot.commands]);
   const commandQuery = slashQuery(text, text.length);
-  const commandMatches = commandQuery === undefined ? [] : matchCommands(snapshot.commands ?? [], commandQuery);
+  const commandMatches = commandQuery === undefined ? [] : matchCommands(commands, commandQuery);
   const commandsOpen = commandQuery !== undefined && commandDismissed !== text && commandMatches.length > 0;
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
   const onCommands = props.onCommands;
@@ -740,9 +753,66 @@ export function NewTabScreen(props: Props) {
       return;
     }
     setText(next);
+    setCommandError(undefined);
     setSelected(undefined);
   };
   const submit = () => {
+    const prompt = text.trim();
+    // Match the chat composer before New Tab's omnibar rows. A cmux-owned token must never become
+    // a path or a first chat prompt, and Claude terminal-only commands need the same inline note.
+    if (prompt && attachments.length === 0) {
+      const cliOnly = cliOnlyCommand(prompt, harness);
+      if (cliOnly) {
+        setCommandError(
+          cliOnly.use === "access"
+            ? t("composer.cliOnly.access", { command: cliOnly.name })
+            : cliOnly.use === "model"
+              ? t("composer.cliOnly.model", { command: cliOnly.name })
+              : t("composer.cliOnly.terminal", { command: cliOnly.name }),
+        );
+        return;
+      }
+      const owned = commands.find(
+        (command): command is CmuxCommand => command.source === "cmux" && commandArgs(prompt, command) !== undefined,
+      );
+      if (owned) {
+        if (owned.action === "import") {
+          if (!props.onImportFile) {
+            setCommandError(t("composer.cmuxStatusUnavailable"));
+            return;
+          }
+          importInput.current?.click();
+          setText("");
+          setCommandError(undefined);
+          return;
+        }
+        const accepted = props.onCmuxCommand?.(owned, commandArgs(prompt, owned));
+        if (typeof accepted === "string") {
+          setCommandError(accepted);
+          return;
+        }
+        if (accepted === false || !props.onCmuxCommand) {
+          if (!props.onCmuxCommand) setCommandError(t("composer.cmuxStatusUnavailable"));
+          return;
+        }
+        if (accepted instanceof Promise) {
+          void accepted.then(
+            (reason) => {
+              if (typeof reason === "string") setCommandError(reason);
+              else {
+                setText("");
+                setCommandError(undefined);
+              }
+            },
+            () => undefined,
+          );
+        } else {
+          setText("");
+          setCommandError(undefined);
+        }
+        return;
+      }
+    }
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
@@ -754,7 +824,6 @@ export function NewTabScreen(props: Props) {
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
     if (row && keeps) return activate(row);
-    const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
     // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
@@ -1301,7 +1370,7 @@ export function NewTabScreen(props: Props) {
           <AttachmentStrip
             attachments={attachments}
             pending={reading}
-            {...(attachError ? { error: attachError } : {})}
+            {...(commandError || attachError ? { error: commandError ?? attachError } : {})}
             codex={harness === "codex"}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));
@@ -1313,6 +1382,20 @@ export function NewTabScreen(props: Props) {
             }}
             onRetry={retry}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+          />
+          <input
+            ref={importInput}
+            className="acpmux-import-input"
+            type="file"
+            accept=".json,.jsonl,.txt,application/json,text/plain"
+            tabIndex={-1}
+            aria-label="/import"
+            hidden
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) void props.onImportFile?.(file);
+            }}
           />
           {!pill && !split && pickers}
         </div>
