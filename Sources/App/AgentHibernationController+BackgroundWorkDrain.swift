@@ -42,27 +42,50 @@ extension AgentHibernationController {
               let appDelegate = AppDelegate.shared else { return }
         // The cached index is enough to see whether any pane qualifies; only
         // then pay for a fresh process scan.
-        guard let cachedIndex = SharedLiveAgentIndex.shared.index,
-              !backgroundWorkDrainCandidates(appDelegate: appDelegate, index: cachedIndex, now: now).isEmpty else {
+        guard let cachedIndex = SharedLiveAgentIndex.shared.index else { return }
+        let cachedCandidates = backgroundWorkDrainCandidates(appDelegate: appDelegate, index: cachedIndex, now: now)
+        guard !cachedCandidates.isEmpty else {
+            backgroundWorkDrainRejections.removeAll()
             return
         }
         backgroundWorkDrainCheckInFlight = true
         defer { backgroundWorkDrainCheckInFlight = false }
-        guard let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
+        // A pane parked on a cron never settles here; skip the scan for it.
+        let sessionIds = Set(cachedCandidates.map(\.agent.sessionId))
+        let settleableSessions = await Task.detached(priority: .utility) {
+            ClaudeBackgroundWorkDrain.sessionsWithoutCrons(sessionIds)
+        }.value
+        guard !settleableSessions.isEmpty,
+              let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
               AgentHibernationTrackingGate.isEnabled() else { return }
         let checkedAt = Date()
         let candidates = backgroundWorkDrainCandidates(appDelegate: appDelegate, index: index, now: checkedAt)
+            .filter { settleableSessions.contains($0.agent.sessionId) }
+        let candidateKeys = Set(candidates.map(\.key))
+        backgroundWorkDrainRejections = backgroundWorkDrainRejections.filter { candidateKeys.contains($0.key) }
         for candidate in candidates {
-            let drained = await Task.detached(priority: .utility) {
-                ClaudeBackgroundWorkDrain.hasDrained(
+            let unchangedSince = backgroundWorkDrainRejections[candidate.key]
+            let verdict = await Task.detached(priority: .utility) {
+                ClaudeBackgroundWorkDrain.verdict(
                     agent: candidate.agent,
                     panelKey: candidate.key,
                     notBefore: candidate.notBefore,
                     processScopeShowsNoBackgroundShell: candidate.processScopeShowsNoBackgroundShell,
+                    unchangedSince: unchangedSince,
                     now: checkedAt
                 )
             }.value
-            guard drained else { continue }
+            switch verdict {
+            case .undecided:
+                continue
+            case .pending(let evidence):
+                // The same transcript and process scope give the same answer;
+                // don't read the transcript again until one of them changes.
+                backgroundWorkDrainRejections[candidate.key] = evidence
+                continue
+            case .drained:
+                backgroundWorkDrainRejections[candidate.key] = nil
+            }
             // Nothing may have moved while the transcript was read.
             guard lifecycleChangeByPanel[candidate.key] == candidate.lifecycleChangedAt,
                   let workspace = appDelegate.workspaceContainingPanel(
@@ -149,6 +172,20 @@ enum ClaudeBackgroundWorkDrain {
         return now - lifecycleChangedAt >= quietSeconds
     }
 
+    /// The transcript and process evidence a rejected check read.
+    struct Evidence: Equatable, Sendable {
+        let transcriptModifiedAt: Date
+        let processScopeShowsNoBackgroundShell: Bool
+    }
+
+    enum Verdict: Equatable, Sendable {
+        case drained
+        /// Nothing was read: a cron, a missing transcript or a recent write.
+        case undecided
+        /// Work may still run according to this evidence.
+        case pending(Evidence)
+    }
+
     /// Whether the agent's background work has ended. Bash and Monitor work
     /// that never wrote a notification counts as ended only when the process
     /// scope shows no background shell left under the agent. A session cron
@@ -166,7 +203,32 @@ enum ClaudeBackgroundWorkDrain {
         hookStoreURL: URL = RestorableAgentKind.claude.hookStoreFileURL(),
         fileManager: FileManager = .default
     ) -> Bool {
-        guard lastStopRecordedNoSessionCrons(sessionId: agent.sessionId, hookStoreURL: hookStoreURL),
+        verdict(
+            agent: agent,
+            panelKey: panelKey,
+            notBefore: notBefore,
+            processScopeShowsNoBackgroundShell: processScopeShowsNoBackgroundShell,
+            now: now,
+            homeDirectory: homeDirectory,
+            hookStoreURL: hookStoreURL,
+            fileManager: fileManager
+        ) == .drained
+    }
+
+    /// - Parameter unchangedSince: Evidence an earlier check rejected; when it
+    ///   still holds, the transcript is not read again.
+    static func verdict(
+        agent: SessionRestorableAgentSnapshot,
+        panelKey: AgentHibernationPanelKey?,
+        notBefore: Date?,
+        processScopeShowsNoBackgroundShell: Bool,
+        unchangedSince: Evidence? = nil,
+        now: Date = Date(),
+        homeDirectory: String = NSHomeDirectory(),
+        hookStoreURL: URL = RestorableAgentKind.claude.hookStoreFileURL(),
+        fileManager: FileManager = .default
+    ) -> Verdict {
+        guard !sessionsWithoutCrons([agent.sessionId], hookStoreURL: hookStoreURL).isEmpty,
               let transcriptPath = AgentHibernationTranscriptGuard.resolveTranscriptPath(
                   agent: agent,
                   panelKey: panelKey,
@@ -174,24 +236,37 @@ enum ClaudeBackgroundWorkDrain {
                   fileManager: fileManager
               ),
               let modifiedAt = (try? fileManager.attributesOfItem(atPath: transcriptPath))?[.modificationDate] as? Date,
-              now.timeIntervalSince(modifiedAt) >= quietSeconds else { return false }
-        return hasDrained(
+              now.timeIntervalSince(modifiedAt) >= quietSeconds else { return .undecided }
+        let evidence = Evidence(
+            transcriptModifiedAt: modifiedAt,
+            processScopeShowsNoBackgroundShell: processScopeShowsNoBackgroundShell
+        )
+        guard evidence != unchangedSince else { return .pending(evidence) }
+        let drained = hasDrained(
             transcriptState: AgentHibernationTranscriptGuard.backgroundWorkTranscriptState(
                 atPath: transcriptPath,
                 notBefore: notBefore
             ),
             processScopeShowsNoBackgroundShell: processScopeShowsNoBackgroundShell
         )
+        return drained ? .drained : .pending(evidence)
     }
 
-    static func lastStopRecordedNoSessionCrons(sessionId: String, hookStoreURL: URL) -> Bool {
+    /// The sessions whose last Stop recorded no session crons. A record
+    /// without the flag proves nothing, so it is left out.
+    static func sessionsWithoutCrons(
+        _ sessionIds: Set<String>,
+        hookStoreURL: URL = RestorableAgentKind.claude.hookStoreFileURL()
+    ) -> Set<String> {
         guard let data = try? Data(contentsOf: hookStoreURL),
               let state = try? JSONDecoder().decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-            return false
+            return []
         }
-        let record = state.sessions[sessionId]
-            ?? state.sessions.values.first { $0.sessionId == sessionId }
-        return record?.hadSessionCronsAtStop == false
+        return sessionIds.filter { sessionId in
+            let record = state.sessions[sessionId]
+                ?? state.sessions.values.first { $0.sessionId == sessionId }
+            return record?.hadSessionCronsAtStop == false
+        }
     }
 
     static func hasDrained(
@@ -203,7 +278,7 @@ enum ClaudeBackgroundWorkDrain {
             return true
         case .unfinishedProcessWorkOnly:
             return processScopeShowsNoBackgroundShell
-        case .unfinishedInProcessWork, .unreadable:
+        case .unfinishedInProcessWork, .noLaunchesSeen, .unreadable:
             return false
         }
     }

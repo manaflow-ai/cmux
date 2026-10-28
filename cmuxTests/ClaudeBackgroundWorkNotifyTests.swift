@@ -345,6 +345,18 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(result.cachedCrons == false)
     }
 
+    @Test func stopThatDoesNotReportCronsRecordsThemAsPossible() throws {
+        let session = "bg-task-unknown-cron-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"sleep","command":"sleep 20"}]}
+        """#
+        let result = try runStopHookRecordingCrons(name: "bg-task-unknown-cron", sessionId: session, stdin: stdin)
+        #expect(result.cachedPending == true)
+        // No `session_crons` key says nothing about crons, so the app must
+        // not settle this pane on transcript evidence.
+        #expect(result.cachedCrons == true)
+    }
+
     @Test func stopWithoutBackgroundKeysOldClientTagsNotPending() throws {
         // claude < 2.1.145 omits both arrays entirely: preserve prior behavior.
         let session = "bg-oldclient-session"

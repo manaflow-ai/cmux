@@ -83,6 +83,7 @@ final class AgentHibernationController {
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
     var backgroundWorkDrainTimer: DispatchSourceTimer?
     var backgroundWorkDrainCheckInFlight = false
+    var backgroundWorkDrainRejections: [AgentHibernationPanelKey: ClaudeBackgroundWorkDrain.Evidence] = [:]
     private init() {}
 
     func start() {

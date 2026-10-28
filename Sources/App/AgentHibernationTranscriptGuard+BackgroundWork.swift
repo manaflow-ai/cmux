@@ -27,7 +27,7 @@ extension AgentHibernationTranscriptGuard {
         inTranscriptTail data: Data,
         notBefore: Date?
     ) -> Set<String> {
-        Set(unfinishedBackgroundLaunches(inTranscriptTail: data, notBefore: notBefore).map(\.toolUseID))
+        Set(backgroundLaunchScan(inTranscriptTail: data, notBefore: notBefore).unfinished.map(\.toolUseID))
     }
 
     /// What the transcript says about background work launched since `notBefore`.
@@ -41,6 +41,9 @@ extension AgentHibernationTranscriptGuard {
         /// An async subagent has not reported completion. It runs inside the
         /// agent process, so only its transcript notification proves it ended.
         case unfinishedInProcessWork
+        /// No launch was found: the work predates the scanned tail or is a
+        /// kind the parser does not know, so nothing proves it ended.
+        case noLaunchesSeen
         /// The transcript could not be read.
         case unreadable
     }
@@ -51,15 +54,17 @@ extension AgentHibernationTranscriptGuard {
         maxTailBytes: Int = Self.backgroundWorkScanTailBytes
     ) -> BackgroundWorkTranscriptState {
         guard let data = tailData(atPath: path, maxBytes: maxTailBytes) else { return .unreadable }
-        let unfinished = unfinishedBackgroundLaunches(inTranscriptTail: data, notBefore: notBefore)
+        let scan = backgroundLaunchScan(inTranscriptTail: data, notBefore: notBefore)
+        guard scan.launchCount > 0 else { return .noLaunchesSeen }
+        let unfinished = scan.unfinished
         if unfinished.isEmpty { return .allFinished }
         return unfinished.allSatisfy(\.isProcessBacked) ? .unfinishedProcessWorkOnly : .unfinishedInProcessWork
     }
 
-    private static func unfinishedBackgroundLaunches(
+    private static func backgroundLaunchScan(
         inTranscriptTail data: Data,
         notBefore: Date?
-    ) -> [BackgroundLaunch] {
+    ) -> (launchCount: Int, unfinished: [BackgroundLaunch]) {
         var launches: [BackgroundLaunch] = []
         var finishedIDs: Set<String> = []
         let launchMarkers = ["\"backgroundTaskId\"", "\"async_launched\"", "\"timeoutMs\"", "\"task_id\""]
@@ -90,10 +95,11 @@ extension AgentHibernationTranscriptGuard {
                 }
             }
         }
-        return launches.filter { launch in
+        let unfinished = launches.filter { launch in
             !finishedIDs.contains(launch.toolUseID) &&
                 !(launch.taskID.map(finishedIDs.contains) ?? false)
         }
+        return (launches.count, unfinished)
     }
 
     private struct BackgroundLaunch {

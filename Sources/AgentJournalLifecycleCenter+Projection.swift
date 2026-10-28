@@ -60,6 +60,18 @@ extension AgentJournalLifecycleCenter {
         )
     }
 
+    /// The drain check's synthetic completion settles only a pane still
+    /// waiting on background work. A turn that began meanwhile keeps the
+    /// pane, even when its hook was stamped before the check ran.
+    static func isSupersededBackgroundWorkDrain(
+        _ event: AgentJournalEvent,
+        state: AgentLifecycleReducerState
+    ) -> Bool {
+        guard event.draft.nativeEvent == ClaudeBackgroundWorkDrain.nativeEvent else { return false }
+        guard let surfaceId = event.draft.surfaceId else { return true }
+        return state.combinedPhase(surfaceId: surfaceId, agentKey: event.agentKey) != .backgroundWorkPending
+    }
+
     static func reduceStartupReplay(
         store: AgentJournalStore,
         aliases: AgentJournalAliasResolver,
@@ -93,6 +105,7 @@ extension AgentJournalLifecycleCenter {
             if page.isEmpty { break }
             for event in page.events {
                 let canonical = canonicalized(event, aliases: aliases)
+                guard !isSupersededBackgroundWorkDrain(canonical, state: state) else { continue }
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle {
                     reducer.apply(notifications.lifecycleEvent(canonical), to: &state)

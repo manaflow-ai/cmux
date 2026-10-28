@@ -93,6 +93,37 @@ struct ClaudeBackgroundWorkDrainTests {
     }
 
     @Test
+    func aTranscriptWithNoLaunchNeverCountsAsDrained() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        // The launch predates the scanned tail, or is a kind the parser does
+        // not know: nothing proves the work Stop reported has ended.
+        try fixture.write([AgentHibernationBackgroundWorkTests.userTurn])
+
+        #expect(!drained(fixture, processScopeShowsNoBackgroundShell: true))
+    }
+
+    @Test
+    func unchangedEvidenceIsNotReadAgainButChangedEvidenceIs() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write([
+            AgentHibernationBackgroundWorkTests.userTurn,
+            AgentHibernationBackgroundWorkTests.backgroundBashLaunch(toolUseID: "toolu_bash", taskID: "bshell1"),
+        ])
+
+        // A live shell keeps the unreported command pending.
+        guard case .pending(let evidence) = verdict(fixture, processScopeShowsNoBackgroundShell: false) else {
+            Issue.record("expected a pending verdict")
+            return
+        }
+        // The shell exited: the process scope changed, so the check reads again.
+        #expect(verdict(fixture, processScopeShowsNoBackgroundShell: true, unchangedSince: evidence) == .drained)
+        // Same evidence as the rejected check: no read, same answer.
+        #expect(verdict(fixture, processScopeShowsNoBackgroundShell: false, unchangedSince: evidence) == .pending(evidence))
+    }
+
+    @Test
     func missingTranscriptNeverCountsAsDrained() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -172,6 +203,27 @@ struct ClaudeBackgroundWorkDrainTests {
     }
 
     @Test
+    func drainEventLosesToATurnStampedBeforeTheCheckButCommittedFirst() {
+        var pipeline = Pipeline()
+        pipeline.apply(Self.draft(.sessionStarted, atMs: 1_000))
+        pipeline.apply(Self.draft(.turnStarted, atMs: 2_000))
+        pipeline.apply(Self.draft(.turnCompleted, atMs: 3_000, pendingWork: true))
+        // The prompt hook fired just before the check read the clock, and its
+        // journal append landed before the drain event.
+        pipeline.apply(Self.draft(.turnStarted, atMs: 59_000))
+
+        let drain = pipeline.apply(ClaudeBackgroundWorkDrain.drainedDraft(
+            sessionId: Self.sessionId,
+            workspaceId: Self.workspaceId,
+            panelId: Self.panelId,
+            observedAt: Date(timeIntervalSince1970: 60)
+        ))
+
+        #expect(drain == nil)
+        #expect(pipeline.phase == .running)
+    }
+
+    @Test
     func aHookCompletionDoesNotRewriteThePill() {
         var pipeline = Pipeline()
         pipeline.apply(Self.draft(.sessionStarted, atMs: 1_000))
@@ -192,6 +244,21 @@ struct ClaudeBackgroundWorkDrainTests {
         sessionCrons: Bool? = false,
         now: Date = Date().addingTimeInterval(ClaudeBackgroundWorkDrain.quietSeconds + 60)
     ) -> Bool {
+        verdict(
+            fixture,
+            processScopeShowsNoBackgroundShell: processScopeShowsNoBackgroundShell,
+            sessionCrons: sessionCrons,
+            now: now
+        ) == .drained
+    }
+
+    private func verdict(
+        _ fixture: Fixture,
+        processScopeShowsNoBackgroundShell: Bool,
+        sessionCrons: Bool? = false,
+        unchangedSince: ClaudeBackgroundWorkDrain.Evidence? = nil,
+        now: Date = Date().addingTimeInterval(ClaudeBackgroundWorkDrain.quietSeconds + 60)
+    ) -> ClaudeBackgroundWorkDrain.Verdict {
         let storeURL = fixture.home.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
         var record: [String: Any] = [
             "sessionId": fixture.sessionId,
@@ -203,7 +270,7 @@ struct ClaudeBackgroundWorkDrainTests {
         if let sessionCrons { record["hadSessionCronsAtStop"] = sessionCrons }
         let store: [String: Any] = ["version": 1, "sessions": [fixture.sessionId: record]]
         try? JSONSerialization.data(withJSONObject: store).write(to: storeURL)
-        return ClaudeBackgroundWorkDrain.hasDrained(
+        return ClaudeBackgroundWorkDrain.verdict(
             agent: SessionRestorableAgentSnapshot(
                 kind: .claude,
                 sessionId: fixture.sessionId,
@@ -213,6 +280,7 @@ struct ClaudeBackgroundWorkDrainTests {
             panelKey: nil,
             notBefore: nil,
             processScopeShowsNoBackgroundShell: processScopeShowsNoBackgroundShell,
+            unchangedSince: unchangedSince,
             now: now,
             homeDirectory: fixture.home.path,
             hookStoreURL: storeURL
@@ -237,8 +305,8 @@ struct ClaudeBackgroundWorkDrainTests {
         )
     }
 
-    /// The live journal consumer's order: reconcile, then reduce the
-    /// reconciled lifecycle event.
+    /// The live journal consumer's order: drop a superseded drain event,
+    /// reconcile, then reduce the reconciled lifecycle event.
     private struct Pipeline {
         private var notifications = AgentNotificationReconciler()
         private var state = AgentLifecycleReducerState()
@@ -253,6 +321,7 @@ struct ClaudeBackgroundWorkDrainTests {
         mutating func apply(_ draft: AgentJournalEventDraft) -> AgentJournalLifecycleCenter.LifecycleApplication? {
             sequence += 1
             let event = AgentJournalEvent(sequence: sequence, committedAtMs: sequence, draft: draft)
+            guard !AgentJournalLifecycleCenter.isSupersededBackgroundWorkDrain(event, state: state) else { return nil }
             let decision = notifications.apply(event)
             guard decision.disposition != .stale, decision.projectsLifecycle else { return nil }
             return AgentJournalLifecycleCenter.reduceIngest(
