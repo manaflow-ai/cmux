@@ -226,9 +226,10 @@ import Testing
     /// and never resizes on the way (Leo, ask-7d6c0da7c9: "the speedy non laggy animation for
     /// opening up a new thing on the right").
     @Test func aPaneGrowingFromASliverNeverResizesItsPage() {
-        let column = Screen(hostFrame: CGRect(x: 600, y: 0, width: 0, height: 300))
+        let column = Screen(hostFrame: CGRect(x: 600, y: 0, width: 0, height: 300), holdsContent: true)
         column.host.restSize = CGSize(width: 400, height: 300)
         column.host.restOffset = CGVector(dx: -400, dy: 0)
+        column.host.isContentHandoff = true
         column.host.isOnLayoutSpring = true
         var widths: [CGFloat] = []
         for width: CGFloat in [3, 7, 12, 15, 16, 24, 60, 180, 330, 399.5] {
