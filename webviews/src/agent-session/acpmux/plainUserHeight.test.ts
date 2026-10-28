@@ -59,8 +59,15 @@ test("a cold plain user prompt is placed without initializing the Markdown parse
   }
 });
 
-test("the first-paint shortcut excludes text whose wrapping or Markdown can change", () => {
-  expect(isShortPlainUserPrompt(text)).toBe(true);
+test("the first-paint shortcut requires geometry and follows narrow or large-font wrapping", () => {
+  setChatDisplay({ "agentPane.display.font.size": 14 });
+  expect(isShortPlainUserPrompt(text, 720)).toBe(true);
+  // A caller without the current row geometry cannot safely skip the measured path.
+  expect(isShortPlainUserPrompt(text)).toBe(false);
+  setChatDisplay({ "agentPane.display.font.size": 28 });
+  expect(isShortPlainUserPrompt(text, 120)).toBe(false);
+  expect(isShortPlainUserPrompt("W".repeat(64), 120)).toBe(false);
+  expect(isShortPlainUserPrompt(text, 1400)).toBe(true);
   expect(isShortPlainUserPrompt("**bold**")).toBe(false);
   expect(isShortPlainUserPrompt("Réponds en français")).toBe(false);
   expect(isShortPlainUserPrompt("x".repeat(65))).toBe(false);

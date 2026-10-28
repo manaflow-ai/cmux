@@ -32,10 +32,12 @@ import { chiefEnvelope } from "./chiefEnvelope";
 export function UserBubble({
   row,
   text,
+  rowWidth,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
+  rowWidth?: number;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
   const t = useT();
@@ -79,7 +81,7 @@ export function UserBubble({
     !row.images?.length &&
     !row.retryAttachments?.length &&
     !row.inlineParts?.some((part) => part.kind !== "text") &&
-    isShortPlainUserPrompt(text);
+    isShortPlainUserPrompt(text, rowWidth);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
