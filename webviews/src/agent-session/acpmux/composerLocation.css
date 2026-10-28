@@ -1040,6 +1040,8 @@
 }
 .acpmux-folder-popover .acpmux-location-search::placeholder { color: var(--agent-muted); opacity: 1; }
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; overflow: hidden; }
+/* EnvironmentPicker shares this shell but has no pinned ScrollArea; its list must retain wheel scrolling. */
+.acpmux-folder-popover.acpmux-env-popover .acpmux-location-folders { overflow: auto; }
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 32px; box-sizing: border-box; }
