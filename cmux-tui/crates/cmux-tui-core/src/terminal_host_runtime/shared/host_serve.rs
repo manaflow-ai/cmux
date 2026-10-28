@@ -676,7 +676,14 @@ impl ClientFrames {
                     // The injected late receipt is a wait, not a hang.
                     cmux_hang_watch::invalidate_active();
                     // wakeup-allow: fixture integration failure-injection seam, only with CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS set; bounded at 5 s
-                    thread::sleep(Duration::from_millis(delay.min(5_000)));
+                    cmux_threads::allow_blocking(
+                        cmux_threads::AllowReason::FailureInjection,
+                        || {
+                            cmux_threads::checked::sync::sleep(Duration::from_millis(
+                                delay.min(5_000),
+                            ));
+                        },
+                    );
                 }
                 if ctx.launch_owner_claimed {
                     ctx.host.mark_launch_owner_stream_ready();

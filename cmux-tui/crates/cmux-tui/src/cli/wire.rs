@@ -282,13 +282,11 @@ fn stream_interrupt(stream: &dyn transport::Stream) -> bool {
 pub(super) fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
     let Ok(stream) = stream.try_clone_box() else { return false };
     // supervise-allow: this CLI request's interrupt watcher; it ends with the process, and a panic loses only Ctrl-C's early close.
-    std::thread::Builder::new()
-        .name("cmux-cli-signal-interrupt".into())
-        .spawn(move || {
-            crate::wait_for_shutdown_signal();
-            let _ = stream.shutdown(Shutdown::Both);
-        })
-        .is_ok()
+    cmux_threads::spawn("cmux-cli-signal-interrupt", cmux_threads::ThreadQos::Utility, move || {
+        crate::wait_for_shutdown_signal();
+        let _ = stream.shutdown(Shutdown::Both);
+    })
+    .is_ok()
 }
 
 fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {

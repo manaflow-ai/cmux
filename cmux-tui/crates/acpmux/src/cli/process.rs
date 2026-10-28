@@ -670,17 +670,21 @@ impl Keys {
         let (tx, rx) = mpsc::channel(16);
         // A thread: a blocking read of stdin that ends with the process. One that cannot
         // start leaves `rx` closed: no keys.
-        let _ = crate::supervised::scoped_thread("acpmux-keys", move || {
-            let mut byte = [0u8; 1];
-            let mut stdin = std::io::stdin();
-            while let Ok(1) = stdin.read(&mut byte) {
-                if let Some(key) = Input::of(byte[0])
-                    && tx.blocking_send(key).is_err()
-                {
-                    break;
+        let _ = crate::supervised::scoped_thread(
+            "acpmux-keys",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let mut byte = [0u8; 1];
+                let mut stdin = std::io::stdin();
+                while let Ok(1) = stdin.read(&mut byte) {
+                    if let Some(key) = Input::of(byte[0])
+                        && tx.blocking_send(key).is_err()
+                    {
+                        break;
+                    }
                 }
-            }
-        });
+            },
+        );
         Some((Keys { saved }, rx))
     }
 

@@ -3,7 +3,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_tui_machine_agent_protocol as protocol;
@@ -410,9 +410,10 @@ impl MachineAgent {
         let commands = inputs_tx.clone();
         let worker_control = Arc::clone(&control);
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
-        let join = thread::Builder::new()
-            .name(format!("machine-agent-generation-{generation}"))
-            .spawn(move || {
+        let join = cmux_threads::spawn(
+            format!("machine-agent-generation-{generation}"),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 generation_worker(WorkerContext {
                     worker_id,
                     generation,
@@ -426,7 +427,8 @@ impl MachineAgent {
                     inputs_rx,
                     recent_opens,
                 });
-            })?;
+            },
+        )?;
         Ok(StartedWorker {
             worker_id,
             generation,
@@ -568,7 +570,9 @@ impl ReadDeadline {
     fn start(control: Arc<dyn ConnectionControl>, timeout: Duration) -> io::Result<Self> {
         let (cancel, receiver) = mpsc::sync_channel(1);
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
-        thread::Builder::new().name("machine-agent-handshake-deadline".into()).spawn(
+        cmux_threads::spawn(
+            "machine-agent-handshake-deadline",
+            cmux_threads::ThreadQos::UserInitiated,
             move || {
                 if crate::blocking::sync::recv_timeout(&receiver, timeout).is_err() {
                     control.close();
@@ -606,7 +610,7 @@ impl WriteDeadline {
     fn start(control: Arc<dyn ConnectionControl>, timeout: Duration) -> io::Result<Self> {
         let (commands, receiver) = mpsc::sync_channel(1);
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
-        thread::Builder::new().name("mx-write-watch".into()).spawn(move || {
+        cmux_threads::spawn("mx-write-watch", cmux_threads::ThreadQos::Utility, move || {
             while let Ok(WriteDeadlineCommand::Arm) = cmux_blocking::sync::recv(&receiver) {
                 match crate::blocking::sync::recv_timeout(&receiver, timeout) {
                     Ok(WriteDeadlineCommand::Disarm) => {}
@@ -710,7 +714,7 @@ fn generation_worker(context: WorkerContext) {
         Arc::clone(&control),
         cloud_sender,
         coordinator.clone(),
-        |name, task| thread::Builder::new().name(name).spawn(task),
+        |name, task| cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, task),
     )
     .is_err()
     {
@@ -801,26 +805,31 @@ fn spawn_local_connectors(
         let local = Arc::clone(&local);
         let receiver = Arc::clone(&receiver);
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
-        thread::Builder::new().name(format!("mx-local-open-{index}")).spawn(move || {
-            loop {
-                // The lock only serializes `recv` on a Receiver, which a
-                // panicking holder cannot leave half-updated.
-                let request = cmux_blocking::sync::recv(
-                    &receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-                );
-                let Ok(request) = request else { break };
-                let connection = local.open();
-                if let Err(error) = request.sender.send(WorkerInput::LocalOpenCompleted {
-                    stream_id: request.stream_id,
-                    instance_id: request.instance_id,
-                    connection,
-                }) && let WorkerInput::LocalOpenCompleted { connection: Ok(connection), .. } =
-                    error.0
-                {
-                    connection.control.close();
+        cmux_threads::spawn(
+            format!("mx-local-open-{index}"),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                loop {
+                    // The lock only serializes `recv` on a Receiver, which a
+                    // panicking holder cannot leave half-updated.
+                    let request = cmux_blocking::sync::recv(
+                        &receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+                    );
+                    let Ok(request) = request else { break };
+                    let connection = local.open();
+                    if let Err(error) = request.sender.send(WorkerInput::LocalOpenCompleted {
+                        stream_id: request.stream_id,
+                        instance_id: request.instance_id,
+                        connection,
+                    }) && let WorkerInput::LocalOpenCompleted {
+                        connection: Ok(connection), ..
+                    } = error.0
+                    {
+                        connection.control.close();
+                    }
                 }
-            }
-        })?;
+            },
+        )?;
     }
     Ok(requests)
 }
@@ -1263,7 +1272,9 @@ fn spawn_local_reader(
     sender: SyncSender<WorkerInput>,
 ) -> io::Result<()> {
     // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
-    thread::Builder::new().name(format!("machine-agent-local-reader-{stream_id}")).spawn(
+    cmux_threads::spawn(
+        format!("machine-agent-local-reader-{stream_id}"),
+        cmux_threads::ThreadQos::UserInitiated,
         move || {
             while let Some(reserved) = flow.reserve() {
                 let mut payload = vec![0u8; reserved];
@@ -1316,7 +1327,9 @@ fn spawn_local_writer(
 ) -> io::Result<SyncSender<DataPayload>> {
     let (writes, receiver) = mpsc::sync_channel::<DataPayload>(LOCAL_WRITE_QUEUE_CAPACITY);
     // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
-    thread::Builder::new().name(format!("machine-agent-local-writer-{stream_id}")).spawn(
+    cmux_threads::spawn(
+        format!("machine-agent-local-writer-{stream_id}"),
+        cmux_threads::ThreadQos::UserInitiated,
         move || {
             while let Ok(payload) = cmux_blocking::sync::recv(&receiver) {
                 let length = payload_len(&payload);
@@ -1364,13 +1377,15 @@ impl RecentOpenIds {
 mod tests {
     use std::io::Cursor;
     use std::os::unix::net::UnixStream;
-    use std::sync::Condvar;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    use cmux_threads::sync::Condvar;
 
     use protocol::{MachineSecret, MigrationToken, PairingCode};
 
     use super::super::transport::duplex_from_unix_stream;
     use super::*;
+    use std::thread;
 
     struct AtomicStop(AtomicBool);
 

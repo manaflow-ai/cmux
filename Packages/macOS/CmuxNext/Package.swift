@@ -813,7 +813,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFocusUI",
             // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextSignposts", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
             ],
