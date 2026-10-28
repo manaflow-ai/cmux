@@ -66,6 +66,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
+  scripts/cmux-next/guardrails.py --implicit-window-counts   # implicit window lookups per Sources file at HEAD
+  scripts/cmux-next/guardrails.py --implicit-window-update   # lower scripts/cmux-next/implicit-window-baseline.tsv
   scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
                                                      # raw-continuation, trap-api, decode-trap and Rust stability
                                                      # cases
@@ -610,10 +612,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS), so its blobs are read while the content diff
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS, IMPLICIT_WINDOW_BASELINE), so its blobs are read while the content diff
     runs. A path this misses is read after the diff (check()'s late read)."""
     return (in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
-            or in_rust_stability_scope(path))
+            or in_rust_stability_scope(path) or path == IMPLICIT_WINDOW_BASELINE)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -5006,6 +5008,266 @@ AWAITED_LOW_PRIORITY_RULES = (
 RULES += AWAITED_LOW_PRIORITY_RULES
 
 
+# ---------------------------------------------------------------- implicit-window (multi-window P0, step 3)
+# Every command runs against an explicit window (the multi-window P0, Lawrence 2026-10-28: "completely eliminate this
+# error class"; Chrome's Browser* / BrowserWindowInterface): the WindowTarget is resolved once at the entrypoint from the input itself (the event's
+# window, the view's own window, the CLI argument), never looked up later as "the current window". An implicit
+# lookup (NSApp.keyWindow / mainWindow / orderedWindows, `controllers.first`, `windows.first`, `windows.active ??`,
+# `targetWindow(preferring:)` handed nil or the active window) picks whichever window is key at that moment: with a
+# second window, a sheet, a panel, a page window or a focus race it is the wrong one (keys that do nothing in a new
+# window, a Home or workspace click that lands in another window, the "No workspaces" launch window).
+# Two rules, both in the local pre-push tier (prepush-gate runs the guardrails, never CI; Lawrence 2026-10-23: no
+# new CI gates, jobs, steps or tests; this is the existing mechanism, not a new one):
+#   implicit-window         an added line with a lookup is refused (base debt per file, moves pair, as every line
+#                           rule; `// window-allow: <why the window is explicit>` in the standard escape window).
+#   implicit-window-record  the per-file count recorded in IMPLICIT_WINDOW_BASELINE only goes down: a changed file
+#                           over its row (a move the record did not follow), a row raised above its file's lookups
+#                           and a recorded total that rises are refused; a file under its row warns to lower it
+#                           (`guardrails.py --implicit-window-update`). Target 0. The line rule is the guard on new
+#                           code; the record keeps the count honest and visible per file.
+# Scope: Packages/macOS/CmuxNext/Sources (product code, Debug and bench handlers included; Tests are outside it),
+# less IMPLICIT_WINDOW_RESOLVERS, the one file that resolves a WindowTarget (empty until the conversion lands it:
+# nothing new is allowed anywhere until then).
+# The block owns its lines from here to `RULES += IMPLICIT_WINDOW_RULES`.
+# The one WindowTarget resolver (the conversion's slice 1 adds it; until then nothing new is allowed anywhere).
+IMPLICIT_WINDOW_RESOLVERS: tuple[str, ...] = (APP + "Windows/WindowTarget.swift",)
+IMPLICIT_WINDOW_BASELINE = "scripts/cmux-next/implicit-window-baseline.tsv"
+IMPLICIT_WINDOW_MEMO = "implicit-window-record"
+IMPLICIT_WINDOW_ALLOW = re.compile(r"//\s*window-allow:\s*\S")
+NSAPP_WINDOW = re.compile(r"\b(?:NSApp|NSApplication\s*\.\s*shared)\s*[?!]?\s*\.\s*(?:keyWindow|mainWindow|orderedWindows)\b")
+FIRST_WINDOW = re.compile(r"\b(?:controllers|windows)\s*\.\s*(?:first|last)\b")
+# `let app = NSApplication.shared` / `if let app = NSApp` (the package idiom: NSApp is nil in package tests), then
+# `app.keyWindow`: the alias names are read from the file (implicit_window_aliases).
+APP_ALIAS = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*NSApplication\s*[?!]?\s*)?=\s*(?:NSApp|NSApplication\s*\.\s*shared)\b(?!\s*[?!]?\s*\.)")
+WINDOW_MEMBER = re.compile(r"\b(\w+)\s*[?!]?\s*\.\s*(?:keyWindow|mainWindow|orderedWindows)\b")
+# The app's own "current window" helpers: the key-window seam (AppServices.keyWindowSource, `{ NSApp.keyWindow }`)
+# called, and WindowTargeting.current's frontmost-visible pick.
+WINDOW_HELPER = re.compile(r"\bkeyWindowSource\s*\(\s*\)|\bWindowTargeting\s*\.\s*current\b")
+ACTIVE_FALLBACK = re.compile(r"\bwindows\s*\.\s*active\s*(?:\?\s*\.\s*\w+(?:\s*\.\s*\w+)*\s*)?\?\?")
+# A `.first` predicate that still takes whichever window comes first: an absent target matches every window
+# (`windowID == nil || ...`, `.map { ... } ?? true`), or it picks by focus or visibility, the current window again.
+IMPLICIT_PREDICATE = re.compile(r"==\s*nil\s*\|\||\|\|\s*\w+\s*==\s*nil\b|\bnil\s*==|\?\?\s*true\b|\b(?:isKeyWindow|isMainWindow|isVisible|"
+                                r"canBecomeMain|canBecomeKey)\b")
+TARGET_WINDOW = re.compile(r"\btargetWindow\(\s*preferring:\s*(?P<arg>(?:[^()]|\([^()]*\))*)")
+IMPLICIT_ARGUMENT = re.compile(r"^\s*nil\b|\bactive(?:Window)?\b")
+CONDITION_START = re.compile(r"\b(?:if|while|guard)\b")
+IMPLICIT_WINDOW_LINE = re.compile("|".join(p.pattern for p in (NSAPP_WINDOW, FIRST_WINDOW, ACTIVE_FALLBACK, WINDOW_HELPER,
+                                                                 WINDOW_MEMBER)) + r"|\btargetWindow\(\s*preferring:")
+
+
+def implicit_window_code(code: str, aliases: frozenset[str] = frozenset()) -> bool:
+    """Whether CODE (a line's code: comments dropped, strings blanked) looks a window up implicitly.
+
+    `controllers.first(where:)` and a trailing-closure `controllers.first { $0.state.id == id }` name their window
+    and pass, unless the predicate still takes the first window (IMPLICIT_PREDICATE); a `{` after `.first` in an `if`/`while`/`guard` condition opens the body, so `if let c =
+    controllers.first {` is the first window. `targetWindow(preferring:)` is implicit when its argument is `nil` or
+    reads the active window (`windows.active?.state.id`, `context.activeWindow`)."""
+    if NSAPP_WINDOW.search(code) or ACTIVE_FALLBACK.search(code) or WINDOW_HELPER.search(code):
+        return True
+    if aliases and any(m.group(1) in aliases for m in WINDOW_MEMBER.finditer(code)):
+        return True
+    for match in FIRST_WINDOW.finditer(code):
+        rest = code[match.end():].lstrip()
+        if rest.startswith("{") and CONDITION_START.search(re.split(r"[{};]", code[:match.start()])[-1]):
+            return True  # `if let c = controllers.first {`: the brace opens the body
+        if not rest.startswith(("(", "{")) or IMPLICIT_PREDICATE.search(balanced_prefix(rest)):
+            return True
+    return any(IMPLICIT_ARGUMENT.search(m.group("arg")) for m in TARGET_WINDOW.finditer(code))
+
+
+def balanced_prefix(text: str) -> str:
+    """TEXT up to the bracket that closes its first one (all of TEXT when it does not close on the line)."""
+    depth = 0
+    for i, char in enumerate(text):
+        depth += char in "({[" or -(char in ")}]")
+        if depth <= 0 and char in ")}]":
+            return text[:i + 1]
+    return text
+
+
+def implicit_window_aliases(version: Version) -> frozenset[str]:
+    """The names VERSION's file binds to the application (APP_ALIAS), read once per side."""
+    if IMPLICIT_WINDOW_MEMO + ":aliases" not in version.memo:
+        version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"] = frozenset(
+            name for line in version.lines if "NSApp" in line for name in APP_ALIAS.findall(code_of(line)))
+    return version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"]
+
+
+def implicit_window_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    return implicit_window_code(code_of(version.lines[index]), implicit_window_aliases(version)), []
+
+
+IMPLICIT_WINDOW_MATCHER = Matcher(IMPLICIT_WINDOW_LINE, IMPLICIT_WINDOW_ALLOW, implicit_window_debt)
+
+
+def implicit_window_scope(path: str) -> bool:
+    """PATH is product Swift the rules count: under Sources, not the resolver."""
+    return path.startswith(SOURCES) and path.endswith(".swift") and path not in IMPLICIT_WINDOW_RESOLVERS
+
+
+def implicit_window_count(path: str, lines: list[str]) -> int:
+    """The implicit lookups of one file's LINES: matching lines without a `// window-allow:` escape."""
+    if not implicit_window_scope(path):
+        return 0
+    version = Version(path, lines, set())
+    return sum(1 for i, line in enumerate(lines) if IMPLICIT_WINDOW_LINE.search(line)
+               and IMPLICIT_WINDOW_LINE.search(code_of(line)) and is_debt(version, i, IMPLICIT_WINDOW_MATCHER)[0])
+
+
+def implicit_window(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    return matcher_rule(IMPLICIT_WINDOW_MATCHER)([c for c in changes if implicit_window_scope(c.path)], moved)
+
+
+class BaselineError(ValueError):
+    pass
+
+
+def implicit_window_rows(text: str | None) -> dict[str, tuple[int, int]] | None:
+    """{path: (count, 1-based line)} of IMPLICIT_WINDOW_BASELINE's TEXT (None: no record at that revision)."""
+    if text is None:
+        return None
+    rows: dict[str, tuple[int, int]] = {}
+    for number, line in enumerate(text.split("\n"), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) < 2 or not fields[1].strip().isdigit() or fields[0] in rows:
+            raise BaselineError(f"line {number} is not `<path>\\t<count>` for a path not listed above: {line!r}")
+        rows[fields[0]] = (int(fields[1]), number)
+    return rows
+
+
+def implicit_window_record(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """The record rule (see the block comment): code over its row, and rows raised past the push's own drops."""
+    memo = next((c.memo[IMPLICIT_WINDOW_MEMO] for c in changes if IMPLICIT_WINDOW_MEMO in c.memo), None)
+    if memo is None:
+        return []
+    base_text, head_text = memo
+    if base_text is None and head_text is None:
+        return []  # a branch from before the record (the installed hook has it): the line rule alone judges it
+    hits: list[Added] = []
+    try:
+        head_rows = implicit_window_rows(head_text)
+    except BaselineError as error:
+        return [Added(IMPLICIT_WINDOW_BASELINE, 1, f"the record does not parse ({error}); fix it or run "
+                      "guardrails.py --implicit-window-update")]
+    base_rows = implicit_window_rows(base_text) or {}  # a base record that does not parse lends nothing
+    if head_rows is None:
+        if base_text is not None:
+            hits.append(Added(IMPLICIT_WINDOW_BASELINE, 1, "the push deletes the implicit-window record"))
+        head_rows = {}
+    sources = [c for c in changes if implicit_window_scope(c.path)]
+    line_hits = collections.Counter(h.path for h in implicit_window(sources, moved))
+    counts = {c.path: (implicit_window_count(c.path, c.base_lines if not c.is_new else []),
+                       implicit_window_count(c.path, c.head_lines if not c.is_deleted else [])) for c in sources}
+    for path, (base_count, head_count) in sorted(counts.items()):
+        row = head_rows.get(path, (0, 0))[0]
+        allowed = max(row, base_count)  # debt the base already has over its row never blocks
+        if head_count - line_hits[path] > allowed:
+            hits.append(Added(path, 1, f"{head_count} implicit window lookups, its row in {IMPLICIT_WINDOW_BASELINE} "
+                              f"allows {allowed}: a lookup moved in from another file carries its row (lower the old "
+                              "file's row by as much)"))
+        elif head_count < row:
+            hits.append(NetHit(path, 1, f"implicit window lookups {row} -> {head_count}: lower its row "
+                               "(guardrails.py --implicit-window-update)", bucket=f"stale:{path}", excess=1,
+                               warn=True, additive=False))
+    if base_text is None:
+        return hits  # the push that adds the record: nothing to compare it with
+    # A row may rise only to the lookups the push leaves in its file (a move in), and the total never rises.
+    raised = False
+    for path, (count, number) in sorted(head_rows.items()):
+        old = base_rows.get(path, (0, 0))[0]
+        if count <= old:
+            continue
+        raised = True
+        head_count = counts.get(path, (None, None))[1]
+        if head_count is None or count > head_count:
+            hits.append(Added(IMPLICIT_WINDOW_BASELINE, number, f"{path}: row raised {old} -> {count} above the "
+                              f"lookups the push leaves in it ({'a file the push does not change' if head_count is None else head_count})"))
+    base_total = sum(c for c, _ in base_rows.values())
+    head_total = sum(c for c, _ in head_rows.values())
+    if raised and head_total > base_total:
+        hits.append(Added(IMPLICIT_WINDOW_BASELINE, 1, f"the recorded total rises {base_total} -> {head_total}: the "
+                          "record only goes down; a move carries its row (lower the old file's row by as much)"))
+    return hits
+
+
+def implicit_window_tree(repo: Path, rev: str) -> dict[str, int]:
+    """{path: implicit lookups} of every Sources file at REV with at least one."""
+    listed = git(repo, "grep", "-l", "-E", r"keyWindow|mainWindow|orderedWindows|\.first|\.last|\.active|targetWindow|"
+                 r"WindowTargeting", rev,
+                 "--", SWIFT_SOURCES, check=False)
+    paths = sorted({line.split(":", 1)[1] for line in listed.split("\n") if ":" in line})
+    texts = blobs(repo, [(rev, p) for p in paths])
+    counts = {p: implicit_window_count(p, texts.get((rev, p), "").split("\n")) for p in paths}
+    return {p: n for p, n in counts.items() if n}
+
+
+IMPLICIT_WINDOW_HEADER = ("# path\timplicit window lookups (guardrails.py implicit-window-record: the count only goes "
+                          "down, target 0; lower with guardrails.py --implicit-window-update)\n")
+
+
+def implicit_window_update(repo: Path, rev: str) -> int:
+    """Rewrite IMPLICIT_WINDOW_BASELINE (in REPO's worktree) from REV's tree: every row lowered to its file's count
+    (with no record yet, the tree's counts). A file over its row (a lookup moved in) is raised only as far as the
+    rows lowered here pay for it, in path order, so the total never rises; a rise they do not cover is printed and
+    not recorded, and the run exits 1."""
+    tree = implicit_window_tree(repo, rev)
+    target = repo / IMPLICIT_WINDOW_BASELINE
+    old = implicit_window_rows(target.read_text()) if target.exists() else None
+    over = []
+    if old is None:
+        rows = tree
+    else:
+        rows = {p: min(tree.get(p, 0), count) for p, (count, _) in old.items()}
+        credit = sum(count for count, _ in old.values()) - sum(rows.values())
+        for path, now in sorted(tree.items()):
+            rise = now - rows.get(path, 0)
+            if rise <= 0:
+                continue
+            moved = min(rise, credit)
+            credit -= moved
+            rows[path] = rows.get(path, 0) + moved
+            if moved:
+                print(f"implicit-window: {path}: +{moved} moved in, paid by rows lowered above")
+            if rise > moved:
+                over.append(f"{path}: {now - rise + moved} -> {now}")
+        rows = {p: n for p, n in rows.items() if n}
+    target.write_text(IMPLICIT_WINDOW_HEADER + "".join(f"{p}\t{n}\n" for p, n in sorted(rows.items())))
+    print(f"implicit-window: {sum(rows.values())} lookups in {len(rows)} files recorded ({sum(tree.values())} in the tree)")
+    for line in over:
+        print(f"implicit-window: over its row, not recorded: {line}")
+    return 1 if over else 0
+
+
+IMPLICIT_WINDOW_FIX = ("take the window from the input: the WindowTarget its entrypoint resolved (the event's window, "
+                       "the view's own `window`, the CLI's --window or the window that owns the target workspace/pane), "
+                       "passed in the action context; look a controller up by id (`controllers.first { $0.state.id "
+                       "== id }`, `controllers.first(where:)`), never take the first or the key window")
+IMPLICIT_WINDOW_RULES = (
+    Rule("implicit-window", "An implicit window lookup: `NSApp.keyWindow` / `mainWindow` / `orderedWindows` (or "
+         "`NSApplication.shared`'s), `controllers.first`, `windows.first`, `windows.active ??`, "
+         "`targetWindow(preferring:)` handed nil or the active window, `keyWindowSource()` or `WindowTargeting.current`",
+         "it acts on whichever window is key or first at that moment, not the one the input came from: with a "
+         "second window, a sheet, a panel or a focus race the command lands in the wrong window (keys dead in a new "
+         "window, Home or a workspace click switching another window, the \"No workspaces\" launch window)",
+         IMPLICIT_WINDOW_FIX + "; only the WindowTarget resolver file may read the key window",
+         "// window-allow: <why the window is explicit here>",
+         implicit_window, local_only=True),
+    Rule("implicit-window-record", f"A file's implicit window lookups over its row in {IMPLICIT_WINDOW_BASELINE}, a "
+         "row raised above its file's lookups, or a recorded total that rises",
+         "the record holds the count of every file so it only goes down to 0 (the conversion lowers it slice by "
+         "slice); a lookup moved into a file the record does not follow, or a row raised by hand, would grow it",
+         "lower the code; a lookup moved from another file carries its row: lower that file's row and raise this "
+         "one by as much in the same push (the total must not rise); after a slice, guardrails.py "
+         "--implicit-window-update lowers the rows",
+         None,
+         implicit_window_record, scope=(SOURCES, IMPLICIT_WINDOW_BASELINE), local_only=True),
+)
+RULES += IMPLICIT_WINDOW_RULES
+# ---------------------------------------------------------------- end of implicit-window
+
+
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
@@ -5341,7 +5603,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
-             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS]
+             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS, IMPLICIT_WINDOW_BASELINE]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -5355,7 +5617,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
-                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST)]
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST),
+                     (head, IMPLICIT_WINDOW_BASELINE), (base, IMPLICIT_WINDOW_BASELINE)]
                   + [(base, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -5408,9 +5671,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
     invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
+    window_record = (texts.get((base, IMPLICIT_WINDOW_BASELINE)), texts.get((head, IMPLICIT_WINDOW_BASELINE)))
     for change in files:
         change.memo["wakeup"] = wakeup
         change.memo[INVARIANT_ALLOW_MEMO] = invariant_allow
+        change.memo[IMPLICIT_WINDOW_MEMO] = window_record
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     try:
         load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
@@ -6414,6 +6679,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="judge the input-monitor, target-settings, safety-todo, raw-continuation, invariant-site, "
                              "trap-api, decode-trap and Rust stability rules' refuse and escape cases in a scratch "
                              "repository")
+    parser.add_argument("--implicit-window-update", action="store_true",
+                        help=f"rewrite {IMPLICIT_WINDOW_BASELINE} from --head's tree (default HEAD): rows only go down")
+    parser.add_argument("--implicit-window-counts", action="store_true",
+                        help="print the implicit window lookups per Sources file at --head (default HEAD)")
     parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
                              "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
@@ -6424,6 +6693,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_perf_hot is not None:
         return list_perf_hot(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip()),
                              args.list_perf_hot)
+    if args.implicit_window_update or args.implicit_window_counts:
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        if args.implicit_window_update:
+            return implicit_window_update(repo, args.head)
+        tree = implicit_window_tree(repo, args.head)
+        for path, count in sorted(tree.items(), key=lambda item: (-item[1], item[0])):
+            print(f"{count}\t{path}")
+        print(f"{sum(tree.values())}\ttotal ({len(tree)} files)")
+        return 0
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
