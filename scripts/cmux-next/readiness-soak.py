@@ -331,8 +331,12 @@ class Soak:
         # The app's own rule (ControlSocketPath.resolve): the state folder, or the old /tmp name when that
         # path would not fit sun_path. The app also keeps a /tmp symlink, so the soak uses the real path.
         # A build from before the move listens on the /tmp name only; connect() settles on the one that answers.
-        moved, old = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{self.tag}.sock"), f"/tmp/cmux-debug-{self.tag}.sock"
-        self.sockets = [self.args.socket] if self.args.socket else [moved, old] if len(moved.encode()) <= 103 else [old]
+        # The app opens through LaunchServices, so its home is the account's, not a fleet step's $HOME.
+        import pwd
+        homes = [pwd.getpwuid(os.getuid()).pw_dir, os.path.expanduser("~")]
+        moved = [os.path.join(h, ".local/state/cmux", f"cmux-debug-{self.tag}.sock") for h in dict.fromkeys(homes)]
+        old = f"/tmp/cmux-debug-{self.tag}.sock"
+        self.sockets = [self.args.socket] if self.args.socket else [m for m in moved if len(m.encode()) <= 103] + [old]
         self.socket = self.sockets[0]
         self.setup["tag"] = self.tag
 
