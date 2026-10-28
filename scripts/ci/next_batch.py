@@ -1332,7 +1332,7 @@ class Controller:
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)
-        if own.crashes or own.truncated:
+        if base_red_excuse.test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
         if not tests and not errors:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as

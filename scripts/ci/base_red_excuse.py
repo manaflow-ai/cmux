@@ -146,7 +146,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         own = test_reds.read(head_log)
-        if own.crashes or own.truncated:
+        if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")

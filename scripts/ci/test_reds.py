@@ -64,7 +64,9 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 # A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
 # quotes it.
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
-                      r"\bEXC_(?:BAD_ACCESS|BAD_INSTRUCTION|CRASH|BREAKPOINT|ARITHMETIC|GUARD|RESOURCE)\b")
+                      r"\bEXC_[A-Z][A-Z_]+\b|\b[Uu]ncaught (?:exception|signal)\b")
+# SwiftPM's line for a killed test helper: it can land in the middle of a test's result line when output interleaves.
+HELPER_KILLED = re.compile(r"Process '[^']+' exited with unexpected signal code \d+")
 # A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
 TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
@@ -77,7 +79,7 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
                        r"The operation was canceled|.*\blog (?:is|was) truncated)|^This log was truncated")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘] Test run with \d+ tests?")
-RUN_COUNT = re.compile(r"^[✔✘] Test run with (\d+) tests?")
+RUN_COUNT = re.compile(r"^[✔✘] Test run with (\d{1,9}) tests?")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
@@ -243,12 +245,13 @@ def read(log: str | None) -> Result:
         for pattern in FAILED:
             if match := pattern.search(text):
                 result.failed.add(match.group(1))
+                result.ran = True
         if match := XCTEST_RESTART.search(text):
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
-        runtime = CRASH.search(text) or ((CRASH_AT_START.search(text) or SIGNALED.search(text))
-                                         and not TEST_LINE.search(text))
+        runtime = HELPER_KILLED.search(text) or (
+            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True
             if number := signal_of(text):
@@ -268,7 +271,7 @@ def read(log: str | None) -> Result:
     if runs > sum(1 for text in lines if RUN_ENDED.search(text)):
         result.truncated.append(f"{runs - sum(1 for text in lines if RUN_ENDED.search(text))} Swift Testing run(s) "
                                 "started and printed no `Test run with` summary")
-    finished = {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    finished = [m.group(1) for text in lines for m in [FINISHED.search(text)] if m]
     counted = sum(int(m.group(1)) for text in lines for m in [RUN_COUNT.search(text)] if m)
     if runs and counted < len(finished):
         # A summary counts every test of its run (skipped ones too), so it is never below the tests that ended.
@@ -281,15 +284,26 @@ def read(log: str | None) -> Result:
               - {m.group(1) for text in lines for m in [SUITE_ENDED.search(text)] if m})
     if suites:
         result.truncated.append(f"{len(suites)} suite(s) started and never finished: " + "; ".join(sorted(suites)[:5]))
+    if any(re.match(r"^=+ test session starts =+$", text) for text in lines) and not any(
+            re.match(r"^=+ .*\bin [\d.]+s\b.*=+$", text) for text in lines):
+        result.truncated.append("a pytest session printed no closing summary")
+    if any(re.match(r"^(?:FAIL|ERROR): ", text) for text in lines) and not any(
+            re.match(r"^Ran \d+ tests? in ", text) for text in lines):
+        result.truncated.append("a unittest run printed no `Ran N tests` line")
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
     if crashed:
-        result.ran = True
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"
         result.crashes = [f"{name} crashed ({signal})" for name in dict.fromkeys(who)]
     return result
+
+
+def is_test_red(found: Result, job: str = "") -> bool:
+    """Whether this classifier owns the job's red: its log shows tests running, or the job is a test job by name.
+    A compile or lint job that prints `Fatal error:` keeps the caller's own comparison."""
+    return found.ran or bool(re.search(r"\btests?\b", job, re.I))
 
 
 def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base") -> Verdict | None:
@@ -298,6 +312,8 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     head = read(head_log)
     if head_log is None:
         return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
+    if not is_test_red(head, job):
+        return None
     if not head.failed and not head.crashes and not head.truncated:
         # Its tests (if any) passed: the red is a lint, compile or other step the caller judges as before.
         return None

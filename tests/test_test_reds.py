@@ -129,8 +129,33 @@ class PerTest(unittest.TestCase):
     def test_bare_signal_and_exception_lines_are_crashes_and_an_empty_log_is_unreadable(self):
         for line in ("Process '/x' exited with signal 6", "terminated by signal 9", "EXC_BAD_ACCESS (code=1)"):
             with self.subTest(line):
-                self.assertTrue(reds.classify(log(line), log(line)).own)
-        self.assertTrue(reds.classify("  \n", log(failed("a()"))).own)
+                self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
+        self.assertTrue(reds.classify("  \n", log(failed("a()")), "cmux-next swift test").own)
+
+    def test_a_compile_job_that_prints_fatal_error_is_left_to_the_caller(self):
+        compile_log = log("Fatal error: module map file not found")
+        self.assertIsNone(reds.classify(compile_log, compile_log, "cmux app scheme compile (Debug)"))
+        self.assertTrue(reds.classify(compile_log, compile_log, "cmux-next swift test").own)
+
+    def test_crash_words_inside_a_test_result_line_are_not_a_crash_but_a_killed_helper_is(self):
+        quoting = log("◇ Test run started.", "◇ Test t() started.",
+                      '✘ Test t() recorded an issue at A.swift:1:2: Expectation failed: (m → "Terminating app due to '
+                      'uncaught exception; Fatal Python error; EXC_GUARD") == "x"',
+                      "✘ Test t() failed after 0.1 seconds with 1 issue.",
+                      "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.")
+        self.assertEqual(reds.read(quoting).crashes, [])
+        self.assertTrue(reds.read(log("✔ Test a() perror: Process '/x/helper --a' exited with unexpected signal code 6"))
+                        .crashes)
+
+    def test_duplicate_names_odd_counts_and_other_frameworks_cut_short(self):
+        dup = log("◇ Test run started.", "✔ Test foo() passed after 0.1 seconds.", "✔ Test foo() passed after 0.1 seconds.",
+                  "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.")
+        self.assertTrue(reds.read(dup).truncated)
+        reds.read(log("✔ Test run with " + "9" * 5000 + " tests in 1 suite passed after 0.1 seconds."))
+        for cut in (log("============================= test session starts ==============================",
+                        "FAILED test_mod.py::test_x"), log("FAIL: test_x (mod.T.test_x)")):
+            with self.subTest(cut):
+                self.assertTrue(reds.classify(cut, cut).own)
 
     def test_assertion_text_that_quotes_a_crash_or_a_hang_is_not_one(self):
         quoting = log("◇ Test run started.", "◇ Test parsesCrash() started.",
@@ -162,7 +187,7 @@ class PerTest(unittest.TestCase):
                      "Fatal error: Unexpectedly found nil while unwrapping an Optional value",
                      "Thread 0 Crashed:: EXC_BAD_ACCESS (SIGSEGV)"):
             with self.subTest(line):
-                self.assertTrue(reds.classify(log(line), log(line)).own)
+                self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
 
 
 class Demangle(unittest.TestCase):
