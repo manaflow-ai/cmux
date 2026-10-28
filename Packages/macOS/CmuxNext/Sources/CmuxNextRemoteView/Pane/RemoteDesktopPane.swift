@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextWakeups
 import CmuxNextCompat
 
 // Development builds only: the pane is not exposed in Release until the
@@ -44,6 +45,13 @@ public final class RemoteDesktopPane {
         didSet { view.capture.controller.isLocalShortcut = handlers.isLocalShortcut }
     }
 
+    /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): moves, drags and
+    /// mid-gesture scrolls reach the host at most twice per display frame. Nil sends each at once.
+    public var pointerFrames: FrameInputCoalescers? {
+        get { view.capture.pointerFrames }
+        set { view.capture.pointerFrames = newValue }
+    }
+
     /// The release chord, as bound in KeyboardShortcutSettings.
     public var releaseChord: RemoteReleaseChord {
         get { view.capture.controller.releaseChord }
@@ -58,12 +66,22 @@ public final class RemoteDesktopPane {
     private var permissionTasks: [RemoteUpstreamKind: Task<Void, Never>] = [:]
 
     public let presenterKind: RemotePresenterKind
+    /// The app's main-thread scheduler: frames, the first frame's state change, status and cursor apply in its
+    /// visible class (the remote screen's own updates).
+    private let mainWork: MainWorkScheduler
     private let source: any RemoteViewStreamSource
     /// The input controller holds its sink weakly; the pane owns it.
     private let inputSink: (any RemoteViewInputSink)?
     private let presenter: any RemoteFramePresenter
     private var tasks: [Task<Void, Never>] = []
     private var pipeline: RemoteDecodePipeline?
+    /// The running session's frame gate: closed at `stop()`, so a hidden pane presents nothing.
+    private var delivery: RemoteFrameGate?
+    /// Runs once per started session when the pane shows its own content: the first frame went on
+    /// screen, or the session ended before one did (the card says why). A woken tab's last frame
+    /// then goes (`BrowserWakeCover`).
+    public var onOwnContent: (() -> Void)?
+    private var awaitsOwnContent = false
     /// Armed while no frame was shown in this session; the first decoded
     /// frame consumes it and tells the reducer (`frameShown`).
     private let firstFrame = OneShotSignal()
@@ -72,6 +90,7 @@ public final class RemoteDesktopPane {
         hostName: String,
         source: any RemoteViewStreamSource,
         inputSink: (any RemoteViewInputSink)?,
+        mainWork: MainWorkScheduler,
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
         presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
         initialMode: RemoteControlMode = .control,
@@ -79,9 +98,10 @@ public final class RemoteDesktopPane {
     ) {
         self.source = source
         self.inputSink = inputSink
+        self.mainWork = mainWork
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
-        self.presenter = RemoteFramePresenters().make(presenter)
+        self.presenter = RemoteFramePresenters().make(presenter, mainWork: mainWork)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
         view.video.scaling = scaling
@@ -90,6 +110,7 @@ public final class RemoteDesktopPane {
         self.presenter.onFrameSize = { [weak self] size in
             self?.view.video.setFramePixels(size)
         }
+        self.presenter.onFrameShown = { [weak self] in self?.frameShown() }
         wireChrome()
         view.render(state: state, settings: settings)
     }
@@ -99,10 +120,23 @@ public final class RemoteDesktopPane {
         guard tasks.isEmpty else { return }
         let presenter = self.presenter
         let firstFrame = self.firstFrame
-        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
-            presenter.present(frame)
-            guard firstFrame.consume() else { return }
-            Task { @MainActor in self?.apply(.frameShown) }
+        let gate = RemoteFrameGate()
+        delivery = gate
+        awaitsOwnContent = true
+        let work = mainWork
+        let owner = work.board.owner("remote-view.session")
+        // One visible task per change, in arrival order (one class queue is FIFO); a task of a stopped session (its
+        // gate is no longer the pane's) does nothing.
+        let post: @Sendable (@escaping @MainActor @Sendable (RemoteDesktopPane) -> Void) -> Void = { [weak self] change in
+            // node-free: the gate closes at stop(), when the pane hides; a stopped session's late change is dropped.
+            work.postFromAnyThread(.visible, owner: owner) { [weak self] in
+                guard let self, delivery === gate else { return }
+                change(self)
+            }
+        }
+        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { frame in
+            guard gate.deliver(frame, to: presenter), firstFrame.consume() else { return }
+            post { $0.apply(.frameShown) }
         }
         if let frameSource = source as? any RemoteViewFrameSource {
             let frames = frameSource.decodedFrames()
@@ -115,12 +149,14 @@ public final class RemoteDesktopPane {
             tasks.append(Task.detached(priority: .userInitiated) { await pipeline.run() })
         }
         let statuses = source.statusUpdates()
-        tasks.append(Task { [weak self] in
-            for await status in statuses { self?.apply(.status(status)) }
+        // task-owner: the session's status, read off main; ends at stop() or when the source finishes it.
+        tasks.append(Task { @concurrent in
+            for await status in statuses { post { $0.apply(.status(status)) } }
         })
         let cursors = source.cursorUpdates()
-        tasks.append(Task { [weak self] in
-            for await cursor in cursors { self?.view.video.setRemoteCursor(cursor) }
+        // task-owner: the remote cursor, read off main; ends at stop() or when the source finishes it.
+        tasks.append(Task { @concurrent in
+            for await cursor in cursors { post { $0.view.video.setRemoteCursor(cursor) } }
         })
     }
 
@@ -128,6 +164,8 @@ public final class RemoteDesktopPane {
     /// (a hidden or closed tab never sends media). The last frame stays.
     public func stop() {
         stopAllUpstreams()
+        delivery?.close()
+        delivery = nil
         for task in tasks { task.cancel() }
         tasks.removeAll()
         pipeline = nil
@@ -142,6 +180,22 @@ public final class RemoteDesktopPane {
     /// The size of the last presented frame, in stream pixels (debug surfaces, tests).
     public var framePixels: CGSize { view.video.framePixels }
 
+    /// The frame on screen, kept while the pane is stopped.
+    public var lastFrame: RemoteDecodedFrame? { presenter.shownFrame }
+
+    /// The pane as drawn with its last frame in the video (a hidden tab's picture); nil before
+    /// the first frame, or while the pane shows a card over it (then `cacheDisplay` draws it all).
+    public func picture() async -> CGImage? {
+        guard let frame = lastFrame, state.overlay == nil, let image = await frame.picture() else { return nil }
+        return view.video.composite(image, in: view)
+    }
+
+    private func frameShown() {
+        guard awaitsOwnContent else { return }
+        awaitsOwnContent = false
+        onOwnContent?()
+    }
+
     /// Frames replaced before display by the latest-frame-wins presenter.
     public var discardedFrames: Int { presenter.discardedFrames }
 
@@ -153,6 +207,8 @@ public final class RemoteDesktopPane {
         guard next != state else { return }
         state = next
         view.render(state: state, settings: settings)
+        // The card says why the session ended: the pane shows its own content.
+        if next.isEnded { frameShown() }
     }
 
     private func wireChrome() {
@@ -187,6 +243,7 @@ public final class RemoteDesktopPane {
         }
         guard state.showsUpstreamButtons, permissionTasks[kind] == nil, let control = upstreamControl else { return }
         let permissions = upstreamPermissions
+        // main-hop-allow: the person's share press: request is the main-actor async macOS permission prompt (it waits on the person); the task only holds its answer and sends it
         permissionTasks[kind] = Task { [weak self] in
             let granted = await permissions.request(kind)
             guard let self else { return }

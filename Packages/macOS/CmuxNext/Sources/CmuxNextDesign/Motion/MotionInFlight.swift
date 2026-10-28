@@ -105,6 +105,7 @@ extension MotionGate {
                                       completion: (@MainActor @Sendable () -> Void)?) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
+        MotionActivity.began(seconds: duration(token))
         let spring = self.spring(token)
         let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
         let finished = traced("appkit.\(token.rawValue)", completion)

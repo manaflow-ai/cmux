@@ -9,8 +9,9 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
-  url: "cmux-agent://pane/index.html",
+// The agent page on the page host's WebKit, the one page that frames renders.
+const dom = new JSDOM('<!doctype html><html data-engine="webkit"><div id=root></div></html>', {
+  url: "cmux-page://cmux.agent/index.html",
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });

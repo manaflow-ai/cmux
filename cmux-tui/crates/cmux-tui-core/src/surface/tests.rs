@@ -1,6 +1,7 @@
 //! Unit tests for the surface module, split by topic under surface/tests/.
 //! This file holds the writers that the input and clear-history topics share.
 
+mod allocation_counter;
 mod attach_tap;
 mod byte_mirror;
 mod child_process;
@@ -8,22 +9,34 @@ mod clear_history;
 mod clear_history_tests;
 #[cfg(unix)]
 mod clipboard_read;
+mod cold_scrollback;
 mod colors;
+mod directory_publication;
+#[cfg(unix)]
+mod echo_flow;
 mod hosted;
+#[cfg(unix)]
+mod hosted_input_outage;
 mod input;
 mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+mod poisoned_locks;
+#[cfg(unix)]
+mod read_loop;
 mod render_geometry;
 #[cfg(unix)]
 mod resize_audit;
 #[cfg(unix)]
 mod resize_conformance;
+#[cfg(unix)]
+mod resize_sequence;
 mod stream_progress;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;
 
+use super::spawn::LocalEnd;
 use super::*;
 use crate::MuxEvent;
 

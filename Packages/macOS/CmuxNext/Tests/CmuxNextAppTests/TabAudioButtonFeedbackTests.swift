@@ -19,7 +19,7 @@ import Testing
             var tabs = (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "A page with a long enough title \($0)") }
             tabs[1].audio = audio
             model = TabStripModel(tabs: tabs, selectedID: TabID("tab0"))
-            strip = TabStripView(model: model)
+            strip = TabStripView.testing(model: model)
             strip.dragsWindowFromEmptySpace = false
             strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
             window.contentView = strip

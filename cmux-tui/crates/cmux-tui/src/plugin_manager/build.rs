@@ -2,9 +2,10 @@
 //! deadline that kills the whole group.
 
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use cmux_process::{Child, Command, Stdio};
 
 use super::{PLUGIN_BUILD_TIMEOUT, PluginManifest};
 
@@ -92,10 +93,7 @@ pub(super) fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyh
     let mut command = Command::new(&build.command[0]);
     command.args(&build.command[1..]).current_dir(dir).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    command.process_group(0);
     scrub_plugin_build_environment(&mut command);
     run_plugin_build_command(&mut command, PLUGIN_BUILD_TIMEOUT)
 }

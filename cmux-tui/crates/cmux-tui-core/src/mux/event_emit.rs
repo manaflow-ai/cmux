@@ -1,10 +1,27 @@
 //! Subscriptions and event emission: mux event, config reload, attached surface and session subscriptions, and the emit_* helpers that publish terminal and tree events.
 
 use super::*;
+use crate::event_cause::EventCause;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
+    }
+
+    /// The verified app's subscription: every event, delivered before any
+    /// other subscriber's.
+    pub(crate) fn subscribe_frontend(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_frontend()
+    }
+
+    /// A subscription that receives only events of `kinds` (a page relay's
+    /// interest set): the bus never queues the others for it.
+    pub(crate) fn subscribe_kinds(
+        &self,
+        kinds: crate::event_bus::MuxEventKinds,
+    ) -> MuxEventReceiver {
+        self.subscribers.subscribe_kinds(kinds)
     }
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
@@ -16,14 +33,14 @@ impl Mux {
         const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
         let request = {
-            let mut state = self.config_reload.lock().unwrap();
+            let mut state = self.config_reload.lock().recover_poison();
             state.requested = state.requested.saturating_add(1);
             state.requested
         };
         self.emit(MuxEvent::ConfigReloadRequested);
 
         let deadline = Instant::now() + APPLY_TIMEOUT;
-        let mut state = self.config_reload.lock().unwrap();
+        let mut state = self.config_reload.lock().recover_poison();
         while state.applied < request {
             if self.shutting_down.load(Ordering::Acquire) {
                 return Err(ConfigReloadError::OwnerStopped);
@@ -31,8 +48,12 @@ impl Mux {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(ConfigReloadError::TimedOut);
             };
-            let (next, timeout) =
-                self.config_reload_changed.wait_timeout(state, remaining).unwrap();
+            let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
+                &self.config_reload_changed,
+                state,
+                remaining,
+            )
+            .recover_poison();
             state = next;
             if timeout.timed_out() && state.applied < request {
                 return Err(ConfigReloadError::TimedOut);
@@ -43,12 +64,12 @@ impl Mux {
 
     /// Capture the newest request that the owner is about to apply.
     pub fn begin_config_reload_application(&self) -> u64 {
-        self.config_reload.lock().unwrap().requested
+        self.config_reload.lock().recover_poison().requested
     }
 
     /// Publish completion after the owner applies the captured request.
     pub fn complete_config_reload_application(&self, request: u64) {
-        let mut state = self.config_reload.lock().unwrap();
+        let mut state = self.config_reload.lock().recover_poison();
         state.applied = state.applied.max(request);
         drop(state);
         self.config_reload_changed.notify_all();
@@ -59,7 +80,7 @@ impl Mux {
     }
 
     pub fn subscribe_surface_session(&self, surface: SurfaceId) -> Option<MuxEventReceiver> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let pane = state.pane_of(surface)?;
         let (workspace_index, screen_index) = state.screen_of(pane)?;
         let workspace = state.workspaces.get(workspace_index)?;
@@ -67,12 +88,18 @@ impl Mux {
         Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
     }
 
+    /// Publish `event` to every subscriber, stamped with this thread's
+    /// [`EventCause`]: the cause of the request being handled, or `Program`
+    /// outside one (PTY output, OSC titles, hooks, reaps). Under the state
+    /// lock the event is only queued: subscribers get it, in order, when
+    /// this thread releases the lock.
     pub fn emit(&self, event: MuxEvent) {
+        let cause = EventCause::current();
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
         }
-        self.subscribers.emit(event);
+        self.subscribers.emit_caused(event, cause);
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
@@ -82,7 +109,7 @@ impl Mux {
     }
 
     pub(super) fn terminal_event_placements(&self, surface_id: SurfaceId) -> Vec<SurfaceId> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let Some(surface) =
             state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id))
         else {
@@ -186,7 +213,7 @@ impl Mux {
         if let Some(hook) = before_empty_check {
             hook();
         }
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if state.workspaces.is_empty() && state.workspace_revision == workspace_revision {
             self.emit(MuxEvent::Empty);
         }

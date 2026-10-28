@@ -1,5 +1,8 @@
 //! A terminal-host process started ahead of its terminal (R81).
 
+#[cfg(test)]
+use cmux_process::Command;
+
 use super::*;
 
 /// A terminal-host process started before its terminal exists (R81: a
@@ -23,8 +26,9 @@ impl StandbyTerminalHost {
         // never run skewed builds.
         // On macOS: its content-addressed copy outside the app bundle, with no
         // path in its command line (host_exe.rs, cx-0tgl LF).
-        // No pre_exec: std then starts the host with posix_spawn instead of
-        // fork(), whose cost grew with every daemon thread (host_session.rs).
+        // Through cmux_process: posix_spawn instead of fork(), whose cost grew
+        // with every daemon thread (host_session.rs), and the host gets only
+        // its 0-2 (POSIX_SPAWN_CLOEXEC_DEFAULT on macOS).
         // A durable host must not share the daemon's controlling terminal,
         // session, or process group (a shell hangup or group interrupt meant
         // for the daemon would kill every hosted PTY), and the host and its
@@ -32,7 +36,7 @@ impl StandbyTerminalHost {
         // both as its first steps (`enter_terminal_host_process`).
         let session_env = host_session_env();
         let orphan_env = host_orphan_env();
-        let child = crate::host_exe::spawn_host(|command| {
+        let child = crate::host_exe::spawn_host_isolated(|command| {
             for (name, value) in session_env.iter().chain(&orphan_env) {
                 command.env(name, value);
             }
@@ -44,6 +48,7 @@ impl StandbyTerminalHost {
                 // A host outlives its daemon, so it must not retain a daemon
                 // log pipe whose EOF is itself used as a lifecycle signal.
                 .stderr(Stdio::null());
+            Ok(())
         })
         .context("spawn terminal-host process")?;
         let host_pid = child.id();

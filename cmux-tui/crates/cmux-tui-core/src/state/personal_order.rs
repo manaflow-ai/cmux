@@ -125,6 +125,7 @@ pub(crate) fn created_workspaces(
 /// record of its own (one record per commit); it bumps `personal_revision`,
 /// and the placement changes join the creating commit's `session.events`
 /// batch so clients that rebuild from events see them.
+#[track_caller]
 pub(crate) fn place_created_workspaces(
     transaction: &Transaction<'_>,
     created: &CreatedWorkspaces,
@@ -135,6 +136,7 @@ pub(crate) fn place_created_workspaces(
     place_created_workspaces_at(transaction, created, NewWorkspacePlacement::current())
 }
 
+#[track_caller]
 pub(crate) fn place_created_workspaces_at(
     transaction: &Transaction<'_>,
     created: &CreatedWorkspaces,
@@ -149,6 +151,7 @@ pub(crate) fn place_created_workspaces_at(
     Ok(())
 }
 
+#[track_caller]
 fn place_created_rows(
     transaction: &Transaction<'_>,
     created: &CreatedWorkspaces,

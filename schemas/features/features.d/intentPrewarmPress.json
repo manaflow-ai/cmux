@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "intentPrewarmPress",
+  "owner": "PL-switch",
+  "description": "A press on a sidebar row that switches only when the button comes up (multi-view rows, a row of a multi-selection) wakes that row's frozen or hibernated browser page in the background at once, at most two at once, never in Low Power Mode on battery or under memory pressure.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["tab-switch", "sidebar"],
+  "sticky": false,
+  "runtimeMutable": false
+}

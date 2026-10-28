@@ -8,23 +8,27 @@
 
 use super::*;
 use crate::Actor;
+use crate::diagnostics::LockCaller;
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
-    valid_sha256_hex,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, OpenStreamRefusal, PeerProcess, RequestOrigin,
+    forbidden, mint_token, needs_user, valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
+use cmux_threads::checked::fs as files;
 
 /// Applies the origin rules to one parsed `cmux.protocol/2` line, then
 /// validates and dispatches the same parse. The origin rules run before
 /// the envelope and catalog validation, so a refused origin learns nothing
-/// from validation.
+/// from validation. `span` is the request's latency span, which a request
+/// answered on a work item takes along.
 pub(super) fn handle_resource_line(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
     envelope: Result<RequestEnvelope, ResourceError>,
     writer: &MessageWriter,
+    span: &mut RequestSpan<'_>,
 ) -> bool {
     let mut envelope = match envelope {
         Ok(envelope) => envelope,
@@ -51,7 +55,7 @@ pub(super) fn handle_resource_line(
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     crate::debug_spans::mark("origin.admitted");
     match admitted {
-        Ok(request) => handle_resource_connection_message(mux, client, request, writer),
+        Ok(request) => handle_resource_connection_message(mux, client, request, writer, span),
         Err(error) => {
             if operation == ResourceOperation::HistoryTrailRecord {
                 // The trail's failure log (cx-hnmbt.14): an origin refusal
@@ -115,7 +119,7 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
@@ -187,8 +191,19 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::Page
 }
 
+/// Stores the caller class `record`'s origin derives on its writer, where
+/// its reader and dispatcher read it without the clients lock
+/// (`debug-daemon-locks`). Called wherever the origin's role or
+/// `verified_app` changes, under the clients lock.
+fn sync_lock_caller(record: &ClientRecord) {
+    record.writer.lock_caller.set(match record.origin.derive() {
+        RequestOrigin::User => LockCaller::Frontend,
+        RequestOrigin::Page | RequestOrigin::Agent | RequestOrigin::App => LockCaller::Automation,
+    });
+}
+
 /// The origin `client` derives; a client with no record is an agent.
-fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
@@ -286,19 +301,20 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 /// The conversation events a page-bound connection of the Channels page
 /// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
-    [
-        "conversation-changed",
-        "conversation-typing",
-        "conversation-draft",
-        "conversation-run-changed",
-        "conversation-live",
-        "conversation-inbox-changed",
-        "chief-changed",
-        "participant-avatar-changed",
-    ]
-    .map(String::from)
-});
+pub(super) static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> =
+    std::sync::LazyLock::new(|| {
+        [
+            "conversation-changed",
+            "conversation-typing",
+            "conversation-draft",
+            "conversation-run-changed",
+            "conversation-live",
+            "conversation-inbox-changed",
+            "chief-changed",
+            "participant-avatar-changed",
+        ]
+        .map(String::from)
+    });
 
 /// The subscribe events a page relay connection hears (page-router.json
 /// `events` of its page; none for a relay without a page), a page-bound
@@ -337,8 +353,10 @@ pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::Ap
 }
 
 /// Fixes `client`'s hello role (step 1), and `verified_app` when prover A
-/// (the app's code signature) passed for a role-main hello. False when the
-/// client is gone or already has a role; nothing changes then.
+/// (the app's code signature) passed for a role-main hello. A page relay
+/// serves one `page`, or with `streams` opens page streams instead
+/// (`page-streams-v1`). False when the client is gone or already has a
+/// role; nothing changes then.
 pub(super) fn set_hello(
     mux: &Mux,
     client: u64,
@@ -346,6 +364,7 @@ pub(super) fn set_hello(
     peer_key: Option<String>,
     signature_proved: bool,
     page: Option<String>,
+    streams: bool,
 ) -> bool {
     let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
@@ -357,25 +376,152 @@ pub(super) fn set_hello(
         record.origin.peer_key = peer_key;
     }
     record.origin.page = page;
+    record.origin.page_streams =
+        (role == HelloRole::PageRelay && streams).then(crate::request_origin::PageStreams::default);
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
+    sync_lock_caller(record);
+    let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
+    if let Some(Some(peer_key)) = verified_process {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
-/// Records kernel peer identity at accept, before a legacy client can skip hello.
-pub(super) fn set_peer_identity_at_accept(
+/// Opens page stream `stream` of `page` on `client`, a streamed page relay,
+/// and returns its relay id (the `relay_connection_id` of a confirmation for
+/// it). The id comes from the connection id counter, so it never names a
+/// connection or an earlier stream. A relay holds at most as many streams
+/// as the daemon holds connections: each stream stands for what was one
+/// page relay connection.
+pub(super) fn open_page_stream(
     mux: &Mux,
     client: u64,
+    stream: std::num::NonZeroU16,
+    page: String,
+) -> Result<u64, OpenStreamRefusal> {
+    let relay_id = mux.control_clients.next_id.fetch_add(1, Ordering::Relaxed);
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    let record = state.clients.get_mut(&client).ok_or(OpenStreamRefusal::NotStreamed)?;
+    record.origin.open_page_stream(stream, page, relay_id, MAX_SERVER_CONNECTIONS)?;
+    Ok(relay_id)
+}
+
+/// Closes page stream `stream` of `client` and every token issued for it.
+/// False when it was not open.
+pub(super) fn close_page_stream(mux: &Mux, client: u64, stream: std::num::NonZeroU16) -> bool {
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get_mut(&client).is_some_and(|record| record.origin.close_page_stream(stream))
+}
+
+/// The accepted peer's kernel identity: its process key, whether it runs in
+/// one of this session's terminals, whether it is this build's bundled
+/// phone host, and its process class.
+///
+/// [`AcceptedPeer::resolve`] reads the peer's executable (procfs on Linux,
+/// the audit token on macOS) and canonicalizes paths, which may block. A
+/// connection's reader resolves it as its setup, before it disallows
+/// blocking (`spawn_connection_reader`), as Chromium does file work in a
+/// `MayBlock` task and never on a thread that serves messages
+/// (p02-threads 309). A blocking call there stalls only that connection,
+/// before its first message.
+pub(super) struct AcceptedPeer {
     peer_key: Option<String>,
-    peer_token: Option<cmux_link::app_caller::PeerToken>,
-) {
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
-        .is_some_and(|path| is_bundled_mobile_host_path(&path));
+    local_peer: LocalPeer,
+    mobile_host: bool,
+    peer_process: PeerProcess,
+}
+
+impl AcceptedPeer {
+    /// Reads `stream`'s peer identity. May block: never call it on a thread
+    /// that disallows blocking.
+    pub(super) fn resolve(mux: &Mux, stream: &dyn transport::Stream) -> Self {
+        let peer_key = stream.peer_process_key();
+        let peer_token = stream.peer_token();
+        let peer_uid = stream.peer_uid();
+        let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+        let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
+        let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
+        // Windows sockets pass no descriptors: no peer there is direct.
+        #[cfg(unix)]
+        let peer_process = classify_peer_process(
+            peer_uid,
+            executable.as_deref(),
+            platform::effective_uid(),
+            daemon_executable(),
+        );
+        #[cfg(not(unix))]
+        let peer_process = {
+            let _ = peer_uid;
+            PeerProcess::Unverified
+        };
+        AcceptedPeer { peer_key, local_peer, mobile_host, peer_process }
+    }
+}
+
+/// Records the accepted peer's identity on `client`, before a legacy client
+/// can skip hello. Memory only: the identity was resolved before the reader
+/// disallowed blocking.
+pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer: AcceptedPeer) {
+    let AcceptedPeer { peer_key, local_peer, mobile_host, peer_process } = peer;
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
         record.origin.mobile_host = mobile_host;
+        record.origin.peer_process = peer_process;
+    }
+    drop(state);
+    // The peer is known now: a connection of the daemon's own journal plugin
+    // no longer counts as a client (orphan_shutdown.rs `client_count`), so the
+    // exit watchers look again.
+    mux.control_clients.notify_client_presence();
+}
+
+/// cmux's own executables beside the daemon's that splice a far client's
+/// bytes onto this socket: the `cmux` CLI (`cmux relay`, `cmux link dial`),
+/// the SSH helper and the remote daemon. A peer that runs one of them, or
+/// the daemon's own executable, may be a byte bridge, so it is classed as
+/// one: the daemon cannot see the subcommand, and a bridge cannot carry
+/// descriptors (server/capabilities.rs `IpcPeer::Bridged`).
+#[cfg(unix)]
+const BYTE_BRIDGE_NAMES: [&str; 5] =
+    ["cmux", "cmux-tui", "cmux-tui-ssh", "cmux-remote", "cmux-relay"];
+
+/// The daemon's own executable, canonical; `None` when it cannot be read.
+#[cfg(unix)]
+fn daemon_executable() -> Option<&'static Path> {
+    static OWN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    OWN.get_or_init(|| std::fs::canonicalize(std::env::current_exe().ok()?).ok()).as_deref()
+}
+
+/// Classifies the accepted peer from its kernel uid and executable. A peer
+/// with no uid, another uid (root), or no executable stays unverified.
+#[cfg(unix)]
+pub(super) fn classify_peer_process(
+    peer_uid: Option<u32>,
+    executable: Option<&Path>,
+    own_uid: u32,
+    daemon: Option<&Path>,
+) -> PeerProcess {
+    let (Some(uid), Some(executable)) = (peer_uid, executable) else {
+        return PeerProcess::Unverified;
+    };
+    if uid != own_uid {
+        return PeerProcess::Unverified;
+    }
+    let Ok(executable) = std::fs::canonicalize(executable) else {
+        return PeerProcess::Unverified;
+    };
+    let Some(daemon) = daemon else { return PeerProcess::Unverified };
+    let beside_daemon = executable.parent() == daemon.parent()
+        && executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| BYTE_BRIDGE_NAMES.contains(&name));
+    if executable == daemon || beside_daemon {
+        PeerProcess::ByteBridge
+    } else {
+        PeerProcess::SameUser
     }
 }
 
@@ -391,12 +537,12 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 fn is_bundled_mobile_host_path(path: &Path) -> bool {
     static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
-        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
-        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+        let own = files::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = files::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        files::metadata(&sibling).ok()?.is_file().then_some(sibling)
     });
     let Some(sibling) = sibling else { return false };
-    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+    files::canonicalize(path).is_ok_and(|path| &path == sibling)
 }
 
 /// The executable of the accepted peer, read so that a process that reused
@@ -487,6 +633,10 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bo
     }
     record.origin.verified_app = true;
     record.origin.install_id = Some(install_id.to_string());
+    sync_lock_caller(record);
+    if let Some(peer_key) = record.origin.peer_key.clone() {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -555,13 +705,30 @@ fn issue(
         return Err(needs_user(derived));
     }
     let caller_peer = caller.peer_key.clone();
-    let same_peer_relay = state.clients.get_mut(&relay).filter(|record| {
-        relay != client
-            && record.origin.role == HelloRole::PageRelay
-            && caller_peer.is_some()
-            && record.origin.peer_key == caller_peer
+    // `relay` names a one-page relay connection, or one page stream of a
+    // streamed relay; a streamed relay's own connection id names none of
+    // its pages, so a token for it would act for no page and is refused.
+    let endpoint = state
+        .clients
+        .get(&relay)
+        .filter(|record| record.origin.page_streams.is_none())
+        .map(|_| (relay, None))
+        .or_else(|| {
+            let mut streamed = state.clients.iter();
+            streamed
+                .find(|(_, record)| record.origin.has_page_stream(relay))
+                .map(|(id, _)| (*id, Some(relay)))
+        });
+    let same_peer_relay = endpoint.and_then(|(connection, endpoint)| {
+        let record = state.clients.get_mut(&connection).filter(|record| {
+            connection != client
+                && record.origin.role == HelloRole::PageRelay
+                && caller_peer.is_some()
+                && record.origin.peer_key == caller_peer
+        })?;
+        Some((record, endpoint))
     });
-    let Some(relay_record) = same_peer_relay else {
+    let Some((relay_record, endpoint)) = same_peer_relay else {
         return Err(forbidden(
             "the relay connection is not a page relay of the same app",
             json!({"required": "user", "derived": derived.wire_name(), "reason": "relay_mismatch"}),
@@ -571,6 +738,7 @@ fn issue(
         token.clone(),
         operation,
         params_sha256,
+        endpoint,
         deadline_ms,
         now_ms,
     );
@@ -596,7 +764,9 @@ mod test_hooks {
 
     fn with_origin(mux: &Arc<Mux>, client: u64, change: impl FnOnce(&mut ConnectionOrigin)) {
         let mut state = mux.control_clients.state.lock().recover_poison();
-        change(&mut state.clients.get_mut(&client).expect("registered client").origin);
+        let record = state.clients.get_mut(&client).expect("registered client");
+        change(&mut record.origin);
+        sync_lock_caller(record);
     }
 
     pub(in crate::server) fn set_role_for_test(mux: &Arc<Mux>, client: u64, role: &str) {
@@ -610,6 +780,14 @@ mod test_hooks {
         verified: bool,
     ) {
         with_origin(mux, client, |origin| origin.verified_app = verified);
+    }
+
+    pub(in crate::server) fn set_peer_process_for_test(
+        mux: &Arc<Mux>,
+        client: u64,
+        peer: PeerProcess,
+    ) {
+        with_origin(mux, client, |origin| origin.peer_process = peer);
     }
 
     /// What accept sets for a connection from the bundled cmux-mobile-host.
@@ -657,6 +835,10 @@ mod tests;
 mod page_access_tests;
 
 #[cfg(all(test, unix))]
+#[path = "page_stream_tests.rs"]
+mod page_stream_tests;
+
+#[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]
 mod pairing_gate_tests;
 
@@ -664,26 +846,6 @@ mod pairing_gate_tests;
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
 
-/// The peer executable is read only while the peer key or token still
-/// names the same process (review 2 finding 3): a stale pid version, as a
-/// process that reused the pid would have, reads nothing.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-mod peer_executable_tests {
-    use super::peer_executable;
-    use crate::platform::transport::Stream;
-
-    #[test]
-    fn peer_executable_needs_the_peers_own_pid_version() {
-        let (ours, _theirs) = std::os::unix::net::UnixStream::pair().unwrap();
-        let key = Stream::peer_process_key(&ours);
-        let token = Stream::peer_token(&ours);
-        let own = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
-        let read = peer_executable(key.as_deref(), token.as_ref()).expect("our own executable");
-        assert_eq!(std::fs::canonicalize(read).unwrap(), own);
-        let key = key.unwrap();
-        let (pid, _) = key.split_once('.').unwrap();
-        let stale_key = format!("{pid}.1");
-        let stale_token = token.map(|token| token.with_pid_version_for_test(1));
-        assert_eq!(peer_executable(Some(&stale_key), stale_token.as_ref()), None);
-    }
-}
+#[path = "origin_gate_peer_executable_tests.rs"]
+mod peer_executable_tests;

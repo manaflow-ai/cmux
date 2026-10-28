@@ -72,6 +72,33 @@ nonisolated final class HistorySQLite {
 
     var changes: Int { Int(sqlite3_changes(handle)) }
 
+    /// SQLite's default page cache cap, in KiB (`SQLITE_DEFAULT_CACHE_SIZE`, -2000).
+    static let defaultCacheKiB = 2_000
+
+    /// Frees this connection's unused page cache: the clean pages no statement holds
+    /// (`sqlite3_db_release_memory`, as Chrome's `sql::Database::TrimMemory()` in sql/database.cc).
+    /// The next query reads them again from the file. It never calls the process-wide
+    /// `sqlite3_release_memory`, which reaches connections other actors own.
+    func releaseMemory() {
+        sqlite3_db_release_memory(handle)
+    }
+
+    /// The heap bytes this connection's page cache holds now (`SQLITE_DBSTATUS_CACHE_USED`), or
+    /// nil when SQLite refuses the query.
+    var cacheUsedBytes: Int? {
+        var current: Int32 = 0
+        var highwater: Int32 = 0
+        guard sqlite3_db_status(handle, SQLITE_DBSTATUS_CACHE_USED, &current, &highwater, 0) == SQLITE_OK else {
+            return nil
+        }
+        return Int(current)
+    }
+
+    /// Caps the page cache at `kibibytes` (`PRAGMA cache_size`); frees nothing by itself.
+    func limitCache(kibibytes: Int) throws {
+        try execute("PRAGMA cache_size = -\(max(kibibytes, 1))")
+    }
+
     struct Row {
         let statement: OpaquePointer?
 

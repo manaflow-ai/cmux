@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextInput
 
 /// Mock data and a standalone window for demoing the strip without the daemon.
 public struct TabStripDemo {
@@ -59,8 +60,11 @@ public struct TabStripDemo {
     }
 
     /// A window with two strips (drag tabs between them) and demo controls.
-    public static func makeWindow() -> NSWindow {
-        let controller = DemoContentView()
+    ///
+    /// - Parameter input: The app's input tap: the strips' Escape and closing-mode exits and the demo
+    ///   drag subscribe to it.
+    public static func makeWindow(input: InputEventTap) -> NSWindow {
+        let controller = DemoContentView(frame: .zero, input: input)
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 960, height: 400),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -70,6 +74,7 @@ public struct TabStripDemo {
         window.title = Strings.demoWindowTitle
         window.contentView = controller
         window.isReleasedWhenClosed = false
+        window.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         window.center()
         return window
     }

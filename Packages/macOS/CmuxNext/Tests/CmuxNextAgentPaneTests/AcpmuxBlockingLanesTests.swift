@@ -66,6 +66,11 @@ struct AcpmuxBlockingLanesTests {
             try await lanes.runSystem(priority, shutdown: shutdown, site: site, body)
         }
 
+        func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                                            _ body: @escaping @Sendable () throws -> T) async throws -> T {
+            try await lanes.runHostResolution(priority, shutdown: shutdown, site: site, body)
+        }
+
         func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
                        _ body: @escaping @Sendable () -> Void) {
             lanes.postFiles(priority, shutdown: shutdown, site: site, body)
@@ -130,9 +135,10 @@ struct AcpmuxBlockingLanesTests {
     @Test func aPersonLineToNoDaemonChecksNoFileOnTheMainThread() async throws {
         let environment = try Self.environment()
         defer { try? FileManager.default.removeItem(at: environment.home) }
+        let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
         let table = BlockingViolationTable(mode: .record)
         let line = await BlockingViolationTable.$scoped.withValue(table) {
-            await AcpmuxPersonLine.open(environment, deadline: .seconds(5))
+            await AcpmuxPersonLine.open(environment, deadlines: deadlines, deadline: .seconds(5))
         }
         await table.flush()
 

@@ -1,4 +1,5 @@
 public import CmuxNextRemoteView
+public import CmuxNextWakeups
 public import Foundation
 import Security
 
@@ -58,16 +59,27 @@ public final class LocalRemoteBrowserHost {
     /// takes seconds, not minutes).
     public static let defaultStartTimeout: Duration = .seconds(60)
 
+    /// The host's launcher: the person waits for this tab, so the spawn runs at userBlocking (Chromium's
+    /// launcher task runner is USER_BLOCKING, content/browser/child_process_launcher_helper.cc). The host
+    /// itself runs at userVisible for its whole life, its priority set apart from the spawn's as
+    /// `ChildProcessLauncherHelper::SetProcessPriority` does, so a CEF host never competes with the work a
+    /// frame waits for.
+    public static func defaultLauncher() -> ProcessLauncher {
+        ProcessLauncher(label: "com.cmuxterm.next.remote-browser-host", priority: .userBlocking, childPriority: .userVisible)
+    }
+
     /// Launches `executable` and returns once it listens. `workRoot` holds
     /// the per-host work directory (the CEF cache) and the host log. A host
     /// that does not listen within `timeout` (measured on `clock`) is
-    /// stopped and `start` throws `Failure.timedOut`.
+    /// stopped and `start` throws `Failure.timedOut`. `launcher` spawns it off the caller's thread (a
+    /// spawn takes hundreds of ms under memory pressure); nil is ``defaultLauncher()``.
     public static func start(
         executable: URL, pageURL: URL?, workRoot: URL = FileManager.default.temporaryDirectory,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         timeout: Duration = LocalRemoteBrowserHost.defaultStartTimeout, clock: any Clock<Duration> = ContinuousClock(),
-        secret: String? = nil
+        secret: String? = nil, launcher: ProcessLauncher? = nil
     ) async throws -> LocalRemoteBrowserHost {
+        let launcher = launcher ?? defaultLauncher()
         let name = "cmux-rb-host-\(UUID().uuidString)"
         let work = workRoot.appending(path: name, directoryHint: .isDirectory)
         let cache = work.appending(path: "cache", directoryHint: .isDirectory)
@@ -101,7 +113,7 @@ public final class LocalRemoteBrowserHost {
             exited.finish()
         }
         do {
-            try process.run()
+            try await launcher.launched(process)
         } catch {
             try? FileManager.default.removeItem(at: work)
             throw Failure.launch(String(describing: error))
@@ -112,41 +124,24 @@ public final class LocalRemoteBrowserHost {
         try? output.fileHandleForWriting.close()
         try? errorLog?.close()
         try? input.fileHandleForWriting.write(contentsOf: Data((secret + "\n").utf8))
-        // The start deadline: when it fires first, stopping the host ends its
-        // stdout, which ends the read below. Cancelled once the host listens.
-        let deadline = StartDeadline()
-        let deadlineTask = Task {
-            do {
-                // wakeup-allow: one-shot bounded start deadline on the injected clock, cancelled when the host listens or exits.
-                try await clock.sleep(for: timeout)
-            } catch {
-                return
-            }
-            // A sleep can end at the moment `start` cancels it (the host
-            // listened). Both run on the main actor, so a cancelled task here
-            // means the host listened or exited: never stop it then.
-            guard !Task.isCancelled else { return }
-            deadline.fired = true
-            try? input.fileHandleForWriting.close()
-            process.terminate()
-        }
-        defer { deadlineTask.cancel() }
-        var listening: RemoteBrowserHostListening?
+        // The start deadline is a Deadline race with the read of the host's listening line: when it wins, the host is
+        // stopped (its lifeline closed and SIGTERM). The read ends at the first listening line, or at end of file (the
+        // host exited).
+        let lines = output.fileHandleForReading
+        let lifelineEnd = input.fileHandleForWriting
+        let listening: RemoteBrowserHostListening?
         do {
-            // Ends at the first listening line, or at end of file (the host exited).
-            for try await line in output.fileHandleForReading.bytes.lines {
-                listening = RemoteBrowserHostListening(line: line)
-                if listening != nil { break }
-            }
+            listening = try await Deadline(timeout, clock: clock).run("remote-browser-host.start", onTimeout: {
+                try? lifelineEnd.close()
+                process.terminate()
+            }) { await Self.firstListening(lines) }
+        } catch is Deadline.Exceeded {
+            throw Failure.timedOut(seconds: Int(timeout.components.seconds), log: log)
         } catch {
             listening = nil
         }
-        deadlineTask.cancel()
-        guard let listening, !deadline.fired else {
+        guard let listening else {
             try? input.fileHandleForWriting.close()
-            if deadline.fired {
-                throw Failure.timedOut(seconds: Int(timeout.components.seconds), log: log)
-            }
             throw Failure.exitedBeforeListening(log: log)
         }
         return LocalRemoteBrowserHost(endpoint: listening.endpoint, secret: secret, process: process, lifeline: input.fileHandleForWriting,
@@ -163,6 +158,18 @@ public final class LocalRemoteBrowserHost {
         self.output = output
         self.exits = exits
         self.logURL = logURL
+    }
+
+    /// The host's first listening line on `lines` (its stdout), or nil at end of file. Off main: it reads a pipe.
+    @concurrent private nonisolated static func firstListening(_ lines: FileHandle) async -> RemoteBrowserHostListening? {
+        do {
+            for try await line in lines.bytes.lines {
+                if let listening = RemoteBrowserHostListening(line: line) { return listening }
+            }
+        } catch {
+            return nil
+        }
+        return nil
     }
 
     /// 32 bytes from `SecRandomCopyBytes` as 64 lowercase hex characters
@@ -186,10 +193,4 @@ public final class LocalRemoteBrowserHost {
         for await status in exits { return status }
         return nil
     }
-}
-
-/// Whether a host's start deadline fired (main actor).
-@MainActor
-private final class StartDeadline {
-    var fired = false
 }

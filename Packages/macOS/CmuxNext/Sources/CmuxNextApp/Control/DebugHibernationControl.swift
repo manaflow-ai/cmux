@@ -1,31 +1,40 @@
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextSettings
 
 /// The memory methods of the control socket:
 ///
 /// - `debug.memory` (every build, read-only): ``DebugMemoryControl``.
+/// - `debug.discards` (every build, read-only): cmux's chrome://discards, the nine content kinds and
+///   one row per content the discard planner's owners report (`ContentDiscardReport.report`). Rows
+///   carry tab keys only, no URL, title or path, so release builds serve it, as Chrome ships
+///   chrome://discards.
 /// - `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override, which
 ///   the coordinator hands to browser tab hibernation (a registered `MemoryLevelConsumer`), so the fleet
 ///   benches (scripts/measure/tab-hibernation.sh) measure pressure without `sudo memory_pressure`.
 ///   `level` is normal, warning or critical and holds for both, whatever the kernel reports, until
 ///   `none` clears it and hands both the kernel's level again. The reply keeps `pressure`
 ///   (hibernation's level) and adds the coordinator's `level` and the `override`. `debug.memory`'s
-///   pressure history records each override.
+///   pressure history and histograms record each override.
 @MainActor
 enum DebugHibernationControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
-        let memory = DebugMemoryControl(services: services)
+        let memory = DebugMemoryControl(services: services, budget: .forThisMac(gpuResidentAvailable: services.cache.gpuResidency != nil))
+        let discards = ControlMethod.mainActor("debug.discards") { [weak services] call in
+            .value((services?.cache.hibernation?.discards ?? ContentDiscardReport()).report(call.params, now: .now))
+        }.servingRelease()
         #if DEBUG || CMUX_BENCH_HOOKS
-        return [memory.method, pressureMethod(services, history: memory.history)]
+        return [memory.method, discards, pressureMethod(services, history: memory.history, histograms: memory.histograms)]
         #else
-        return [memory.method]
+        return [memory.method, discards]
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    private static func pressureMethod(_ services: AppServices, history: MemoryPressureHistory) -> ControlMethod {
+    private static func pressureMethod(_ services: AppServices, history: MemoryPressureHistory,
+                                       histograms: MemoryHistograms) -> ControlMethod {
         .mainActor("debug.hibernation.pressure") { [weak services] call in
             let raw = call.params["level"]?.stringValue
             let level = raw.flatMap(MemoryPressureLevel.init(rawValue:))
@@ -36,6 +45,7 @@ enum DebugHibernationControl {
             let coordinator = services.memoryCoordinator
             let reply = applyOverride(level, coordinator: coordinator, hibernation: services.cache.hibernation)
             history.overrideDidChange(coordinator.pressureOverride)
+            histograms.overrideDidChange(coordinator.pressureOverride)
             return .value(reply)
         }
     }

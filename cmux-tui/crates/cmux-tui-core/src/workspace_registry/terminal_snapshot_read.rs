@@ -5,6 +5,7 @@ use super::*;
 impl WorkspaceRegistry {
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
+    #[track_caller]
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         let revision = current_terminal_revision(&self.connection.get())?;
         let db = self.connection.get();

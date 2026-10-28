@@ -13,14 +13,20 @@ Downloads menu shows):
      file and size;
   2. never lists the incognito download.
 
-Quits through the quit action, relaunches, then quits the app through the
-socket (by PID if it hangs), stops the tag's daemons and deletes the
-downloaded files.
+Every launch goes through bench_launch.BenchApp (the bench env, a scratch
+cmux.json and Ghostty config, the window on the last screen, the GUI-session
+check). It may activate (the downloads are focused actions) and stays an
+isolated launch (CMUX_NEXT_ISOLATED_LAUNCH). Quits through the quit action and
+relaunches on the same tag with its saved state (launch_journey_report.relaunch),
+then BenchApp.stop quits the app (by PID if it hangs) and ends the tag's
+daemons; the downloaded files are deleted. A correctness check: it measures
+nothing, so it writes no result-v1.
 """
-import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import argparse, glob, http.server, json, os, subprocess, sys, tempfile, threading, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+import launch_journey_report as journey  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -33,15 +39,14 @@ APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
-with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
-    BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-SCRATCH = tempfile.mkdtemp(prefix=f"downloads-relaunch-{opts.tag}-")
-CONFIG = os.path.join(SCRATCH, "cmux.json")
+# One BenchApp for both launches: the second is a relaunch on the same tag.
+BENCH = BenchApp(APP, out=opts.out, config={}, window=None, screen="last", log_name="app.log",
+                 env={"CMUX_NEXT_NO_ACTIVATE": None, "CMUX_NEXT_ISOLATED_LAUNCH": "1"})
+if BENCH.tag != opts.tag:
+    sys.exit(f"--tag {opts.tag} is not the tag of {APP} ({BENCH.tag})")
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
-CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 failures = []
 RUN = os.urandom(4).hex()
 BODY = os.urandom(64 << 10)
@@ -85,14 +90,10 @@ def check(ok, what):
         failures.append(what)
 
 
-def write(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write(text)
-
-
 def cli(*args, timeout=30):
-    return subprocess.run([CLI, "--app-socket", SOCKET, *args], capture_output=True, text=True, timeout=timeout, env=CLI_ENV)
+    env = {**BASE_ENV, "CMUX_SOCKET_PATH": BENCH.socket, "CMUX_QUIET": "1"}
+    return subprocess.run([CLI, "--app-socket", BENCH.socket, *args], capture_output=True, text=True, timeout=timeout,
+                          env=env)
 
 
 def rpc(method, params=None):
@@ -142,21 +143,20 @@ def download(action, name, what):
     return done
 
 
-app = None
-
-
-def launch():
-    global app
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-                                          "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
-                           stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT)
-    print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
-    return wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+def launch(first):
+    """The first launch, or the relaunch on the same tag; raises LaunchError (a SystemExit) with the reason when the
+    app does not come up."""
+    if first:
+        BENCH.launch(timeout=120)
+        journey.remember(BENCH)
+    else:
+        journey.relaunch(BENCH, timeout=120)
+    print(f"app pid {BENCH.process.pid}, origin {ORIGIN}, out {opts.out}", flush=True)
+    return wait_for(lambda: "error" not in rpc("debug.focus"), "app socket", 120)
 
 
 def end(action):
+    app = BENCH.process
     rpc("action.run", {"action": action} if action != "quit" else {"id": "quit"})
     try:
         app.wait(timeout=30)
@@ -166,13 +166,8 @@ def end(action):
 
 
 written = []
-write(CONFIG, "{}\n")
-EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
-write(EMPTY_GHOSTTY, "")
-teardown = TagTeardown(APP)
-teardown.install()
 try:
-    launch()
+    launch(first=True)
     to_workspace()
     kept = {}
     for engine in ("webkit", "chromium"):
@@ -194,7 +189,7 @@ try:
           f"the new window is incognito: its page's record names no address ({tabs})")
     download("openBrowser.webkit", secret, "incognito")
     end("quit")
-    launch()
+    launch(first=False)
     after = downloads()
     print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
     for name, before in kept.items():
@@ -204,9 +199,7 @@ try:
               f"{name}: the finished download is listed after the relaunch ({found})")
     check(not any(d.get("filename") == secret for d in after), f"the incognito download is not listed after the relaunch ({after})")
 finally:
-    if app and app.poll() is None:
-        end("quitEndSessions")
-    teardown.end()
+    BENCH.stop()  # debug.quit ending the sessions (TERM, then KILL of its own PID), then the tag's daemons
     server.shutdown()
     server.server_close()
     for path in written:

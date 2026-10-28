@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -20,16 +21,22 @@ struct AcpmuxLaunchReadyWaitTests {
                                  daemonArguments: [], childEnvironment: [:])
     }
 
+    /// The launcher an `AcpmuxHost` keeps, one per test.
+    static func launcher() -> ChildProcessLauncher {
+        ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.acpmux-tests", priority: .userBlocking)
+    }
+
     static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=t"}"#
 
-    /// The launch blocks its caller's thread (the home's creation, the spawn), so it runs where
-    /// ``AcpmuxHost`` runs it: on a serial queue of its own, never this test's main actor.
+    /// The launch blocks its caller's thread (the home's creation), so it runs where ``AcpmuxHost``
+    /// runs it: on a serial queue of its own, never this test's main actor; the spawn goes to `launcher`.
     actor Launcher {
         private nonisolated let queue = DispatchSerialQueue(label: "test.acpmux-launch", qos: .userInitiated)
         nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
-        func launch(_ environment: AcpmuxEnvironment, deadline: Duration) async throws -> AcpmuxWebEndpoint {
-            try await AcpmuxDaemonLauncher.launch(environment, deadline: deadline)
+        func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
+                    launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
+            try await AcpmuxDaemonLauncher.launch(environment, deadline: deadline, launcher: launcher)
         }
     }
 
@@ -40,7 +47,7 @@ struct AcpmuxLaunchReadyWaitTests {
         i=0; while [ $i -lt 12 ]; do echo "loading $i"; sleep 0.2; i=$((i+1)); done
         echo '\(Self.readyLine)' >&3
         """)
-        let endpoint = try await Launcher().launch(environment, deadline: .seconds(1))
+        let endpoint = try await Launcher().launch(environment, deadline: .seconds(1), launcher: Self.launcher())
         #expect(endpoint.token == "t")
     }
 
@@ -48,7 +55,7 @@ struct AcpmuxLaunchReadyWaitTests {
         let environment = try Self.environment("echo started; sleep 30")
         let started = ContinuousClock.now
         await #expect(throws: (any Error).self) {
-            _ = try await Launcher().launch(environment, deadline: .seconds(1))
+            _ = try await Launcher().launch(environment, deadline: .seconds(1), launcher: Self.launcher())
         }
         #expect(ContinuousClock.now - started < .seconds(10))
     }
@@ -56,7 +63,7 @@ struct AcpmuxLaunchReadyWaitTests {
     @Test func aDaemonThatExitsFailsAtOnce() async throws {
         let environment = try Self.environment("echo bye; exit 3")
         await #expect(throws: AcpmuxDaemonLauncher.Failure.self) {
-            _ = try await Launcher().launch(environment, deadline: .seconds(20))
+            _ = try await Launcher().launch(environment, deadline: .seconds(20), launcher: Self.launcher())
         }
     }
 }

@@ -46,9 +46,8 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// disk: call it on a files lane.
     public static func keeps(session: String, home: URL?) -> Bool {
         guard let home, !session.isEmpty, session != ".", session != "..", !session.contains("/") else { return false }
-        var directory: ObjCBool = false
         let path = home.appendingPathComponent("sessions", isDirectory: true).appendingPathComponent(session).path
-        return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+        return AcpmuxPathPolicy.isDirectory(path)
     }
 
     /// Whether `_acpmux/sessions` result `listing` has `session` tagged `mux.parent` = `parentTag`.

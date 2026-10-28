@@ -10,8 +10,10 @@ use cmux_tui_cdp::{
 };
 
 use crate::browser_provider::{
-    BrowserProviderAuthentication, BrowserProviderHosting, BrowserProviderTargetLease,
+    BrowserProviderAuthentication, BrowserProviderHosting, BrowserProviderRegistry,
+    BrowserProviderTargetLease,
 };
+use crate::panic_free::RecoverPoison;
 use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -114,8 +116,8 @@ struct FrameViewer {
 
 impl FrameViewer {
     fn wake_worker(&self) {
-        let Some(tx) = self.command_tx.lock().unwrap().clone() else { return };
-        let mut order = self.command_order.lock().unwrap();
+        let Some(tx) = self.command_tx.lock().recover_poison().clone() else { return };
+        let mut order = self.command_order.lock().recover_poison();
         let wake = order.sequence(BrowserCommand::WakeLatest);
         let _ = tx.try_send(wake);
     }
@@ -689,7 +691,7 @@ impl SurfaceRoute {
 
     /// Returns true when the route must be removed from the runtime maps.
     fn deliver(&self, event: CdpEvent) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return true;
         }
@@ -732,7 +734,7 @@ impl SurfaceRoute {
     }
 
     fn recv(&self) -> Option<CdpEvent> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(queued) = state.events.pop_front() {
                 state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
@@ -741,12 +743,12 @@ impl SurfaceRoute {
             if state.closed {
                 return None;
             }
-            state = self.ready.wait(state).unwrap();
+            state = self.ready.wait(state).recover_poison();
         }
     }
 
     fn close(&self, reason: String) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return;
         }
@@ -756,12 +758,12 @@ impl SurfaceRoute {
 
     #[cfg(test)]
     fn is_closed(&self) -> bool {
-        self.state.lock().unwrap().closed
+        self.state.lock().recover_poison().closed
     }
 
     #[cfg(test)]
     fn try_recv(&self) -> Option<CdpEvent> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let queued = state.events.pop_front()?;
         state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
         Some(queued.event)
@@ -786,6 +788,9 @@ pub struct BrowserSurface {
     frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
+    /// The mux's provider registry, woken at [`Self::kill`] so a provider
+    /// bootstrap waiting there for this tab's target sees the death.
+    provider_waiters: Option<Arc<BrowserProviderRegistry>>,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
     command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,

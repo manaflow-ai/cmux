@@ -8,6 +8,7 @@ use super::*;
 mod holder_adoption;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn transition_terminal_lifecycle(
         &self,
         event_kind: &str,
@@ -35,6 +36,7 @@ impl Mux {
     }
 
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(crate) fn register_pending_terminal_host(
         self: &Arc<Self>,
         surface_id: SurfaceId,
@@ -106,6 +108,7 @@ impl Mux {
     /// A broken admin stream is not evidence that the per-terminal process
     /// died. The surface keeps its tab and reconnects the same incarnation;
     /// this callback only exposes the transient lifecycle to frontends.
+    #[track_caller]
     pub(crate) fn terminal_host_connection_lost(
         &self,
         surface_id: SurfaceId,
@@ -172,6 +175,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(crate) fn terminal_host_reconnected(
         self: &Arc<Self>,
         surface_id: SurfaceId,
@@ -266,6 +270,7 @@ impl Mux {
     /// `terminal_state` only from tree pushes, and without one a terminal
     /// whose link failed still looked running: its last screen, keys
     /// dropped, no label.
+    #[track_caller]
     pub(crate) fn emit_terminal_host_link_changed(&self, surface: SurfaceId) {
         let terminal = self.with_state(|state| {
             state.terminal_catalog_by_runtime.get(&surface).cloned().or_else(|| {

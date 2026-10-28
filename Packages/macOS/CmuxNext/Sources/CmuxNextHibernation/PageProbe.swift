@@ -33,13 +33,25 @@ package struct PageProbe: Hashable, Sendable {
     /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin
     /// frames have no recorder): its edits are unknown, so they count as the person's input.
     package var unreadableFrame = false
+    /// A Web Lock a frame of the page holds (Chrome's kHoldingWebLock): frozen, it would keep its site's
+    /// other pages waiting. Only a freeze checks it (`FreezeEligibility`), not a discard.
+    package var heldWebLock = false
+    /// An IndexedDB connection a frame of the page opened and has not closed: frozen, it could hold a
+    /// lock another page waits for (Chrome's kHoldingBlockingIndexedDBLock needs an engine hook cmux
+    /// does not have yet, so any open connection counts). Only a freeze checks it.
+    package var openIndexedDB = false
+    /// The page makes sound the person hears: unmuted media that plays, or a running Web Audio
+    /// context. Not media the tab's mute silences, and not a video in Picture in Picture alone.
+    /// Only an answer says so. It stamps the page's last sound for ``DiscardRule/recentlyAudible``
+    /// (Chrome's `PageNode::IsAudible`, which counts what the page outputs).
+    package var audible = false
     /// False when the page did not answer (a script error, or no reply within the deadline):
     /// only what the tab reported on its own (`BrowserTabState.media`) is known.
     package var answered = true
 
     package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
                  beforeUnload: Bool = false, unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
-                 answered: Bool = true) {
+                 audible: Bool = false, heldWebLock: Bool = false, openIndexedDB: Bool = false, answered: Bool = true) {
         self.playingMedia = playingMedia
         self.editedForm = editedForm
         self.capturing = capturing
@@ -49,6 +61,9 @@ package struct PageProbe: Hashable, Sendable {
         self.webRTC = webRTC
         self.connectedDevice = connectedDevice
         self.unreadableFrame = unreadableFrame
+        self.audible = audible
+        self.heldWebLock = heldWebLock
+        self.openIndexedDB = openIndexedDB
         self.answered = answered
     }
 
@@ -80,6 +95,9 @@ package struct PageProbe: Hashable, Sendable {
     /// `beforeunload` do not count).
     package var stopsWhenFrozen: Bool { playingMedia || capturing || webAudio || webRTC || connectedDevice }
 
+    /// The page holds storage its site's other pages may wait for: a Web Lock or an IndexedDB connection.
+    package var holdsSharedStorage: Bool { heldWebLock || openIndexedDB }
+
     /// Why the probed page stays loaded now, or nil when it may hibernate: the first registered
     /// ``DiscardRule`` that `facts`, with this answer filled in (``fill(_:)``), match.
     ///
@@ -93,9 +111,17 @@ package struct PageProbe: Hashable, Sendable {
     ///   - doubted: The page still gets the benefit of the doubt (`PageProbeHistory.doubted`).
     package func keepReason(_ facts: ContentDiscardPlanner.Candidate, setting: BrowserHibernationSetting = .fallback,
                             pressure: MemoryPressureLevel, doubted: Bool) -> HibernationPlanner.Exemption? {
+        keepReason(facts, setting: setting, for: HibernationPlanner.discardReason(at: pressure), doubted: doubted)
+    }
+
+    /// Why the probed page stays loaded from a discard for `reason` (``keepReason(_:setting:pressure:doubted:)``
+    /// for a discard that is not the timeout's or the pressure's, such as
+    /// ``DiscardReason/frozenWithGrowingMemory``).
+    package func keepReason(_ facts: ContentDiscardPlanner.Candidate, setting: BrowserHibernationSetting = .fallback,
+                            for reason: DiscardReason, doubted: Bool) -> HibernationPlanner.Exemption? {
         var answer = facts
         fill(&answer)
         answer.isDoubted = doubted
-        return ContentDiscardPlanner().eligibility(of: answer, setting: setting, for: HibernationPlanner.discardReason(at: pressure)).reason
+        return ContentDiscardPlanner().eligibility(of: answer, setting: setting, for: reason).reason
     }
 }

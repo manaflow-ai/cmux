@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -27,24 +28,20 @@ import Testing
     }
 
     @Test func aNewTabPageStaysInTheWindowWhileABrowserShows() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "stays-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body>New Tab</body></html>".utf8).write(to: file)
+        let file = try #require(AgentPageAppTestRoot.page)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("page"), title: "New Tab")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("page"), title: "New Tab")]),
+                                           reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         window.orderFrontRegardless()
 
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file)))
+        let page = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
+                                              work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)
@@ -53,7 +50,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
 
         // Cmd-T into a browser, then Cmd-W back to the page.
-        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab())
+        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         pane.show(chrome)
         pane.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300)) // any paint hold on the browser ends

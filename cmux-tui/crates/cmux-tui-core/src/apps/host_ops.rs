@@ -23,6 +23,8 @@
 //!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use serde_json::{Value, json};
 
 use super::mirror::Tier;
@@ -55,7 +57,7 @@ impl Supervisor {
         let (data, tmp) = self.server_dirs(app).map_err(HostLinkError::UnsafeFolder)?;
         super::server_tmp::check_server_tmp(&tmp).map_err(HostLinkError::UnsafeFolder)?;
         let state_dir = data.join("link");
-        let _ = std::fs::create_dir_all(&state_dir);
+        let _ = files::create_dir_all(&state_dir);
         let hub = hub_socket().ok_or(HostLinkError::ProbeTimeout)?;
         Ok(json!({
             "binary": std::env::current_exe().ok(),
@@ -230,7 +232,7 @@ fn hub_socket() -> Option<Option<std::path::PathBuf>> {
             let _ = sender.send(live);
         })
         .ok()?;
-    receiver.recv_timeout(LINK_PROBE).ok()
+    waits::recv_timeout(&receiver, LINK_PROBE).ok()
 }
 
 /// This machine's name, or `cmux`.

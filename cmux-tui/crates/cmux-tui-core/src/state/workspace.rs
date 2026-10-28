@@ -45,6 +45,7 @@ pub(crate) enum WorkspaceStatusChange {
 
 impl Mux {
     /// `workspace.update`: set or clear the shared title, color, and icon.
+    #[track_caller]
     pub(crate) fn state_update_workspace(
         &self,
         mutation: &WorkspaceMutation,
@@ -93,6 +94,7 @@ impl Mux {
     }
 
     /// `workspace_status.*`, `workspace_progress.*`, `workspace_log.*`.
+    #[track_caller]
     pub(crate) fn state_workspace_status(
         &self,
         mutation: &WorkspaceMutation,
@@ -184,6 +186,7 @@ impl Mux {
     }
 
     /// Status snapshots: one workspace, or every workspace with status.
+    #[track_caller]
     pub(crate) fn workspace_status_snapshots(
         &self,
         selectors: &crate::ResourceSelectors,
@@ -205,6 +208,7 @@ impl Mux {
     }
 
     /// The newest `limit` log lines of one workspace, oldest first.
+    #[track_caller]
     pub(crate) fn workspace_log_lines(
         &self,
         selectors: &crate::ResourceSelectors,
@@ -224,6 +228,7 @@ impl Mux {
 impl Mux {
     /// Close every ephemeral workspace left by an earlier run, and end the
     /// terminals that only it showed. Runs once at daemon start.
+    #[track_caller]
     pub(crate) fn close_ephemeral_workspaces(self: &Arc<Self>) -> anyhow::Result<()> {
         // Owned status entries a previous run left: re-arm their watches and
         // drop the ones whose TTL passed while the daemon was down.

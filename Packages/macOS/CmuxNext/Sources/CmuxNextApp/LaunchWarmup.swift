@@ -1,30 +1,38 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextDaemon
-import CmuxNextPalette
-import CoreFoundation
+import CmuxNextIcons
 import Foundation
 
 /// Launch work that is pure and thread-safe, started on a background thread
 /// at the top of `main` so it overlaps AppKit's own start-up instead of
 /// running inside `applicationDidFinishLaunching` (about 150 ms from
 /// process start on a loaded machine; the catalog alone took 50-70 ms on
-/// the main thread).
+/// the main thread). Work no first frame reads waits for the launch order
+/// instead (p08-startup-034): the login shell's environment
+/// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
+/// string tables (`LaunchFirstOpenWarmups`).
 ///
-/// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
-/// reaches it while this thread still builds it, the main thread waits for
-/// the rest of that one build, never longer than building it itself.
-enum LaunchWarmup {
-    static func start() {
-        // The login shell's environment (`$SHELL -l -i`, 1-17 s) is each
-        // new terminal's env and is remembered for the next launch's
-        // daemon; capture it while AppKit starts. Nothing that connects
-        // the app waits for it.
-        DaemonLauncher.prewarmLoginEnvironment()
+/// The action catalog is built here first (`ActionCatalogLaunch.build`), so
+/// the registry's read on the main thread before the first window finds it
+/// ready; `ActionCatalogLaunch.mainAccess` records how that read went
+/// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
+/// `action_catalog_built` launch mark is when this thread finished it (no
+/// mark when main claimed the build first). The icon pack and catalog decode
+/// on their own thread (`IconPack.decodeBundledInBackground`, p08-startup-039)
+/// and mark `icons_decoded`.
+/// The icon decode and launch-mark sink are injected for `LaunchIconWarmupTests`.
+struct LaunchWarmup {
+    /// Starts the icon pack and catalog decode off main; calls its argument, on any thread, when done.
+    var decodeIcons: (_ decoded: @escaping @Sendable () -> Void) -> Void = { IconPack.decodeBundledInBackground(then: $0) }
+    var markLaunch: @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
+
+    func start(catalog: ActionCatalogLaunch) {
+        let markLaunch = markLaunch
+        // qos-allow: a frame waits for it (userInteractive): main reads the catalog, the menu's symbol and the
+        // display UUIDs before its first frame; below main's QoS a loaded machine ran them after main reached them.
         let thread = Thread {
-            _ = ActionCatalog.all
-            PaletteController.prewarmStrings()
+            if catalog.build() { markLaunch("action_catalog_built") }
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)
@@ -34,30 +42,21 @@ enum LaunchWarmup {
             prewarmDisplayUUIDs()
         }
         thread.name = "cmux-next launch warm-up"
-        thread.qualityOfService = .userInitiated
+        thread.qualityOfService = .userInteractive
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
+        // The restored window's tab strip and sidebar read the icon pack and catalog before the first frame.
+        decodeIcons { markLaunch("icons_decoded") }
     }
 }
 
 private nonisolated func prewarmDisplayUUIDs() {
     var displays = [CGDirectDisplayID](repeating: 0, count: 16)
     var count: UInt32 = 0
-    guard CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
-    for display in displays.prefix(Int(count)) { _ = CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
-}
-
-/// Runs a block once, the next time the main run loop is about to sleep
-/// (nothing else to do): a one-shot before-waiting observer ordered after
-/// AppKit's display and the Core Animation commit, so the pending frame is
-/// already on its way. It never wakes the loop and costs nothing once run.
-@MainActor
-enum IdleOnce {
-    static func schedule(_ work: @escaping @MainActor () -> Void) {
-        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max - 1) { _, _ in
-            MainActor.assumeIsolated { work() } // main-proof: the observer is added only to CFRunLoopGetMain() (below)
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultMode)
-    }
+    // SAFETY: CGGetActiveDisplayList writes at most displays.count IDs into the array's storage and the count
+    // into a local, both live for the call. CGDisplayCreateUUIDFromDisplayID follows the Create rule (+1),
+    // which takeRetainedValue balances.
+    guard unsafe CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
+    for display in displays.prefix(Int(count)) { _ = unsafe CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
 }

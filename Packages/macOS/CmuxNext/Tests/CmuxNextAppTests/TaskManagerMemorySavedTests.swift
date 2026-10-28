@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextResources
 import Foundation
 import Testing
@@ -51,6 +52,18 @@ struct TaskManagerMemorySavedTests {
         #expect(memory["tab_inbox"] == 60 * Self.mb)
         #expect(memory["tab_docs"] == 100 * Self.mb, "its WebContent process plus its app-side estimate")
         #expect(memory["tab_zsh"] == 5 * Self.mb)
+    }
+
+    /// Each number names the tabs it is shared with: Mail's moves when Inbox comes, goes or grows.
+    /// The GPU process both list is no tab's, so it makes no sharer.
+    @Test func eachReadingNamesTheTabsItsProcessesAreSharedWith() {
+        let readings = Self.resources().tabMemoryReadings()
+        #expect(readings["tab_mail"] == TabMemoryReading(bytes: 60 * Self.mb, sharers: ["tab_mail", "tab_inbox"]))
+        #expect(readings["tab_inbox"]?.sharers == ["tab_mail", "tab_inbox"])
+        #expect(readings["tab_docs"] == TabMemoryReading(bytes: 100 * Self.mb, sharers: ["tab_docs"]))
+        #expect(readings.mapValues(\.bytes) == Self.resources().tabMemory())
+        #expect(Self.resources().browserPageMemory["tab_mail"] == PageMemoryReading(bytes: 60 * Self.mb, sharers: ["tab_mail", "tab_inbox"]),
+                "the hibernation's reading lost the sharers")
     }
 
     @Test func theEstimateListsOnlyTheKindsAskedForAndOnlyAvailableTabs() {
@@ -137,15 +150,15 @@ struct TaskManagerMemorySavedTests {
         let key = page.id.rawValue
         rig.keys.append(key)
         rig.services.cache.install(page, for: key)
-        rig.hibernation.noteMemory([key: 50 * Self.mb])
-        rig.hibernation.noteMemory([key: 0])
+        rig.hibernation.noteMemory([key: PageMemoryReading(bytes: 50 * Self.mb, sharers: [key])])
+        rig.hibernation.noteMemory([key: PageMemoryReading(bytes: 0, sharers: [key])])
         #expect(rig.hibernation.memoryBytes[key] == 50 * Self.mb, "a reading of nothing keeps the last one")
         rig.services.cache.present(key, by: rig.pane, presence: .visible)
         rig.services.cache.withdraw(key, by: rig.pane)
         try await rig.until("the page hibernated") { rig.isHibernated(key) }
         #expect(rig.hibernation.savedBytes[key] == 50 * Self.mb)
 
-        rig.hibernation.noteMemory([key: 7 * Self.mb])
+        rig.hibernation.noteMemory([key: PageMemoryReading(bytes: 7 * Self.mb, sharers: [key])])
         #expect(rig.hibernation.savedBytes[key] == 50 * Self.mb, "a sleeping page keeps what it held at the discard")
 
         rig.services.cache.present(key, by: rig.pane, presence: .visible)

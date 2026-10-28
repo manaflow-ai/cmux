@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextResources
 import QuartzCore
 
@@ -27,6 +27,8 @@ enum TabHoverCardContent: Equatable {
 @MainActor
 final class TabHoverCardController: HoverCardSource {
     weak var previewProvider: (any TabPreviewProvider)?
+    /// Says which hidden tabs use high energy and discards one (`TabHoverCard+Energy.swift`); nil asks nothing.
+    weak var energy: (any TabEnergySource)?
     /// The strip whose targets these are.
     weak var strip: TabStripView?
     /// Samples CPU and memory of the hovered tab while its card shows (first
@@ -88,10 +90,7 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     /// The strip's tab id for a target id of this strip.
-    private func tabID(_ id: HoverTargetID) -> TabID? {
-        let raw = id.rawValue
-        return raw.hasPrefix("tab:") ? TabID(String(raw.dropFirst(4))) : nil
-    }
+    private func tabID(_ id: HoverTargetID) -> TabID? { TabID(hoverCardTarget: id) }
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
@@ -118,7 +117,7 @@ final class TabHoverCardController: HoverCardSource {
     /// A point in the strip on no tab (a gap, a New Tab page's tab): a shown card waits
     /// there for the next tab.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let strip, let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
+        guard let strip, let window = strip.window, strip.isShownInWindow else { return false }
         return strip.visibleRect.contains(strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
     }
 
@@ -144,6 +143,8 @@ final class TabHoverCardController: HoverCardSource {
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
         let full = TabTunables.hoverPreviews.value == .full
         if case .tab = content {
+            // Before the sample: its render draws the energy row too.
+            body.setHighEnergy(usesHighEnergy(tab, card: id)) { [weak self] in self?.discard(tab) }
             body.setResources(resources.report ?? lastReport(for: tab))
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card
             // shows (the last tab's picture, or no frame) until its own lands: never an
@@ -167,7 +168,9 @@ final class TabHoverCardController: HoverCardSource {
         // Once per card, not on every content refresh (resource samples).
         if newCard, full, case .tab = content { loadThumbnail(for: tab) }
         if newCard, case .tab = content { startSampling(tab, card: id) }
-        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in body?.applyColors() }
+        // Discard is a button: only then does the card take clicks.
+        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                             interactive: body.offersDiscard) { [weak body] in body?.applyColors() }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
@@ -255,8 +258,13 @@ final class TabHoverCardController: HoverCardSource {
         let scale = strip?.window?.backingScaleFactor ?? 2
         let size = CGSize(width: TabHoverCardView.thumbnailSize.width * scale, height: TabHoverCardView.thumbnailSize.height * scale)
         let target = Self.targetID(id)
+        // main-hop-allow: the providers picture their views on the main actor (TabContentCache, ScreenBarController); the card applies the image in this task's one resume, and a retarget cancels it
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
+            // The kept thumbnail is made before the card's checks: with `purgeableImageCaches` on, its copy is
+            // drawn off the main actor.
+            var picture: PurgeablePicture?
+            if let image, let thumbnails = self?.thumbnails { picture = await thumbnails.picture(of: image) }
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
             // No thumbnail (a page never captured): none, not the previous
             // tab's picture kept through the retarget or an empty frame.
@@ -267,7 +275,7 @@ final class TabHoverCardController: HoverCardSource {
                 self.coordinator.contentChanged(target)
                 return
             }
-            self.thumbnails.insert(image, for: id)
+            self.thumbnails.insert(picture, for: id)
             self.noThumbnail.remove(id)
             // A card that showed no frame (the last tab had none) grows one for it.
             let grows = self.body?.showsThumbnail == false
@@ -327,12 +335,21 @@ extension TabHoverCardController: MemoryConsumer {
         return .done
     }
 
-    /// Thumbnail pixels (bytes per row x height each). A sample is a few hundred bytes and
-    /// counts as an entry only.
+    /// Thumbnail pixels (bytes per row x height each), locked apart from volatile (p07-memory-107). A sample
+    /// is a few hundred bytes and counts as an entry only.
     var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: thumbnails.bytes, entries: thumbnails.count + lastReports.count)
+        thumbnails.usage(entries: thumbnails.count + lastReports.count)
     }
 
     /// How many tabs' samples it keeps now (tests).
     var rememberedReportCount: Int { lastReports.count }
+}
+
+public extension TabID {
+    /// The tab or chip of a strip's hover card target (`TabHoverCardController.targetID(_:)`); nil for any other
+    /// target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("tab:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("tab:".count)))
+    }
 }

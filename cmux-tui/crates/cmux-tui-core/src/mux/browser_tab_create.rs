@@ -9,6 +9,7 @@
 
 use super::tab_strip::StripRequest;
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 
 /// Advertised by `identify` once `new-frontend-browser-tab` takes `activate`.
@@ -111,6 +112,7 @@ fn insertion_index(
 impl Mux {
     /// The `tab.create_browser` effect in an existing pane: the URL and
     /// [`ACTIVATE_FIELD`] come from the operation's fields.
+    #[track_caller]
     pub(super) fn new_browser_tab_for_effect(
         self: &Arc<Self>,
         fields: &Map<String, Value>,
@@ -144,6 +146,7 @@ impl Mux {
     /// inside a new workspace or screen delta gets a `tab-added` carrying it
     /// after that delta.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn new_browser_tab_reserved(
         self: &Arc<Self>,
         url: String,
@@ -166,6 +169,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     fn new_browser_tab_with_resource_identity(
         self: &Arc<Self>,
         url: String,
@@ -178,7 +182,7 @@ impl Mux {
     ) -> anyhow::Result<Arc<Surface>> {
         let FrontendTabPlacement { activate, after, index: strip_index } = placement;
         let (target, empty_workspace) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
@@ -222,7 +226,7 @@ impl Mux {
             let notifications = self.tree_decorations();
             if let Some(workspace_id) = empty_workspace {
                 let delta = {
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().recover_poison();
                     let Some(workspace_index) =
                         state.workspaces.iter().position(|workspace| workspace.id == workspace_id)
                     else {
@@ -232,7 +236,12 @@ impl Mux {
                     };
                     state.insert_pane(pane);
                     stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[workspace_index].screens.push(Screen {
+                    #[allow(
+                        clippy::indexing_slicing,
+                        reason = "INVARIANT: workspace_index was found under this same state guard"
+                    )]
+                    let ws = &mut state.workspaces[workspace_index];
+                    ws.screens.push(Screen {
                         id: screen_id,
                         public_id: ScreenPublicId::random()?,
                         name: None,
@@ -246,7 +255,11 @@ impl Mux {
                         layout_revision: 0,
                         layout_undo: Default::default(),
                     });
-                    state.workspaces[workspace_index].active_screen = 0;
+                    ws.active_screen = 0;
+                    #[allow(
+                        clippy::expect_used,
+                        reason = "INVARIANT: the screen was pushed under this same state guard"
+                    )]
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -275,9 +288,9 @@ impl Mux {
             }
             let mutation = WorkspaceMutation::daemon_local("cmux-tui");
             let workspace_public_id = WorkspacePublicId::random()?;
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             let delta = {
-                let mut state = self.lock_state_pinned(&registry).unwrap();
+                let mut state = self.lock_state_pinned(&registry).recover_poison();
                 let name = self.default_workspace_name(&state);
                 let index = state.workspaces.len();
                 let mut desired = self.registry_projection(&state);
@@ -346,6 +359,10 @@ impl Mux {
                 state.active_workspace = state.workspaces.len() - 1;
                 state.workspace_revision = commit.revision;
                 let workspace_revision = commit.revision;
+                #[allow(
+                    clippy::expect_used,
+                    reason = "INVARIANT: the workspace was pushed under this same state guard"
+                )]
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -382,7 +399,7 @@ impl Mux {
         let mut active_index_moved = false;
         let joins;
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             // `pinned-dock-v1`: the column may have become pinned meanwhile.
             let operation = ResourceOperation::TabCreateBrowser.wire_name();
             if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
@@ -391,6 +408,15 @@ impl Mux {
                 surface.kill();
                 return Err(error);
             }
+            let Some((workspace, screen)) = state.screen_of(target).and_then(|(wi, si)| {
+                let workspace = state.workspaces.get(wi)?;
+                Some((workspace.id, workspace.screens.get(si)?.id))
+            }) else {
+                state.surfaces.remove(&surface.id);
+                drop(state);
+                surface.kill();
+                anyhow::bail!("pane disappeared while creating browser tab");
+            };
             let slot = match strip_index {
                 Some(_) => {
                     joins = None;
@@ -418,9 +444,10 @@ impl Mux {
                         active_index_moved = true;
                     }
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
-                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[wi].id;
-                    let screen = state.workspaces[wi].screens[si].id;
+                    #[allow(
+                        clippy::expect_used,
+                        reason = "INVARIANT: the tab was inserted under this same state guard"
+                    )]
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,

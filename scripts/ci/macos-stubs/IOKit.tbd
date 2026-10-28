@@ -1,0 +1,17 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit'
+current-version: 275.0.0
+compatibility-version: 1.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_IOObjectRelease',
+                       '_IOPSCopyPowerSourcesInfo',
+                       '_IOPSCopyPowerSourcesList',
+                       '_IOPSGetPowerSourceDescription',
+                       '_IOPSGetProvidingPowerSourceType',
+                       '_IOServiceGetMatchingService',
+                       '_IOServiceMatching' ]
+...

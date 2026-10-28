@@ -2,6 +2,7 @@ import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 
 /// Bookmark favicons on the bars and in their menus (cx-d0d.37): the icon an open tab on
@@ -11,6 +12,7 @@ extension BookmarkService {
     /// The favicon of bookmark `node` for the bar of tab `tabKey` (that tab's browser
     /// profile), nil for a folder, while it loads, or without one.
     func favicon(of node: BookmarkNode, tabKey: String) -> TabImage? {
+        guard let services else { return nil }
         guard let address = faviconAddress(of: node) else { return nil }
         return services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: tabKey))
     }
@@ -19,6 +21,7 @@ extension BookmarkService {
     /// fetch it, and Open Bookmark…, which only takes one already here). Reads the store's
     /// revision, so a view drawn from it redraws when an icon lands.
     func favicon(of node: BookmarkNode, profile: String, fetching: Bool) -> TabImage? {
+        guard let services else { return nil }
         _ = services.favicons.revision
         guard let address = faviconAddress(of: node) else { return nil }
         let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
@@ -27,25 +30,33 @@ extension BookmarkService {
 
     /// True while the icon of `node` for tab `tabKey`'s bar is being fetched.
     func isFetchingFavicon(of node: BookmarkNode, tabKey: String) -> Bool {
+        guard let services else { return false }
         guard let address = faviconAddress(of: node) else { return false }
         return services.favicons.isFetching(address, profile: services.browserProfiles.engineProfile(forTab: tabKey))
     }
 
-    /// Redraws the bars that wait on an icon when one lands (no polling).
+    /// Redraws the bars that wait on an icon when one lands (no polling). A service observation: it fans out
+    /// to every chrome's bar, none of which owns it, and each bar redraws through its tab's node
+    /// (``reloadBar(_:)``), so a hidden one waits for its show. `visible`: the icons show on the bars.
     func followFavicons() {
+        guard let services else { return }
         let favicons = services.favicons
-        // task-owner: lives as long as the service; event-driven (Observation)
-        faviconObservation = Task { [weak self] in
-            for await _ in ObservationStream({ favicons.revision }) {
-                guard let self else { return }
-                guard showsBar else { continue }
-                for chrome in chromes.values where chrome.entry != nil && chrome.source.awaitsFavicons { chrome.bar.reload() }
-            }
+        faviconObservation = ServiceObservation(.visible, owner: "BookmarkService.favicons", on: services.mainWork) {
+            favicons.revision
+        } apply: { [weak self] _ in
+            self?.reloadBarsAwaitingIcons()
         }
+    }
+
+    /// Redraws the bars that drew a stand-in for an icon still loading.
+    func reloadBarsAwaitingIcons() {
+        guard showsBar else { return }
+        for chrome in chromes.values where chrome.source.awaitsFavicons { reloadBar(chrome) }
     }
 
     /// The favicon URL of a bookmark (``AppServices/siteFaviconAddress(origin:)``).
     private func faviconAddress(of node: BookmarkNode) -> String? {
+        guard let services else { return nil }
         guard !node.isFolder, let origin = node.faviconKey ?? node.url.flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
         return services.siteFaviconAddress(origin: origin)
     }

@@ -22,6 +22,6 @@ extension Motion {
         animation.calculationMode = .linear
         animation.timingFunction = CAMediaTimingFunction(name: .linear)
         animation.duration = duration
-        return animation
+        return MotionActivity.began(animation)
     }
 }

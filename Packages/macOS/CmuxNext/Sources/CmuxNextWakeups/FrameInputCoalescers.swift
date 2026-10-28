@@ -49,11 +49,11 @@ public final class FrameInputCoalescers {
     /// Some window has continuous input waiting for its frame.
     public var hasPending: Bool { !withPending.isEmpty }
 
-    /// Called by `sendEvent` before it dispatches `type`: a discrete event flushes every window's
-    /// pending work first; a pointer up also ends unbuffered delivery. Continuous events pass.
-    public func willDispatch(_ type: NSEvent.EventType) {
+    /// Called by `sendEvent` before any tap observer sees `type`: a discrete event flushes every
+    /// window's pending work first; a pointer up also ends unbuffered delivery. Continuous events pass.
+    public func willDispatch(_ type: NSEvent.EventType) { // perf-hot: 100ns main-turn (every event's dispatch)
         switch type {
-        case .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+        case .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown, .swipe, .smartMagnify:
             flushBeforeDiscreteInput()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             for entry in known.values { entry.value?.pointerUp() }

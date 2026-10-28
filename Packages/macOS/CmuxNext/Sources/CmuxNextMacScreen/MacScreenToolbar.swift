@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
-import Observation
 
 /// A Mac Screen tab's toolbar (AppKit): the status dot, the Mac's name, the
 /// stream's stats, View Only, the keyboard release hint and, while a session
@@ -37,11 +37,13 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var statsSlot = false
     private var hintSlot = false
     private var controlsShown = false
+    /// What the toolbar shows (`apply(_:)` on a change).
+    private var watch: FrameObservation<Shown>?
 
     private static let spacing: CGFloat = 10
     private static let padding: CGFloat = 12
 
-    init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
+    init(model: MacScreenPaneModel, actions: MacScreenChromeActions, node: VisibilityNode, on mainWork: MainWorkScheduler) {
         self.model = model
         self.actions = actions
         badge = MacScreenFill(\.attentionWash, shape: .rounded(0))
@@ -72,7 +74,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         disconnect = MacScreenButton(L.t("macScreen.toolbar.disconnect", "Disconnect"), compact: true, id: "macScreen.disconnect") {
             actions.disconnect()
         }
-        super.init(frame: .zero)
+        super.init(frame: .zero, node: node)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
         for view in [dot, icon, name, stats, badge, hint, displayButton, quality, sendKeys, refresh, connect, disconnect, line] as [NSView] {
@@ -82,7 +84,13 @@ final class MacScreenToolbarView: MacScreenThemedView {
         displayButton.makeMenu = { [weak self] in self?.displayMenu() ?? NSMenu() }
         quality.makeMenu = { [weak self] in self?.qualityMenu() ?? NSMenu() }
         sendKeys.makeMenu = { [weak self] in self?.sendKeysMenu() ?? NSMenu() }
-        track()
+        let watch = FrameObservation(owner: "mac-screen.toolbar", delivery: .visible(node), on: mainWork) { [model] in
+            Shown(model)
+        } onChange: { [weak self] shown in
+            self?.apply(shown)
+        }
+        self.watch = watch
+        apply(watch.value)
     }
 
     override var isFlipped: Bool { true }
@@ -95,32 +103,57 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     // MARK: State
 
-    /// Shows the model's state; again on every change of a value read here.
-    private func track() {
-        withObservationTracking { apply() } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.track() }
+    /// What the toolbar shows: read under Observation, applied once per frame while the tab shows.
+    private struct Shown: Equatable {
+        var status: KeyPath<MacScreenColors, NSColor>
+        var name: String
+        /// The stats line; nil hides its slot.
+        var stats: String?
+        var viewOnly: Bool
+        var live: Bool
+        var capturesKeyboard: Bool
+        var controlsShown: Bool
+        var displayCount: Int
+        var currentDisplay: Int
+        var ended: Bool
+        /// The type scale (`MacScreenType.sizes`): a density or font size change applies again.
+        var typeSizes = MacScreenType.sizes
+
+        init(_ model: MacScreenPaneModel) {
+            status = MacScreenToolbarView.statusColor(model)
+            name = model.name
+            let session = model.session
+            let live = model.isLive
+            self.live = live
+            stats = session.flatMap { live && $0.preferences.showStats ? MacScreenToolbarView.statsLine($0) : nil }
+            viewOnly = model.viewOnly
+            capturesKeyboard = model.capturesKeyboard
+            controlsShown = session != nil && model.showsStreamControls
+            displayCount = model.displays.count
+            currentDisplay = model.currentDisplay
+            ended = switch session?.phase {
+            case .ended?, .failed?: true
+            default: false
+            }
         }
-        needsLayout = true
     }
 
-    private func apply() {
+    private func apply(_ shown: Shown) {
         applyType()
-        dot.fill = statusColor
-        if name.stringValue != model.name { name.stringValue = model.name }
-        let session = model.session
-        let live = model.isLive
-        statsSlot = session != nil && live && session?.preferences.showStats == true
-        if statsSlot, let session { stats.stringValue = Self.statsLine(session) }
-        let viewOnly = model.viewOnly
+        dot.fill = shown.status
+        if name.stringValue != shown.name { name.stringValue = shown.name }
+        let live = shown.live
+        statsSlot = shown.stats != nil
+        if let line = shown.stats { stats.stringValue = line }
+        let viewOnly = shown.viewOnly
         setToolTip(viewOnly
-            ? String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), model.name)
+            ? String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), shown.name)
             : nil, on: badge)
         badge.isHidden = !viewOnly
-        hintSlot = model.capturesKeyboard && live
-        controlsShown = session != nil && model.showsStreamControls
-        let displayCount = model.displays.count
-        displayButton.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1))
-        displayButton.isHidden = !controlsShown || displayCount <= 1
+        hintSlot = shown.capturesKeyboard && live
+        controlsShown = shown.controlsShown
+        displayButton.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), shown.currentDisplay + 1))
+        displayButton.isHidden = !controlsShown || shown.displayCount <= 1
         quality.isHidden = !controlsShown
         let canSend = live && !viewOnly
         sendKeys.isHidden = !controlsShown
@@ -131,12 +164,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
             : L.t("macScreen.toolbar.sendKeys", "Send Keys"), on: sendKeys)
         refresh.isHidden = !controlsShown
         refresh.isEnabled = live
-        let ended: Bool = switch session?.phase {
-        case .ended?, .failed?: true
-        default: false
-        }
-        connect.isHidden = !controlsShown || !ended
-        disconnect.isHidden = !controlsShown || ended
+        connect.isHidden = !controlsShown || !shown.ended
+        disconnect.isHidden = !controlsShown || shown.ended
+        needsLayout = true
     }
 
     /// The labels, glyphs and buttons at the type scale's sizes, read here so a density, font size
@@ -163,7 +193,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         if view.themedToolTip != text { view.themedToolTip = text }
     }
 
-    private var statusColor: KeyPath<MacScreenColors, NSColor> {
+    private static func statusColor(_ model: MacScreenPaneModel) -> KeyPath<MacScreenColors, NSColor> {
         if let hub = model.hub {
             switch hub.phase {
             case .requesting, .waitingForApproval, .approved: return \.attention

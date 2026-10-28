@@ -9,38 +9,67 @@ public import WebKit
 /// `TaskManagerInterface` (chrome/browser/task_manager/task_manager_interface.h): one row per
 /// process with the tabs, extensions and spare renderers it hosts. DEBUG and bench builds only.
 ///
-/// The census is a value read on the main actor (``init(pages:registry:newTabSpare:spareWindow:browserTabs:rendererProcess:webKitPID:)``);
+/// The census is a value read on the main actor (``init(pages:registry:newTabSpare:spareWindows:browserTabs:rendererProcess:webKitPID:retiring:engineCloses:)``);
 /// the helper list is read off it and joined in ``report(listing:)``.
 ///
 /// JSON keys of the reply:
 /// - `pages`: one object per live ``PageWebView``, oldest first:
 ///   - `page` (string): the descriptor id. `instance` (number): ``PageRegistry/instance(of:)``.
-///   - `engine`: `chromium` or `webkit`. `group`: the process group, null until p13-webui-012.
+///   - `engine`: `chromium` or `webkit`. `group`: the descriptor's ``PageProcessGroup`` (`agent`, `privileged`,
+///     `viewer`, `solo`, `secrets`); Chromium shares renderers by it only with the `pageProcessGroups` feature.
 ///   - `state`: `visible` or `hidden` to the person: hidden when the host told the engine so or
 ///     when the page is a parked spare (Chrome counts no spare renderer as visible).
 ///     `engine_visible` (bool): what the host last told the engine (true for a spare parked in a
 ///     window). `hidden_for_s`: seconds since it was hidden, null while visible.
 ///   - `keep_reasons` (strings): the reasons the host sees now, of `visible` (never a spare's),
 ///     `loading`, `focused`.
-///   - `spare`: `new_tab` (the parked New Tab page), `page_host_pool` (PageHostPool's parked host) or null.
-///   - `pooled` (bool): made by PageHostPool. `window_number`: null in no window.
+///   - `spare`: `new_tab` (the parked New Tab page), `page_preload` (a page in the preload slot's parking) or null.
+///   - `pooled` (bool): opened parked for the preload slot. `window_number`: null in no window.
 ///   - `browser_id`: the Chromium browser id, null on WebKit.
 ///   - `renderer_clients`, `renderer_pids`: the renderer client ids of the page's frames and the
 ///     helper pids that run them (Chromium).
 ///   - `webkit_pid`: the WebContent pid (`_webProcessIdentifier`, when WebKit has it) of a WebKit page, else null.
 ///   - `deliveries_while_hidden`: router events delivered while hidden. `pushes_while_hidden`:
 ///     native script pushes (theme, glass, document attributes) while hidden. Both count from the
-///     page's start or the last `reset`.
+///     page's start or the last `reset`. `reloads`: the host's reloads after a crash (a page that
+///     crashed hidden reloads when it shows, ``PageCrashRecovery``). `script_deliveries`, `data_deliveries`: runs of
+///     router envelopes sent as scripts and as data on the page push channel (`pagePushChannel`), since the start.
 /// - `spares`: spares that are no page view, each `{spare, state, renderer_clients, renderer_pids,
-///   webkit_pid}`: `cef_window`, the Chromium spare window (its `state` is `none`, `creating`,
-///   `live`, `taken` or `closed`; its renderer is its about:blank placeholder's), and `new_tab`, a
-///   New Tab spare with no page view (`state` null, its `webkit_pid`).
+///   webkit_pid}`: `cef_window` and `cef_pages_window`, the Chromium spare windows of the default
+///   and the cmux pages profile (each `state` is `none`, `creating`, `live`, `taken` or `closed`;
+///   its renderer is its about:blank placeholder's), and `new_tab`, a New Tab spare with no page
+///   view (`state` null, its `webkit_pid`).
 /// - `browser_tabs`: `{tab, renderer_clients, renderer_pids}` per Chromium browser tab.
 /// - `processes`: one per Chromium helper process: `{pid, kind, renderer_client_id, hosts}`. `kind`
 ///   is `renderer`, `extension_renderer`, `gpu`, `network`, `utility` or `other`;
 ///   `renderer_client_id` is null but for `renderer`; `hosts` names what the renderer runs
-///   (`page:<id>#<instance>`, `spare:cef_window`, `browser_tab:<id>`), empty when nothing known does.
+///   (`page:<id>#<instance>`, `spare:cef_window`, `spare:cef_pages_window`, `browser_tab:<id>`), empty when nothing known does.
+/// - `retire` (p13-webui-064): `pending`, the closed pages whose engine page waits for the retirer's deadline;
+///   `engine_closes`, the engine page closes of the host's pages since launch; `engine_closes_in_close_turn`,
+///   those that ran inside ``WebUIHost/close(_:)`` (0: a close asks no engine page to end in its turn);
+///   `engine_close_uptimes`, the system uptime in seconds (the clock of `debug.action_budget`) of the last 32,
+///   oldest first.
 nonisolated public struct WebUICensus: Sendable {
+    /// The engine page closes of a ``WebUIHost``'s pages (``WebUIHost/engineCloses``).
+    nonisolated public struct EngineCloses: Sendable, Equatable {
+        /// How many times ``uptimes`` keeps.
+        public static let keptUptimes = 32
+        public private(set) var total = 0
+        /// The closes that ran inside the host's ``WebUIHost/close(_:)``, in the close's turn.
+        public private(set) var inCloseTurn = 0
+        /// When the last ``keptUptimes`` ran (system uptime, s), oldest first.
+        public private(set) var uptimes: [Double] = []
+
+        public init() {}
+
+        mutating func record(at uptime: Double, inCloseTurn closing: Bool) {
+            total += 1
+            if closing { inCloseTurn += 1 }
+            uptimes.append(uptime)
+            if uptimes.count > Self.keptUptimes { uptimes.removeFirst(uptimes.count - Self.keptUptimes) }
+        }
+    }
+
     /// One Chromium helper process.
     nonisolated public struct Helper: Sendable, Equatable {
         public var pid: Int32
@@ -77,6 +106,8 @@ nonisolated public struct WebUICensus: Sendable {
     /// One page view's row.
     nonisolated public struct Page: Sendable, Equatable {
         public var page: String
+        /// The descriptor's capability group.
+        public var group: PageProcessGroup
         public var instance: UInt64
         public var census: PageWebView.Census
         public var keepReasons: [String]
@@ -85,6 +116,9 @@ nonisolated public struct WebUICensus: Sendable {
         public var browserID: Int32?
         public var rendererClients: [Int32]
         public var webKitPID: Int32?
+        /// Runs of router envelopes sent as scripts, and as data on the page push channel (p13-webui-079).
+        public var scriptDeliveries = 0
+        public var dataDeliveries = 0
 
         /// The name the `processes` rows use for this page.
         var hostName: String { "page:\(page)#\(instance)" }
@@ -93,42 +127,52 @@ nonisolated public struct WebUICensus: Sendable {
     public private(set) var pages: [Page]
     public private(set) var spares: [Host]
     public private(set) var browserTabs: [Host]
+    /// The host's closed pages still waiting for their engine close.
+    public private(set) var retiring: Int
+    public private(set) var engineCloses: EngineCloses
 
     /// Reads every page and spare now.
     ///
     /// - Parameters:
     ///   - pages: The live page views (``WebUIHost/registry``'s ``PageRegistry/pages(id:)``).
     ///   - registry: Their registry, for each page's instance number.
-    ///   - newTabSpare: The web view of the parked New Tab page, if one is parked.
-    ///   - spareWindow: The Chromium spare window, nil without Chromium.
+    ///   - newTabSpare: The page view of the parked New Tab page, if one is parked, in either engine.
+    ///   - spareWindows: The Chromium spare windows, one per kind; empty without Chromium.
     ///   - browserTabs: The Chromium browser tabs, with their renderer clients.
     ///   - rendererProcess: A Chromium page's browser id and renderer client ids.
     ///   - webKitPID: A WebKit view's WebContent pid, nil when WebKit does not say.
+    ///   - retiring: The host's ``PageRetirer/count``.
+    ///   - engineCloses: The host's ``WebUIHost/engineCloses``.
     @MainActor
-    public init(pages: [PageWebView], registry: PageRegistry, newTabSpare: WKWebView?, spareWindow: Host?,
+    public init(pages: [PageWebView], registry: PageRegistry, newTabSpare: PageWebView?, spareWindows: [Host],
                 browserTabs: [Host], rendererProcess: @MainActor (any PageChromiumPage) -> (browserID: Int32?, clients: [Int32]),
-                webKitPID: @MainActor (WKWebView) -> Int32?) {
+                webKitPID: @MainActor (WKWebView) -> Int32?, retiring: Int = 0, engineCloses: EngineCloses = EngineCloses()) {
+        self.retiring = retiring
+        self.engineCloses = engineCloses
         var newTabSpareSeen = false
         self.pages = pages.map { view in
             let census = view.census
             let process = view.chromiumPage.map { rendererProcess($0) }
-            let isNewTabSpare = newTabSpare != nil && view.webKitView === newTabSpare
+            let isNewTabSpare = view === newTabSpare
             newTabSpareSeen = newTabSpareSeen || isNewTabSpare
-            let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_host_pool" : nil
+            let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_preload" : nil
             var keepReasons: [String] = []
             if !census.hidden, spare == nil { keepReasons.append("visible") }
             if census.loading { keepReasons.append("loading") }
             if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
                 keepReasons.append("focused")
             }
-            return Page(page: view.pageID, instance: registry.instance(of: view), census: census, keepReasons: keepReasons,
+            return Page(page: view.pageID, group: view.descriptor.processGroup, instance: registry.instance(of: view), census: census, keepReasons: keepReasons,
                         spare: spare,
                         windowNumber: view.window?.windowNumber, browserID: process?.browserID,
                         rendererClients: process?.clients ?? [],
-                        webKitPID: census.engine == "webkit" ? webKitPID(view.webKitView) : nil)
+                        webKitPID: census.engine == "webkit" ? view.webKitEngine.flatMap { webKitPID($0) } : nil,
+                        scriptDeliveries: view.scriptTarget.scriptDeliveries, dataDeliveries: view.scriptTarget.dataDeliveries)
         }
-        var spares = spareWindow.map { [$0] } ?? []
-        if let newTabSpare, !newTabSpareSeen { spares.append(Host(name: "new_tab", webKitPID: webKitPID(newTabSpare))) }
+        var spares = spareWindows
+        if let newTabSpare, !newTabSpareSeen {
+            spares.append(Host(name: "new_tab", webKitPID: newTabSpare.webKitEngine.flatMap { webKitPID($0) }))
+        }
         self.spares = spares
         self.browserTabs = browserTabs
     }
@@ -161,7 +205,7 @@ nonisolated public struct WebUICensus: Sendable {
         let pageRows: [JSONValue] = pages.map { page -> JSONValue in
             [
                 "page": .string(page.page), "instance": number(page.instance), "engine": .string(page.census.engine),
-                "group": .null, "state": .string(page.census.hidden ? "hidden" : "visible"),
+                "group": .string(page.group.rawValue), "state": .string(page.census.hidden ? "hidden" : "visible"),
                 "engine_visible": .bool(page.census.engineVisible),
                 "hidden_for_s": page.census.hiddenForSeconds.map { .number($0) } ?? .null,
                 "keep_reasons": .array(page.keepReasons.map { .string($0) }),
@@ -170,7 +214,8 @@ nonisolated public struct WebUICensus: Sendable {
                 "renderer_clients": numbers(page.rendererClients), "renderer_pids": pids(page.rendererClients),
                 "webkit_pid": number(page.webKitPID),
                 "deliveries_while_hidden": number(page.census.deliveriesWhileHidden),
-                "pushes_while_hidden": number(page.census.pushesWhileHidden),
+                "pushes_while_hidden": number(page.census.pushesWhileHidden), "reloads": number(page.census.crashReloads),
+                "script_deliveries": number(page.scriptDeliveries), "data_deliveries": number(page.dataDeliveries),
             ]
         }
         let spareRows: [JSONValue] = spares.map { spare -> JSONValue in
@@ -188,8 +233,13 @@ nonisolated public struct WebUICensus: Sendable {
                 "hosts": .array(hosts.map { JSONValue.string($0) }),
             ]
         }
+        let retire: JSONValue = [
+            "pending": number(retiring), "engine_closes": number(engineCloses.total),
+            "engine_closes_in_close_turn": number(engineCloses.inCloseTurn),
+            "engine_close_uptimes": .array(engineCloses.uptimes.map { .number($0) }),
+        ]
         return ["pages": .array(pageRows), "spares": .array(spareRows), "browser_tabs": .array(tabRows),
-                "processes": .array(processRows)]
+                "processes": .array(processRows), "retire": retire]
     }
 }
 
@@ -201,7 +251,9 @@ struct PageCensusState {
     var parked = false
     /// When the page was last hidden; nil while it shows.
     var hiddenSince: Date?
-    /// Native pushes (``PageWebView/evaluateInPage(_:)``) while hidden: one integer add each.
+    /// Native pushes (``PageNativePushes``) while hidden: one integer add each.
     var pushesWhileHidden = 0
+    /// Tells the page's host that ``PageWebView/closeEngine()`` ran (``WebUIHost/engineCloses``).
+    var engineClosed: (@MainActor () -> Void)?
 }
 #endif

@@ -27,6 +27,7 @@ use tokio::time::Instant;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
+use crate::decrypted::{Decrypted, receive_single};
 pub use crate::error::WgError;
 use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
@@ -473,23 +474,32 @@ impl Driver {
                     self.watchdog.on_inbound_data();
                     let allowed = packet_source(packet)
                         .is_some_and(|source| self.config.routes_contain(source));
-                    // A probe is answered here and is not activity.
-                    if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
-                        let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-                        probing::receive(tunn, &mut *self.underlay, scratch, probe, origin.path);
-                    } else if allowed
-                        && let Some((source, destination, payload)) = crate::udp::parse(packet)
-                    {
-                        let datagram = (source, destination, payload.to_vec());
-                        self.deliver_datagram(datagram);
-                    } else if allowed {
-                        // TCP keepalives and their ACKs are not activity.
-                        if self.pacer.received(packet, Instant::now()) {
-                            self.schedule.on_activity(Instant::now());
+                    if !allowed {
+                        break;
+                    }
+                    let now = Instant::now();
+                    match receive_single(&mut self.pacer, packet, now) {
+                        Decrypted::Probe(probe, source, destination) => {
+                            let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
+                            let probe = (probe, source, destination);
+                            probing::receive(
+                                tunn,
+                                &mut *self.underlay,
+                                scratch,
+                                probe,
+                                origin.path,
+                            );
                         }
-                        let mut packet = packet.to_vec();
-                        self.pacer.refresh_stale_ack(&mut packet);
-                        self.stack.push_rx(packet, None);
+                        Decrypted::Datagram(source, destination, payload) => {
+                            let datagram = (source, destination, payload.to_vec());
+                            self.deliver_datagram(datagram);
+                        }
+                        Decrypted::Stack { fresh, packet } => {
+                            if fresh {
+                                self.schedule.on_activity(now);
+                            }
+                            self.stack.push_rx(packet, None);
+                        }
                     }
                     break;
                 }

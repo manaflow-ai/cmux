@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The native macOS UI of a remote tab, built from the client reducer's
 /// effects (RT5): the page's context menu and `<select>` as an `NSMenu`, a
 /// JavaScript dialog as the cmux dialog over the tab, and the page cursor

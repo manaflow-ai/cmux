@@ -22,7 +22,7 @@ import os
 /// before logging it leaves the projection (rebuild) and its text returns to
 /// the field.
 @MainActor
-final class HomeProjection: @preconcurrency ChatIntents {
+final class HomeProjection: ChatIntents {
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID
@@ -153,6 +153,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         refresh()
         noteObservedInputs()
         observe()
+        observeDiagrams()
     }
 
     func stop() {
@@ -304,8 +305,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
-    /// window position is restored.
-    private func rebuild() {
+    /// window position is restored. Also when the diagram engine loaded (`observeDiagrams`).
+    func rebuild() {
         guard let demo = controller.demo, let store = controller.store else { return }
         rebuilds += 1
         let pinned = store.state.ui.scroll.pinnedToBottom

@@ -35,7 +35,9 @@ public struct ErrorQuery: Sendable, Equatable {
     }
 
     func matches(_ entry: ErrorEntry) -> Bool {
-        if let since, entry.lastMs < Int64(since.timeIntervalSince1970 * 1000) { return false }
+        // `since` comes from the control socket (`since_ms`, `since`): compared as a Double, a date
+        // past Int64 milliseconds matches nothing, one before it everything, and NaN no filter.
+        if let since, Double(entry.lastMs) < (since.timeIntervalSince1970 * 1000).rounded(.towardZero) { return false }
         if entry.level < minimumLevel { return false }
         if !sources.isEmpty, !sources.contains(where: { entry.source == $0 || entry.source.hasPrefix($0 + ":") }) {
             return false

@@ -2,12 +2,13 @@
 //! input receipt HMACs, and resource selector lookups for surfaces.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 mod effect_commit;
 
 impl Mux {
     pub fn registry_identity(&self) -> (String, String) {
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         (registry.registry_id().to_string(), registry.generation().to_string())
     }
 
@@ -32,10 +33,11 @@ impl Mux {
             .clone()
     }
 
+    #[track_caller]
     pub(crate) fn local_resource_context(
         &self,
     ) -> anyhow::Result<crate::resource_api::LocalResourceContext> {
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let topology = registry.resource_topology_snapshot()?;
         Ok(crate::resource_api::LocalResourceContext {
             machine_id: registry.machine_id().clone(),
@@ -46,22 +48,24 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(crate) fn with_resource_projection<R>(
         &self,
         project: impl FnOnce(&WorkspaceRegistry, &State) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
-        let registry = self.workspace_registry.lock().unwrap();
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
+        let state = self.lock_state_pinned(&registry).recover_poison();
         project(&registry, &state)
     }
 
+    #[track_caller]
     pub(crate) fn lookup_resource_effect(
         &self,
         idempotency_key: &str,
         operation: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<Option<ResourceEffectPreparation>> {
-        self.workspace_registry.lock().unwrap().lookup_resource_effect(
+        self.workspace_registry.lock().recover_poison().lookup_resource_effect(
             idempotency_key,
             operation,
             fingerprint,
@@ -74,7 +78,7 @@ impl Mux {
         operation: &str,
         canonical_fields: &[u8],
     ) -> [u8; 32] {
-        self.workspace_registry.lock().unwrap().resource_input_receipt_hmac(
+        self.workspace_registry.lock().recover_poison().resource_input_receipt_hmac(
             idempotency_key,
             operation,
             canonical_fields,
@@ -84,6 +88,7 @@ impl Mux {
     /// Commit an agent report and its resource projection under the sequence
     /// fence used to preserve hook ordering across retries and restarts.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn prepare_resource_effect(
         &self,
         mutation: &WorkspaceMutation,
@@ -93,7 +98,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
-        self.workspace_registry.lock().unwrap().prepare_resource_effect_for(
+        self.workspace_registry.lock().recover_poison().prepare_resource_effect_for(
             mutation,
             operation,
             fingerprint,
@@ -105,6 +110,7 @@ impl Mux {
 
     /// One durable commit that records a new effect intent as `executing`
     /// (`WorkspaceRegistry::prepare_resource_effect_executing_for`).
+    #[track_caller]
     pub(crate) fn prepare_resource_effect_executing(
         &self,
         mutation: &WorkspaceMutation,
@@ -125,19 +131,21 @@ impl Mux {
             )
     }
 
+    #[track_caller]
     pub(crate) fn mark_resource_effect_executing(
         &self,
         idempotency_key: &str,
         operation: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<Value> {
-        self.workspace_registry.lock().unwrap().mark_resource_effect_executing(
+        self.workspace_registry.lock().recover_poison().mark_resource_effect_executing(
             idempotency_key,
             operation,
             fingerprint,
         )
     }
 
+    #[track_caller]
     pub(crate) fn commit_resource_effect(
         &self,
         idempotency_key: &str,
@@ -146,7 +154,7 @@ impl Mux {
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
     ) -> anyhow::Result<u64> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let (intent, finish) = registry.prepare_effect_outcome_intent(
             idempotency_key,
             operation,
@@ -158,7 +166,7 @@ impl Mux {
         // effect_commit.rs); the connection and state are not held.
         let revision = self.commit_effect_intent(&mut registry, intent, finish)?.revision();
         if deltas.is_some() {
-            self.state.lock().unwrap().resource_revision = revision;
+            self.state.lock().recover_poison().resource_revision = revision;
             drop(registry);
             self.publish_resource_event();
         } else {
@@ -176,6 +184,7 @@ impl Mux {
     /// connection -> state; the writer needs the connection), and state is
     /// locked again to install the committed revision. Readers in between see
     /// the pre-commit state and revision, as before publication.
+    #[track_caller]
     pub(crate) fn commit_resource_effect_projection(
         &self,
         idempotency_key: &str,
@@ -183,14 +192,14 @@ impl Mux {
         fingerprint: &Value,
         project: impl FnOnce(&WorkspaceRegistry, &mut State) -> anyhow::Result<ResourceEffectProjection>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         crate::debug_spans::mark("projection.locked");
         let mut projection = project(&registry, &mut state)?;
         crate::debug_spans::mark("projection.built");
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
-        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+        if let Some(hook) = self.resource_projection_before_commit.lock().recover_poison().clone() {
             hook();
         }
         let (intent, finish) = registry.prepare_effect_patch_intent(
@@ -217,6 +226,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn commit_full_resource_effect_projection(
         &self,
         idempotency_key: &str,
@@ -235,6 +245,7 @@ impl Mux {
     /// Reconcile an already-committed local mutation into one public topology
     /// revision. This is reserved for legacy/internal paths whose durable
     /// side effect predates the resource coordinator.
+    #[track_caller]
     pub(super) fn commit_ordinary_full_resource_projection(
         &self,
         actor: &Actor,
@@ -251,6 +262,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,
         mutation: &WorkspaceMutation,
@@ -276,30 +288,41 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn mark_resource_effect_indeterminate(
         &self,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap().mark_resource_effect_indeterminate(idempotency_key)
+        self.workspace_registry
+            .lock()
+            .recover_poison()
+            .mark_resource_effect_indeterminate(idempotency_key)
     }
 
     pub(crate) fn resource_surface_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<SurfaceId> {
-        self.state.lock().unwrap().terminal_catalog.get(terminal_id).map(|surface| surface.id)
+        self.state
+            .lock()
+            .recover_poison()
+            .terminal_catalog
+            .get(terminal_id)
+            .map(|surface| surface.id)
     }
 
     pub(crate) fn resource_selectors_for_pane(
         &self,
         pane: Option<PaneId>,
     ) -> anyhow::Result<crate::ResourceSelectors> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let pane = pane.or_else(|| state.active_pane()).context("session has no active pane")?;
         let (workspace_index, screen_index) =
             state.screen_of(pane).context("pane has no containing screen")?;
-        let workspace = &state.workspaces[workspace_index];
-        let screen = &workspace.screens[screen_index];
+        let workspace =
+            state.workspaces.get(workspace_index).context("pane's workspace left the session")?;
+        let screen =
+            workspace.screens.get(screen_index).context("pane's screen left its workspace")?;
         let pane =
             state.resource_indexes.pane_ids.get(&pane).context("pane has no public identity")?;
         Ok(crate::ResourceSelectors {
@@ -316,7 +339,7 @@ impl Mux {
         &self,
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<crate::ResourceSelectors> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let workspace = match workspace {
             Some(workspace) => state
                 .workspaces
@@ -349,7 +372,7 @@ impl Mux {
         .map_err(anyhow::Error::new)?;
         self.state
             .lock()
-            .unwrap()
+            .recover_poison()
             .resource_indexes
             .tabs
             .get(&tab)
@@ -357,11 +380,12 @@ impl Mux {
             .context("created tab no longer has a live view")
     }
 
+    #[track_caller]
     pub(crate) fn has_durable_terminal_receipt(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<bool> {
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let Some(host_id) = registry.terminal_host_id(terminal_id)? else {
             return Ok(false);
         };

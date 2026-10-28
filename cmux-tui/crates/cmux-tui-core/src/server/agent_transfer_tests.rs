@@ -22,8 +22,13 @@ use super::super::agent_session_attach_tests::{
     ABORT_FAILS_CHAT, BUNDLE_MANIFEST, BUNDLE_SESSION, Client, FakeAcpmux, MOVING_CHAT, SESSION,
     UNGUARDED_CHAT, agent_tab, assert_code, mux_with, run, terminal_pane,
 };
-use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
-use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle};
+use super::super::request_thread_tests::{next_reply, on_request_thread_with};
+use super::super::routes::{self, RouteLine};
+use super::super::{
+    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, MessageWriter, QueuedSink,
+    RequestHead, remote_relay,
+};
+use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES};
 use crate::mux::Mux;
 use crate::server::AgentStartHost;
 
@@ -67,6 +72,14 @@ impl Drop for Home {
 
 fn canonical(path: &Path) -> String {
     std::fs::canonicalize(path).unwrap().to_str().unwrap().to_string()
+}
+
+/// The answer of the route the line's `cmd` names (server/routes.rs), as
+/// the connection hands it the line: `None` when no route takes it.
+fn route(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> Option<bool> {
+    let head = RequestHead::parse(message);
+    let route = routes::find(head.cmd()?)?;
+    (route.entry)(&RouteLine { mux, client, message, writer, head: &head })
 }
 
 fn transfer_mux(fake: &FakeAcpmux, label: &str, home: &Home, cloud: bool) -> Arc<Mux> {
@@ -147,6 +160,82 @@ fn every_verb(surface: u64, cwd: &str) -> Vec<Value> {
     ]
 }
 
+// MARK: Decoding
+
+/// The verbs decode through the one `cmd`-tagged enum spec/sdk-schema.json
+/// types (p05-ipc-019): each well-formed verb, receive-abort included, is
+/// read; an unknown verb, an unknown param and a mistyped one are not.
+#[test]
+fn every_verb_decodes_by_its_cmd_and_nothing_else_does() {
+    let mut frames = every_verb(7, "/home/u/work/p");
+    frames.push(json!({"id":9,"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    for frame in frames {
+        let mut object = frame.as_object().unwrap().clone();
+        object.remove("id");
+        assert!(super::Verb::parse(object).is_some(), "{frame}");
+    }
+    for frame in [
+        json!({"cmd":"agent-transfer-nope"}),
+        json!({"cmd":"agent-transfer-source","surface":7,"extra":1}),
+        json!({"cmd":"agent-transfer-source","surface":true}),
+        json!({"cmd":"agent-transfer-receive-abort"}),
+    ] {
+        assert!(super::Verb::parse(frame.as_object().unwrap().clone()).is_none(), "{frame}");
+    }
+}
+
+/// A trusted local connection's line, answered through the connection's own
+/// dispatch: the reply and the JSON parses the line took.
+fn dispatch_counted(mux: &Arc<Mux>, line: &str) -> (Value, u64) {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let stats = crate::diagnostics::IpcStats::default();
+    {
+        let _scope = crate::diagnostics::JsonParseScope::enter(
+            &stats,
+            crate::diagnostics::IpcTransport::Lines,
+        );
+        assert!(remote_relay::handle_connection_message(mux, client, line, &writer, &scheduler));
+    }
+    (next_reply(&outbound), stats.snapshot().parses.lines.json_parses)
+}
+
+/// The three routes of agent_transfer (agent-transfer-*, access-request*,
+/// agent-update-*) answer through their typed handlers: found by the head's
+/// decoded `cmd`, so an escaped name answers as its plain spelling (the
+/// sniffers' substring scan sent it to the `Command` parse's unknown-command
+/// error), with one decode past the head for an accepted and a refused line,
+/// and the `id` as written, `null` too.
+#[test]
+fn cmux_next_agent_transfer_routes_decode_once_and_answer_by_the_decoded_cmd() {
+    let home = Home::new("routes");
+    let mux = Mux::new_for_test("atx-routes", crate::SurfaceOptions::default());
+    mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: true, home: home.path.clone() }));
+    let cases = [
+        (r#"{"id":1,"cmd":"access-request-list"}"#, None),
+        (r#"{"id":2,"cmd":"access-request-list","extra":1}"#, Some("access_request.bad_request")),
+        (r#"{"id":3,"cmd":"agent-transfer-nope"}"#, Some("agent_transfer.bad_request")),
+        (r#"{"id":4,"cmd":"agent-update-apply","extra":1}"#, Some("agent_update.bad_request")),
+    ];
+    for (line, refused) in cases {
+        for spelled in [line.to_owned(), line.replacen('-', r"\u002d", 1)] {
+            let (reply, parses) = dispatch_counted(&mux, &spelled);
+            match refused {
+                None => assert_eq!(ok_data(&reply), &json!({"requests": []}), "{spelled}"),
+                Some(code) => assert_code(&reply, code),
+            }
+            let id: Value = serde_json::from_str::<Value>(line).unwrap()["id"].clone();
+            assert_eq!(reply["id"], id, "{spelled}: {reply}");
+            assert_eq!(parses, 2, "{spelled}: the head and the route's decode");
+        }
+    }
+    let (reply, _) = dispatch_counted(&mux, r#"{"id":null,"cmd":"access-request-list"}"#);
+    assert_eq!(reply.get("id"), Some(&Value::Null), "{reply}");
+}
+
 // MARK: Capability and trust
 
 #[test]
@@ -189,7 +278,13 @@ fn the_remote_relay_denies_every_agent_transfer_verb() {
     let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
     for frame in every_verb(surface, &home.text("work/project")) {
         assert!(remote_relay::gate::check_frame(&frame.to_string()).is_err());
-        remote_relay::handle_frame(&mux, client, &frame.to_string(), &writer);
+        remote_relay::handle_frame(
+            &mux,
+            client,
+            &frame.to_string(),
+            &writer,
+            std::time::Instant::now(),
+        );
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_code(&reply, "remote_denied");
     }
@@ -218,7 +313,7 @@ fn every_verb_is_refused_on_every_untrusted_connection() {
     for client in [websocket, stamped, unregistered] {
         let mut answers = Vec::new();
         for frame in every_verb(surface, &home.text("work/project")) {
-            assert_eq!(try_handle(&mux, client, &frame.to_string(), &writer), Some(true));
+            assert_eq!(route(&mux, client, &frame.to_string(), &writer), Some(true));
             let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
             assert_code(&reply, "agent_transfer.not_trusted");
             answers.push((reply["error"].clone(), reply["error_code"].clone()));
@@ -231,6 +326,29 @@ fn every_verb_is_refused_on_every_untrusted_connection() {
 }
 
 // MARK: The daemon builds the guard
+
+/// The guard resolves the folder on disk: the worker does it, never the
+/// request thread (p02-threads 220). Panic mode: a resolve left on the
+/// request thread fails here at its call site.
+#[test]
+fn a_receive_resolves_its_folder_off_the_request_thread() {
+    let fake = FakeAcpmux::start("xoffreq");
+    let home = Home::new("offreq");
+    let mux = transfer_mux(&fake, "atx-offreq", &home, true);
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let frame = json!({"id":1,"cmd":"agent-transfer-receive","manifest":manifest(),
+                       "cwd":home.text("work/project")});
+    let handled =
+        on_request_thread_with(&mux, move |mux| route(mux, client, &frame.to_string(), &writer));
+    assert_eq!(handled, Some(true));
+    assert_eq!(ok_data(&next_reply(&outbound))["receive_id"], json!("rcv_1"));
+    assert_eq!(
+        fake.frame()["params"]["guard"],
+        json!({"control": "peer", "roots": [home.canonical("work")]})
+    );
+}
 
 #[test]
 fn a_cloud_host_receive_forwards_peer_control_rooted_at_home_work() {

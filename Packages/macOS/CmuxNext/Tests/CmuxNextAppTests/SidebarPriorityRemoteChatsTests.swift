@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -48,7 +49,8 @@ struct SidebarPriorityRemoteChatsTests {
         let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], machines: machines,
                                        checksFailing: checksFailing) { _, _ in }
         let feed = SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }),
-                                       hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats)
+                                       hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats,
+                                       deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         return ({ feed.panel() }, chats)
     }
 
