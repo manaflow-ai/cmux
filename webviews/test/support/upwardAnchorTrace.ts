@@ -8,7 +8,45 @@ export type UpwardAnchorFrame = {
   scrollTop: number;
   anchorId: string | null;
   drift: number | null;
+  readbackQuantization: number;
 };
+
+export type ScrollReadbackCalibration = {
+  devicePixelRatio: number;
+  samples: Array<{ desired: number; actual: number; delta: number }>;
+  maxAbsDelta: number;
+};
+
+/** Measures browser scrollTop quantization in an isolated scroller before the transcript is seeded. */
+export function calibrateScrollReadback(): ScrollReadbackCalibration {
+  const scroller = document.createElement("div");
+  const content = document.createElement("div");
+  Object.assign(scroller.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "-10000px",
+    width: "100px",
+    height: "100px",
+    overflow: "scroll",
+    visibility: "hidden",
+  });
+  Object.assign(content.style, { width: "1px", height: "2000px" });
+  scroller.append(content);
+  document.body.append(scroller);
+  const samples = Array.from({ length: 32 }, (_, index) => {
+    const desired = (index + 1) * 0.25;
+    scroller.scrollTop = desired;
+    const actual = scroller.scrollTop;
+    return { desired, actual, delta: actual - desired };
+  });
+  const result = {
+    devicePixelRatio: globalThis.devicePixelRatio,
+    samples,
+    maxAbsDelta: Math.max(...samples.map((sample) => Math.abs(sample.delta))),
+  };
+  scroller.remove();
+  return result;
+}
 
 /** Runs in the page with paintedFrames installed; it deliberately closes over no test state. */
 export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: number[]; restFrames?: number }) {
@@ -50,6 +88,7 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
           topRowY: top?.y ?? null,
           requestedPixels: command.asked,
           wheelPixels: command.applied,
+          readbackQuantization: command.applied - command.asked,
           scrollTop: scroller.scrollTop,
           anchorId: anchor?.id ?? null,
           drift,
@@ -87,6 +126,8 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
     blankFrames: samples.filter((sample) => sample.topRowId === null).length,
     cancelledWheels,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
+    readbackQuantization: [...new Set(samples.map((sample) => sample.readbackQuantization))].sort((a, b) => a - b),
+    maxAbsReadbackQuantization: Math.max(0, ...samples.map((sample) => Math.abs(sample.readbackQuantization))),
     maxDrift: Math.max(0, ...compared.map((sample) => Math.abs(sample.drift!))),
     totalDrift: compared.reduce((sum, sample) => sum + Math.abs(sample.drift!), 0),
     samples,
