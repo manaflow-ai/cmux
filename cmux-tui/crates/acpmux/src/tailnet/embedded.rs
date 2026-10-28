@@ -230,10 +230,12 @@ impl Controller {
 
     pub(crate) async fn listener_failed(&self, failed: &Arc<Node>) {
         let _lifecycle = self.lifecycle.lock().await;
-        if !self.node().is_some_and(|node| Arc::ptr_eq(&node, failed)) {
+        let Some(node) = self.retire_node(Some(failed), "stopped") else {
             return;
-        }
-        let _ = self.shutdown_locked().await;
+        };
+        let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
+            .await
+            .map_err(|error| error.to_string());
         self.note_listener_error();
     }
 
@@ -425,6 +427,21 @@ impl Controller {
         Ok(())
     }
 
+    fn retire_node(&self, expected: Option<&Arc<Node>>, state: &'static str) -> Option<Arc<Node>> {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(expected) = expected
+            && !inner.node.as_ref().is_some_and(|node| Arc::ptr_eq(node, expected))
+        {
+            return None;
+        }
+        inner.generation = inner.generation.wrapping_add(1);
+        inner.starting = false;
+        let node = inner.node.take();
+        inner.snapshot.node_gone(state);
+        self.publish_locked(&inner.snapshot);
+        node
+    }
+
     fn watch(self: Arc<Self>, node: Arc<Node>, generation: u64) {
         let result = node.watch();
         match result {
@@ -519,7 +536,7 @@ fn logout_and_close(
 
 /// libtailscale owns a background runtime. Never let its final `Arc<Node>`
 /// drop on a Tokio worker or request task.
-fn release_node(node: Arc<Node>) {
+pub(crate) fn release_node(node: Arc<Node>) {
     let _ =
         std::thread::Builder::new().name("acpmux-tailnet-release".into()).spawn(move || drop(node));
 }
@@ -727,6 +744,23 @@ mod tests {
             .await
             .expect("detached lifecycle work finished after its caller was dropped")
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn listener_failure_retires_state_before_a_slow_close() {
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "test");
+        controller.update(|snapshot| snapshot.state = "running");
+
+        // A close can outlive the supervisor's three-second bound. The
+        // controller must already report a stopped, node-less state before
+        // that wait, so the next explicit start cannot reuse stale identity.
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(10), async {
+            let _ = controller.retire_node(None, "stopped");
+            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+        })
+        .await;
+        assert_eq!(controller.snapshot().state, "stopped");
+        assert!(controller.node().is_none());
     }
 
     #[tokio::test]
