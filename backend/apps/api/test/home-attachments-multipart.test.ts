@@ -27,10 +27,11 @@ const multipart = async (who: Who, conversation: string, body: Uint8Array) => {
 }
 
 /** The env with a bucket whose resumed uploads complete through `complete` (given the real upload). */
-const completingWith = (complete: (upload: R2MultipartUpload, parts: Array<R2UploadedPart>) => Promise<R2Object>): TestEnv => {
+const completingWith = (complete: (upload: R2MultipartUpload, parts: Array<R2UploadedPart>) => Promise<R2Object>, head?: (key: string) => Promise<R2Object | null>): TestEnv => {
   const bucket = testEnv.HOME_ATTACHMENTS
   const wrapped = new Proxy(bucket, {
     get(t, p) {
+      if (p === "head" && head) return head
       if (p !== "resumeMultipartUpload") return (Reflect.get(t, p) as Function).bind(t)
       return (key: string, id: string) => {
         const upload = t.resumeMultipartUpload(key, id)
@@ -72,7 +73,7 @@ describe("Home attachments: multipart completion keeps a valid upload through tr
     expect([lost.status, lost.json.value?.state]).toEqual([200, "stored"])
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
 
-    // R2 completed, then the Worker could not read the object back: the retry finds the upload closed (NoSuchUpload) and the object there.
+    // R2 completed, then answered an internal error: the object is there with the declared size and hash.
     const other = new Uint8Array(32_000_017).map((_, i) => (i * 7) % 253)
     const n = await multipart(alice, id, other)
     expect((await n.putPart(1)).status).toBe(200)
@@ -82,6 +83,19 @@ describe("Home attachments: multipart completion keeps a valid upload through tr
     }))
     expect(unreadable.status).toBe(200)
     expect(sha(await downloaded(alice, id, sha(other)))).toBe(sha(other))
+
+    // R2 completed and the object could not be read back either: 503, the slot stays; the retry finds the upload closed (NoSuchUpload) and the object there.
+    const third = new Uint8Array(32_000_017).map((_, i) => (i * 13) % 251)
+    const t = await multipart(alice, id, third)
+    expect((await t.putPart(1)).status).toBe(200)
+    const unknown = await t.complete(completingWith(async (upload, parts) => {
+      await upload.complete(parts)
+      throw new Error("Network connection lost.")
+    }, async () => Promise.reject(new Error("Network connection lost."))))
+    expect([unknown.status, unknown.json.error.code]).toEqual([503, "attachment.complete_unavailable"])
+    const retried = await t.complete()
+    expect([retried.status, retried.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(third)))).toBe(sha(third))
   })
 
   it("an integrity failure (R2 InvalidPart) still ends the slot and deletes its object; a closed upload with no object is not taken for a completed one", async () => {

@@ -598,6 +598,14 @@ export class ConversationDO extends OwnerDO<Head> {
     return this.existingState(entity) ? store.multipartEtags(this.sqlStore, id) : []
   }
 
+  /** A multipart completion that may not have happened: the slot is open again (store.reopenMultipart). */
+  async reopenMultipart(entity: string, id: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const reopened = store.reopenMultipart(this.sqlStore, id)
+    this.scheduleAlarm()
+    return reopened
+  }
+
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return

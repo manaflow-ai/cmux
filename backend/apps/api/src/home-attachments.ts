@@ -66,6 +66,7 @@ interface ConversationAttachments {
   setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
   recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string): Promise<boolean>
   multipartEtags(entity: string, id: string): Promise<Array<string>>
+  reopenMultipart(entity: string, id: string): Promise<boolean>
   commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
@@ -299,7 +300,8 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   }
   if (mode === "multipart") {
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
-    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type } })
+    // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
+    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } })
     if (!(await conversationOf(env, conversation).setMultipartUpload(conversation, slot.id, upload.uploadId))) {
       await upload.abort()
       return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
@@ -433,18 +435,68 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   if (!slot?.multipart_upload_id) return invalid
   const bucket = env.HOME_ATTACHMENTS!
   const upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
-  let etag: string
-  try {
-    const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
-    if (object.size !== slot.byte_count) throw new Error("size")
-    etag = object.etag
-  } catch {
+  // Only bytes that cannot form the declared file end the slot; no retry can fix them.
+  const refuse = async () => {
     await upload.abort().catch(() => undefined)
     await bucket.delete(slotKeys(slot))
     await conv.settleSlot(conversation, slot.id)
     return failure({ status: 400, code: "attachment.size_mismatch", message: "the stored parts do not form the declared file" })
   }
+  let etag: string
+  try {
+    const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
+    if (object.size !== slot.byte_count) return refuse()
+    etag = object.etag
+  } catch (error) {
+    const kind = completionFailure(error)
+    if (kind === "integrity") return refuse()
+    // A transient failure, or an upload already closed: R2 may have completed it before its answer was lost.
+    const found = await completedObject(bucket, slot)
+    if (found) etag = found.etag
+    else if (kind === "closed" && found === null) return refuse()
+    else {
+      // Not known to have happened: the parts stay and the slot is open again, so the client completes again.
+      await conv.reopenMultipart(conversation, slot.id)
+      return failure({ status: 503, code: "attachment.complete_unavailable", message: "the upload could not be completed right now; complete it again", extra: { retryable: true } })
+    }
+  }
   return finish(env, conversation, slot, etag)
+}
+
+/**
+ * Error codes of a multipart completion that no retry can fix: the parts cannot form the file.
+ * R2's numeric codes (InvalidPart 10025, EntityTooSmall 10011, BadDigest 10037, BadUpload 10048)
+ * and the self-hosted bucket's FsBucketError codes. NoSuchUpload (10024) means the upload is
+ * closed: completed (its answer lost) or aborted. Any other error is transient.
+ */
+const INTEGRITY_CODES: ReadonlySet<number | string> = new Set([10011, 10025, 10037, 10048, "InvalidPart", "InvalidPartOrder", "EntityTooSmall", "BadDigest", "BadUpload"])
+const CLOSED_CODES: ReadonlySet<number | string> = new Set([10024, "NoSuchUpload"])
+/**
+ * The error's code: `code` where the runtime sets it (R2Error.code, FsBucketError.code); else the
+ * R2 v4 code the binding appends to every R2 error as "(<code>)" (workerd's local binding throws a
+ * plain Error that carries only that). Never the message's words.
+ */
+const errorCode = (error: unknown): number | string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const code = (error as { code?: unknown }).code
+  if (typeof code === "number" || typeof code === "string") return code
+  const v4 = /\((\d{5,6})\)$/.exec(String((error as { message?: unknown }).message ?? ""))
+  return v4 ? Number(v4[1]) : undefined
+}
+export const completionFailure = (error: unknown): "integrity" | "closed" | "transient" => {
+  const code = errorCode(error)
+  return code === undefined ? "transient" : INTEGRITY_CODES.has(code) ? "integrity" : CLOSED_CODES.has(code) ? "closed" : "transient"
+}
+
+/**
+ * The slot's object when an earlier completion already made it: the declared size and the
+ * declared SHA-256 its upload was created with. Null when it is not there; undefined when R2
+ * could not be asked (the caller keeps the slot for a retry).
+ */
+const completedObject = async (bucket: R2Bucket, slot: UploadSlot): Promise<R2Object | null | undefined> => {
+  const head = await bucket.head(slot.object_key).catch(() => undefined)
+  if (head === undefined) return undefined
+  return head && head.size === slot.byte_count && head.customMetadata?.sha256 === slot.hash ? head : null
 }
 
 /**

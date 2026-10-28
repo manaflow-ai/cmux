@@ -212,6 +212,17 @@ export const recordMultipartPart = (sql: Sql, id: string, part: number, etag: st
   return true
 }
 
+/**
+ * Gives an `uploading` multipart slot back to its client after a completion that may not have
+ * happened (a transient R2 failure): open again with a fresh idle lease, so completing again works.
+ */
+export const reopenMultipart = (sql: Sql, id: string): boolean => {
+  const slot = slotIn(sql, id, "uploading")
+  if (!slot || slot.mode !== "multipart") return false
+  sql.exec(`UPDATE ${SLOTS} SET state = 'open', expires_at = ? WHERE id = ?`, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
+}
+
 /** The recorded part etags of slot `id`, in part order. */
 export const multipartEtags = (sql: Sql, id: string): Array<string> => sql.exec<{ etag: string }>(`SELECT etag FROM ${PARTS} WHERE slot = ? ORDER BY part`, id).map((r) => r.etag)
 
