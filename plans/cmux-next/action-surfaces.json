@@ -24236,34 +24236,6 @@
       "title_table" : "AgentConfigurationActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-side-question",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "agentPane.sideQuestion",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Ask a Side Question…",
-      "title_key" : "action.agentPane.sideQuestion",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "offered",
       "cli_name" : "agent set-effort",
       "context_menu" : "noTargetSurface",
@@ -24666,6 +24638,34 @@
       "palette_suggested" : null,
       "title" : "View Chat Only",
       "title_key" : "action.agentChat.view",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-side-question",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.sideQuestion",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Ask a Side Question…",
+      "title_key" : "action.agentPane.sideQuestion",
       "title_table" : "ActionCatalog"
     },
     {
