@@ -1138,7 +1138,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release"
+      # scratch (bench-restore, never lands): the fleet's --release builds the bench configuration, so the
+      # nightly's source can be measured optimized with the debug socket.
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1
       shift
       ;;
     --config|--config=*)
