@@ -101,7 +101,7 @@ exec sleep 600"#;
         let mut child = shell.stdin(Stdio::null()).stdout(Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
-        let launcher = Launcher(Some(child));
+        let mut launched = Launched { child: Some(child), owner: 0 };
         assert_eq!(line.trim(), "ready", "the launcher died before ensure finished");
         let ensured = fs::read(&out).unwrap();
         let ensured: serde_json::Value = serde_json::from_slice(&ensured).unwrap_or_else(|_| {
@@ -113,7 +113,8 @@ exec sleep 600"#;
         });
         assert_eq!(ensured["status"], "started", "{ensured}");
         let owner = ensured["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok());
-        Launched { launcher, owner: owner.expect("owner pid") }
+        launched.owner = owner.expect("owner pid");
+        launched
     }
 
     /// Starts `/bin/cat` in a new workspace; returns its terminal host pids.
@@ -154,7 +155,7 @@ impl Drop for Fixture {
         let _ = self.server("stop").arg("--end-terminals").output();
         let hosts = self.hosts.borrow().clone();
         let pids: Vec<u32> = hosts.iter().map(|(pid, _)| *pid).collect();
-        for pid in await_exit(&pids, Duration::from_secs(5)) {
+        for pid in await_exit(&pids, Duration::from_secs(5)).0 {
             let recorded = hosts.iter().find(|(host, _)| *host == pid).and_then(|(_, at)| *at);
             if recorded.is_none() || cmux_tui_core::process_started_ms(pid) != recorded {
                 continue;
@@ -168,24 +169,22 @@ impl Drop for Fixture {
 }
 
 /// The launcher shell this test started, and the owner its ensure spawned.
-struct Launcher(Option<Child>);
-
 struct Launched {
-    launcher: Launcher,
+    child: Option<Child>,
     owner: u32,
 }
 
-impl Launcher {
+impl Launched {
     /// SIGKILL, as a cancelled CI job ends: no trap or cleanup runs.
     fn kill(&mut self) {
-        if let Some(mut child) = self.0.take() {
+        if let Some(mut child) = self.child.take() {
             child.kill().unwrap();
             child.wait().unwrap();
         }
     }
 }
 
-impl Drop for Launcher {
+impl Drop for Launched {
     fn drop(&mut self) {
         self.kill();
     }
@@ -215,18 +214,17 @@ fn request(path: &Path, value: serde_json::Value) -> Option<serde_json::Value> {
     (response["ok"] == true).then(|| response["data"].clone())
 }
 
-/// `ps` for one pid: its state and CPU time, `None` once it is gone. A
-/// zombie counts as gone (it has exited; only its parent's reap is left).
-fn ps(pid: u32) -> Option<(String, Duration)> {
+/// The CPU time `ps` reports for `pid`, `None` once it is gone. A zombie
+/// counts as gone (it has exited; only its parent's reap is left).
+fn cpu(pid: u32) -> Option<Duration> {
     let output =
         Command::new("ps").args(["-o", "stat=,time=", "-p", &pid.to_string()]).output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let mut fields = text.split_whitespace();
-    let stat = fields.next()?.to_string();
-    if stat.starts_with('Z') {
+    if fields.next()?.starts_with('Z') {
         return None;
     }
-    Some((stat, parse_cpu_time(fields.next()?)))
+    Some(parse_cpu_time(fields.next()?))
 }
 
 /// `ps -o time=`: `[[dd-]hh:]mm:ss[.ff]` (macOS prints fractions, Linux
@@ -241,36 +239,22 @@ fn parse_cpu_time(text: &str) -> Duration {
     Duration::from_secs_f64(days as f64 * 86_400.0 + clock)
 }
 
-fn alive(pid: u32) -> bool {
-    ps(pid).is_some()
-}
-
-/// Waits up to `bound` for every pid to be gone; returns those still alive.
-fn await_exit(pids: &[u32], bound: Duration) -> Vec<u32> {
+/// Waits up to `bound` for every pid to be gone: the pids still alive, and
+/// the most CPU any of them used between the first and last look.
+fn await_exit(pids: &[u32], bound: Duration) -> (Vec<u32>, Duration) {
     let deadline = Instant::now() + bound;
+    let first: Vec<Option<Duration>> = pids.iter().map(|pid| cpu(*pid)).collect();
+    let mut used = Duration::ZERO;
     loop {
-        let left: Vec<u32> = pids.iter().copied().filter(|pid| alive(*pid)).collect();
-        if left.is_empty() || Instant::now() >= deadline {
-            return left;
+        let mut left = Vec::new();
+        for (pid, first) in pids.iter().zip(&first) {
+            if let Some(now) = cpu(*pid) {
+                used = used.max(now.saturating_sub(first.unwrap_or(now)));
+                left.push(*pid);
+            }
         }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-/// Waits up to `bound` for `pid` to be gone: whether it went, and the CPU
-/// it used from the first look to the last look that found it alive.
-fn await_owner_exit(pid: u32, bound: Duration) -> (bool, Duration) {
-    let deadline = Instant::now() + bound;
-    let mut first = None;
-    let mut last = Duration::ZERO;
-    loop {
-        let Some((_, cpu)) = ps(pid) else {
-            return (true, last.saturating_sub(first.unwrap_or(last)));
-        };
-        first.get_or_insert(cpu);
-        last = cpu;
-        if Instant::now() >= deadline {
-            return (false, last.saturating_sub(first.unwrap_or(last)));
+        if left.is_empty() || Instant::now() >= deadline {
+            return (left, used);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -287,17 +271,21 @@ fn ps_cpu_times_parse_on_macos_and_linux() {
 #[test]
 fn a_bound_owner_exits_and_ends_its_terminals_when_its_launcher_is_killed() {
     let fixture = Fixture::new("bound");
-    let Launched { mut launcher, owner } = fixture.launch(true);
+    let mut launched = fixture.launch(true);
+    let owner = launched.owner;
     let hosts = fixture.start_terminal();
-    launcher.kill();
+    launched.kill();
     let started = Instant::now();
-    let (exited, used) = await_owner_exit(owner, EXIT_BOUND);
-    assert!(exited, "the bound owner {owner} outlived its killed launcher by {EXIT_BOUND:?}");
+    let (left, used) = await_exit(&[owner], EXIT_BOUND);
+    assert!(
+        left.is_empty(),
+        "the bound owner {owner} outlived its killed launcher by {EXIT_BOUND:?}"
+    );
     let exited = started.elapsed();
     assert!(used <= SPIN_LIMIT, "the bound owner used {used:?} of CPU while it exited");
     // The owner ended its terminals before it exited: nobody adopts the
     // terminals of an owner whose launcher is gone.
-    let left = await_exit(&hosts, EXIT_BOUND);
+    let (left, _) = await_exit(&hosts, EXIT_BOUND);
     assert!(left.is_empty(), "terminal hosts {left:?} outlived their bound owner");
     eprintln!("bound owner exited {exited:?} after its launcher was killed");
 }
@@ -307,8 +295,8 @@ fn ensure_refuses_to_bind_an_owner_to_a_pid_no_process_has() {
     let fixture = Fixture::new("gone");
     // A process that has exited and been reaped: its pid names nothing.
     let mut gone = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
-    let pid = gone.id();
     gone.wait().unwrap();
+    let pid = gone.id();
     let output = fixture.server("ensure").args(["--exit-with-pid", &pid.to_string()]).output();
     let output = output.unwrap();
     assert!(
@@ -322,11 +310,12 @@ fn ensure_refuses_to_bind_an_owner_to_a_pid_no_process_has() {
 #[test]
 fn an_unbound_owner_outlives_its_killed_launcher_without_spinning() {
     let fixture = Fixture::new("unbound");
-    let Launched { mut launcher, owner } = fixture.launch(false);
-    launcher.kill();
-    let (_, before) = ps(owner).expect("the owner died with its launcher");
+    let mut launched = fixture.launch(false);
+    let owner = launched.owner;
+    launched.kill();
+    let before = cpu(owner).expect("the owner died with its launcher");
     std::thread::sleep(SURVIVAL_WINDOW);
-    let (_, after) = ps(owner).expect("an unbound owner must outlive its launcher");
+    let after = cpu(owner).expect("an unbound owner must outlive its launcher");
     let used = after.saturating_sub(before);
     assert!(
         used <= SPIN_LIMIT,

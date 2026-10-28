@@ -354,45 +354,47 @@ impl Watch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::{Child, Command, Stdio};
+
+    /// A child that runs until its stdin closes, and the pid of one that
+    /// has exited and been reaped.
+    fn waiting_child() -> Child {
+        let stdin = Stdio::piped();
+        Command::new("/bin/sh").args(["-c", "read line"]).stdin(stdin).spawn().unwrap()
+    }
+
+    fn gone_pid() -> u32 {
+        let mut child = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
+        child.wait().unwrap();
+        child.id()
+    }
+
+    fn end(mut child: Child) {
+        drop(child.stdin.take());
+        child.wait().unwrap();
+    }
 
     #[test]
-    fn the_watch_wakes_when_the_bound_process_exits() {
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", "read line"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+    fn the_watch_wakes_on_exit_and_ends_on_stop() {
+        let child = waiting_child();
         let (reader, _writer) = io::pipe().unwrap();
         let watch = Watch::new(child.id(), reader).unwrap();
-        let waiter = std::thread::spawn(move || watch.wait().unwrap());
-        drop(child.stdin.take());
-        child.wait().unwrap();
-        assert_eq!(waiter.join().unwrap(), Woke::Exited);
-    }
+        let exited = std::thread::spawn(move || watch.wait().unwrap());
+        end(child);
+        assert_eq!(exited.join().unwrap(), Woke::Exited);
 
-    #[test]
-    fn the_watch_ends_when_the_owner_stops_it() {
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", "read line"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+        let child = waiting_child();
         let (reader, writer) = io::pipe().unwrap();
         let watch = Watch::new(child.id(), reader).unwrap();
-        let waiter = std::thread::spawn(move || watch.wait().unwrap());
+        let stopped = std::thread::spawn(move || watch.wait().unwrap());
         drop(writer);
-        assert_eq!(waiter.join().unwrap(), Woke::Stopped);
-        drop(child.stdin.take());
-        child.wait().unwrap();
+        assert_eq!(stopped.join().unwrap(), Woke::Stopped);
+        end(child);
     }
 
     #[test]
-    fn a_pid_with_another_start_time_counts_as_reused() {
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", "read line"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+    fn a_reused_or_gone_pid_counts_as_exited() {
+        let child = waiting_child();
         let pid = child.id();
         let started = cmux_tui_core::process_started_ms(pid);
         assert!(started.is_some(), "no start time for a live child");
@@ -400,26 +402,11 @@ mod tests {
         assert!(!arm(BoundPid { pid, started_ms: None }).unwrap().reused);
         let other = started.map(|started| started.wrapping_sub(60_000));
         assert!(arm(BoundPid { pid, started_ms: other }).unwrap().reused);
-        drop(child.stdin.take());
-        child.wait().unwrap();
-    }
+        end(child);
 
-    #[test]
-    fn a_direct_binding_to_a_gone_pid_fails_to_arm() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
-        let pid = child.id();
-        child.wait().unwrap();
-        assert!(arm(BoundPid { pid, started_ms: None }).is_err());
-    }
-
-    #[test]
-    fn a_process_gone_before_the_watch_counts_as_exited() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
-        let pid = child.id();
-        child.wait().unwrap();
+        let gone = gone_pid();
+        assert!(arm(BoundPid { pid: gone, started_ms: None }).is_err());
         let (reader, _writer) = io::pipe().unwrap();
-        assert_eq!(Watch::new(pid, reader).unwrap().wait().unwrap(), Woke::Exited);
+        assert_eq!(Watch::new(gone, reader).unwrap().wait().unwrap(), Woke::Exited);
     }
 }
