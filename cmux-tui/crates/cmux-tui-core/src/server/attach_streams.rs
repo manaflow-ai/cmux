@@ -328,6 +328,12 @@ pub(super) fn cancel_stream(
     require_grant(mux, client)?;
     let stream = ClientStreamId(stream);
     let Some(outbound) = writer.client_stream(stream) else {
+        // Its attach still waits for a restored terminal and has not opened
+        // it (pending_terminal_attach.rs): the attach must not open it after
+        // this cancel. It answers `attach_cancelled` and ends the stream.
+        if mux.cancel_restore_attach(client, stream.0) {
+            return Ok(json!({"stream": stream.0, "outcome": "applied"}));
+        }
         return Ok(json!({"stream": stream.0, "outcome": "ended"}));
     };
     writer.end_client_stream(&outbound, StreamEndReason::Canceled);

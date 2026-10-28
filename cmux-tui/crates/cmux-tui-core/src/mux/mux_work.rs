@@ -9,7 +9,7 @@
 //! reference that those items get.
 
 use cmux_threads::sync::Mutex;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
@@ -169,17 +169,19 @@ impl Mux {
     /// [`Self::post_mux_retry`] whose tries each hold one of `permits`: at
     /// most its width run at once, beside the lane's own limits. A try that
     /// finds none free waits in `permits` with no thread and no timer, and is
-    /// posted again when one frees.
+    /// posted again when one frees. A try of `key` goes first while a caller
+    /// waits on it ([`Permits::promote`]).
     pub(super) fn post_mux_retry_limited(
         &self,
         first_delay: Duration,
         priority: Priority,
         lane: Lane,
-        permits: &Arc<Permits>,
+        permits: (&Arc<Permits>, Option<Arc<str>>),
         attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
     ) -> Result<(), Refused> {
         let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
-        let permits = Some(Arc::downgrade(permits));
+        let (permits, key) = permits;
+        let permits = Some(LimitedBy { permits: Arc::downgrade(permits), key });
         let retry = RetryItem { mux, priority, lane, permits, attempt: Box::new(attempt) };
         retry.post(&self.work, first_delay)
     }
@@ -216,8 +218,14 @@ struct RetryItem {
     mux: Weak<Mux>,
     priority: Priority,
     lane: Lane,
-    permits: Option<Weak<Permits>>,
+    permits: Option<LimitedBy>,
     attempt: RetryAttempt,
+}
+
+/// The permits a limited retry's tries take, and the key a waiter promotes.
+struct LimitedBy {
+    permits: Weak<Permits>,
+    key: Option<Arc<str>>,
 }
 
 impl RetryItem {
@@ -231,23 +239,27 @@ impl RetryItem {
         if owner.shutting_down.load(Ordering::Acquire) {
             return;
         }
-        let permits = match self.permits.as_ref().map(Weak::upgrade) {
+        let permits = match self.permits.as_ref().map(|limit| limit.permits.upgrade()) {
             None => None,
             Some(Some(permits)) => Some(permits),
             // The mux that owned them is gone.
             Some(None) => return,
         };
-        let _permit = match permits.as_ref().map(Permits::take) {
+        let key = self.permits.as_ref().and_then(|limit| limit.key.clone());
+        let _permit = match permits.as_ref().map(|permits| permits.take(key.as_deref())) {
             None => None,
             Some(Ok(permit)) => Some(permit),
             Some(Err(parking)) => {
                 // Posted again with no delay when a permit frees.
-                parking.park(Box::new(move || {
-                    if let Some(owner) = self.mux.upgrade() {
-                        // Refused: shutdown began, and the retry ends with it.
-                        let _ = self.post(&owner.work, Duration::ZERO);
-                    }
-                }));
+                parking.park(
+                    key,
+                    Box::new(move || {
+                        if let Some(owner) = self.mux.upgrade() {
+                            // Refused: shutdown began, and the retry ends with it.
+                            let _ = self.post(&owner.work, Duration::ZERO);
+                        }
+                    }),
+                );
                 return;
             }
         };
@@ -265,6 +277,13 @@ type ParkedTry = Box<dyn FnOnce() + Send>;
 /// (base/task/post_job.h) while the pool's own limits stay shared. An item
 /// that finds every permit taken parks; a permit that frees posts the
 /// longest-parked item again. Nothing waits on a thread for a permit.
+///
+/// An item whose key a caller waits on ([`Self::promote`], an attach to a
+/// terminal that still adopts) goes first: it leaves its place in the queue
+/// for the front, and it may hold one of `width` more permits, so the
+/// terminal a person looks at never waits behind the hidden ones, as
+/// Chrome's session restore loads the shown tab before the background tabs
+/// it throttles (chrome/browser/sessions/tab_loader.cc).
 pub(crate) struct Permits {
     width: usize,
     // Lock carve-out: a leaf lock over a count and a queue; no item runs and
@@ -275,7 +294,35 @@ pub(crate) struct Permits {
 #[derive(Default)]
 struct PermitState {
     held: usize,
-    parked: VecDeque<ParkedTry>,
+    parked: VecDeque<Parked>,
+    /// Keys callers wait on, with how many wait on each.
+    urgent: HashMap<Arc<str>, usize>,
+}
+
+struct Parked {
+    key: Option<Arc<str>>,
+    wake: ParkedTry,
+}
+
+impl PermitState {
+    fn is_urgent(&self, key: Option<&str>) -> bool {
+        key.is_some_and(|key| self.urgent.contains_key(key))
+    }
+
+    /// How many permits an item of `key` may find held and still take one.
+    fn limit(&self, width: usize, key: Option<&str>) -> usize {
+        if self.is_urgent(key) { width * 2 } else { width }
+    }
+
+    /// The parked item a free permit goes to now, if any: the front one
+    /// (promoted ones are at the front), when it is under its limit.
+    fn next_parked(&mut self, width: usize) -> Option<ParkedTry> {
+        let front = self.parked.front()?;
+        if self.held >= self.limit(width, front.key.as_deref()) {
+            return None;
+        }
+        self.parked.pop_front().map(|parked| parked.wake)
+    }
 }
 
 impl Permits {
@@ -285,13 +332,46 @@ impl Permits {
 
     /// A permit, or the place to park until one frees. Parking holds the
     /// lock, so no permit frees between the refusal and the park.
-    fn take(self: &Arc<Self>) -> Result<Permit, Parking<'_>> {
+    fn take<'a>(self: &'a Arc<Self>, key: Option<&str>) -> Result<Permit, Parking<'a>> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.held < self.width {
+        if state.held < state.limit(self.width, key) {
             state.held += 1;
             return Ok(Permit { permits: Arc::clone(self) });
         }
         Err(Parking { state })
+    }
+
+    /// A caller waits on the item of `key`: until [`Self::demote`], its
+    /// tries go before every parked one and may take a permit past the
+    /// width. A parked try of it is posted now, or moves to the front.
+    pub(crate) fn promote(&self, key: &str) {
+        let wake = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            *state.urgent.entry(Arc::from(key)).or_default() += 1;
+            match state.parked.iter().position(|parked| parked.key.as_deref() == Some(key)) {
+                Some(index) => {
+                    let parked = state.parked.remove(index).expect("index in range");
+                    state.parked.push_front(parked);
+                    state.next_parked(self.width)
+                }
+                None => None,
+            }
+        };
+        // Outside the lock: it posts a work item.
+        if let Some(wake) = wake {
+            wake();
+        }
+    }
+
+    /// Ends one [`Self::promote`] of `key`.
+    pub(crate) fn demote(&self, key: &str) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(waiters) = state.urgent.get_mut(key) {
+            *waiters -= 1;
+            if *waiters == 0 {
+                state.urgent.remove(key);
+            }
+        }
     }
 
     /// Permits held now.
@@ -313,8 +393,15 @@ struct Parking<'a> {
 }
 
 impl Parking<'_> {
-    fn park(mut self, wake: ParkedTry) {
-        self.state.parked.push_back(wake);
+    /// Parks `wake` last, or first when a caller waits on its `key`.
+    fn park(mut self, key: Option<Arc<str>>, wake: ParkedTry) {
+        let urgent = self.state.is_urgent(key.as_deref());
+        let parked = Parked { key, wake };
+        if urgent {
+            self.state.parked.push_front(parked);
+        } else {
+            self.state.parked.push_back(parked);
+        }
     }
 }
 
@@ -328,7 +415,7 @@ impl Drop for Permit {
         let next = {
             let mut state = self.permits.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.held -= 1;
-            state.parked.pop_front()
+            state.next_parked(self.permits.width)
         };
         // Outside the lock: it posts a work item.
         if let Some(next) = next {
