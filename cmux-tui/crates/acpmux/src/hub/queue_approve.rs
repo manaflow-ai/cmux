@@ -155,7 +155,9 @@ impl Hub {
                 }
                 match e.kind.as_str() {
                     "queued" => waiting.push(e),
-                    "queue_removed" | "queue_declined" | "user_message" | "turn_started" => {
+                    // Older daemons do not understand queue_declined. Until the subsequent
+                    // legacy queue_removed is in this snapshot, they would still run it.
+                    "queue_removed" | "user_message" | "turn_started" => {
                         waiting.remove_turn(turn)
                     }
                     "queue_updated" => {

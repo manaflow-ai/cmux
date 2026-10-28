@@ -492,7 +492,8 @@ async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed(
     cfg.store.mode = StoreMode::Memory;
     let inner = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let after = Arc::new(std::sync::Mutex::new(None));
-    let hub = Hub::new(cfg, Box::new(AfterScanStore { inner, after: after.clone(), stop_at_decline: false }));
+    let store = AfterScanStore { inner, after: after.clone(), stop_at_decline: false };
+    let hub = Hub::new(cfg, Box::new(store));
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
     c.queue(held(&session, "g-1", "never approved")).await;
