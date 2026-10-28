@@ -241,3 +241,52 @@ test("an already visible Find match survives an immediate hide, stream and wake"
     jest.useRealTimers();
   }
 });
+
+test("a Find selection completes placement before a short chat first overflows", async () => {
+  const raw = turn(0);
+  const rows = turnView(raw, new Set());
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const height = () => parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+  const target = rows.findIndex((shown) => shown.id === "t0-user");
+  const find: ChatFind = {
+    open: true,
+    query: "Question 0",
+    matches: [{ rowIndex: target, rowId: "t0-user", occurrence: 0 }],
+    active: 0,
+    show: noop,
+    hide: noop,
+    setQuery: noop,
+    next: noop,
+    previous: noop,
+    focusRequest: 1,
+  };
+  const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
+    root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />);
+  try {
+    await act(async () => render(rows));
+    const initialTop = scroller().scrollTop;
+    expect(height()).toBeLessThanOrEqual(VIEWPORT);
+    await act(async () => render(rows, find));
+    expect(scroller().scrollTop).toBe(initialTop);
+    await act(async () => render(rows));
+
+    let overflowed = false;
+    let rawRows = raw;
+    for (let index = 1; index <= 8; index += 1) {
+      rawRows = [...rawRows, ...turn(index)];
+      const next = turnView(rawRows, new Set());
+      await act(async () => render(next));
+      if (height() > VIEWPORT) {
+        overflowed = true;
+        break;
+      }
+    }
+    expect(overflowed).toBe(true);
+    // Find chose the reader's place while the transcript fit; first overflow must not reopen it at
+    // the latest row and reacquire bottom follow.
+    expect(scroller().scrollTop).toBe(initialTop);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
