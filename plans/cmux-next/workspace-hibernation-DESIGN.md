@@ -38,6 +38,10 @@ agent update, notification) for `workspaces.hibernation.idleMinutes` (default **
    host or a `beforeunload` handler keep that page awake. This is the one place pages are discarded
    without `browser.hibernation`: the person turned workspace hibernation on (it is on by default),
    and the checks keep every page whose loss they could notice.
+   **This overrides #25791 ("a page never reloads unless the person asks") for hibernated workspaces
+   only**: the person asked for real eviction from RAM (Lawrence 14151), so a page in a hibernated
+   workspace reloads from its saved history when shown. Tabs in workspaces that stay awake keep
+   #25791's rule. Pages the checks keep (form input, media, capture...) never reload.
 4. Lets its agent chat pages go; the tab keeps its session and wake state (chips, shell text, scroll),
    and acpmux replays the chat when shown.
 
