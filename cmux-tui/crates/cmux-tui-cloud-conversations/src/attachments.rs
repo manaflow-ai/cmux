@@ -16,7 +16,7 @@ use super::service::{CloudConversations, PutBody, RangeReply, TransportError};
 pub const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The owner's `value` of an `{ok, value}` route reply (refusals as cloud errors).
-fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
+pub(super) fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
     mutation_data(reply).map(|mut data| data["value"].take())
 }
 
@@ -59,6 +59,7 @@ impl CloudConversations {
         require_conversation(conversation)?;
         let mut body = declaration.clone();
         body["conversation"] = json!(conversation);
+        body["multipart"] = json!(true);
         route_value(self.post("/v1/home/attachments/intent", &body)?)
     }
 

@@ -11,6 +11,7 @@
 //! (reqwest + tokio-tungstenite); tests install a scripted one.
 
 mod attachments;
+mod attachment_multipart;
 mod contract;
 mod error;
 mod host_replica;
