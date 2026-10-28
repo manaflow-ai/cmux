@@ -360,30 +360,37 @@ fn status(global: &GlobalArgs) -> Result<Outcome, Refusal> {
 /// retaining each task's existing fields. Nested peer/client fixes are folded
 /// into `recovery`, so a failing matrix cell always has an exact command.
 fn enrich_status(mut check: Value) -> Value {
-    let status = match check["state"].as_str() {
-        Some("failed") => "failed",
-        Some("ok" | "not_applicable") => "ok",
-        Some("needs_user" | "needs_setup") => "needs_action",
-        _ if has_error(&check) => "failed",
-        _ if !recoveries(&check).is_empty() => "needs_action",
-        _ => "ok",
-    };
     let values = recoveries(&check);
+    let status = if has_failure(&check) {
+        "failed"
+    } else {
+        match check["state"].as_str() {
+            Some("ok" | "not_applicable") => "ok",
+            Some("needs_user" | "needs_setup") => "needs_action",
+            _ if !values.is_empty() => "needs_action",
+            _ => "ok",
+        }
+    };
     let recovery = match values.as_slice() {
         [] => Value::Null,
         [one] => one.clone(),
         many => Value::Array(many.to_vec()),
     };
-    check["status"] = json!(status);
+    check["check_status"] = json!(status);
     check["recovery"] = recovery;
     check
 }
 
-fn has_error(value: &Value) -> bool {
+fn has_failure(value: &Value) -> bool {
     match value {
-        Value::Object(map) => map.get("error").is_some_and(|error| {
-            !error.is_null() && error.as_str().is_some_and(|text| !text.is_empty())
-        }),
+        Value::Object(map) => {
+            map.get("state").and_then(Value::as_str) == Some("failed")
+                || map.get("error").is_some_and(|error| {
+                    !error.is_null() && error.as_str().is_some_and(|text| !text.is_empty())
+                })
+                || map.values().any(has_failure)
+        }
+        Value::Array(values) => values.iter().any(has_failure),
         _ => false,
     }
 }
@@ -454,7 +461,7 @@ mod tests {
                 check["fix"] = json!("cmux setup tailnet");
             }
             let check = enrich_status(check);
-            assert_eq!(check["status"], expected, "{task}: {check}");
+            assert_eq!(check["check_status"], expected, "{task}: {check}");
             assert!(check["task"].is_string(), "{task}: task identity was lost");
         }
 
@@ -468,7 +475,7 @@ mod tests {
 
         let failed =
             enrich_status(json!({"task": "harness", "state": "failed", "error": "timeout"}));
-        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["check_status"], "failed");
         assert_eq!(failed["recovery"], Value::Null);
 
         let multiple = enrich_status(json!({

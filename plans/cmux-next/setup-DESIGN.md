@@ -37,7 +37,7 @@ prints one JSON object, with or without `--json`.
   only the person can do. One read gives an agent the whole map, including
   tasks setup does not run yet.
 - `cmux setup status`: the read-only check of every task setup runs. Each
-  check keeps its task-specific fields and also has `status` (`ok`,
+  check keeps its task-specific fields and also has `check_status` (`ok`,
   `needs_action`, or `failed`) and `recovery`. `recovery` is the existing
   structured `user_action` or exact `fix` command; when several nested peers
   or clients need work it is an array of those exact actions. Nested machine,
