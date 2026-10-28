@@ -7,6 +7,14 @@ performance.
 
 ## Rule for every sidebar change
 
+### Group editor opening (2026-10-28)
+
+Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
+The sidebar and tab group editors now restore their full card before ordering it front, including
+when reopened during a closing fade. The existing closing fade, group palette, layout and controls
+remain the reference. Regression: `GroupEditorInstantOpenTests` exercises both editors with and
+without Reduce Motion. This replaces only the entrance motion introduced by #19040.
+
 Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
 
 - **Gate.** `scripts/cmux-next/prepush-gate.py` "Sidebar look owner", on every push and per commit in CI: a commit
