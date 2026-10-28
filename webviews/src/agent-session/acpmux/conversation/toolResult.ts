@@ -317,7 +317,8 @@ export function losesNumbers(printed: string): boolean {
 /// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
 const MARKDOWN =
   /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*).*)/m;
-const LOG_LINE = /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i;
+const LOG_LINE =
+  /^\s*(?:\[[^\]]+\]\s*)?(?:(?:debug|info|warn|error|trace)\b|(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)/i;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
 
@@ -334,7 +335,10 @@ export function toolResult(
   const { text, lang } = read(output, clean, strip);
   const lines = text.split("\n").filter(Boolean);
   const log = lines.length > 1 && lines.every((line) => LOG_LINE.test(line));
-  return { text, lang: options.markdown && lang === "text" && !log ? "markdown" : lang };
+  return {
+    text,
+    lang: options.markdown && lang === "text" && text.length <= MAX_MARKDOWN_CHARS && !log ? "markdown" : lang,
+  };
 }
 
 const identity = (text: string) => text;
