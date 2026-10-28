@@ -6,6 +6,7 @@
 //! acpmux pairing store.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_tailnet::{BackendState, Node, NodeConfig, Notify};
@@ -159,6 +160,7 @@ pub struct Controller {
     inner: Mutex<Inner>,
     changes: broadcast::Sender<Snapshot>,
     lifecycle: tokio::sync::Mutex<()>,
+    stopping: Arc<AtomicBool>,
 }
 
 impl Controller {
@@ -176,6 +178,7 @@ impl Controller {
             }),
             changes,
             lifecycle: tokio::sync::Mutex::new(()),
+            stopping: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -213,6 +216,23 @@ impl Controller {
         });
     }
 
+    pub(crate) fn begin_shutdown(&self) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        self.stopping.store(true, Ordering::Release);
+        inner.generation = inner.generation.wrapping_add(1);
+        inner.snapshot.state = "stopped";
+        self.publish_locked(&inner.snapshot);
+    }
+
+    pub(crate) async fn listener_failed(&self, failed: &Arc<Node>) {
+        let _lifecycle = self.lifecycle.lock().await;
+        if !self.node().is_some_and(|node| Arc::ptr_eq(&node, failed)) {
+            return;
+        }
+        let _ = self.shutdown_locked().await;
+        self.note_listener_error();
+    }
+
     /// Start the node without waiting for login. A saved login resumes; an
     /// unsigned node reports `needs_login` and its URL through `state`.
     pub async fn start(self: &Arc<Self>) -> Result<Snapshot, String> {
@@ -244,6 +264,9 @@ impl Controller {
     }
 
     async fn start_locked(self: &Arc<Self>) -> Result<Snapshot, String> {
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("tailnet service is stopping".into());
+        }
         let generation;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -262,13 +285,21 @@ impl Controller {
         }
         let state_dir = self.state_dir.clone();
         let hostname = self.hostname.clone();
+        let stopping = self.stopping.clone();
         let node = match tokio::task::spawn_blocking(move || {
+            if stopping.load(Ordering::Acquire) {
+                return Err("tailnet service is stopping".to_owned());
+            }
             crate::config::private_state_dir(&state_dir).map_err(|e| e.to_string())?;
             let enabled = state_dir.join("enabled");
             let config = NodeConfig::new(state_dir, hostname);
             let node = Node::new(&config).map_err(|error| error.0)?;
             node.start().map_err(|error| error.0)?;
             crate::config::write_atomic(&enabled, b"1\n").map_err(|e| e.to_string())?;
+            if stopping.load(Ordering::Acquire) {
+                let _ = node.close();
+                return Err("tailnet service is stopping".to_owned());
+            }
             Ok::<_, String>(Arc::new(node))
         })
         .await
@@ -284,6 +315,13 @@ impl Controller {
         };
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.stopping.load(Ordering::Acquire) {
+                inner.starting = false;
+                tokio::task::spawn_blocking(move || {
+                    let _ = node.close();
+                });
+                return Err("tailnet service is stopping".into());
+            }
             inner.starting = false;
             inner.node = Some(node.clone());
         }
@@ -491,6 +529,22 @@ fn clear_opt_in(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn tailnet_shutdown_fences_a_queued_start_before_node_creation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("tailnet");
+        let controller = Controller::new(&path, "test");
+        let lock = controller.lifecycle.lock().await;
+        let queued = controller.clone();
+        let start = tokio::spawn(async move { queued.start().await });
+        tokio::task::yield_now().await;
+        controller.begin_shutdown();
+        drop(lock);
+        assert!(start.await.unwrap().is_err());
+        assert!(controller.node().is_none());
+        assert!(!path.exists());
+    }
 
     #[tokio::test]
     async fn tailnet_resume_does_not_create_state_without_opt_in() {
