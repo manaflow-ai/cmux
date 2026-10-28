@@ -555,6 +555,11 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
+  /// The field's value is Markdown, which escapes typed punctuation (`http\:`, `\*`, `\[`) so it
+  /// reads back as the same text. What the page acts on (a search, an address, a shell command, a
+  /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
+  /// One parse per change of the value, not per render.
+  const typed = useMemo(() => field.current?.agentText(text) ?? text, [text]);
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -566,7 +571,7 @@ export function NewTabScreen(props: Props) {
   const suggested = useMemo(
     () =>
       touched && !shell && commandQuery === undefined
-        ? screenRows(text, {
+        ? screenRows(typed, {
             omnibar,
             home,
             create: creates,
@@ -575,7 +580,7 @@ export function NewTabScreen(props: Props) {
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
+    [touched, shell, typed, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
@@ -781,19 +786,19 @@ export function NewTabScreen(props: Props) {
   const submit = () => {
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
-    if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
+    if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
-    const opensTop = !rows.length || (current < 0 && isAddress(text.trim(), home));
+    const opensTop = !rows.length || (current < 0 && isAddress(typed.trim(), home));
     const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
     if (row && keeps) return activate(row);
-    const prompt = text.trim();
+    const prompt = typed.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
     // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
@@ -816,7 +821,7 @@ export function NewTabScreen(props: Props) {
     if (!harness) return;
     if (created.current) return;
     created.current = true;
-    const prompt = shell ? "" : text.trim();
+    const prompt = shell ? "" : typed.trim();
     const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -829,7 +834,7 @@ export function NewTabScreen(props: Props) {
   const send = () => {
     touch();
     if (!shell) return submit();
-    const command = text.trim();
+    const command = typed.trim();
     if (command) props.onShell(command);
   };
   const sendRef = useRef(send);
@@ -927,7 +932,7 @@ export function NewTabScreen(props: Props) {
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
-        const command = text.trim();
+        const command = typed.trim();
         if (command) props.onShell(command);
       } else if (event.key === "Escape" || (event.key === "Backspace" && state.selectionEnd === 0)) {
         // Leaves shell mode; what was typed stays in the field.
@@ -947,7 +952,7 @@ export function NewTabScreen(props: Props) {
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
     const completion =
       plain && state.selectionStart === state.value.length && state.selectionEnd === state.value.length
-        ? inlineCompletion(text, rows)
+        ? inlineCompletion(typed, rows)
         : undefined;
     if ((event.key === "ArrowRight" || event.key === "End") && completion) {
       event.preventDefault();
@@ -1383,6 +1388,9 @@ export function NewTabScreen(props: Props) {
                   autocorrect: "off",
                 }}
               />
+              {/* The attachments placed in the text draw inside the field at their place, as Messages
+                shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
+              {!shell && inline.chips}
             </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat
