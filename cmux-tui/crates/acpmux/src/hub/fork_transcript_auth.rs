@@ -14,14 +14,18 @@ pub(super) async fn verified_parent(
     if let Some(verified) = meta.fork_parent_verified {
         return verified;
     }
-    let Some(session) = hub.sessions.lock().unwrap().get(&meta.id).cloned() else {
+    let Some(session) =
+        hub.sessions.lock().ok().and_then(|sessions| sessions.get(&meta.id).cloned())
+    else {
         return false;
     };
     let (hub, meta, parent) = (hub.clone(), meta.clone(), parent.meta());
     tokio::task::spawn_blocking(move || {
         let verified = legacy_link(&*hub.store, &meta, &parent);
         {
-            let mut current = session.meta.lock().unwrap();
+            let Ok(mut current) = session.meta.lock() else {
+                return false;
+            };
             if current.parent_id != meta.parent_id || current.fork_seq != meta.fork_seq {
                 return false;
             }

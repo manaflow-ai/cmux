@@ -158,7 +158,7 @@ async fn readable_claude_sessions(
         let Some(parent) = meta.parent_id.as_ref().filter(|_| meta.fork_seq.is_some()) else {
             break;
         };
-        let ancestor = hub.sessions.lock().unwrap().get(parent).cloned();
+        let ancestor = hub.sessions.lock().ok().and_then(|sessions| sessions.get(parent).cloned());
         let Some(ancestor) = ancestor else { break };
         if ancestor.purged.load(std::sync::atomic::Ordering::SeqCst) {
             break;
