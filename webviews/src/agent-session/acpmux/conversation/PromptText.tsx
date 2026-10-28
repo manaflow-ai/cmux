@@ -214,6 +214,7 @@ export function PasteChip({
   const reveal = useContext(FindReveal);
   useLayoutEffect(() => {
     if (!hit || open) return;
+    onOpen();
     setOpen(true);
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback

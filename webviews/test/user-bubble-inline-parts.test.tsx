@@ -52,6 +52,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
@@ -65,12 +66,14 @@ const root = createRoot(host);
 type Row = Parameters<typeof UserBubble>[0]["row"];
 const prompt = (id: string, text: string, inlineParts: unknown[]): Row =>
   ({ id, version: 1, at: Date.now(), kind: "user", text, inlineParts }) as Row;
-const render = async (row: Row) => {
+const render = async (row: Row, reveal?: React.ContextType<typeof FindReveal>) => {
   await act(async () => {
     root.render(
       <TurnActionsContext.Provider value={{ promptImage: async () => "data:image/png;base64,AA==" }}>
         <ImageViewerContext.Provider value={() => {}}>
-          <UserBubble row={row} text={row.text ?? ""} />
+          <FindReveal.Provider value={reveal}>
+            <UserBubble row={row} text={row.text ?? ""} />
+          </FindReveal.Provider>
         </ImageViewerContext.Provider>
       </TurnActionsContext.Provider>,
     );
@@ -185,6 +188,20 @@ try {
     await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__paste")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
     expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
+  });
+  test("Find in an ordered pasted block opens both the chip and its enclosing fold", async () => {
+    resetTranscriptDisclosure();
+    const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
+    await render(
+      prompt("ordered-paste-find", text, [
+        { kind: "text", text: "before " },
+        { kind: "text", text: "unique pasted match", pasted: true },
+        { kind: "text", text },
+      ]),
+      { rowId: "ordered-paste-find", card: false, needle: "unique pasted match", repaint: () => {} },
+    );
+    expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
+    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("unique pasted match");
   });
 } finally {
   afterAll(() => {
