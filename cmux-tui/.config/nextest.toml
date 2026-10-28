@@ -120,3 +120,12 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(acpmux::perf_ops)'
 success-output = "final"
+
+# The priority-inversion test (cmux-tui-platform pi_mutex) fills every core
+# with background hogs, so it runs alone (it would slow every test beside it
+# and they would add load to its scenario), and a passing run keeps its
+# "pi_mutex inversion:" line: the hold, the control's p99 and PiMutex's p99.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui-platform) & test(/::inversion::/)'
+threads-required = 'num-test-threads'
+success-output = "final"
