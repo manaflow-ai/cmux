@@ -7,6 +7,18 @@ import Testing
 
 @MainActor
 struct DraftRootIsolationTests {
+    @Test func customTaggedReleaseKeepsAnIsolatedDraftIdentity() {
+        let release = BuildIdentity(bundleID: "com.cmuxterm.app", bundledTag: nil)
+        let custom = BuildIdentity(bundleID: "com.cmuxterm.app", bundledTag: "custom")
+        #expect(release.draftIdentityKey == "release")
+        #expect(custom.draftIdentityKey == "build-\(custom.key)")
+        #expect(custom.draftIdentityKey != release.draftIdentityKey)
+        #expect(BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil).draftIdentityKey == "channel-nightly")
+        #expect(BuildIdentity(bundleID: "com.cmuxterm.app.nightly.cmux-next", bundledTag: nil).draftIdentityKey == "channel-cmux-next")
+        #expect(BuildIdentity(bundleID: "com.cmuxterm.app.debug", bundledTag: "one").draftIdentityKey == "channel-one")
+        #expect(BuildIdentity(bundleID: "com.cmuxterm.app.debug", bundledTag: "two").draftIdentityKey == "channel-two")
+    }
+
     @Test(arguments: [
         ("com.cmuxterm.app", nil), ("com.cmuxterm.app.nightly", nil),
         ("com.cmuxterm.app.nightly.cmux-next", nil),
