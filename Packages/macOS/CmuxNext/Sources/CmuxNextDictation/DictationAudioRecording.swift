@@ -1,50 +1,86 @@
 public import AVFoundation
+import CmuxNextCompat
 public import Foundation
 import os
 
+/// A finished session's recording: a WAV file of any length on this Mac, and its bytes too when
+/// they fit in a prompt (``DictationAudioRecording/inlinePromptBytes``), in which case the file is
+/// already gone.
+public struct DictationAudio: Equatable, Sendable {
+    /// The WAV file; nil when the recording went inline (``data``).
+    public var file: URL?
+    public var byteCount: Int
+    /// The WAV's bytes, when it fits in a prompt as an audio block.
+    public var data: Data?
+
+    public init(file: URL? = nil, byteCount: Int, data: Data? = nil) {
+        self.file = file
+        self.byteCount = byteCount
+        self.data = data
+    }
+}
+
 /// The session's own audio, kept for a harness that takes voice input
 /// (`promptCapabilities.audio`): 16 kHz mono 16-bit PCM, what speech models
-/// expect, finished as one WAV file.
+/// expect, written as one WAV file as it is heard.
 ///
 /// The level meter feeds it each tap buffer (``DictationAudioLevelMeter/recording``).
 /// Each buffer is downmixed to its first channel and box-averaged to 16 kHz in
-/// the tap, so the session holds 32 KB a second, never the input's rate.
-/// Past ``maximumDuration``, or from input below 16 kHz, it keeps nothing
-/// more and ``wav()`` returns nil: that session goes as its transcript alone,
+/// the tap. A session of any length records: at most ``flushSamples`` wait in
+/// memory, and each full second goes to the file on ``writer``, never on the
+/// tap's thread or the main actor. From input below 16 kHz it keeps nothing
+/// and ``finish()`` returns nil: that session goes as its transcript alone,
 /// and ``omission`` says why.
 ///
-/// The tap is a synchronous real-time audio callback, so it cannot hop to an
-/// actor; one unfair lock guards the state, and each tap holds it for one
-/// buffer's append.
+/// The tap is a synchronous audio callback, so it cannot hop to an actor; one
+/// unfair lock guards the state, and each tap holds it for one buffer's append.
 public final class DictationAudioRecording: Sendable {
     /// Why a session's audio was left out of its prompt.
     public enum Omission: String, Equatable, Sendable {
-        /// Ran past ``DictationAudioRecording/maximumDuration``.
-        case tooLong
         /// The input came in below 16 kHz (a narrowband headset).
         case narrowband
     }
 
     public static let sampleRate: Double = 16_000
-    /// Two minutes: 3.84 MB of PCM, about 5 MB as the base64 a prompt carries.
-    public static let maximumDuration: Double = 120
+    /// A recording up to this size goes in the prompt as an audio block (its base64 stays well
+    /// inside one prompt frame); a larger one goes as its file.
+    public static let inlinePromptBytes = 4 * 1024 * 1024
+    /// One second: what waits in memory before it goes to the file.
+    static let flushSamples = 16_000
 
     private struct State {
-        var samples: [Int16] = []
-        /// Ran past ``maximumDuration`` or came in below 16 kHz.
+        var pending: [Int16] = []
+        var written = 0
         var omitted: Omission?
+        var finished = false
         /// The input summed toward the next output sample, and how much of it.
-        var pending: (sum: Double, count: Double) = (0, 0)
-
-        mutating func discard(_ why: Omission) {
-            omitted = why
-            samples = []
-        }
+        var partial: (sum: Double, count: Double) = (0, 0)
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
+    private let file: URL
+    private let writer = DispatchQueue(label: "com.cmuxterm.dictation.recording", qos: .utility)
+    /// The file as ``writer`` writes it. Only blocks on ``writer`` take this lock, one at a time,
+    /// so it is never contended; it carries the state across that queue's blocks.
+    private let output = Mutex(Output())
 
-    public init() {}
+    private struct Output {
+        /// Opened at the first flush.
+        var handle: FileHandle?
+        /// A write failed (a full disk) or the recording was discarded: the session goes as its
+        /// transcript alone.
+        var failed = false
+    }
+
+    /// A recording into `file` (made owner-only at the first second heard).
+    public init(file: URL) {
+        self.file = file
+    }
+
+    /// A recording in `folder` (default: this user's temporary folder) under a fresh name.
+    public convenience init(folder: URL = FileManager.default.temporaryDirectory.appending(path: "cmux-dictation", directoryHint: .isDirectory)) {
+        self.init(file: folder.appending(path: "Recording-\(UUID().uuidString.lowercased()).wav"))
+    }
 
     /// Folds one tap buffer in.
     public func record(_ buffer: AVAudioPCMBuffer) {
@@ -58,50 +94,140 @@ public final class DictationAudioRecording: Sendable {
     /// them by weight, so a rate that is no whole multiple of 16 kHz (44.1, 24 kHz) stays level.
     /// Input below 16 kHz (a narrowband headset) is not recorded: the session goes as text alone.
     public func append(_ input: UnsafeBufferPointer<Float>, sampleRate: Double) {
-        let limit = Int(Self.sampleRate * Self.maximumDuration)
         // The closure runs before withLockUnchecked returns, so the buffer is still valid in it.
-        state.withLockUnchecked { state in
-            guard state.omitted == nil else { return }
-            guard sampleRate >= Self.sampleRate else { return state.discard(.narrowband) }
+        let full: [Int16]? = state.withLockUnchecked { state in
+            guard state.omitted == nil, !state.finished else { return nil }
+            guard sampleRate >= Self.sampleRate else {
+                state.omitted = .narrowband
+                state.pending = []
+                return nil
+            }
             // Input samples per output sample.
             let step = sampleRate / Self.sampleRate
             for value in input {
                 let sample = Double(value.isFinite ? value : 0)
                 var left = 1.0
                 while left > 0 {
-                    let take = min(left, step - state.pending.count)
-                    state.pending.sum += sample * take
-                    state.pending.count += take
+                    let take = min(left, step - state.partial.count)
+                    state.partial.sum += sample * take
+                    state.partial.count += take
                     left -= take
-                    guard state.pending.count >= step - 1e-9 else { continue }
-                    guard state.samples.count < limit else { return state.discard(.tooLong) }
-                    let mean = max(-1, min(1, state.pending.sum / step))
-                    state.samples.append(Int16(mean * Double(Int16.max)))
-                    state.pending = (0, 0)
+                    guard state.partial.count >= step - 1e-9 else { continue }
+                    let mean = max(-1, min(1, state.partial.sum / step))
+                    state.pending.append(Int16(mean * Double(Int16.max)))
+                    state.partial = (0, 0)
                 }
+            }
+            guard state.pending.count >= Self.flushSamples else { return nil }
+            defer { state.pending = [] }
+            state.written += state.pending.count
+            return state.pending
+        }
+        if let full { writer.async { self.write(full) } }
+    }
+
+    /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent.
+    public var omission: Omission? { state.withLock { $0.omitted } }
+
+    /// Ends the recording: the last samples and the WAV header go to the file on ``writer``. A
+    /// recording that fits ``inlinePromptBytes`` comes back as bytes and its file is removed; a
+    /// larger one comes back as its file. Nil when nothing was heard or the input was narrowband.
+    public func finish() async -> DictationAudio? {
+        let (rest, total, omitted) = state.withLock { state -> ([Int16], Int, Omission?) in
+            state.finished = true
+            defer { state.pending = [] }
+            state.written += state.pending.count
+            return (state.pending, state.written, state.omitted)
+        }
+        return await withCheckedContinuation { continuation in
+            writer.async {
+                continuation.resume(returning: self.close(rest: rest, samples: total, omitted: omitted))
             }
         }
     }
 
-    /// Why ``wav()`` has nothing, when the session's audio was left out rather than silent.
-    public var omission: Omission? { state.withLock { $0.omitted } }
+    /// Removes the file (a cancelled or superseded session).
+    public func discard() {
+        _ = state.withLock { $0.finished = true }
+        writer.async {
+            // Final: a later write or finish finds `failed` and keeps nothing.
+            self.output.withLock { output in
+                output.failed = true
+                try? output.handle?.close()
+                output.handle = nil
+            }
+            try? FileManager.checked.removeItem(at: self.file)
+        }
+    }
 
-    /// The recording as a WAV file, or nil when it is empty, ran past ``maximumDuration`` or came
-    /// in below 16 kHz.
-    public func wav() -> Data? {
-        let samples = state.withLock { $0.omitted == nil ? $0.samples : [] }
-        guard !samples.isEmpty else { return nil }
-        let rate = UInt32(Self.sampleRate)
-        let bytes = UInt32(samples.count * MemoryLayout<Int16>.size)
-        var data = Data(capacity: 44 + Int(bytes))
+    // MARK: - On `writer`
+
+    private func write(_ samples: [Int16]) {
+        output.withLock { write(samples, into: &$0) }
+    }
+
+    private func write(_ samples: [Int16], into output: inout Output) {
+        guard !output.failed, !samples.isEmpty else { return }
+        do {
+            if output.handle == nil { output.handle = try open() }
+            try samples.withUnsafeBytes { try output.handle?.write(contentsOf: $0) }
+        } catch {
+            output.failed = true
+            try? output.handle?.close()
+            output.handle = nil
+        }
+    }
+
+    private func open() throws -> FileHandle {
+        let manager = FileManager.checked
+        try manager.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        guard manager.createFile(atPath: file.path, contents: Self.header(samples: 0), attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        return handle
+    }
+
+    private func close(rest: [Int16], samples: Int, omitted: Omission?) -> DictationAudio? {
+        let closed: Bool = output.withLock { output in
+            write(rest, into: &output)
+            defer {
+                try? output.handle?.close()
+                output.handle = nil
+            }
+            guard omitted == nil, samples > 0, !output.failed, let handle = output.handle else { return false }
+            do {
+                try handle.seek(toOffset: 0)
+                try handle.write(contentsOf: Self.header(samples: samples))
+                try handle.synchronize()
+                return true
+            } catch {
+                return false
+            }
+        }
+        guard closed else {
+            try? FileManager.checked.removeItem(at: file)
+            return nil
+        }
+        let byteCount = 44 + samples * MemoryLayout<Int16>.size
+        guard byteCount <= Self.inlinePromptBytes else { return DictationAudio(file: file, byteCount: byteCount) }
+        let data = try? Data(blockingContentsOf: file)
+        try? FileManager.checked.removeItem(at: file)
+        return data.map { DictationAudio(byteCount: byteCount, data: $0) }
+    }
+
+    /// The 44-byte header of a 16 kHz mono 16-bit PCM WAV holding `samples` samples.
+    static func header(samples: Int) -> Data {
+        let rate = UInt32(sampleRate)
+        let bytes = UInt32(clamping: samples * MemoryLayout<Int16>.size)
+        var data = Data(capacity: 44)
         func put(_ text: String) { data.append(contentsOf: Array(text.utf8)) }
         func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
-        put("RIFF"); put(36 + bytes); put("WAVE")
+        put("RIFF"); put(36 &+ bytes); put("WAVE")
         put("fmt "); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
         put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
         put("data"); put(bytes)
-        // 16-bit PCM is little-endian, as every Mac stores an Int16.
-        samples.withUnsafeBytes { data.append(contentsOf: $0) }
         return data
     }
 }

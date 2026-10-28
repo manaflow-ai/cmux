@@ -6,8 +6,16 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import { MAX_AUDIO_BYTES, audioAttachment, promptBlocks, takesAudio } from "../src/agent-session/acpmux/attachments";
+import {
+  MAX_AUDIO_BYTES,
+  audioAttachment,
+  promptBlocks,
+  recordingAttachment,
+  recordingLeftOutNotice,
+  takesAudio,
+} from "../src/agent-session/acpmux/attachments";
 import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
+import type { DictationRecording } from "../src/agent-session/acpmux/dictationText";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node"] as const;
@@ -44,7 +52,7 @@ async function mount(accepts: boolean) {
   const { createRoot } = await import("react-dom/client");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const calls: [string, unknown][] = [];
-  const attached: { audio: typeof clip; textThen: string }[] = [];
+  const attached: { audio: DictationRecording; textThen: string }[] = [];
   const omitted: string[] = [];
   let text = "";
   const field: DictationField = {
@@ -193,4 +201,25 @@ test("a recording kept out by the byte cap gets a notice that does not claim two
   // The host's two-minute stop reads the same; a narrowband mic keeps its own reason.
   expect(translate(recordingLeftOutNotice("tooLong"), {}, "en")).toBe(capped);
   expect(translate(recordingLeftOutNotice("narrowband"), {}, "en")).not.toBe(capped);
+});
+
+// Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE". A recording too
+// long to go inline is the WAV the host wrote on this Mac: a local chat's agent gets that file.
+test("a long recording goes to a local chat as its saved file, of any size", () => {
+  const long = { mimeType: "audio/wav", path: "/tmp/cmux-dictation/Recording-a.wav", byteCount: 96_000_044 };
+  const chip = recordingAttachment(long, "Voice recording", true)!;
+  expect(chip).toMatchObject({
+    kind: "link",
+    saved: true,
+    path: long.path,
+    name: "Voice recording.wav",
+    size: 96_000_044,
+  });
+  const blocks = promptBlocks("hello", [chip]);
+  expect(blocks).toContainEqual(expect.objectContaining({ type: "resource_link", uri: `file://${long.path}` }));
+  // A chat on another computer cannot open this Mac's file: the transcript goes, with a notice.
+  expect(recordingAttachment(long, "Voice recording", false)).toBeUndefined();
+  expect(recordingLeftOutNotice("elsewhere")).toBe("dictation.recordingElsewhere");
+  // One that fits a prompt still goes as an audio block, local or not.
+  expect(recordingAttachment(clip, "Voice recording", false)).toMatchObject({ kind: "audio", data: clip.data });
 });

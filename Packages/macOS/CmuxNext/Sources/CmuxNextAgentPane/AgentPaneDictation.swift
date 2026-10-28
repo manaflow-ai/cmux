@@ -252,8 +252,13 @@ final class AgentPaneDictation {
         default:
             break
         }
+        // A recording that fits a prompt goes as its bytes (an audio block); a longer one as the
+        // file it was written to, which the composer attaches as a saved original.
         if let audio = update.audio {
-            value["audio"] = ["mimeType": "audio/wav", "data": audio.base64EncodedString()] as [String: any Sendable]
+            var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
+            if let data = audio.data { sent["data"] = data.base64EncodedString() }
+            if let file = audio.file { sent["path"] = file.path }
+            value["audio"] = sent
         }
         if let omitted = update.audioOmitted {
             value["audioOmitted"] = omitted.rawValue

@@ -21382,6 +21382,138 @@
         }
       }
     },
+    "dictation.recordingElsewhere": {
+      "comment": "Agent pane: notice when a dictation recording too long to go inline stays on this Mac because the chat runs on another computer; the prompt gets the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على كمبيوتر آخر، لذا يبقى التسجيل الصوتي الطويل على هذا الـ Mac وتتضمن المطالبة النص المكتوب فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj razgovor radi na drugom računaru, pa dugi glasovni snimak ostaje na ovom Macu, a upit dobija samo transkript."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat kører på en anden computer, så den lange lydoptagelse bliver på denne Mac, og prompten får kun transskriptionen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf einem anderen Computer, daher bleibt die lange Sprachaufnahme auf diesem Mac und der Prompt erhält nur das Transkript."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on another computer, so the long voice recording stays on this Mac and the prompt gets the transcript only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en otro ordenador, así que la grabación de voz larga se queda en este Mac y el prompt solo recibe la transcripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation s’exécute sur un autre ordinateur : le long enregistrement vocal reste sur ce Mac et l’invite ne reçoit que la transcription."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in esecuzione su un altro computer, quindi la lunga registrazione vocale resta su questo Mac e il prompt riceve solo la trascrizione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットは別のコンピュータで実行されているため、長い音声録音はこの Mac に残り、プロンプトには文字起こしのみが含まれます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះដំណើរការលើកុំព្យូទ័រផ្សេង ដូច្នេះការថតសំឡេងវែងនៅលើ Mac នេះ ហើយប្រអប់បញ្ចូលទទួលបានតែអត្ថបទប្រតិចារិកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 다른 컴퓨터에서 실행되므로 긴 음성 녹음은 이 Mac에 남고 프롬프트에는 녹취록만 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten kjører på en annen datamaskin, så det lange lydopptaket blir på denne Macen, og ledeteksten får bare transkripsjonen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat działa na innym komputerze, więc długie nagranie głosowe zostaje na tym Macu, a prompt otrzymuje tylko transkrypcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat é executado em outro computador, então a gravação de voz longa fica neste Mac e o prompt recebe apenas a transcrição."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на другом компьютере, поэтому длинная голосовая запись остаётся на этом Mac, а в запрос попадает только расшифровка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบนคอมพิวเตอร์เครื่องอื่น การบันทึกเสียงที่ยาวจึงอยู่บน Mac เครื่องนี้ และพรอมต์จะได้รับเฉพาะข้อความถอดเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet başka bir bilgisayarda çalışıyor; bu yüzden uzun ses kaydı bu Mac’te kalır ve istem yalnızca dökümü alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат працює на іншому комп’ютері, тому довгий голосовий запис залишається на цьому Mac, а запит отримує лише розшифровку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này chạy trên máy tính khác, nên bản ghi âm dài vẫn ở trên máy Mac này và lời nhắc chỉ nhận bản chép lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台电脑上运行，因此较长的语音录音保留在这台 Mac 上，提示只包含转写文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台電腦上執行，因此較長的語音錄音保留在這台 Mac 上，提示只包含逐字稿。"
+          }
+        }
+      }
+    },
     "dictation.recordingNarrowband": {
       "comment": "Agent pane: notice when a dictation session's audio is left out because the microphone records below 16 kHz",
       "extractionState": "manual",

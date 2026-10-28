@@ -127,11 +127,11 @@ import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import {
-  audioAttachment,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
   type DroppedKind,
+  recordingAttachment,
   recordingLeftOutNotice,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
@@ -6569,12 +6569,15 @@ function AcpmuxPane() {
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
+  /// The chat's agent runs on this Mac (`localCwd`, set below each render): it can open a long
+  /// recording's file.
+  const chatIsLocal = useRef(false);
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
-      const recording = audioAttachment(audio, translate("dictation.recording"));
+      const recording = recordingAttachment(audio, translate("dictation.recording"), chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
+      else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "tooLarge")));
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
   });
@@ -8006,6 +8009,7 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   instructionsFolder.current = localCwd;
+  chatIsLocal.current = localCwd !== undefined;
   // Another chat or folder: an instructions notice was about the one before.
   useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed

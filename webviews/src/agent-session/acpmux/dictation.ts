@@ -1,6 +1,12 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { applyDictation, type DictationAnchor, type DictationState, type DictationUpdate } from "./dictationText";
+import {
+  applyDictation,
+  type DictationAnchor,
+  type DictationRecording,
+  type DictationState,
+  type DictationUpdate,
+} from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
@@ -85,7 +91,7 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
 /// is dictation alone.
 export type DictationAudio = {
   accepts: boolean;
-  attach(audio: { mimeType: string; data: string }): void;
+  attach(audio: DictationRecording): void;
   omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
 };
 

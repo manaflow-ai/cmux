@@ -2,6 +2,7 @@
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
+import type { DictationRecording } from "./dictationText";
 import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
@@ -613,10 +614,25 @@ export function audioAttachment(
   };
 }
 
+/// A finished session's recording for the composer. One that fits a prompt goes as an audio
+/// block; a longer one, the WAV the host wrote on this Mac, goes as a saved original the chat's
+/// agent opens (`local`). Undefined for a chat on another computer, which cannot open that file:
+/// its prompt gets the transcript (`recordingLeftOutNotice("elsewhere")`).
+export function recordingAttachment(
+  audio: DictationRecording,
+  name: string,
+  local: boolean,
+): ComposerAttachment | undefined {
+  if (audio.path)
+    return local ? { ...savedAttachment(audio.path, `${name}.wav`), size: audio.byteCount ?? 0 } : undefined;
+  return audio.data ? audioAttachment({ mimeType: audio.mimeType, data: audio.data }, name) : undefined;
+}
+
 /// The notice for a recording that goes no further than its transcript: the host left it out
-/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
-/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
-export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+/// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
+/// host's inline clip), or its file stays on this Mac for a chat that runs elsewhere.
+export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere"): StringKey {
+  if (reason === "elsewhere") return "dictation.recordingElsewhere";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }
 
