@@ -93,6 +93,53 @@ impl Backoff {
     }
 }
 
+/// Notices that this computer slept (a closed lid, a sleeping Mac): the wall clock moved on further
+/// than the monotonic one, which stops while the computer sleeps (macOS `mach_absolute_time`,
+/// Linux `CLOCK_MONOTONIC`). A link's timers run on the monotonic clock, so after a wake a dead
+/// link still looks fresh (its last frame "seconds" ago) and a backoff wait picks up where it was.
+/// Each check is a few integer reads; a forward step of the wall clock (a time sync) reads as a
+/// sleep too, which costs one early probe or attempt and nothing else.
+#[derive(Debug, Clone, Copy)]
+pub struct SleepWatch {
+    wall_ms: u64,
+    mono: std::time::Instant,
+}
+
+impl SleepWatch {
+    /// How often a link or a backoff wait checks the clocks.
+    pub const EVERY: Duration = Duration::from_secs(5);
+    /// A gap between the clocks under this is scheduling noise, not a sleep.
+    pub const SLACK: Duration = Duration::from_secs(10);
+
+    pub fn new(wall_ms: u64, mono: std::time::Instant) -> Self {
+        Self { wall_ms, mono }
+    }
+
+    /// From the clocks now.
+    pub fn now() -> Self {
+        Self::new(crate::store::now_ms(), std::time::Instant::now())
+    }
+
+    /// How long the computer slept since the last check, when it did; the watch then counts from
+    /// now either way.
+    pub fn check_at(&mut self, wall_ms: u64, mono: std::time::Instant) -> Option<Duration> {
+        let wall = Duration::from_millis(wall_ms.saturating_sub(self.wall_ms));
+        let awake = mono.saturating_duration_since(self.mono);
+        *self = Self::new(wall_ms, mono);
+        let slept = wall.saturating_sub(awake);
+        (slept >= Self::SLACK).then_some(slept)
+    }
+
+    /// ``check_at`` with the clocks now.
+    pub fn check(&mut self) -> Option<Duration> {
+        self.check_at(crate::store::now_ms(), std::time::Instant::now())
+    }
+}
+
+/// After a wake, how long an open link has to answer a ping before it is dropped and redialed
+/// (its ssh tunnel and TCP connection often died while the computer slept).
+pub const WAKE_PROBE: Duration = Duration::from_secs(10);
+
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
 pub fn jitter() -> f64 {
     let mut b = [0u8; 4];
@@ -287,6 +334,29 @@ pub fn state_label(peer: &Value, now: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {
+        let start = std::time::Instant::now();
+        let mut watch = SleepWatch::new(1_000_000, start);
+        // Awake: both clocks moved 5 s.
+        assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(5)), None);
+        // Scheduling noise under the slack is no sleep.
+        assert_eq!(watch.check_at(1_015_000, start + Duration::from_secs(9)), None);
+        // Asleep for 10 minutes: the wall clock moved 10 min 5 s, the monotonic one 5 s.
+        let slept = watch.check_at(1_620_000, start + Duration::from_secs(14));
+        assert_eq!(slept, Some(Duration::from_secs(600)));
+        // The watch counts from the wake on.
+        assert_eq!(watch.check_at(1_625_000, start + Duration::from_secs(19)), None);
+    }
+
+    #[test]
+    fn a_wall_clock_set_back_is_no_sleep() {
+        let start = std::time::Instant::now();
+        let mut watch = SleepWatch::new(2_000_000, start);
+        assert_eq!(watch.check_at(1_000_000, start + Duration::from_secs(5)), None);
+        assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(10)), None);
+    }
 
     const STABLE: Duration = Duration::from_secs(60);
 

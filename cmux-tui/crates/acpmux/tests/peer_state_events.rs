@@ -115,6 +115,13 @@ async fn a_watcher_hears_each_peer_state_change_once() {
     assert!(connected["at"].is_u64(), "{connected}");
     assert_eq!(a.peers()[0]["connected"], true, "the note follows the peer row");
 
+    // A reconnect that is not forced (the app's pick or send) leaves an open link alone: no new
+    // attempt cuts it, so no note goes out.
+    a.reconnect_peer_with("b", false, false).await.unwrap();
+    let kept = notes(&mut rx, "b", Duration::from_secs(3), None).await;
+    assert!(kept.is_empty(), "an unforced reconnect cut a live link: {kept:?}");
+    assert_eq!(a.peers()[0]["connected"], true, "the link stayed up");
+
     // The WebSocket drops: reconnecting, once, however many retries fail after it.
     relaying.abort();
     let down = notes(&mut rx, "b", Duration::from_secs(20), Some("reconnecting")).await;

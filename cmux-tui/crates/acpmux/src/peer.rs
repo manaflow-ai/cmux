@@ -5,7 +5,7 @@
 //! (`peer_link.rs`).
 
 use crate::no_panic::LockExt;
-use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
+use crate::peer_link::{Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -64,6 +64,17 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
+}
+
+/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackoffWait {
+    /// The delay passed.
+    Done,
+    /// This computer slept through it: the attempt goes now.
+    Woke,
+    /// The peer was stopped.
+    Stopped,
 }
 
 pub struct Peer {
@@ -729,9 +740,36 @@ impl Peer {
                 break;
             }
             let delay = backoff.next(crate::peer_link::jitter());
+            match self.wait_backoff(delay).await {
+                BackoffWait::Done => {}
+                // The network that failed before the sleep may take a moment to come back: the
+                // next attempts are quick ones again.
+                BackoffWait::Woke => backoff.reset(),
+                BackoffWait::Stopped => break,
+            }
+        }
+    }
+
+    /// Waits out one backoff delay. A wait that this
+    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
+    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
+    /// minute after the wake, while the network that failed before the sleep is likely back.
+    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        let deadline = tokio::time::Instant::now() + delay;
+        let mut watch = SleepWatch::now();
+        loop {
+            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
             tokio::select! {
-                _ = tokio::time::sleep(delay) => {}
-                _ = self.stop_signal.notified() => break,
+                _ = tokio::time::sleep_until(check) => {
+                    if let Some(slept) = watch.check() {
+                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
+                        return BackoffWait::Woke;
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        return BackoffWait::Done;
+                    }
+                }
+                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
     }
@@ -951,12 +989,36 @@ impl Peer {
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
+        // After this computer slept, the link's monotonic timers say its last frame came moments
+        // ago, while its ssh tunnel has often died: a ping goes out at once, and the link is
+        // dropped (and redialed) when nothing answers within `WAKE_PROBE`, rather than after the
+        // ssh keepalive or the whole silence budget. Stops with the link.
+        let mut wake_watch = SleepWatch::now();
+        let mut wake_check = tokio::time::interval_at(
+            tokio::time::Instant::now() + SleepWatch::EVERY,
+            SleepWatch::EVERY,
+        );
+        wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut wake_probe: Option<tokio::time::Instant> = None;
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(());
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
+                _ = wake_check.tick() => {
+                    if let Some(slept) = wake_watch.check() {
+                        tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
+                        match tokio::time::timeout(WAKE_PROBE, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => wake_probe = Some(tokio::time::Instant::now() + WAKE_PROBE),
+                            Ok(Err(e)) => break Err(e.to_string()),
+                            Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                        }
+                    }
+                }
+                _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                }
                 // Once only: a finished oneshot is not polled again.
                 stale = &mut stale_rx, if !stale_settled => {
                     stale_settled = true;
@@ -989,6 +1051,7 @@ impl Peer {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     last_frame = tokio::time::Instant::now();
+                    wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),

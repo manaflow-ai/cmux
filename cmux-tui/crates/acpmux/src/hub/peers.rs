@@ -198,10 +198,32 @@ impl Hub {
     /// waiting out the reconnect backoff; with `wait`, answer once the
     /// attempt settled.
     pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<(), RpcError> {
+        self.reconnect_peer_with(name, wait, true).await
+    }
+
+    /// ``reconnect_peer``; without `force`, a peer whose link is open (connected, or `degraded`:
+    /// open and slow, or still in its handshake) is left alone, so a client that only saw it
+    /// down, or a send to a slow machine, never cuts a working link and the requests on it
+    /// (`peer_disconnected`). The app's picks and sends ask this way; `host reconnect` forces.
+    pub async fn reconnect_peer_with(
+        &self,
+        name: &str,
+        wait: bool,
+        force: bool,
+    ) -> Result<(), RpcError> {
         let peer = self.config.read().await.peers.get(name).cloned();
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
+        let open = self.peer(name).is_some_and(|running| {
+            matches!(
+                running.link().state(),
+                crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded
+            )
+        });
+        if open && !force {
+            return Ok(());
+        }
         let mut settled = self.start_peer(name, &peer);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
