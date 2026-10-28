@@ -119,6 +119,18 @@ pub enum PeerState {
 }
 
 impl PeerState {
+    /// Its `_acpmux/peer_state_changed` form (`protocol/peer_state.rs`).
+    pub fn wire(self) -> crate::protocol::peer_state::PeerLinkState {
+        use crate::protocol::peer_state::PeerLinkState as W;
+        match self {
+            Self::Connecting => W::Connecting,
+            Self::Connected => W::Connected,
+            Self::Degraded => W::Degraded,
+            Self::Reconnecting => W::Reconnecting,
+            Self::Offline => W::Offline,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Connecting => "connecting",

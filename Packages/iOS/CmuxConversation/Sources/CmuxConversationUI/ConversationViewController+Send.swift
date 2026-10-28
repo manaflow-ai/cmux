@@ -267,7 +267,7 @@ extension ConversationViewController {
         }
         overlay.onCancel = { [weak self] in self?.exitEditMode() }
         editOverlay = overlay
-        overlay.install(in: view, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
+        overlay.install(in: view, keyboard: keyboardDock.guide, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
     }
 
     func exitEditMode() {
