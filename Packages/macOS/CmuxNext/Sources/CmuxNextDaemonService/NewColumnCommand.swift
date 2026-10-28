@@ -56,8 +56,11 @@ public struct NewColumnCommand: Sendable {
         // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
         // out in order, each once the store holds the one before).
         let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
+        // A late reply is sent again under the same client keys, never taken back (#26689).
         let send = daemon.intendNow("new-pane-right", intent, transaction: transaction) { connection in
-            try await connection.newColumn(beside: await target(), left: left, width: width, options: sent)
+            try await DaemonConnection.retryingLateStarts("new-pane-right") {
+                try await connection.newColumn(beside: await target(), left: left, width: width, options: sent)
+            }
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
@@ -68,4 +71,3 @@ public struct NewColumnCommand: Sendable {
         }
     }
 }
-

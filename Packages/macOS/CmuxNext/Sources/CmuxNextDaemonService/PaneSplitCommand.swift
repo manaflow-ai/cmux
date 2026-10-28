@@ -53,8 +53,9 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
+        // A late reply is sent again under the same client keys (the daemon replays the split it made), never taken back (#26689).
         let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            try await connection.split(pane, direction: direction, options: sent)
+            try await DaemonConnection.retryingLateStarts("split") { try await connection.split(pane, direction: direction, options: sent) }
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
