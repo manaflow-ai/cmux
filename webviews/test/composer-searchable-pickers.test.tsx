@@ -417,8 +417,8 @@ test("an unmatched proposed project path is never checked as the private-folder 
     row.textContent?.includes("/tmp/new-project"),
   );
   expect(proposed).toBeTruthy();
-  expect(proposed.textContent).not.toContain("✓");
-  expect(proposed.getAttribute("aria-current")).toBeNull();
+  expect(proposed!.textContent).not.toContain("✓");
+  expect(proposed!.getAttribute("aria-current")).toBeNull();
 });
 
 test("pinned picker actions precede scrolling suggestions and remain keyboard selectable", async () => {
