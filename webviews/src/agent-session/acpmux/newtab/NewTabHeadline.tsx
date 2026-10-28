@@ -44,6 +44,7 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
     <ProjectChooser
       projects={props.projects}
       {...(props.folder ? { current: props.folder } : {})}
+      {...(props.folder && props.machineId !== "local" ? { currentPeer: props.machineId } : {})}
       noProject={props.noProject}
       {...(project ? { currentLabel: project } : {})}
       icon={<FolderIcon />}

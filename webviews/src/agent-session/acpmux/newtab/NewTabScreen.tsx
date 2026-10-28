@@ -1025,6 +1025,7 @@ export function NewTabScreen(props: Props) {
     requestAnimationFrame(() => field.current?.focus());
   };
   const pickHeadlineMachine = (id: string) => {
+    touch();
     // Invalidate an outstanding folder/worktree result from the previous machine.
     projectChoice.current += 1;
     saved.pick(undefined);
@@ -1038,6 +1039,7 @@ export function NewTabScreen(props: Props) {
     field.current?.focus();
   };
   const pickHeadlineNoProject = () => {
+    touch();
     projectChoice.current += 1;
     saved.pick(undefined);
     setPicked(true);
