@@ -22,19 +22,28 @@ import "../summary/workflowDots.css";
 const ROW_ICON = rowIconSize(12);
 
 const isRunning = (workflow: WorkflowSummary) => workflow.state === "running";
+const agentIsRunning = (agent: WorkflowAgent) => agent.state === "running" || agent.state === "paused";
+
+export type WorkflowAgentRowVariant = "compact" | "detail" | "grid";
 
 export function WorkflowTasks({
   workflows,
   onStop,
+  onOpenSubagent,
+  agentRowVariant = "detail",
 }: {
   workflows: readonly WorkflowSummary[];
   /// Stops a running workflow (its Claude task, `stop_task`); absent where the harness cannot.
   onStop?: (id: string) => Promise<unknown>;
+  /// Opens a Claude workflow agent by its transcript id through the native subagent pane path.
+  onOpenSubagent?: (id: string) => void;
+  /// Gallery-only row treatments; the shipped row uses the detail treatment.
+  agentRowVariant?: WorkflowAgentRowVariant;
 }) {
   const t = useT();
   const running = workflows.filter(isRunning);
   const finished = workflows.filter((workflow) => !isRunning(workflow));
-  const now = useNow(running.length > 0);
+  const now = useNow(running.some((workflow) => workflow.agents.some(agentIsRunning)));
   return (
     <div className="acpmux-workflow-tasks">
       {/* A group's count only when both groups show: the section's own head already counts what runs. */}
@@ -42,13 +51,26 @@ export function WorkflowTasks({
         <h4 className="acpmux-workflow-tasks__group">{t("rail.running", { count: running.length })}</h4>
       )}
       {running.map((workflow) => (
-        <WorkflowTask key={workflow.id} workflow={workflow} now={now} onStop={onStop} />
+        <WorkflowTask
+          key={workflow.id}
+          workflow={workflow}
+          now={now}
+          onStop={onStop}
+          onOpenSubagent={onOpenSubagent}
+          agentRowVariant={agentRowVariant}
+        />
       ))}
       {running.length > 0 && finished.length > 0 && (
         <h4 className="acpmux-workflow-tasks__group">{t("rail.finished", { count: finished.length })}</h4>
       )}
       {finished.map((workflow) => (
-        <WorkflowTask key={workflow.id} workflow={workflow} now={now} />
+        <WorkflowTask
+          key={workflow.id}
+          workflow={workflow}
+          now={now}
+          onOpenSubagent={onOpenSubagent}
+          agentRowVariant={agentRowVariant}
+        />
       ))}
     </div>
   );
@@ -71,10 +93,14 @@ function WorkflowTask({
   workflow,
   now,
   onStop,
+  onOpenSubagent,
+  agentRowVariant,
 }: {
   workflow: WorkflowSummary;
   now: number;
   onStop?: (id: string) => Promise<unknown>;
+  onOpenSubagent?: (id: string) => void;
+  agentRowVariant: WorkflowAgentRowVariant;
 }) {
   const t = useT();
   const running = isRunning(workflow);
@@ -110,7 +136,15 @@ function WorkflowTask({
       {listed.length > 0 && (
         <ul className="acpmux-chat-inspector-list acpmux-workflow-task__phases">
           {listed.map((phase) => (
-            <WorkflowPhaseRow key={phase.id} workflow={workflow} phase={phase} now={now} running={running} />
+            <WorkflowPhaseRow
+              key={phase.id}
+              workflow={workflow}
+              phase={phase}
+              now={now}
+              running={running}
+              onOpenSubagent={onOpenSubagent}
+              agentRowVariant={agentRowVariant}
+            />
           ))}
         </ul>
       )}
@@ -135,11 +169,15 @@ function WorkflowPhaseRow({
   phase,
   now,
   running,
+  onOpenSubagent,
+  agentRowVariant,
 }: {
   workflow: WorkflowSummary;
   phase: WorkflowPhase;
   now: number;
   running: boolean;
+  onOpenSubagent?: (id: string) => void;
+  agentRowVariant: WorkflowAgentRowVariant;
 }) {
   const t = useT();
   const agents = phaseAgents(workflow, phase);
@@ -147,8 +185,6 @@ function WorkflowPhaseRow({
   // A running workflow's phase that has agents running opens on its own, so live work is in view.
   const [open, setOpen] = useState(running && counts.running > 0);
   const label = running ? countLine(t, counts).join(" · ") : counts.total > 0 ? `${counts.done}/${counts.total}` : "";
-  const models = new Set(agents.map((agent) => agent.model).filter((model): model is string => !!model));
-  const shared = models.size === 1 ? [...models][0] : undefined;
   return (
     <li className="acpmux-workflow-phase" data-state={phase.state}>
       <button type="button" className="acpmux-workflow-phase__head" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -164,11 +200,14 @@ function WorkflowPhaseRow({
       </span>
       {open && agents.length > 0 && (
         <ul className="acpmux-chat-inspector-list acpmux-workflow-phase__agents">
-          {shared && (
-            <li className="acpmux-workflow-phase__model">{t("workflow.model", { model: modelName(shared) })}</li>
-          )}
           {agents.map((agent) => (
-            <WorkflowAgentRow key={agent.id} agent={agent} now={now} model={shared ? undefined : agent.model} />
+            <WorkflowAgentRow
+              key={agent.id}
+              agent={agent}
+              now={now}
+              onOpenSubagent={onOpenSubagent}
+              variant={agentRowVariant}
+            />
           ))}
         </ul>
       )}
@@ -176,30 +215,80 @@ function WorkflowPhaseRow({
   );
 }
 
-function WorkflowAgentRow({ agent, now, model }: { agent: WorkflowAgent; now: number; model?: string }) {
+/// A live workflow agent's state, model, elapsed time and latest action/message. Rows with a Claude
+/// `agentId` open that agent through the existing native subagent pane path.
+export function WorkflowAgentRow({
+  agent,
+  now,
+  onOpenSubagent,
+  variant = "detail",
+}: {
+  /// The folded workflow agent to render.
+  agent: WorkflowAgent;
+  /// The shared current time used for running elapsed durations.
+  now: number;
+  /// Opens the agent's Claude transcript in the existing right pane when available.
+  onOpenSubagent?: (id: string) => void;
+  /// Gallery-only row treatment; detail is the shipped default.
+  variant?: WorkflowAgentRowVariant;
+}) {
   const t = useT();
   const queued = agent.state === "waiting" || agent.state === "pending";
   const elapsed =
     agent.elapsedMs ??
     (agent.state === "running" && agent.startedAt !== undefined ? Math.max(0, now - agent.startedAt) : undefined);
-  return (
-    <li className="acpmux-chat-inspector-task acpmux-workflow-agent" data-state={agent.state}>
-      <span className="acpmux-workflow-agent__icon">
+  const state = agentStateWord(t, agent.state);
+  const model = agent.model ? modelName(agent.model) : undefined;
+  const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
+  const openable = Boolean(agent.agentId && onOpenSubagent);
+  const row = (
+    <button
+      type="button"
+      className={`acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`}
+      disabled={!openable}
+      aria-label={`${agent.name}: ${state}`}
+      onClick={() => agent.agentId && onOpenSubagent?.(agent.agentId)}
+    >
+      <span className="acpmux-workflow-agent__icon" aria-hidden="true">
         {agent.state === "running" ? (
           <Spinner size={ROW_ICON} loading />
         ) : agent.state === "completed" ? (
           <Icon name="status.complete" size={ROW_ICON} row />
         ) : agent.state === "failed" || agent.state === "cancelled" ? (
           <Icon name="status.error" size={ROW_ICON} row />
-        ) : null}
+        ) : (
+          <span className="acpmux-workflow-agent__queued-mark" />
+        )}
       </span>
-      <span className="acpmux-chat-inspector-task__command">
-        {agent.name}
-        {model && <span className="acpmux-workflow-agent__model"> · {modelName(model)}</span>}
+      <span className="acpmux-workflow-agent__text">
+        <span className="acpmux-workflow-agent__line">
+          <span className="acpmux-workflow-agent__name">{agent.name}</span>
+          {modelEffort && <span className="acpmux-workflow-agent__model">{modelEffort}</span>}
+        </span>
+        {(agent.lastMessage ?? agent.doing) && (
+          <span className="acpmux-workflow-agent__doing" title={agent.lastMessage ?? agent.doing}>
+            {agent.lastMessage ?? agent.doing}
+          </span>
+        )}
       </span>
+      <span className="acpmux-workflow-agent__state">{state}</span>
       <span className="acpmux-chat-inspector-task__time">
-        {queued ? t("workflow.agentQueued") : elapsed !== undefined ? formatDuration(elapsed) : ""}
+        {queued ? "" : elapsed !== undefined ? formatDuration(elapsed) : ""}
       </span>
+    </button>
+  );
+  return (
+    <li className="acpmux-chat-inspector-task acpmux-workflow-agent" data-state={agent.state}>
+      {row}
     </li>
   );
+}
+
+function agentStateWord(t: Translate, state: WorkflowAgent["state"]): string {
+  if (state === "running") return t("subagents.state.running");
+  if (state === "completed") return t("subagents.state.completed");
+  if (state === "failed" || state === "cancelled") return t("subagents.state.failed");
+  if (state === "waiting" || state === "pending") return t("workflow.agentQueued");
+  if (state === "paused") return t("goal.paused");
+  return t("inspector.unknown");
 }

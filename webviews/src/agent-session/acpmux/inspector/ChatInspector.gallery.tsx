@@ -346,7 +346,7 @@ const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
 /// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
 /// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
 /// (inspector/WorkflowTasks.tsx). The workflow's node leaves Subagents for Background tasks.
-const workflowProps = (stage: WorkflowFixtureStage): Props => {
+const workflowProps = (stage: WorkflowFixtureStage, workflowAgentRowVariant?: Props["workflowAgentRowVariant"]): Props => {
   const nodes = workflowFixture(stage);
   return {
     summary,
@@ -356,6 +356,7 @@ const workflowProps = (stage: WorkflowFixtureStage): Props => {
     workflows: createWorkflowAdapter()(nodes, "gallery-chat"),
     onStopWorkflow: async () => undefined,
     onOpenSubagent: () => undefined,
+    workflowAgentRowVariant,
     onSaveEnvironment: () => undefined,
     remoteControl: { on: true, set: () => undefined },
   };
@@ -551,7 +552,7 @@ export default componentEntry<Props>({
       play: checkTopBlockAlignment,
     },
     "workflow-running": {
-      note: "Labs: a Claude workflow running, read from the subagent fold. Background tasks heads with it: its name, 13s and Stop; 1 running · 2 queued · 3 done · 185k tokens; what it does; Brainstorm 3 done and Critique 1 running · 2 queued, a dot per agent (done filled, running the accent, queued an outline). Critique has a running agent, so it is open: Model: Opus 5.5, punchy with a spinner, playful and descriptive Queued. Up next: Judge.",
+      note: "Chosen: the live workflow row keeps the agent name and model on one line, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
       props: workflowProps("running"),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
@@ -561,6 +562,27 @@ export default componentEntry<Props>({
       note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
+    },
+    "workflow-agent-row-compact": {
+      note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
+      props: workflowProps("running", "compact"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-detail": {
+      note: "Chosen workflow agent row: two lines give the action enough room to remain readable while the model, state and elapsed time stay scannable.",
+      props: workflowProps("running", "detail"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-grid": {
+      note: "Alternative (gallery only): a grid workflow agent row gives state, name, model and elapsed time fixed columns, with the action spanning below.",
+      props: workflowProps("running", "grid"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
