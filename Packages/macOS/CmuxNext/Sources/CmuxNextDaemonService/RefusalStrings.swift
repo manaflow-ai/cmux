@@ -172,6 +172,11 @@ public nonisolated enum RefusalStrings {
     public static var launchTypingNotDelivered: String {
         text("handlers.refusal.launchTypingNotDelivered", "What you typed while cmux opened didn't reach a terminal. Copy it to paste it again.")
     }
+    /// ``launchTypingNotDelivered`` with the terminal's answer, `reason` (the daemon's words, not translated).
+    public static func launchTypingNotDeliveredBecause(_ reason: String) -> String {
+        format("handlers.refusal.launchTypingNotDeliveredBecause",
+               "What you typed while cmux opened didn't reach a terminal (%@). Copy it to paste it again.", reason)
+    }
     public static func noPaneInDirection(_ direction: String) -> String { format("handlers.refusal.noPaneInDirection", "no pane %@ of the focused pane", direction) }
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }

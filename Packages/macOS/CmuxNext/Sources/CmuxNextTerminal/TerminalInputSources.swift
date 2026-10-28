@@ -104,6 +104,16 @@ public final class TerminalInputSources {
         refresh = Task { [weak self] in await self?.loadSwitchKeys(on: runner) }
     }
 
+    /// Whether the selected source is an input method (not a keyboard layout): its keys compose in a view's text
+    /// input, so only a live terminal view can take them. Reads Text Input Sources only after a source change.
+    /// Unknown (no source read) is not one: the keys then go as typed, as on a keyboard layout.
+    public var selectsInputMethod: Bool {
+        if let sourceIsLayout { return !sourceIsLayout }
+        guard let isLayout = reader.current()?.isKeyboardLayout else { return false }
+        sourceIsLayout = isLayout
+        return !isLayout
+    }
+
     private func currentSourceIsLayout() -> Bool {
         if let sourceIsLayout { return sourceIsLayout }
         guard let isLayout = reader.current()?.isKeyboardLayout else { return false }

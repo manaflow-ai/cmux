@@ -183,14 +183,21 @@ extension LaunchPictureKeys {
             router.map { deliverKeys(events, to: target, router: $0) } ?? false
         }
         keys.forward = { [weak router] target, events, answered in
-            guard let router else { return answered("the app is closing") }
+            guard let router else { return answered(.keptForView(taken: 0)) }
             sendKeys(events, to: target, router: router, answered: answered)
         }
         keys.replay = { [weak router] window, events in router.map { replayKeys(events, window: window, router: $0) } ?? false }
         keys.refuse = { [weak router] window, text, reason in
             guard let router else { return }
             router.trace?("launch picture: keys of window \(window) reached nothing: \(reason ?? "no terminal could take them")")
-            refuseKeys(text, router: router)
+            refuseKeys(text, reason: reason, window: window, router: router)
+        }
+        // Each wait is a measured launch stage: its signpost value and the startup bench's line, with its key count.
+        keys.onWaited = { [weak router] reason, count, waited in
+            let ms = Double(waited.components.seconds) * 1000 + Double(waited.components.attoseconds) / 1e15
+            router?.trace?("launch picture: \(count) keys waited \(ms) ms: \(reason)")
+            LaunchMarkSink.shared.writeValue(name: "launch_picture_keys.wait_ms.\(reason)", number: ms)
+            LaunchMarkSink.shared.writeValue(name: "launch_picture_keys.waited.\(reason)", number: Double(count))
         }
         keys.onActiveChange = { [modes = router.modes] in modes.set(.launchPicture, $0) }
         return keys
@@ -262,41 +269,82 @@ extension LaunchPictureKeys {
               let pane = services.workspace(id: workspace)?.screens.flatMap(\.panes).first(where: { $0.id == paneID }) else { return nil }
         let selected = state.selection.selection(in: paneID).flatMap { tab in pane.tabs.first { $0.id == tab } }
         guard let tab = selected ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex] : nil),
-              tab.kind == .pty else { return nil }
+              tab.kind == .pty || tab.kind == .remoteTerminal else { return nil }
         return Target(window: id, pane: paneID, tab: tab.id)
     }
 
-    /// Sends `events` to `target`'s terminal by its id through the daemon that holds its tab (`DaemonService.type`),
-    /// each key as the terminal's owner takes it (``TypedTerminalInput``); before the daemon's first connection they
-    /// wait for it, as the terminal's attach does. `answered` gets why not when no daemon holds a terminal tab
-    /// `target.tab` (a tab of another session's terminal, or one gone).
+    /// Sends `events` to `target`'s terminal by its id through the daemon that runs it (`DaemonService.type`): a
+    /// local terminal's daemon, or for a remote-terminal tab its own session's daemon when that takes input by id.
+    /// Only the keys the live view would send the same way go (``TypedTerminalInput/sendable(_:optionAsAlt:inputMethod:byName:)``);
+    /// from the first that cannot, they stay for the view (``LaunchPictureKeys/SendOutcome/keptForView(taken:)``).
+    /// Before the daemon's first connection they wait in its own queue (`onFirstConnection`), a measured stage; if
+    /// startup gives up, the send fails and they are refused, their text kept.
     private static func sendKeys(_ events: [NSEvent], to target: Target, router: KeyRouter, answered: @escaping Answered) {
-        let inputs = events.compactMap(TypedTerminalInput.init)
-        guard let services = router.services, let (_, pane) = services.locateTab(target.tab) else {
-            return answered("no terminal tab \(target.tab)")
+        guard let services = router.services, let first = destination(of: target, services: services) else {
+            return answered(.keptForView(taken: 0))
         }
-        let daemon = services.daemon(for: pane)
-        daemon.onFirstConnection { [weak services] in
-            // Read again: the first connection's tree may name the tab's terminal anew.
-            guard let tab = services?.locateTab(target.tab)?.0, tab.kind == .pty else { return answered("no terminal tab \(target.tab)") }
-            daemon.type(inputs, terminal: tab.terminalID, surface: tab.surface, answered: answered)
+        let runtime = GhosttyRuntime.shared
+        let inputs = TypedTerminalInput.sendable(events, optionAsAlt: runtime.macosOptionAsAlt.flatMap(TypedTerminalInput.OptionAsAlt.init(config:)),
+                                                 inputMethod: runtime.inputSources.selectsInputMethod, byName: first.surface != nil)
+        guard !inputs.isEmpty else { return answered(.keptForView(taken: 0)) }
+        let rest: SendOutcome = inputs.count < events.count ? .keptForView(taken: inputs.count) : .taken
+        let keys = router.launchPictureKeys, waitsSince = first.daemon.awaitsFirstConnection ? keys.clock : nil
+        first.daemon.onFirstConnection { [weak services, weak keys] in
+            if let waitsSince { keys?.noteWait(.daemonNotConnected, keys: inputs.count, since: waitsSince) }
+            // Read again: the first connection's tree may name the terminal's surface anew.
+            guard let services, let now = destination(of: target, services: services) else { return answered(.keptForView(taken: 0)) }
+            let wire = inputs.map { input -> TerminalTypedInput in
+                switch input {
+                case .text(let text): .text(text)
+                case .key(let name): .key(name)
+                }
+            }
+            now.daemon.type(wire, terminal: now.terminal, surface: now.surface) { taken, refusal in
+                answered(refusal.map { SendOutcome.refused(taken: taken, reason: $0) } ?? rest)
+            }
         }
     }
 
-    /// Keys that reached nothing: the refusal notice says so (the refusal path: logged, and the notice in the active
-    /// window) and keeps `text`, everything of the window refused so far, on it until the person closes it. Its Copy
-    /// puts the text on the pasteboard only on a click, as a Cloud result's Copy does (`CloudPresenter`): the
-    /// person's clipboard is never replaced unasked.
-    private static func refuseKeys(_ text: String, router: KeyRouter) {
-        guard let services = router.services else { return }
-        let reason = RefusalStrings.launchTypingNotDelivered
-        services.registry.refuse(reason)
-        guard let shell = services.windows.active?.window ?? NSApp.keyWindow else { return }
-        // The refusal's own toast (same id), now with the text: one notice, not two.
-        let toast = CmuxToast(id: RefusalHUD.toastID, message: reason, action: CmuxToast.Action(title: Strings.menuCopy),
-                              duration: CmuxToast.untilClosed)
-        CmuxToastCenter.shared.show(toast, in: shell).onAction = { CloudPresenter.copy(text) }
+    /// The daemon that runs `target`'s terminal, its host id and its surface there (nil: a remote terminal, which has
+    /// none on its own session). Nil while no daemon can take its input by id: the tab is not known yet, or a remote
+    /// terminal's session is not connected or takes no input by id.
+    private static func destination(of target: Target, services: AppServices) -> (daemon: DaemonService, terminal: TerminalID?, surface: SurfaceID?)? {
+        guard let (tab, pane) = services.locateTab(target.tab) else { return nil }
+        switch tab.kind {
+        case .pty:
+            return (services.daemon(for: pane), tab.terminalID, tab.surface)
+        case .remoteTerminal:
+            guard let ref = tab.remote, let daemon = services.machines.daemon(session: ref.sessionID), daemon.isLive,
+                  daemon.supports(DaemonCapability.terminalInputWhileCreating.rawValue) else { return nil }
+            return (daemon, ref.terminalID, nil)
+        default:
+            return nil
+        }
     }
+
+    /// Keys that reached nothing: a notice of its own says so, with the daemon's reason when it gave one, and keeps
+    /// `text` (everything of `window` refused since the person was last done with it) on it until the person closes
+    /// it; the refusal is logged on the refusal path (quiet: this notice is the one shown). Its Copy puts the text on
+    /// the pasteboard only on a click, as a Cloud result's Copy does (`CloudPresenter`): the person's clipboard is
+    /// never replaced unasked. Closing or copying ends the kept text. It shows in the window the keys were typed in.
+    private static func refuseKeys(_ text: String, reason: String?, window: String, router: KeyRouter) {
+        guard let services = router.services else { return }
+        let notice = reason.map(RefusalStrings.launchTypingNotDeliveredBecause) ?? RefusalStrings.launchTypingNotDelivered
+        services.registry.refuse(notice, quiet: true)
+        guard let shell = services.windows.controller(for: window)?.window ?? NSApp.keyWindow ?? services.windows.active?.window else { return }
+        let toast = CmuxToast(id: launchTypingToastID, message: notice, action: text.isEmpty ? nil : CmuxToast.Action(title: Strings.menuCopy),
+                              duration: CmuxToast.untilClosed)
+        let handle = CmuxToastCenter.shared.show(toast, in: shell), keys = router.launchPictureKeys
+        handle.onAction = { [weak keys] in
+            CloudPresenter.copy(text)
+            keys?.forgetKept(window: window)
+        }
+        // A newer refusal replacing it carries the same text and more: the text stays kept for it.
+        handle.onDismiss = { [weak keys] reason in if reason != .replaced { keys?.forgetKept(window: window) } }
+    }
+
+    /// The launch typing notice's toast id: a newer one replaces it, never the app's refusal toast.
+    static let launchTypingToastID = "launch-typing-not-delivered"
 
     /// Sends `events`, typed in window `id` before it could decide them, through the router again, in order, as
     /// `CmuxApplication.sendEvent` would; false while the window still cannot decide them.
