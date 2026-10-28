@@ -93,7 +93,7 @@ mod tests {
         for invalid in ["", "0", "1", "-5", "x", "4294967295", "4242:x"] {
             assert!(parse_owner_exit_with(invalid).is_err(), "{invalid}");
         }
-        let mut gone = std::process::Command::new("true").spawn().unwrap();
+        let mut gone = cmux_process::Command::new("true").spawn().unwrap();
         let pid = gone.id();
         gone.wait().unwrap();
         assert!(resolve_exit_with_pid(&pid.to_string()).is_err());
