@@ -193,3 +193,66 @@ adds an RPC hop per tool call.
 
 Until the two lanes agree: D gets no kernel features in TypeScript (no ledgers, no new tools). It
 stays the flag-gated DO placement and the measured baseline against P.
+
+## 12. Staging results (Oct 28, build f25ef1238c0)
+
+Runner: `backend/scripts/chief-durable-evals.ts`; raw results:
+[evidence/cloud-chief-durable-staging-evals-2026-10-28.json](evidence/cloud-chief-durable-staging-evals-2026-10-28.json).
+17 of the 44 eval cases can be answered by a Cloud Chief (one user turn, no command stubs, no host-tool
+check). Each case ran 2 times per brain on a new Chief whose memory held the case history. Model: Workers
+AI `@cf/moonshotai/kimi-k2.7-code` for both brains, because staging's Claude route answered every call
+with Bedrock `403 The security token included in the request is invalid` (P and D alike). Judge: Claude
+Sonnet 5 through the Vercel AI Gateway, because the subrouter's Claude path answered "upstream request
+failed".
+
+| | P (pi) | D (durable) |
+| --- | --- | --- |
+| cases passed | 7/34 (21%) | 8/34 (24%) |
+| graded checks passed | 33/72 (46%) | 34/72 (47%) |
+| run errors | 0 | 0 |
+| model cost, 34 runs | $0.127 | $0.122 |
+| first reply p50 (6 memory cases x 3) | 16.5 s | 15.6 s |
+| second reply p50, warm (same) | 4.3 s | 5.2 s |
+
+Reading: D is not worse than P on any measure here; the differences are inside the noise of 2-3 runs.
+The low absolute pass rate is the model (the cases were written for a Claude Chief) and the runner (the
+`silent` and multiplayer cases assume a group; the runner posts in the Chief's own conversation, so
+they fail for both brains). These results are not the promotion gate: that gate is the same run on the
+production model (Claude Opus 5.5), which needs staging's Claude route fixed first.
+
+## 13. What the Durable Object needs from the wasm kernel, in order (answer to chief-engines step 4)
+
+The Chief-engines lane accepted section 11 (797a568f9db) and asked which trait shapes D needs first.
+The rule for all of them: the kernel decides, the host acts. The core is synchronous and pure; it
+reads through host callbacks and returns its writes and effects as values. The DO applies them in
+its own `transactionSync`, together with its own rows, so a crash never leaves a kernel write without
+its host write. This is how `optchat-wasm` works today (store callbacks in, JSON out, checkpoint
+saved by the host).
+
+1. **Prompt rendering** (first: it ends the prompt drift). `render_system(profile_json, engine,
+   tools_json) -> string`, pure. Engine `pi-durable` names the tools as D offers them. D drops
+   `chief-brain/prompts.ts` for it.
+2. **Tool contract.** `tools(engine) -> [{name, description, json_schema, replay: "safe" |
+   "once"}]`, and `call_pure(name, args_json, ctx_json) -> result_json` for tools with no
+   effect outside the memory (`zoom` and `date` today). D registers each spec as a pi tool, and pi
+   uses the replay flag as is.
+3. **Ledgers as a fold.** `ledger_apply(state_json, event_json, ctx_json) -> {state_json,
+   intents: [...]}`. Events: message logged, reply posted, outcome reported, spawn started or ended,
+   wake fired. Intents: post (text, target, idempotency key), ack (seq), schedule (at, key), spawn
+   (key, task), notice. The host stores `state_json` and performs each intent with its key.
+4. **Storage trait**: sync reads only (`get(table, key)`, `scan(table, from, limit)`), no writes
+   across the boundary (writes come back as values, as in 3). It must not be async: DO SQLite is
+   sync, and an async call across wasm needs a JS promise bridge on every read.
+5. **Clock and randomness**: no trait. Pass `now_ms`, the person's time zone and a seed in each
+   call's `ctx`. Tests then fix time with no fake clock.
+6. **Network**: none in the core. Model calls belong to pi-durable, conversation I/O and hands to
+   the host. A kernel network trait would duplicate the model gateway (credits, usage, live frames).
+
+Limits for the wasm build: no threads, no `std::time`, no `getrandom`; the size stays well under
+the Workers bundle limit (the memory core is 336 KB now); JSON at the boundary, as now; one
+`initSync` per object.
+
+D's migration as each export lands: prompt (1) and tools (2) replace the TypeScript copies with no
+behavior change, checked by the six D tests plus the staging eval runner. Ledgers (3) give D the
+reply, outcome, ask and schedule rules it does not have. Hands, spawn and jobs then call P's
+existing services from intents, never from the kernel.
