@@ -84,7 +84,7 @@ function fakeApp(start: CloudMachine[]) {
   return { call, calls, set: (next: CloudMachine[]) => (machines = next) };
 }
 
-async function mount(peer: string | undefined, call: ReturnType<typeof fakeApp>["call"]) {
+async function mount(peer: string | undefined, call: (method: string, params?: Record<string, unknown>) => Promise<unknown>) {
   const { createRoot } = await import("react-dom/client");
   const { PeerCopyBanner } = await import("../src/agent-session/acpmux/PeerCopyBanner");
   const { usePeerCloudMachine } = await import("../src/agent-session/acpmux/peerCloudMachine");
@@ -185,10 +185,12 @@ test("a machine stuck starting is read at most STARTING_READS times", async () =
   try {
     await mount(PEER, app.call);
     const before = reads(app.calls);
-    await act(async () => {
-      for (let i = 0; i < STARTING_READS; i++) timers[0]!();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    // Each tick's read answers before the next (a read in flight is shared, not repeated).
+    for (let i = 0; i < STARTING_READS; i++)
+      await act(async () => {
+        timers[0]!();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
     expect(reads(app.calls)).toBe(before + STARTING_READS);
     expect(cleared).toContain(1);
     // Still starting, as far as the list knows: the banner keeps saying so, with no Resume.

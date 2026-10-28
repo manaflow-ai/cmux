@@ -38,10 +38,10 @@ export function PeerCopyBanner({
   if (machine === "starting") {
     return (
       <div className="acpmux-link-missing acpmux-peer-copy" data-enter="top" data-machine="starting">
-        <p className="acpmux-peer-copy-title" role="status">
+        <output className="acpmux-peer-copy-title">
           <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
           {t("peerCopy.starting.title", { machine: copy.peer })}
-        </p>
+        </output>
         <p className="acpmux-watch-hint">{detail}</p>
       </div>
     );
