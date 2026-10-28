@@ -5,6 +5,7 @@ import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import SwiftUI
 import UIKit
 
@@ -354,8 +355,9 @@ public struct AgentChatTranscript: View {
                 context.attachmentLoader = AttachmentLoader { [weak source = store.source] attachment in
                     await source?.attachmentData(attachment)
                 }
-                // A file link in an answer opens its preview; web links open as before.
+                // A file link in an answer opens its preview, a cmux link what it names; web links open as before.
                 context.openURL = OpenURLAction { url in
+                    if CmuxLinkOpener.shared.open(url) { return .handled }
                     guard let link = FileLink(url: url) else { return .systemAction }
                     openFile(link.reference, line: link.line)
                     return .handled

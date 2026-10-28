@@ -138,7 +138,8 @@ nonisolated enum CloudHomeMapping {
         summary.pinRank = entry.pinned ? (entry.pinPosition ?? 0) : nil
         summary.muted = entry.muted
         summary.mentionCount = Int(clamping: entry.mentions)
-        if let kind = kind(entry.kind) { summary.declaredKind = kind }
+        // A teammate's entry for someone else's shared Chief conversation says group; the head's chief stays.
+        if let kind = kind(entry.kind), summary.declaredKind != .chief { summary.declaredKind = kind }
         if entry.lastSeq > summary.lastSeq {
             summary.lastSeq = entry.lastSeq
             if let at = HomeCoreMapping.date(entry.lastAt) { summary.updatedAt = max(summary.updatedAt, at) }

@@ -6,7 +6,7 @@
 use std::ffi::{CString, OsString};
 use std::io;
 use std::net::TcpListener;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::ptr;
 
@@ -146,15 +146,17 @@ fn wait_ack(fd: RawFd) -> Result<(), String> {
     }
 }
 
-fn close_extra_fds() -> io::Result<()> {
+fn close_extra_fds(keep: &[RawFd]) -> io::Result<()> {
     // SAFETY: close_range only acts on this process's descriptors >= 3.
-    let result = unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) };
-    if result == 0 {
-        return Ok(());
-    }
-    let error = io::Error::last_os_error();
-    if !matches!(error.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL)) {
-        return Err(error);
+    if keep.is_empty() {
+        let result = unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL)) {
+            return Err(error);
+        }
     }
     let entries = std::fs::read_dir("/proc/self/fd")?;
     let mut descriptors = Vec::new();
@@ -162,6 +164,7 @@ fn close_extra_fds() -> io::Result<()> {
         let name = entry?.file_name();
         if let Ok(fd) = name.to_string_lossy().parse::<RawFd>()
             && fd > 2
+            && !keep.contains(&fd)
         {
             descriptors.push(fd);
         }
@@ -250,10 +253,27 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
         Ok(address) => address.map(|address| address.port()),
         Err(error) => fail(format!("api listener address: {error}"), 125),
     };
+    set_proxy_environment(proxy_port);
+    let mut keep = vec![options.handoff_fd, proxy.as_raw_fd()];
+    if let Some(listener) = &api {
+        keep.push(listener.as_raw_fd());
+    }
+    if let Err(error) = close_extra_fds(&keep) {
+        fail(format!("close leaked descriptors: {error}"), 125);
+    }
+    let filter = match seccomp::filter(true) {
+        Ok(filter) => filter,
+        Err(error) => fail(error, 125),
+    };
+    let notify: OwnedFd = match seccomp::install_notify(&filter) {
+        Ok(fd) => fd,
+        Err(error) => fail(format!("install seccomp notify filter: {error}"), 125),
+    };
     let mut fds = vec![proxy.as_raw_fd()];
     if let Some(listener) = &api {
         fds.push(listener.as_raw_fd());
     }
+    fds.push(notify.as_raw_fd());
     if let Err(error) = send_handoff(options.handoff_fd, &fds, proxy_port, api_port) {
         fail(format!("handoff send: {error}"), 125);
     }
@@ -262,20 +282,10 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     }
     drop(api);
     drop(proxy);
+    drop(notify);
     // The handoff descriptor is no longer needed and must not reach PROGRAM.
     unsafe {
         libc::close(options.handoff_fd);
-    }
-    set_proxy_environment(proxy_port);
-    if let Err(error) = close_extra_fds() {
-        fail(format!("close leaked descriptors: {error}"), 125);
-    }
-    let filter = match seccomp::deny_filter() {
-        Ok(filter) => filter,
-        Err(error) => fail(error, 125),
-    };
-    if let Err(error) = seccomp::install(&filter) {
-        fail(format!("install seccomp: {error}"), 125);
     }
     exec_program(options.program, options.args)
 }

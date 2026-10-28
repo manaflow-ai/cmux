@@ -40,6 +40,16 @@ impl Hub {
         ran
     }
 
+    /// Whether session `session` took prompt `prompt_id` already: its ledger holds it, or, for a
+    /// `resend`, its log does (`requests.rs`: a resend whose uploads are gone still answers with
+    /// its first run). Blocking: it may read the log.
+    pub fn knows_prompt(&self, session: &Session, prompt_id: &str, resend: bool) -> bool {
+        let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        let held = ledger.iter().any(|(id, _)| id == prompt_id);
+        drop(ledger);
+        held || (resend && self.logged_prompt(session, prompt_id).is_some())
+    }
+
     /// A prompt id the session's log already holds (`user_message` or
     /// `queued`), answered from the log: its turn's result when it ended,
     /// else `interrupted` (the daemon stopped during the turn).

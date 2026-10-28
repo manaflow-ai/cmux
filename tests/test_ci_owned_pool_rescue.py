@@ -1452,7 +1452,7 @@ def nightly_run(*, queued_at=15, started_at=None, refused_at=None):
                       status="in_progress" if started else "queued", runner="cmux15-glaeda" if started else "")
             if started:
                 app["started_at"] = stamp(started_at)
-        return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-15"],
+        return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-26"],
                                  status="in_progress", runner="bs")]
     return jobs
 

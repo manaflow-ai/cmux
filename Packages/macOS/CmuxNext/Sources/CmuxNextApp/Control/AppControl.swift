@@ -101,6 +101,7 @@ final class AppControl {
         let errors = ErrorJournalService.make(environment: services.environment)
         errors.start()
         errorJournal = errors
+        services.errorJournal = errors
         service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
@@ -532,6 +533,11 @@ final class AppControl {
             .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            // Captures of Add Device: a fixture listing (network and ~/.ssh/config rows), never the capture host's tailnet.
+            .mainActor("debug.add_device") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.show(call.params, services: services))
             },
             // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
             .mainActor("debug.daemon_update") { [weak services] call in

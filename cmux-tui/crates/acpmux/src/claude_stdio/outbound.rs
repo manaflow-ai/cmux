@@ -362,7 +362,7 @@ impl Translator {
                 // The hub answered a permission request we raised.
                 // The request and its form (an elicitation's) are taken under
                 // the request map's lock, as a withdrawal takes them
-                // (`elicitation.rs` forget_elicitation): one of the two wins,
+                // (`elicitation.rs` cancel_control_request): one of the two wins,
                 // and a withdrawn form never falls through to a tool reply.
                 let (ctl_id, form) = {
                     let mut out = self.control_out.lock().await;

@@ -42,6 +42,17 @@ nonisolated struct AcpmuxReadyLine: Decodable, Equatable {
     var pid: Int32?
     var socket: String?
     var webUrl: String?
+    /// Why the daemon refused to start (acpmux `daemon/exe_path.rs`: the shared home from a
+    /// runner's `_work` or a temporary folder), on a `{"ready":false,"refused":"..."}` line.
+    var refused: String?
+
+    /// The refusal on a not-ready line, if the daemon refused to start.
+    static func refusal(_ line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(AcpmuxReadyLine.self, from: data), !parsed.ready
+        else { return nil }
+        return parsed.refused
+    }
 
     static func parse(_ line: String) -> AcpmuxReadyLine? {
         guard let data = line.data(using: .utf8),

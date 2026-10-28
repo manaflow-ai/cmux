@@ -98,7 +98,16 @@ struct CloudStartSession {
                     do {
                         // The account the agent asked in: a switch while the card was open refuses.
                         let fields = try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: caller, revealing: false)
-                        asks.finish(tab: tab.id, token: token, failure: nil)
+                        // Nothing is shown on its own (the person is in the asking chat); the card
+                        // links to the new chat, and Open Chat, the person's click, shows it.
+                        guard case .string(let opened)? = fields["tab_id"] else {
+                            asks.finish(tab: tab.id, token: token, failure: nil)
+                            return fields
+                        }
+                        asks.started(tab: tab.id, token: token, text: CloudStartSessionStrings.started(agent: request.agent, machine: named),
+                                     gone: CloudStartSessionStrings.chatGone(agent: request.agent, machine: named)) { [weak services] in
+                            services?.revealTab(opened) ?? false
+                        }
                         return fields
                     } catch is CancellationError {
                         // Only a sign-out or team switch cancels a run (``CloudStartSessionRuns/forgetAll()``).

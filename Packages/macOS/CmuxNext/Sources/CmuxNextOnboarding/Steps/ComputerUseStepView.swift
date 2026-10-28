@@ -23,6 +23,12 @@ final class ComputerUseStepView: NSView {
                                                      font: OnboardingMetrics.captionFont,
                                                      color: Palette.textSecondary, lines: 2)
 
+    private let failedLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperFailed,
+                                                    font: OnboardingMetrics.captionFont,
+                                                    color: Palette.textSecondary, lines: 3)
+    private lazy var restartButton = OnboardingControl.button(OnboardingStrings.computerUseRestart,
+                                                               target: self, action: #selector(restartHelper))
+
     init(model: ComputerUseStepModel) {
         self.model = model
         super.init(frame: .zero)
@@ -50,6 +56,11 @@ final class ComputerUseStepView: NSView {
         mismatchLabel.isHidden = true
         stack.addArrangedSubview(mismatchLabel)
         mismatchLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        failedLabel.isHidden = true
+        stack.addArrangedSubview(failedLabel)
+        failedLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        restartButton.isHidden = true
+        stack.addArrangedSubview(restartButton)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
@@ -73,8 +84,15 @@ final class ComputerUseStepView: NSView {
     @objc private func allowAccessibility() { model.allow(.accessibility) }
     @objc private func allowScreenRecording() { model.allow(.screenRecording) }
 
+    @objc private func restartHelper() { model.restart() }
+
     private func render() {
-        for (pane, row) in rows { row.update(granted: model.permissions.granted(pane)) }
+        for (pane, row) in rows {
+            row.isHidden = model.permissions.helperFailed
+            row.update(granted: model.permissions.granted(pane))
+        }
+        failedLabel.isHidden = !model.permissions.helperFailed
+        restartButton.isHidden = !model.permissions.helperFailed
         offLabel.isHidden = !model.permissions.isOff || model.unavailable
         unavailableLabel.isHidden = !model.unavailable
         mismatchLabel.isHidden = !model.permissions.helperVersionMismatch

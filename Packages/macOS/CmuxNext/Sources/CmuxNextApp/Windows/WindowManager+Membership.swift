@@ -413,6 +413,12 @@ extension WindowManager {
         return services.machines.local.store.isLoaded && cloudSettled
     }
 
+    /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
+    /// for those this launch has not seen: a workspace on a paused or connecting Cloud machine keeps its window.
+    func rememberMachines(of document: WindowStateDocument) {
+        seenMachine.merge(document.workspaceMachines) { seen, _ in seen }
+    }
+
     /// Every Cloud machine that could still report workspaces has loaded.
     private var cloudSettled: Bool {
         guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }

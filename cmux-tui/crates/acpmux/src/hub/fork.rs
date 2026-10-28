@@ -221,6 +221,7 @@ impl Hub {
             name,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
+            spawn_argv: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
@@ -254,6 +255,7 @@ impl Hub {
                 .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
+            policy_source: parent_meta.policy_source.clone(),
             title: None,
             title_source: None,
             title_prompt: None,
@@ -278,6 +280,7 @@ impl Hub {
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            vm_boundary: parent_meta.vm_boundary,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             workspace_id,
@@ -312,6 +315,9 @@ impl Hub {
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
             subsession_limits: Default::default(),
+            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
+            lineage: None,
+            subagent_retry_open: false,
         };
         let new = self.make_session(meta);
         match made {
@@ -328,6 +334,8 @@ impl Hub {
             sessions.insert(id.clone(), new.clone());
             super::admission::claim(&id);
         }
+        // Indexed again once published (`transfer.rs` `import_into`).
+        self.child_tags.note(&new);
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[

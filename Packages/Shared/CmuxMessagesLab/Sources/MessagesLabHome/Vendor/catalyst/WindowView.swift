@@ -1235,7 +1235,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     private func dirtyFrom(_ action: Action, _ s: AppState, _ old: AppState) -> Int? {
         let msgs = s.conversation.messages
-        func index(_ id: ID) -> Int? { msgs.lastIndex { $0.id == id } }
+        // One id -> index map per call (the last index of an id, as `lastIndex` gave): each receipt row
+        // below asked `lastIndex` over every loaded message, O(400 x messages) on the main thread per
+        // commit, and the Chief's live line commits every second while it works (Sentry
+        // CMUXTERM-MACOS-46TC: 1-2 s stalls in dirtyFrom from HomeLiveLine.tick).
+        var positions: [ID: Int] = [:]
+        var mapped = false
+        func index(_ id: ID) -> Int? {
+            if !mapped {
+                mapped = true
+                positions.reserveCapacity(msgs.count)
+                for (i, m) in msgs.enumerated() { positions[m.id] = i }
+            }
+            return positions[id]
+        }
         var idx: [Int] = []
         for r in model.rows.suffix(400) where r.spec.key.hasPrefix("receipt:") {
             if let i = index(String(r.spec.key.dropFirst("receipt:".count))) { idx.append(i) }
@@ -2048,19 +2061,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
+        // cmux: working only rotates; the typing bubble and tail never breathe.
         if case .typing = r.spec.kind {
             if r.ghost {
-                cell.stopTypingBreath()
-            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
-                        || cell.needsTypingBreath {
-                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
-                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
-                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
-                // the same row live again after its fade began (stopTypingBreath), starts both again.
+                cell.stopTypingSpinner()
+            } else if cell.typingInsertedAt != r.insertedAt || !cell.typingSpinnerActive {
                 let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
                 cell.typingInsertedAt = r.insertedAt
-                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
-                cell.startTypingBreath(insert: insert)
+                cell.startTypingSpinner(begin: insert + Springs.typingDotsPhase)
             }
         }
     }

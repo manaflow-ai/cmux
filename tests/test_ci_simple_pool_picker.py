@@ -11,6 +11,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
@@ -185,6 +186,52 @@ class ConfiguredPoolTests(unittest.TestCase):
         self.assertNotEqual(picker.pick(observed(aws + busy_minis, {})).label, "glaeda-std-xcode-26.3")
 
 
+class BlacksmithStallTests(unittest.TestCase):
+    """One stall rule (blacksmith_stalled): a label whose oldest job has waited BLACKSMITH_STALL_MINUTES
+    with nothing starting has no free slot, whatever its running count says."""
+
+    @staticmethod
+    def state(pools, *, age=0.0, jobs=1):
+        with mock.patch.object(picker, "snapshot_age", return_value=age):
+            return picker.state_from(jobs=jobs, env={}, fork=False, runners=None,
+                                     snapshot={"generated_at": "2026-10-27T06:13:01Z", "pools": pools},
+                                     fallback=picker.BLACKSMITH[1], owned_enabled=False)
+
+    def test_a_stalled_macos_26_label_beside_a_free_macos_15_slot_picks_macos_15(self):
+        """2026-10-27 06:13Z: 12 vCPU macOS 26 had 44 queued (oldest 396 min) and 0 running, so it
+        read as 5 free slots and took nightly 40452273751's verify jobs."""
+        state = self.state({picker.BLACKSMITH[0]: {"queued": 3, "running": 0, "oldest_queued_minutes": 50},
+                            picker.BLACKSMITH[1]: {"queued": 3, "running": 0, "oldest_queued_minutes": 50},
+                            picker.BLACKSMITH[2]: {"queued": 0, "running": 1}})
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[picker.BLACKSMITH[0]].stalled)
+        self.assertEqual(by_label[picker.BLACKSMITH[0]].available, 0)
+        self.assertFalse(by_label[picker.BLACKSMITH[2]].stalled)
+        self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[2])
+
+    def test_the_threshold_is_the_named_constant_and_counts_the_snapshot_age(self):
+        limit = picker.BLACKSMITH_STALL_MINUTES
+        self.assertEqual(limit, 10)
+        self.assertFalse(picker.blacksmith_stalled(2, limit - 1))
+        self.assertTrue(picker.blacksmith_stalled(2, limit))
+        self.assertTrue(picker.blacksmith_stalled(2, limit - 4, age=4))
+        self.assertFalse(picker.blacksmith_stalled(0, 500))
+        young = self.state({picker.BLACKSMITH[0]: {"queued": 2, "running": 0, "oldest_queued_minutes": limit - 1}})
+        self.assertEqual(picker.pick(young).label, picker.BLACKSMITH[0])
+        aged = self.state({picker.BLACKSMITH[0]: {"queued": 2, "running": 0, "oldest_queued_minutes": limit - 1}}, age=2)
+        self.assertNotEqual(picker.pick(aged).label, picker.BLACKSMITH[0])
+
+    def test_with_every_label_full_a_moving_one_beats_a_stalled_one(self):
+        state = picker.State(jobs=1, blacksmith=(
+            dataclasses.replace(pool(picker.BLACKSMITH[0], 5, 0, 1), stalled=True),
+            pool(picker.BLACKSMITH[1], 10, 10, 30),
+            dataclasses.replace(pool(picker.BLACKSMITH[2], 10, 0, 1), stalled=True)))
+        self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[1])
+        every = picker.State(jobs=1, blacksmith=tuple(
+            dataclasses.replace(item, stalled=True) for item in state.blacksmith))
+        self.assertTrue(picker.pick(every).label.startswith("blacksmith-"))
+
+
 class LiveRunnerReadTests(unittest.TestCase):
     """The organization has hundreds of runners; the minis are not on the first page."""
 
@@ -196,6 +243,9 @@ class LiveRunnerReadTests(unittest.TestCase):
         asked = []
 
         class Paged(picker.LiveState):
+            def _group_runners(self):
+                raise RuntimeError("group unread")
+
             def _get(self, path):
                 asked.append(path)
                 page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
@@ -387,11 +437,71 @@ class ApiBudgetTests(unittest.TestCase):
 
 
 class LiveReaderTests(unittest.TestCase):
+    def test_the_minis_come_from_their_runner_group_not_the_org_pages(self):
+        """2,862 org runners on 2026-10-27: the org pages held no mini, so every owned pool read offline."""
+        minis = [{"id": index, "status": "online", "busy": False,
+                  "labels": [{"name": "glaeda-std-xcode-26.6"}]} for index in range(3)]
+
+        class Grouped(picker.LiveState):
+            def _group_runners(self):
+                return minis
+
+            def _get(self, path):
+                raise AssertionError(f"read the org-wide pages: {path}")
+
+        self.assertEqual(Grouped("token", "manaflow-ai/cmux").runners(), minis)
+        self.assertIn("runner-groups", (ROOT / "scripts/ci/pr_runner_pool.py").read_text())
+
+    def test_a_mini_past_page_ten_of_the_org_list_is_still_read(self):
+        """More than MAX_RUNNER_PAGES * 100 org runners, the minis only in the glaeda-minis group:
+        the minis are still read, and an owned pick takes them (2026-10-27, 2,862 org runners)."""
+        org = [runner(f"blacksmith-{index}", ["blacksmith-6vcpu-macos-26"], busy=True)
+               for index in range(picker.MAX_RUNNER_PAGES * 100 + 400)]
+        minis = [std_runner(index, busy=False) for index in range(6)]
+        for index, item in enumerate(org + minis):
+            item["id"] = index
+        org_tail = org + minis  # the org-wide list holds the minis only past page MAX_RUNNER_PAGES
+
+        def page_of(items, path):
+            page = int(path.rsplit("page=", 1)[1]) if "page=" in path else 1
+            return {"runners": items[(page - 1) * 100: page * 100]}
+
+        def group_api(_self, path):
+            if "/runner-groups?" in path:
+                return {"runner_groups": [{"id": 7, "name": "glaeda-minis"}]}
+            if "/runner-groups/7/runners" in path:
+                return page_of(minis, path)
+            if path.startswith("/repos/"):
+                return {"runners": []}
+            raise AssertionError(path)
+
+        class Live(picker.LiveState):
+            def _get(self, path):
+                return page_of(org_tail, path)
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_runner_pool
+
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", group_api):
+            read = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual({item["name"] for item in read}, {item["name"] for item in minis})
+        # The old org-wide read stops at MAX_RUNNER_PAGES and never sees a mini.
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", side_effect=RuntimeError("no group")):
+            fallback = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(fallback), picker.MAX_RUNNER_PAGES * 100)
+        self.assertFalse(any(item["name"].startswith("std-") for item in fallback))
+        # observe() over the group read: the owned pool is online and picked.
+        self.assertEqual(picker.pick(observed(read, {}, jobs=1)).label, STD)
+        self.assertFalse(picker.pick(observed(fallback, {}, jobs=1)).owned)
+
     def test_live_reader_reads_the_org_runners_once(self):
         class Fake(picker.LiveState):
             def __init__(self):
                 super().__init__("token", "manaflow-ai/cmux")
                 self.paths = []
+
+            def _group_runners(self):
+                raise RuntimeError("group unread")
 
             def _get(self, path):
                 self.paths.append(path)

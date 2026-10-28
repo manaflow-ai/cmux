@@ -80,6 +80,8 @@ public struct RootView: View {
     /// The account whose preferences are live (`AccountPreferences`); sign-out
     /// puts them away under it.
     @State private var accountUserID: String?
+    /// A pairing code opened while signed out: applied once the account's live data starts.
+    @State private var heldInvite: PairInvite?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -193,6 +195,18 @@ public struct RootView: View {
             accountUserID = id
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
+        // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
+        .onOpenURL { url in
+            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
+            guard let invite = PairInvite(url: url) else { return }
+            if let live { live.accept(invite) } else { heldInvite = invite }
+        }
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
+            NotificationRouter.shared.open(link: link)
+        }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
         .task(id: auth.isSignedIn) {
@@ -283,9 +297,13 @@ public struct RootView: View {
         }
         store.resetForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
-        PushSnapshots().removeAll()
-        PushOutbox(group: .current())?.removeAll()
         PushRetryStore.app?.removeAll()
+        // The App Group is resolved and emptied off the main thread.
+        Task.detached(priority: .utility) {
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+            PushSnapshotStore(group: group)?.removeAll()
+            PushOutbox(group: group)?.removeAll()
+        }
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -321,6 +339,10 @@ public struct RootView: View {
         auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
+        if let invite = heldInvite {
+            heldInvite = nil
+            coordinator.accept(invite)
+        }
     }
 
     #if DEBUG
@@ -564,7 +586,7 @@ private struct LinkSettingsObserver: ViewModifier {
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
                 // The notification preview shows these chats' last messages.
-                if phase == .background { PushSnapshots().save() }
+                if phase == .background { Task { await PushSnapshots().save() } }
             }
     }
 }

@@ -260,19 +260,24 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
   );
 }
 
-/// The row under a prompt the Chief sent (ChiefPromptBubble): its read receipt, its age, a dot,
-/// Copy and Retry, as under the person's own bubble.
-export function PromptActions({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
-  return (
-    <div className="cv-user__actions">
-      {pending}
-      <ReadReceipt row={row} />
+/// A Chief prompt uses the same exclusive queue controls and normal hover actions as a user prompt.
+export function PromptActions({
+  row,
+  text,
+  pending,
+}: {
+  row: AcpmuxRow;
+  text: string;
+  pending?: (actions: ReactNode) => ReactNode;
+}) {
+  const actions = (
+    <>
       <MessageTime at={row.at} className="cv-user__time" />
-      <MessageDot />
       <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-    </div>
+    </>
   );
+  return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,

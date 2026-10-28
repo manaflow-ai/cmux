@@ -73,7 +73,8 @@ permissions:
 
 concurrency:
   group: cmux-next-ios-kit-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+  # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   kit-tests:
@@ -95,6 +96,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-next-ios/rust
           key: cmux-next-ios-kit
 

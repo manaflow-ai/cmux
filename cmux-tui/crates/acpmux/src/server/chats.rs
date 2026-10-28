@@ -98,6 +98,9 @@ pub(super) async fn route(
     if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::worktrees::retention(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }

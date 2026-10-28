@@ -3,12 +3,11 @@
 // there, the session rail ends up pushing it to the side, and also when the left pane gets too narrow,
 // the session rail still disappears. We can't have it disappear."). Session Info floats and moves the
 // chat's column left only when both fit (inspector/ChatInspector.tsx inspectorChatShift); the rail
-// stays at the pane's left edge while the column moves, and the move always leaves the rail its
-// room. In a wide pane (1600), the pane where the column moves (1200), the pane where moving it
-// would take the rail's room (1100), a narrow window (1000) and the narrowest pane the layout allows
-// (200, cmux.json `layout.minimumPaneWidth`), with Session Info closed, open, and pushing (Push
-// always): the rail draws (minimal under a 48px gutter, #24525), inside the pane, clear of the
-// transcript's column, and Session Info opening leaves it where it was.
+// follows the transcript's inset, preserving its full look while the gutter progressively shrinks.
+// In a wide pane (1600), the pane where the column moves (1200), a narrow window (800), the
+// overlap breakpoint (780), and the narrowest usable pane (760), with Session Info closed, open,
+// and pushing (Push always): the rail keeps one full-width look, hugs the transcript at a 4 px
+// resting gap, overlaps only at the breakpoint, and hides only when the minimum usable gutter is gone.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Locally:
@@ -83,6 +82,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     page.evaluate(() => {
       const nav = document.querySelector(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
       const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+      const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
       const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
       const column = Math.min(...rows);
       if (!nav) return { shown: false as const };
@@ -91,36 +91,107 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
       return {
         shown: true as const,
+        scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
         left: Math.round(box.left),
         insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
         clearOfColumn: box.right <= column + 0.5,
+        distance: Math.round((column - box.right) * 10) / 10,
       };
     });
 
   for (const name of browsers.keys())
-    for (const width of [1600, 1200, 1100, 1000, 200])
-      test(`${name}: in a ${width}px pane the rail stays put with Session Info closed, open and pushing`, async () => {
+    for (const width of [1600, 1200, 1084, 800, 780, 760])
+      test(`${name}: in a ${width}px pane the rail hugs the text until it runs out of room`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
-          const placed = { shown: true, insidePane: true, clearOfColumn: true };
+          const placed = { shown: true, scrollbarPinned: true, insidePane: true, clearOfColumn: true, distance: 4 };
           await closeInspector(page);
           const closed = await rail(page);
           await openInspector(page, false);
           const open = await rail(page);
-          // Push always narrows the chat to the pane less the panel; the rail stays, minimal under a 48px
-          // gutter (#24525).
+          if (width === 1084 && process.env.RAIL_GUTTER_SCREENSHOT) {
+            await page.screenshot({ path: process.env.RAIL_GUTTER_SCREENSHOT });
+          }
+          // Push always narrows the chat to the pane less the panel; the rail keeps its own small gutter
+          // and is hidden only once that gutter cannot provide the allowed overlap.
           await closeInspector(page);
           await openInspector(page, true);
           const pushed = await rail(page);
           const where = ({ left: _left, ...rest }: { left?: number; shown: boolean }) => rest;
-          expect({
-            closed: where(closed),
-            open: where(open),
-            pushed: where(pushed),
-            // Floating Session Info leaves the rail where it was.
-            moved: closed.shown && open.shown ? open.left - closed.left : "hidden",
-          }).toEqual({ closed: placed, open: placed, pushed: placed, moved: 0 });
+          // The transcript column's inset steps at the layout breakpoints. The rail keeps
+          // its full 36px look and only overlaps at the 780px breakpoint; Push always
+          // can consume the remaining gutter at 800px and below.
+          const expected =
+            width <= 760
+              ? { shown: false }
+              : {
+                  ...placed,
+                  clearOfColumn: width >= 800,
+                  distance: width >= 800 ? 4 : -6,
+                };
+          const pushedExpected = width <= 1084 ? { shown: false } : { ...expected, scrollbarPinned: false };
+          const openExpected = width === 1084 ? { ...placed, clearOfColumn: false, distance: -8 } : expected;
+          expect({ closed: where(closed), open: where(open), pushed: where(pushed) }).toEqual({
+            closed: expected,
+            open: openExpected,
+            pushed: pushedExpected,
+          });
+        } finally {
+          await page.close();
+        }
+      });
+  for (const name of browsers.keys())
+    for (const width of [1200, 1084])
+      test(`${name}: an open card follows its rail on every painted inspector and resize frame at ${width}px`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 700 });
+        try {
+          await closeInspector(page);
+          await page.locator(".acpmux-minimap__tick").first().focus();
+          const card = page.locator(".acpmux-minimap__card");
+          await card.waitFor({ state: "visible" });
+          // Keep this same preview open while the Inspector changes independently of pointer/focus.
+          await card.locator(".acpmux-minimap__bookmark").focus();
+          await page.evaluate(() => {
+            const samples: { rail: number; card: number | null }[] = [];
+            const stop = window.cmuxAfterPaint(() => {
+              const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
+              const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
+              samples.push({ rail: rail.right, card: card?.left ?? null });
+              return true;
+            });
+            Object.assign(window, { railCardFrames: { samples, stop } });
+          });
+          const toggle = () =>
+            page.locator("button.acpmux-chat-inspector-toggle").evaluate((node) => (node as HTMLElement).click());
+          for (const open of [true, false, true]) {
+            await toggle();
+            await page.locator("aside.acpmux-chat-inspector").waitFor({ state: open ? "visible" : "detached" });
+            await settle(page);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+          for (const next of [1600, 1084, 1200]) {
+            await page.setViewportSize({ width: next, height: 700 });
+            await page.waitForFunction((next) => document.querySelector(".acpmux-shell")!.clientWidth === next, next);
+            await settle(page);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+          const samples = await page.evaluate(() => {
+            const trace = (
+              window as unknown as {
+                railCardFrames: { samples: { rail: number; card: number | null }[]; stop(): void };
+              }
+            ).railCardFrames;
+            trace.stop();
+            return trace.samples;
+          });
+          expect(samples.length).toBeGreaterThan(0);
+          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBeGreaterThan(2);
+          expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual(
+            [],
+          );
+          if (process.env.RAIL_CARD_SCREENSHOT) await page.screenshot({ path: process.env.RAIL_CARD_SCREENSHOT });
         } finally {
           await page.close();
         }

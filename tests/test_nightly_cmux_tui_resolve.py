@@ -85,6 +85,8 @@ exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilat
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
+# publish-nightly-next-github copies that same selected build to the GitHub release.
+PUBLISHED_SHA = "${{ needs.publish-nightly.outputs.build_sha }}"
 
 def tooling_checkout(body: str) -> "tuple[int, int] | None":
     """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
@@ -150,7 +152,8 @@ for name in shipping:
         continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
-    allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
+    allowed = ({BUILD_SHA, SELECTED_SHA} if name == "publish-nightly"
+               else {BUILD_SHA, PUBLISHED_SHA} if name == "publish-nightly-next-github" else {BUILD_SHA})
     # The publication tooling (not shipped source) comes from the workflow's own
     # commit, so a recovered older build runs this workflow's scripts. It is a
     # sparse checkout of scripts into .publish-tooling, never the build tree.

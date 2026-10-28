@@ -78,17 +78,26 @@ acpmux_o=$(cat {REMOTE_HOME}/{OWNER} 2>/dev/null); [ "${{acpmux_o%% *}}" != {tok
 /// `script` fenced for the lease `token`: under the flock (waited for up to
 /// a minute: another update's step, or its lease being taken), it runs only
 /// while the lease is `token`'s and its process holds its flock, else
-/// prints [`LOCK_LOST`] and exits 75. The script runs without either
-/// descriptor, so a daemon it starts keeps neither flock.
+/// prints [`LOCK_LOST`] and exits 75. The script runs in a subshell that
+/// closed both descriptors (`exec 8>&- 9>&-`), so a daemon it starts keeps
+/// neither flock, while this shell keeps the flock until the step ends: a
+/// command follows the subshell (its exit status, passed on), so no shell
+/// runs the subshell in its own process (dash does that with a last one,
+/// which would close the flock before the step). Not
+/// a group with `8>&- 9>&-` on it: macOS's /bin/sh (bash 3.2) keeps the
+/// closed descriptors as copies (10 and 11) that a child inherits, so a
+/// daemon a step started in place held `update.lock` for its life, and every
+/// later step of every update waited a minute and lost its lock (#25602's
+/// no-GUI proof on macOS 15).
 fn fence(token: &str, script: &str) -> String {
     let open = open_locks();
     format!(
         r#"{open} && {{
 {LOCK_FN}acpmux_lk 60 9 && ! acpmux_lk 0 8 && acpmux_o=$(cat {REMOTE_HOME}/{OWNER} 2>/dev/null) && [ "${{acpmux_o%% *}}" = {token} ]
 }} || {{ echo {LOCK_LOST}; echo "this update no longer holds the host's update lock, so it changes nothing more: another update may run" >&2; exit 75; }}
-{{
+(exec 8>&- 9>&-
 {script}
-}} 8>&- 9>&-"#
+); acpmux_rc=$?; exit "$acpmux_rc""#
     )
 }
 
@@ -119,9 +128,9 @@ impl std::error::Error for LockLost {}
 /// their text.
 #[cfg(test)]
 pub(crate) fn unfence(script: &str) -> Option<&str> {
-    const BODY: &str = "exit 75; }\n{\n";
+    const BODY: &str = "exit 75; }\n(exec 8>&- 9>&-\n";
     let start = script.find(BODY)? + BODY.len();
-    script.strip_suffix("\n} 8>&- 9>&-")?.get(start..)
+    script.strip_suffix("\n); acpmux_rc=$?; exit \"$acpmux_rc\"")?.get(start..)
 }
 
 /// A host whose every script is fenced for a lease ([`fence`]); a script

@@ -391,6 +391,7 @@ mod tests {
     /// The line a person pastes on the new machine joins it even when the
     /// install script it pipes into ignores its arguments, as the script
     /// cmux.com served on 2026-10-22 did (it installed cmux and stopped).
+    #[cfg(unix)]
     #[test]
     fn the_pasted_line_joins_even_through_an_install_script_that_ignores_the_ticket() {
         let root = std::env::temp_dir().join(format!("acpmux-pair-line-{}", uuid::Uuid::now_v7()));
