@@ -164,11 +164,9 @@ const Minimap = memo(function Minimap({
     // Where the box is drawn, which a press hit-tests against (it stays put while a reply streams).
     drawn.current.box = { top: Math.round(at.top * 4) / 4, height: Math.round(at.height * 4) / 4 };
     const transform = `translateY(${drawn.current.box.top}px)`;
-    if (drawn.current.transform !== transform)
-      box.style.transform = drawn.current.transform = transform;
+    if (drawn.current.transform !== transform) box.style.transform = drawn.current.transform = transform;
     const boxHeight = `${drawn.current.box.height}px`;
-    if (drawn.current.boxHeight !== boxHeight)
-      box.style.height = drawn.current.boxHeight = boxHeight;
+    if (drawn.current.boxHeight !== boxHeight) box.style.height = drawn.current.boxHeight = boxHeight;
     placeValue();
   });
   /// The control's value: the share of the scroller's own range scrolled, written when it changes.
@@ -177,11 +175,7 @@ const Minimap = memo(function Minimap({
     const owner = control.current;
     if (!node || !owner) return;
     const range = node.scrollHeight - node.clientHeight;
-    const now = String(
-      range > 0
-        ? Math.round((100 * Math.min(range, Math.max(0, layoutScrollTop(node)))) / range)
-        : 0,
-    );
+    const now = String(range > 0 ? Math.round((100 * Math.min(range, Math.max(0, layoutScrollTop(node)))) / range) : 0);
     if (owner.getAttribute("aria-valuenow") !== now) owner.setAttribute("aria-valuenow", now);
   });
   /// While a reply streams, the rows' changes move nothing on the map, but the range grows under the
@@ -293,10 +287,7 @@ const Minimap = memo(function Minimap({
       const scale = minimapScale(layout.totalHeight, track);
       const from = layout.tops[streaming] ?? layout.totalHeight;
       const top = Math.min(track - MIN_PLACEHOLDER, (from + THREAD_PADDING_TOP) * scale);
-      const height = Math.min(
-        track - top,
-        Math.max(MIN_PLACEHOLDER, (layout.heights[streaming] ?? 0) * scale),
-      );
+      const height = Math.min(track - top, Math.max(MIN_PLACEHOLDER, (layout.heights[streaming] ?? 0) * scale));
       setHold({ top, height });
     } else setHold(undefined);
     schedule(false);
@@ -380,8 +371,7 @@ const Minimap = memo(function Minimap({
     press.current = undefined;
     setDragging(false);
   };
-  const local = (event: React.PointerEvent) =>
-    event.clientY - event.currentTarget.getBoundingClientRect().top;
+  const local = (event: React.PointerEvent) => event.clientY - event.currentTarget.getBoundingClientRect().top;
 
   return (
     <div className="acpmux-chat-minimap">
@@ -441,11 +431,7 @@ const Minimap = memo(function Minimap({
             PageDown: page,
           };
           const delta =
-            event.key === "Home"
-              ? -node.scrollTop
-              : event.key === "End"
-                ? node.scrollHeight
-                : by[event.key];
+            event.key === "Home" ? -node.scrollTop : event.key === "End" ? node.scrollHeight : by[event.key];
           if (delta === undefined) return;
           event.preventDefault();
           stopScroll(node);

@@ -39,10 +39,7 @@ test("one anchor write retains logical quarter pixels without accumulating an or
   const { node, css, writes } = quantizedNode();
   let rowTop = 500;
   const visual = rowTop - node.scrollTop;
-  const deltas = [
-    ...Array.from({ length: 100 }, () => 0.25),
-    ...Array.from({ length: 100 }, () => -0.25),
-  ];
+  const deltas = [...Array.from({ length: 100 }, () => 0.25), ...Array.from({ length: 100 }, () => -0.25)];
   for (const [index, delta] of deltas.entries()) {
     const desired = layoutScrollTop(node) + delta;
     rowTop += delta;

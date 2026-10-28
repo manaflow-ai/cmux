@@ -49,13 +49,7 @@ export function calibrateScrollReadback(): ScrollReadbackCalibration {
 }
 
 /** Runs in the page with paintedFrames installed; it deliberately closes over no test state. */
-export async function traceUpwardAnchors({
-  steps,
-  restFrames = 24,
-}: {
-  steps: number[];
-  restFrames?: number;
-}) {
+export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: number[]; restFrames?: number }) {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) throw new Error("transcript scroller missing");
   const read = () => {
@@ -69,9 +63,7 @@ export async function traceUpwardAnchors({
         height: box.height,
       };
     });
-    const visible = mounted.filter(
-      (row) => row.height > 0 && row.bottom > 0 && row.y < view.height,
-    );
+    const visible = mounted.filter((row) => row.height > 0 && row.bottom > 0 && row.y < view.height);
     return { mounted: new Map(mounted.map((row) => [row.id, row])), visible };
   };
   let previous = read();
@@ -93,9 +85,7 @@ export async function traceUpwardAnchors({
         // frames share; a missing anchor is evidence too, never a zero-drift sample.
         const anchor = previous.visible.find((row) => current.mounted.has(row.id));
         const top = current.visible[0];
-        const drift = anchor
-          ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied
-          : null;
+        const drift = anchor ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied : null;
         samples.push({
           frame: samples.length,
           paint,
@@ -146,13 +136,8 @@ export async function traceUpwardAnchors({
     blankFrames: samples.filter((sample) => sample.topRowId === null).length,
     cancelledWheels,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
-    readbackQuantization: [...new Set(samples.map((sample) => sample.readbackQuantization))].sort(
-      (a, b) => a - b,
-    ),
-    maxAbsReadbackQuantization: Math.max(
-      0,
-      ...samples.map((sample) => Math.abs(sample.readbackQuantization)),
-    ),
+    readbackQuantization: [...new Set(samples.map((sample) => sample.readbackQuantization))].sort((a, b) => a - b),
+    maxAbsReadbackQuantization: Math.max(0, ...samples.map((sample) => Math.abs(sample.readbackQuantization))),
     maxDrift: Math.max(0, ...compared.map((sample) => Math.abs(sample.drift!))),
     totalDrift: compared.reduce((sum, sample) => sum + Math.abs(sample.drift!), 0),
     samples,

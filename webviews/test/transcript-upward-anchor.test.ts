@@ -15,9 +15,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
   try {
     await (await engine.launch({ headless: true })).close();
   } catch {
-    console.warn(
-      `transcript-upward-anchor: skipping (run 'bunx playwright install ${engineName}')`,
-    );
+    console.warn(`transcript-upward-anchor: skipping (run 'bunx playwright install ${engineName}')`);
     describe.skip("transcript upward anchor", () => test(engineName, () => {}));
     return;
   }
@@ -59,10 +57,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")),
       );
       // No warm fling: rows encountered above the viewport must still have estimated heights.
-      const steps = Array.from(
-        { length: 240 },
-        (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!,
-      );
+      const steps = Array.from({ length: 240 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!);
       const result = await page.evaluate(traceUpwardAnchors, { steps });
       // Preserve the complete row-id/y trace in the hosted log, on both a pass and a failure.
       console.log(
