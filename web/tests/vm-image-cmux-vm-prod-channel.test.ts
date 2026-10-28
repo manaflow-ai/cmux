@@ -358,6 +358,12 @@ describe("promote step on production", () => {
       `#!/usr/bin/env bash\n{ echo "argv $*"; env | grep -c 's3cr3t-key' || true; stat -c %a "$FREESTYLE_API_KEY_FILE" 2>/dev/null || stat -f %Lp "$FREESTYLE_API_KEY_FILE"; echo "email=$CMUX_UITEST_STACK_EMAIL password=$CMUX_UITEST_STACK_PASSWORD token=$GH_TOKEN"; } >> "${record}"\n`,
     );
     chmodSync(path.join(bin, "bun"), 0o755);
+    // The step's other commands record it if a production value is in their environment, then run the real one.
+    for (const cmd of ["mktemp", "chmod", "mkdir", "tee", "rm"]) {
+      const real = (await runChild("bash", ["-c", `command -v ${cmd}`])).stdout.trim();
+      writeFileSync(path.join(bin, cmd), `#!/usr/bin/env bash\ncase "$(/usr/bin/env)" in *s3cr3t-key*|*agent@example.com*|*CMUX_UITEST_STACK_PASSWORD=pw*|*GH_TOKEN=t*) echo ${cmd} >> "${path.join(dir, "leaks")}";; esac\nexec ${real} "$@"\n`);
+      chmodSync(path.join(bin, cmd), 0o755);
+    }
     const run = async (channel: string, email: string) => {
       rmSync(record, { force: true });
       const env = { PATH: `${bin}:${process.env.PATH}`, FREESTYLE_KEY_SECRET: "s3cr3t-key", RUNNER_TEMP: dir, OUT_DIR: path.join(dir, "out"), CHANNEL: channel, SNAPSHOT: ID(300), SNAPSHOT_VAR: "CLOUD_FREESTYLE_SNAPSHOT", CMUX_UITEST_STACK_EMAIL: email, CMUX_UITEST_STACK_PASSWORD: email && "pw", GH_TOKEN: email && "t" };
@@ -366,6 +372,8 @@ describe("promote step on production", () => {
       expect(`${result.stdout}${result.stderr}`).not.toContain("s3cr3t-key");
       return readFileSync(record, "utf8").trim().split("\n");
     };
+    // Every other command the step runs (mktemp, chmod, mkdir, tee) sees none of them either.
+    expect(existsSync(path.join(dir, "leaks")) ? readFileSync(path.join(dir, "leaks"), "utf8") : "").toBe("");
     // account-check sees none of the test profile or the token; promote.ts (the compat gate) gets them.
     expect(await run("production", "agent@example.com")).toEqual([
       "argv scripts/cmux-vm-image/prod-copy.ts account-check",

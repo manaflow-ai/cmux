@@ -206,6 +206,9 @@ jobs:
           # First: the key moves to an unexported shell variable, so no child process inherits it.
           key="$FREESTYLE_KEY_SECRET"
           unset FREESTYLE_KEY_SECRET
+          # The test profile and token move to unexported shell variables too, before any command runs: only promote.ts gets them.
+          stack_email="${CMUX_UITEST_STACK_EMAIL-}" stack_password="${CMUX_UITEST_STACK_PASSWORD-}" gh_token="${GH_TOKEN-}"
+          unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN
           umask 077
           key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
           trap 'rm -f "$key_file"' EXIT
@@ -213,9 +216,6 @@ jobs:
           unset key
           chmod 600 "$key_file"
           mkdir -p "$OUT_DIR"
-          # The test profile and token move to unexported shell variables too: only promote.ts gets them.
-          stack_email="${CMUX_UITEST_STACK_EMAIL-}" stack_password="${CMUX_UITEST_STACK_PASSWORD-}" gh_token="${GH_TOKEN-}"
-          unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN
           if [ "$CHANNEL" = production ]; then
             FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check 2>&1 | tee "$OUT_DIR/account-check.log"
           else
