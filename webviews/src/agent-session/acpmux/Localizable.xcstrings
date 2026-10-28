@@ -25906,7 +25906,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux tries again on its own. Your prompt stays here until acpmux connects."
+            "value": "Retry starts acpmux. Your prompt stays here."
           }
         },
         "es": {

@@ -7250,7 +7250,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux is not running. Open a new agent chat to start it."
+            "value": "acpmux stopped."
           }
         },
         "es": {
