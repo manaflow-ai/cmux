@@ -8755,8 +8755,7 @@ function AcpmuxPane() {
   ]);
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback(
-    (id: string) =>
-      setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id)),
+    (id: string) => setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id)),
     [],
   );
   const loadReplay = useCallback(

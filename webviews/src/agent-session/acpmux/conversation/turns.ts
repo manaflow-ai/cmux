@@ -334,12 +334,7 @@ const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 /// so a remembered open state never changes the transcript while the next turn is running. A
 /// history page can begin at a landed steer; accept that provisional key until the older prompt
 /// arrives, so loading history does not erase an explicit open choice.
-function openFolds(
-  rows: readonly AcpmuxRow[],
-  start: number,
-  end: number,
-  expanded: ReadonlySet<string>,
-): string {
+function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: ReadonlySet<string>): string {
   if (expanded.size === 0) return "";
   if (expanded.has(`${WORKED}-${rows[start]!.id}`)) return "1";
   for (let index = start + 1; index < end; index += 1) {
