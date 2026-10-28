@@ -38,9 +38,15 @@ public final class MainTaskSelector {
         /// How long it waited from its post until it was taken, on the selector's clock.
         public let waited: Duration
         fileprivate let body: @MainActor () -> Void
+        fileprivate let fenceOrder: UInt64
+        fileprivate weak var queue: MainSequenceQueue?
 
-        /// Runs the task (on main: a nested type does not take the selector's isolation).
-        @MainActor public func run() { body() }
+        /// Runs the task as its queue's running task, so a continuation it posts keeps its place before a
+        /// fence (on main: a nested type does not take the selector's isolation).
+        @MainActor public func run() {
+            guard let queue else { return body() }
+            queue.run(body, fenceOrder: fenceOrder)
+        }
     }
 
     /// The last enqueue order given (0 before the first post).
@@ -49,10 +55,22 @@ public final class MainTaskSelector {
     private var turn: UInt64 = 0
     private var queues: [WeakQueue] = []
     private let elapsed: () -> Duration
+    private let onStrayContinuation: @MainActor (MainPostSite) -> Void
 
-    /// - Parameter clock: The manager's injected clock; tasks' enqueue times and waits are read on it.
-    public init(clock: any Clock<Duration>) {
+    /// - Parameters:
+    ///   - clock: The manager's injected clock; tasks' enqueue times and waits are read on it.
+    ///   - onStrayContinuation: Called with the site of a ``MainSequenceQueue/postContinuation(file:line:_:)``
+    ///     made while no task of that queue runs; the default is ``assertInTask(_:)``.
+    public init(clock: any Clock<Duration>,
+                onStrayContinuation: @escaping @MainActor (MainPostSite) -> Void = MainTaskSelector.assertInTask) {
         elapsed = clock.stopwatch()
+        self.onStrayContinuation = onStrayContinuation
+    }
+
+    /// The default stray-continuation report: an assertion in Debug builds, nothing in Release (the
+    /// task is still queued as a plain post).
+    public nonisolated static func assertInTask(_ site: MainPostSite) {
+        assertionFailure("postContinuation outside a running task of its queue at \(site.file):\(site.line)")
     }
 
     /// A new queue of `type` for `owner`. The caller owns it; when released, its tasks go with it.
@@ -74,7 +92,7 @@ public final class MainTaskSelector {
         turn += 1
         queue.lastTurn = turn
         return Selected(type: queue.type, owner: queue.owner, site: item.site, order: item.order,
-                        waited: elapsed() - item.enqueuedAt, body: item.body)
+                        waited: elapsed() - item.enqueuedAt, body: item.body, fenceOrder: item.fenceOrder, queue: queue)
     }
 
     /// Takes the next task (``takeNext(admitting:)``) and runs it; false when none may run.
@@ -90,6 +108,9 @@ public final class MainTaskSelector {
         lastOrder += 1
         return MainSequenceQueue.Item(body: body, site: site, order: lastOrder, fenceOrder: lastOrder, enqueuedAt: elapsed())
     }
+
+    /// Reports a continuation posted while no task of its queue runs.
+    func reportStrayContinuation(_ site: MainPostSite) { onStrayContinuation(site) }
 
     private func select(admitting admits: (MainQueueType) -> Bool) -> MainSequenceQueue? {
         var best: MainSequenceQueue?

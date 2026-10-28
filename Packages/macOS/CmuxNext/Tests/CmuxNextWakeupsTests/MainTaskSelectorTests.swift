@@ -190,7 +190,8 @@ import Testing
 
     @Test("A continuation posted while no task of its queue runs does not pass a fence; the queue stays FIFO")
     func strayContinuationDoesNotPassAFence() {
-        let (selector, _) = rig()
+        var strays: [UInt] = []
+        let selector = MainTaskSelector(clock: ManualClock(), onStrayContinuation: { strays.append($0.line) })
         var ran: [String] = []
         let queue = selector.queue(.visible, owner: board.owner("fenced"))
         let other = selector.queue(.background, owner: board.owner("other"))
@@ -210,6 +211,27 @@ import Testing
         queue.removeFence()
         drain(selector)
         #expect(ran == ["a", "other", "b", "c", "d"], "a stray continuation is a plain post: behind b, in post order")
+        #expect(strays.count == 2, "both misuses were reported (a Debug assertion by default)")
+    }
+
+    @Test("A nested run of the same queue gives the outer task its place back before a fence")
+    func nestedRunRestoresTheRunningTask() {
+        let (selector, _) = rig()
+        var ran: [String] = []
+        let queue = selector.queue(.visible, owner: board.owner("outer"))
+        queue.post {
+            ran.append("a")
+            queue.insertFence(.now)
+            queue.post { ran.append("b") }
+            #expect(selector.runNext(), "x, posted before the fence, runs nested inside a")
+            queue.postContinuation { ran.append("a continued") }
+        }
+        queue.post { ran.append("x") }
+        drain(selector)
+        #expect(ran == ["a", "x", "a continued"], "b waits behind the fence; the rest of a does not")
+        queue.removeFence()
+        drain(selector)
+        #expect(ran == ["a", "x", "a continued", "b"])
     }
 
     @Test("The selector skips a type the manager does not admit and takes the next priority")

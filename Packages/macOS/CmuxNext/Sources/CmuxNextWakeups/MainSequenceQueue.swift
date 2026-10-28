@@ -7,7 +7,7 @@
 /// - Voters: the queue runs only while every voter votes enabled (visibility, freeze, startup phase).
 /// - Fence: tasks enqueued after the fence wait until it is removed; the ones before it still run.
 ///   The queue stays FIFO: a fence never lets a later task pass an earlier one. A continuation is the
-///   rest of the task this queue gave last, so the fence judges it by that task's place.
+///   rest of the task of this queue that is running, so the fence judges it by that task's place.
 ///
 /// The queue owns its tasks. When its owner releases it they are dropped and their closures
 /// released at once; the selector keeps only a weak reference.
@@ -57,8 +57,9 @@ public final class MainSequenceQueue {
     private var voters = QueueVoterSet()
     /// Tasks with an enqueue order above this wait; nil when there is no fence.
     private var fence: UInt64?
-    /// The fence order of the task this queue gave last: a continuation posted now is its rest.
-    private var lastTakenFenceOrder: UInt64?
+    /// The fence order of the task of this queue that is running now (``MainTaskSelector/Selected/run()``
+    /// sets it for the task's turn only); nil between tasks. A continuation posted now is that task's rest.
+    private var runningFenceOrder: UInt64?
 
     init(type: MainQueueType, owner: MainTaskOwner, selector: MainTaskSelector, turn: UInt64) {
         self.type = type
@@ -80,18 +81,28 @@ public final class MainSequenceQueue {
         pending.append(item)
     }
 
-    /// Queues `body` at the front of this queue, for a long task that yielded and continues. It takes a
-    /// new enqueue order, so across queues of its priority it does not keep the yielding task's place;
-    /// a fence judges it as the task this queue gave last (the one that yields), so the rest of a task
-    /// posted before a fence is not held by it.
+    /// Queues `body` at the front of this queue, for a long task that yielded and continues. Call it only
+    /// from a running task of this queue. It takes a new enqueue order, so across queues of its priority
+    /// it does not keep the yielding task's place; a fence judges it as the running task (the one that
+    /// yields), so the rest of a task posted before a fence is not held by it.
+    ///
+    /// Called while no task of this queue runs, it is a misuse: the selector reports it (a Debug
+    /// assertion by default) and the task is queued as a plain ``post(file:line:_:)``, so a fence
+    /// still holds it and it stays behind every task posted before it.
     ///
     /// - Parameters:
     ///   - file: The posting file (leave the default).
     ///   - line: The posting line (leave the default).
     ///   - body: The rest of the task.
     public func postContinuation(file: StaticString = #fileID, line: UInt = #line, _ body: @escaping @MainActor () -> Void) {
-        guard var item = selector?.item(body, site: MainPostSite(file: file, line: line)) else { return }
-        item.fenceOrder = min(item.order, lastTakenFenceOrder ?? item.order)
+        guard let selector else { return }
+        var item = selector.item(body, site: MainPostSite(file: file, line: line))
+        guard let runningFenceOrder else {
+            selector.reportStrayContinuation(item.site)
+            pending.append(item)
+            return
+        }
+        item.fenceOrder = runningFenceOrder
         if head > 0 {
             head -= 1
             pending[head] = item
@@ -158,11 +169,20 @@ public final class MainSequenceQueue {
     /// Removes and returns the next task (the caller checked ``isRunnable``).
     func take() -> Item {
         let item = pending[head]
-        lastTakenFenceOrder = item.fenceOrder
         pending[head].body = {}
         head += 1
         compact()
         return item
+    }
+
+    /// Runs `body`, a task taken from this queue with `fenceOrder`, as this queue's running task: a
+    /// continuation it posts takes that fence order. A nested run (a task that runs the selector) gets
+    /// the outer task's order back when it returns.
+    func run(_ body: @MainActor () -> Void, fenceOrder: UInt64) {
+        let outer = runningFenceOrder
+        runningFenceOrder = fenceOrder
+        defer { runningFenceOrder = outer }
+        body()
     }
 
     /// Drops the taken prefix once the queue is empty, or once it is most of the array.
