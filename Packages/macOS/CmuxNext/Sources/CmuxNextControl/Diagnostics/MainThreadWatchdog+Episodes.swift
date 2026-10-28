@@ -118,6 +118,10 @@ extension MainThreadWatchdog {
         /// The scheduled task the sample caught (owner, class, location) and the turn so far; its task
         /// is nil (`unattributed`) when no scheduled task ran or the stall ended before the sample.
         public var attribution = HangAttribution(task: nil, turnNanos: 0)
+        /// The launch phase the hang ran in before startup completed (`startup_phase`, ``startupTasks``); nil after.
+        public var startupPhase: String?
+        /// The `main()` step or startup task running when sampled (`startup_task`); nil between tasks or after startup.
+        public var startupTask: String?
     }
 
     /// A hang episode's checkpoint or end, to its file, to ``fatalHangs`` and to ``onHangEpisode``
@@ -151,7 +155,7 @@ extension MainThreadWatchdog {
     }
 
     /// The main thread's stack and every other thread's, for the stall of `beat`, with the main thread's
-    /// phase and scheduled task. The beat and the phase are read while the main thread is suspended (atomics
+    /// phase, scheduled task and launch tag (``startupTasks``). The beat and the phase are read while the main thread is suspended (atomics
     /// only): `stillBlocked` is false when the stall had ended, and the hang then has no main-thread stack,
     /// phase or task. Watchdog thread only.
     private func sampleHang(beat: UInt64, duration: Duration, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
@@ -160,16 +164,20 @@ extension MainThreadWatchdog {
         var inPump = false
         let board = boardSink.withLock { $0 }
         var scope = board?.hangScope ?? .noTask
+        var startup = StartupStallTag(startupTasks?.read())
         let sampled = sampler?.sample { _ in
             stillBlocked = beatSequence.load(ordering: .acquiring) == beat
             inPump = Self.inCEFPump(cefState: crashKeys?.value(.cefState) ?? 0, pumpKey: trace?.crashKey(.inCEFPump) ?? 0)
             scope = board?.hangScope ?? .noTask
+            startup = StartupStallTag(startupTasks?.read())
         } ?? []
         let cef = stillBlocked && inPump
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
+        let reading = startup.reading
         let hang = Hang(duration: duration, addresses: stillBlocked ? sampled : [], otherThreads: others,
                         phase: Self.phaseLabel(inCEFPump: cef), cef: cef,
-                        attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now))
+                        attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now),
+                        startupPhase: reading.stallPhase, startupTask: reading.stallPhase == nil ? nil : reading.taskName)
         return (hang, stillBlocked)
     }
 
