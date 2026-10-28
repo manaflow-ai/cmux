@@ -53,27 +53,39 @@ export class PlatformOperations {
     const due = this.sql.exec<{ due: number | null }>("SELECT min(due) AS due FROM cloud_platform_operations")[0]?.due
     return due == null ? null : Number(due)
   }
-  private forMachine(id: string): Operation | undefined {
+  private forMachine(host: PlatformHost, id: string): Operation | undefined {
     if (!this.exists()) return undefined
     const row = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE child = ?", id)[0]
-    return row ? JSON.parse(row.data) as Operation : undefined
+    if (row) return JSON.parse(row.data) as Operation
+    // submit commits the ordinary ledger before awaiting its provider call. Reads and destroy
+    // may interleave in that await, before the continuation has copied the child's ID here.
+    const pending = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE child IS NULL AND due IS NOT NULL")
+    for (const { data } of pending) {
+      const o = JSON.parse(data) as Operation
+      const identity = platformPrincipal(host.team, o.user).identity
+      if (host.ledger(ledgerKey(identity, this.stepKey(o, "create")))?.machine !== id) continue
+      o.child = id
+      this.put(o)
+      return o
+    }
+    return undefined
   }
   metadata(host: PlatformHost, id: string): PlatformReply<PlatformMachine> {
     const m = host.machine(id)
     if (!m) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
-    const o = this.forMachine(id)
+    const o = this.forMachine(host, id)
     if (!o) return platformMetadata(m)
     const resize = host.ledger(ledgerKey(platformPrincipal(host.team, o.user).identity, this.stepKey(o, "resize")))
     const actual = platformShape(resize?.state === "pending" && resize.size_before ? resize.size_before : m.size)
     if (o.phase !== "done") return { ok: true, value: { id, region: "global", state: o.error ? "failed" : "starting", shape: actual ?? o.target, targetShape: o.target } }
     return platformMetadata(m)
   }
-  busy(id: string): boolean {
-    const o = this.forMachine(id)
+  busy(host: PlatformHost, id: string): boolean {
+    const o = this.forMachine(host, id)
     return o !== undefined && !terminal(o)
   }
-  cancel(id: string, now: number) {
-    const o = this.forMachine(id)
+  cancel(host: PlatformHost, id: string, now: number) {
+    const o = this.forMachine(host, id)
     if (!o || terminal(o)) return
     o.error = "the machine was deleted before provisioning completed"
     o.phase = "cleanup"
@@ -86,11 +98,17 @@ export class PlatformOperations {
     if (o) {
       if (o.source !== input.machine || o.image !== input.snapshot || (input.shape && !sameShape(o.target, input.shape)) || labelKey(o.labels) !== labelKey(input.labels)) return refused("idempotency.conflict", "this name belongs to another machine request", false)
     } else {
+      if (input.snapshot) {
+        const image = host.snapshot(input.snapshot)
+        if (!image) return refused("cloud.snapshot.not_found", "no such snapshot in this team", false)
+        if (image.transport === "vm-api") return refused("cloud.provider.unsupported", "this snapshot belongs to another provider transport", false)
+      }
       let target = input.shape
       if (input.machine) {
         const source = host.machine(input.machine)
         if (!source || source.platform !== true || source.creator !== user) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
-        if (this.busy(source.id) || (source.status !== "running" && source.status !== "paused")) return refused("cloud.machine.not_running", "the source must finish starting before forking", true)
+        if (source.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
+        if (this.busy(host, source.id) || (source.status !== "running" && source.status !== "paused")) return refused("cloud.machine.not_running", "the source must finish starting before forking", true)
         target = platformShape(source.size) ?? undefined
       }
       if (!target) return refused("cloud.machine.shape_unknown", "the machine's resources are not known yet", true)
@@ -138,7 +156,7 @@ export class PlatformOperations {
     o.child ??= ledger("create")?.machine
     o.snapshot ??= ledger("capture")?.snapshot
     this.put(o)
-    if (o.phase !== "cleanup" && (now >= o.deadline || !(await host.mayUse(o.user).catch(() => false)))) fail("machine provisioning expired or the creator lost team access")
+    if (o.phase !== "cleanup" && (now >= o.deadline || !host.providerInfo().available || !(await host.mayUse(o.user).catch(() => false)))) fail("machine provisioning expired, the provider changed, or the creator lost team access")
     if (o.phase === "capture") {
       const existing = ledger("capture")
       if (!existing) {

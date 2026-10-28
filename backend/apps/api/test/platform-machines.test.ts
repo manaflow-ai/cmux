@@ -290,6 +290,41 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
   })
 
+  it("finds and cancels a child while its committed create answer is still suspended", async () => {
+    const c = caller()
+    const stub = cloudStub(c.team)
+    await inDO(stub, async instance => {
+      const original = instance.submit.bind(instance)
+      let release!: () => void
+      let entered!: (id: string) => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      const committed = new Promise<string>(resolve => { entered = resolve })
+      instance.submit = async (entity: string, principal: unknown, f: { op: string }) => {
+        const r = await original(entity, principal, f)
+        if (f.op === "cloud.machine.create") {
+          const id = r.frames.find((frame: any) => frame.t === "result")?.value.machine.id
+          entered(id)
+          await gate
+        }
+        return r
+      }
+      const work = instance.platformMachine(c.team, c.user, { op: "create", name: nameOf(), shape: { vcpu: 4, memGiB: 8, diskGiB: 32 }, labels: {} })
+      try {
+        const id = await committed
+        // Before the create answer returns, the journal must already own the ledger's child.
+        expect(await instance.platformMachine(c.team, c.user, { op: "get", machine: id })).toMatchObject({ ok: true, value: { state: "starting", targetShape: { vcpu: 4, memGiB: 8, diskGiB: 32 } } })
+        expect(await instance.platformMachine(c.team, c.user, { op: "destroy", machine: id })).toMatchObject({ ok: true })
+      } finally {
+        release()
+        instance.submit = original
+        await work
+      }
+    })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 1, vms: [] })
+  })
+
   it("is not reachable over HTTP", async () => {
     const worker = (exports as unknown as { default: Fetcher }).default
     for (const path of ["/PlatformMachines", "/v1/PlatformMachines/boot", "/platform-machines"]) {
