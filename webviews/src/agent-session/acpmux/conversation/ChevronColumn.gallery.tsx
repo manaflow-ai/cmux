@@ -35,7 +35,7 @@ function ChevronColumnGallery() {
         <Row label="start"><ToolRun items={commandItems} disclosureKey="start">{commandItems.map((item, index) => <CommandRow key={index} item={item} />)}</ToolRun></Row>
         <Row label="copy" copy><ToolRun items={commandItems} disclosureKey="copy">{commandItems.map((item, index) => <CommandRow key={index} item={item} />)}</ToolRun></Row>
         <Row label="group"><ToolGroupRow kind="commands" items={commandItems} disclosureKey="group" folded /></Row>
-        <Row label="thought"><ThoughtRow item={{ kind: "thought", text: "Thinking through the fixed column." }} id="thought" /></Row>
+        <Row label="thought"><ThoughtRow item={{ kind: "thought", text: "Thinking through the fixed column while checking that the trailing action slot never moves the disclosure control." }} id="thought" /></Row>
       </main>
     </TranscriptDisclosureProvider>
   );
