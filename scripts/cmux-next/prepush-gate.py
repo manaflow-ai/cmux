@@ -79,6 +79,10 @@ Also local only: "p10 settings only through the lander" (apply-stability-setting
 refuses a push whose own commits change a closure Package.swift's p10 settings (the generated block, the
 stabilitySwiftSettings literal, the tools version, a lander-only setting or a setting a stability-settings.json row
 names) outside a lander commit, or a lander commit that is not the rewrite of its rows. It fails open.
+Also local only: "Release-offered features have a Release code path" (check-release-switch-paths.py): refuses a push
+whose own commits leave a feature a Release build offers (kind labs or killSwitch, or on in Release) whose switch,
+followed through what it sets, reaches only code under `#if DEBUG`, `#if CMUX_BENCH_HOOKS` and the like. Offenders
+the base already has pass. It fails open.
 These local-only rules (and the perf cron tests and the compile trailer) are the LOCAL_TIER table; local_tier_off()
 is the one switch: never under GITHUB_ACTIONS, --commits or --only, and not with --no-guardrails (p10-stability-199).
 A rule CI must not gate on (p10's new classes) joins that table or guardrails.py, never SCANNERS.
@@ -1284,6 +1288,48 @@ def stability_settings(repo: Path, ranges: list, trusted_scripts: Path | None) -
     return refused
 
 
+RELEASE_SWITCH_PATHS = "check-release-switch-paths.py"
+RELEASE_SWITCH_PATHS_TIMEOUT = 120
+# What can change whether a Release-offered feature has a Release code path.
+RELEASE_SWITCH_INPUTS = ("schemas/features/features.d/", "Packages/macOS/CmuxNext/Sources/")
+
+
+def release_switch_paths(repo: Path, ranges: list, trusted_scripts: Path | None) -> bool:
+    """check-release-switch-paths.py on each pushed head whose own commits change a feature file or the app's
+    sources; True when the push leaves a feature a Release build offers (Labs, a kill switch, on in Release) with
+    no Release code path that the base (and every range the push does not own) did not already have.
+
+    The hook runs the installed copy, a manual run this checkout's. Local only; it fails open (exit 2, a timeout
+    or a missing copy warns)."""
+    script = (trusted_scripts or repo / SCRIPTS) / RELEASE_SWITCH_PATHS
+    if not script.is_file():
+        return False
+    refused = False
+    for own in ranges:
+        bases = [own.base, *(a for _, a in own.before)]
+        try:
+            changed = [{p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", base, own.head).decode()
+                        .split("\0") if p} for base in bases]
+            if not any(p.startswith(RELEASE_SWITCH_INPUTS) for p in set.intersection(*changed)):
+                continue
+            cmd = [sys.executable, "-I", str(script), "--repo", str(repo), "--rev", own.head]
+            for base in bases:
+                cmd += ["--base", base]
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=RELEASE_SWITCH_PATHS_TIMEOUT,
+                                  stdin=subprocess.DEVNULL)
+        except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
+            log(f"prepush-gate: WARNING: {RELEASE_SWITCH_PATHS} did not run ({type(error).__name__}: {error}); not "
+                "applied to this push.")
+            continue
+        if done.returncode == 1:
+            log(f"prepush-gate: at {own.head[:12]}: {done.stdout.strip()}")
+            refused = True
+        elif done.returncode != 0:
+            log(f"prepush-gate: WARNING: {RELEASE_SWITCH_PATHS} failed (exit {done.returncode}: "
+                f"{(done.stderr or done.stdout).strip()[-400:]}); not applied to this push.")
+    return refused
+
+
 class LocalContext(NamedTuple):
     """What a LOCAL_TIER rule reads: the push's own ranges (push_range.OwnRange), the installed checks copy for the
     hook, the hook's pushed-ref lines and remote (the compile trailer), and start_guardrails()'s result (started
@@ -1321,6 +1367,8 @@ LOCAL_TIER = (
     LocalRule("compile trailer", lambda ctx: compile_trailer(
         ctx.repo, compile_ranges(ctx.repo, ctx.pushed_lines, ctx.push_range, ctx.remote), ctx.trusted_scripts)),
     LocalRule("p10 settings only through the lander", lambda ctx: stability_settings(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
+    LocalRule("Release-offered features have a Release code path",
+              lambda ctx: release_switch_paths(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
 )
 
 
@@ -1356,7 +1404,8 @@ def run_local_tier(ctx: LocalContext, timings: bool) -> bool:
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh")
+                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh",
+                  "check-release-switch-paths.py")
 RULES_SUBDIR = "arch_rules"
 
 
