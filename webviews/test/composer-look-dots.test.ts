@@ -229,6 +229,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     // The one-line Codex prompt must leave dead space for dots; the dots never cover controls.
     const actions = (await (await page.$(`${form} .acpmux-composer-actions`))!.boundingBox())!;
     expect(under.y).toBeGreaterThanOrEqual(actions.y + actions.height - 1);
+    const actualDots = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
+    expect(actualDots.y).toBeGreaterThanOrEqual(actions.y + actions.height);
+    expect(actualDots.y + actualDots.height).toBeLessThanOrEqual(box.y + box.height);
     await page.mouse.move(under.x + under.width * 0.35, under.y + under.height / 2);
     expect(await shown(page, form)).toBe(true);
     await pickDot(page, form, "claude");

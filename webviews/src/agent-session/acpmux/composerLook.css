@@ -177,13 +177,13 @@
   transform: translateY(-50%);
 }
 /* Codex's look: the stable sibling host is positioned over the box's own dead-space row. The box
-   keeps the 16px row inside its glass; the parent has no extra bottom gutter, so the dots cannot
+   keeps a full 24px dot row inside its glass; the parent has no extra bottom gutter, so the dots cannot
    fall below the composer edge or remount when the look changes. */
 .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
   padding-bottom: 0;
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(~ .acpmux-composer-under) {
-  padding-bottom: 16px;
+  padding-bottom: 24px;
 }
 .acpmux-composer-under {
   position: relative;
@@ -201,7 +201,7 @@
    overlay on the box's dead-space edge, instead of at the bottom of that footer. */
 .acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-foot) > .acpmux-composer-under {
   bottom: 64px;
-  height: 16px;
+  height: 24px;
 }
 .acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
   height: 16px;
@@ -216,6 +216,11 @@
 }
 .acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
   bottom: 12px;
+}
+/* Codex's 24px dots fill the box's own row. The Claude-only 12px lift would overlap one-line
+   prompt actions when both looks share the footer. */
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
+  bottom: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style.acpmux-look-dots {
