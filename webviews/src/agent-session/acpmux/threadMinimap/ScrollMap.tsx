@@ -8,6 +8,7 @@
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
@@ -78,7 +79,8 @@ export function ScrollMap({
   const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
   /// Each mark's place in `marks`, by its row's id. The state below names row ids, not places: which
   /// replies merge moves as a reply streams, and older turns arriving renumber every place and row.
-  const keyOf = (mark: MapMark | undefined) => (mark ? (rows[mark.row]?.id ?? `#${mark.row}`) : undefined);
+  const keyOf = (mark: MapMark | undefined) =>
+    mark ? (rows[mark.row]?.id ?? `#${mark.row}`) : undefined;
   const byKey = useMemo(
     () => new Map(marks.map((mark, index) => [rows[mark.row]?.id ?? `#${mark.row}`, index])),
     [marks, rows],
@@ -101,7 +103,8 @@ export function ScrollMap({
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
   const placement = railPlacement(transcriptColumn(width).inset);
-  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
+  const shown =
+    turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
@@ -114,11 +117,13 @@ export function ScrollMap({
     const bar = thumb.current;
     if (!node || !bar) return;
     const { height: rail, total, viewportHeight: view, marks: all } = live.current;
-    const at = mapThumb(node.scrollTop, view, total, rail);
+    const at = mapThumb(layoutScrollTop(node), view, total, rail);
     bar.style.transform = `translateY(${at.top}px)`;
     bar.style.height = `${at.height}px`;
     const covered = marksIn(all, at.top, at.top + at.height);
-    setInView((was) => (was?.first === covered?.first && was?.last === covered?.last ? was : covered));
+    setInView((was) =>
+      was?.first === covered?.first && was?.last === covered?.last ? was : covered,
+    );
   });
   useLayoutEffect(placeThumb);
   useEffect(() => {
@@ -128,7 +133,8 @@ export function ScrollMap({
     return () => node.removeEventListener("scroll", placeThumb);
   }, [scroller, placeThumb]);
 
-  const markOf = (key: string | undefined) => (key === undefined ? undefined : marks[byKey.get(key) ?? -1]);
+  const markOf = (key: string | undefined) =>
+    key === undefined ? undefined : marks[byKey.get(key) ?? -1];
   const cardAt = markOf(cardMark);
   const showCard = preview.shown !== null && cardAt !== undefined;
   if (!showCard && cardFocus) setCardFocus(false);
@@ -164,18 +170,29 @@ export function ScrollMap({
       return;
     }
     const target = () =>
-      Math.min(
-        Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
-        Math.max(0, layout.totalHeight - node.clientHeight),
+      physicalScrollTop(
+        node,
+        Math.min(
+          Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
+          Math.max(0, layout.totalHeight - node.clientHeight),
+        ),
       );
     const to = target();
-    animateScroll(node, target, reducedMotion() ? 0 : jumpDuration(to - node.scrollTop), JUMP_CURVE);
+    animateScroll(
+      node,
+      target,
+      reducedMotion() ? 0 : jumpDuration(to - node.scrollTop),
+      JUMP_CURVE,
+    );
   };
   /// Centers the view on rail point `y`: at once while scrubbing, else on the jump's curve.
   const seek = (y: number, smooth: boolean) => {
     const node = scroller.current;
     if (!node) return;
-    const to = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
+    const to = physicalScrollTop(
+      node,
+      scrollTopAt(y, height, layout.totalHeight, node.clientHeight),
+    );
     if (!smooth || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
@@ -207,7 +224,9 @@ export function ScrollMap({
   const active = hovered ?? focused ?? (showCard ? cardMark : undefined);
   const focusTick = (turn: number) =>
     rail.current
-      ?.querySelector<HTMLButtonElement>(`[data-tick="${Math.max(0, Math.min(turns.length - 1, turn))}"]`)
+      ?.querySelector<HTMLButtonElement>(
+        `[data-tick="${Math.max(0, Math.min(turns.length - 1, turn))}"]`,
+      )
       ?.focus();
   handlers.current = {
     focus(key) {
@@ -239,7 +258,10 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div
+      className="acpmux-minimap"
+      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+    >
       <nav
         ref={rail}
         className="acpmux-minimap__rail acpmux-scrollmap"
@@ -311,7 +333,9 @@ export function ScrollMap({
               key={key}
               id={key}
               mark={mark}
-              progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
+              progress={
+                pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0
+              }
               active={key === active}
               current={inView !== undefined && index >= inView.first && index <= inView.last}
               bookmarked={!!turn && bookmarks.has(turn)}
@@ -401,11 +425,22 @@ const Mark = memo(function Mark({
   const label =
     prompt === undefined
       ? ""
-      : t(bookmarked ? "minimap.tickBookmarked" : "minimap.tick", { index: mark.turn + 1, count, prompt });
-  const bar = <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />;
+      : t(bookmarked ? "minimap.tickBookmarked" : "minimap.tick", {
+          index: mark.turn + 1,
+          count,
+          prompt,
+        });
+  const bar = (
+    <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
+  );
   if (mark.kind === "agent")
     return (
-      <span className="acpmux-minimap__tick acpmux-scrollmap__mark" data-kind="agent" data-tone={tone} style={style}>
+      <span
+        className="acpmux-minimap__tick acpmux-scrollmap__mark"
+        data-kind="agent"
+        data-tone={tone}
+        style={style}
+      >
         {bar}
       </span>
     );

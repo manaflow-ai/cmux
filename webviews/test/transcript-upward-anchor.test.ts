@@ -2,19 +2,23 @@
 // subtracting only the distance the wheel requested, while cold rows above the view first measure.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { traceUpwardAnchors } from "./support/upwardAnchorTrace";
+import { calibrateScrollReadback, traceUpwardAnchors } from "./support/upwardAnchorTrace";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
   setDefaultTimeout(120_000);
+  const engineName = process.env.CMUX_SCROLL_ENGINE === "chromium" ? "chromium" : "webkit";
+  const engine = engineName === "chromium" ? chromium : webkit;
   try {
-    await (await webkit.launch({ headless: true })).close();
+    await (await engine.launch({ headless: true })).close();
   } catch {
-    console.warn("transcript-upward-anchor: skipping (run `bunx playwright install webkit`)");
-    describe.skip("transcript upward anchor", () => test("webkit", () => {}));
+    console.warn(
+      `transcript-upward-anchor: skipping (run 'bunx playwright install ${engineName}')`,
+    );
+    describe.skip("transcript upward anchor", () => test(engineName, () => {}));
     return;
   }
   const { createServer } = await import("vite");
@@ -30,7 +34,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/test/browser/transcript-fling.html");
-    browser = await webkit.launch({ headless: true });
+    browser = await engine.launch({ headless: true });
   });
   afterAll(async () => {
     await browser?.close();
@@ -44,6 +48,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await installPaintedFrames(page);
       await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
       await page.waitForFunction(() => "__debug" in window);
+      const calibration = await page.evaluate(calibrateScrollReadback);
       // Three source rows per synthetic turn: user, assistant and summary.
       const seeded = (await page.evaluate(`window.__debug.seedRows(9000)`)) as { rows: number };
       expect(seeded.rows).toBe(9_000);
@@ -54,11 +59,14 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")),
       );
       // No warm fling: rows encountered above the viewport must still have estimated heights.
-      const steps = Array.from({ length: 240 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!);
+      const steps = Array.from(
+        { length: 240 },
+        (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!,
+      );
       const result = await page.evaluate(traceUpwardAnchors, { steps });
       // Preserve the complete row-id/y trace in the hosted log, on both a pass and a failure.
       console.log(
-        `transcript-upward-anchor: ${JSON.stringify({ sourceRows: seeded.rows, turns: seeded.rows / 3, shownRows, ...result })}`,
+        `transcript-upward-anchor: ${JSON.stringify({ engine: engineName, calibration, sourceRows: seeded.rows, turns: seeded.rows / 3, shownRows, ...result })}`,
       );
       expect(result.cancelledWheels).toBe(0);
       expect(result.wheelPixels).toBeLessThan(-8_000);
