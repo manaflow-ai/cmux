@@ -49,6 +49,13 @@ async fn pending_retry_survives_restart_at_its_original_deadline_once() {
     std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap()).unwrap();
 
     daemon.start();
+    let restored = daemon.wait_event(&session, "the restored automatic retry", |e| {
+        e["kind"] == "auto_resume_restored"
+    });
+    assert_eq!(restored["msg"]["nextAt"], deadline);
+    assert_eq!(restored["msg"]["promptId"], "retry-original");
+    assert_eq!(restored["msg"]["turnId"], scheduled["msg"]["turnId"]);
+    assert_eq!(restored["msg"]["attempt"], 1);
     let mut rpc = daemon.rpc().await;
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
     assert_eq!(
@@ -244,6 +251,9 @@ async fn pending_retry_stopped_after_recovery_stays_stopped_across_restart() {
     daemon.sigkill();
     drop(rpc);
     daemon.start();
+    daemon.wait_event(&session, "the restored automatic retry", |e| {
+        e["kind"] == "auto_resume_restored"
+    });
     let mut rpc = daemon.rpc().await;
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
     assert_eq!(attached["session"]["retry"]["nextAt"], scheduled["msg"]["nextAt"]);

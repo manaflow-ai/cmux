@@ -139,6 +139,9 @@ impl Hub {
                 _wake: Wake(wake.clone()),
             },
         );
+        // Startup reads logs asynchronously. Publish the restored wait only after its mark
+        // is visible, and before Stop can remove it, so observers can synchronize with it.
+        self.append(session, "mux", "auto_resume_restored", json!(retry));
         drop(pending);
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
