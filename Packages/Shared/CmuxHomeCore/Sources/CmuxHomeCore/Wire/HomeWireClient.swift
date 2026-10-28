@@ -64,6 +64,7 @@ struct HomeWireClient: Sendable {
     func exchange(_ request: URLRequest, effect: Effect,
                   send: @Sendable (URLRequest) async throws -> HomeWireHTTPReply) async throws -> HomeWireHTTPReply {
         var forceRefresh = false
+        // wakeup-allow: bounded at most two exchanges: a 401 asks for a new token once, then it returns
         while true {
             let signed = try await authorized(request, forceRefresh: forceRefresh)
             let reply: HomeWireHTTPReply

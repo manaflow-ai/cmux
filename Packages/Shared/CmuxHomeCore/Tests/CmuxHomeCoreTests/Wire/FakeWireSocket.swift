@@ -14,6 +14,7 @@ final class FakeWireSocket: HomeWireSocket {
         var sent: [String] = []
         var closeCode: Int?
         var upgradeStatus: Int?
+        var pings = 0
     }
 
     // A test fake: the lock guards the frame queue shared by the client's receive and the test's push.
@@ -82,5 +83,13 @@ final class FakeWireSocket: HomeWireSocket {
     var closeCode: Int? { state.withLockUnchecked { $0.closeCode } }
     var upgradeStatus: Int? { state.withLockUnchecked { $0.upgradeStatus } }
 
-    func ping() async -> Bool { !isEnded }
+    /// Keepalive pings the client sent.
+    var pings: Int { state.withLockUnchecked { $0.pings } }
+
+    func ping() async -> Bool {
+        state.withLockUnchecked { state -> Bool in
+            state.pings += 1
+            return !state.ended
+        }
+    }
 }

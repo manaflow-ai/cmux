@@ -74,7 +74,7 @@ public final class HomeStore {
     }
     /// `mirror.cacheChanges` and `log.cacheChanges` at the last cache write scheduled or restored.
     @ObservationIgnored var cachedOwnerState = (mirror: UInt64(0), log: UInt64(0))
-    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored var eventTask: Task<Void, Never>?
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
     @ObservationIgnored var refetching: Set<HomeStream> = []
@@ -110,10 +110,11 @@ public final class HomeStore {
     /// been delivered".
     @ObservationIgnored var possiblySent: Set<IdempotencyKey> = []
     @ObservationIgnored var offlineDeadlines: [IdempotencyKey: Task<Void, Never>] = [:]
-    /// The periodic prune loop, and the pass running now. `prepare` waits
-    /// for a running pass, and a pass skips while a prepare runs, so a
-    /// prune never deletes a blob a prepare is reusing.
-    @ObservationIgnored private var pruneLoop: Task<Void, Never>?
+    /// The prune due after the cache grew (``scheduleBlobCachePrune()``), and
+    /// the pass running now. `prepare` waits for a running pass, and a pass
+    /// skips while a prepare runs, so a prune never deletes a blob a prepare
+    /// is reusing.
+    @ObservationIgnored var pruneDeadline: Task<Void, Never>?
     @ObservationIgnored var pruning: Task<Void, Never>?
     @ObservationIgnored var preparing = 0
 
@@ -154,7 +155,10 @@ public final class HomeStore {
     /// cap is the only bound there, and on iOS it keeps the app well clear
     /// of the purge the OS does under disk pressure.
     public static let blobCacheMaxBytes = 1_000_000_000
-    /// The cache is pruned at `start` and then this often while the store runs.
+    /// The cache is pruned at `start`, and again this long after a prepare
+    /// grew it while the store runs (one pass however many prepares came in
+    /// between). Only a prepare writes into the cache, so a store that
+    /// prepares nothing never wakes to prune.
     public static let blobCachePruneInterval: Duration = .seconds(6 * 3_600)
 
     /// Delays between resends of a send that got no answer while the
@@ -193,15 +197,8 @@ public final class HomeStore {
     public func start() {
         guard eventTask == nil, !stopped else { return }
         restoreCache()
-        let clock = self.clock
-        let interval = Self.blobCachePruneInterval
-        pruneLoop = Task { [weak self] in
-            while !Task.isCancelled {
-                guard self != nil else { return }
-                await self?.pruneBlobCache()
-                do { try await clock.sleep(for: interval) } catch { return }
-            }
-        }
+        // task-owner: one prune pass at start; it ends with the pass
+        Task { [weak self] in await self?.pruneBlobCache() }
         let source = self.source
         eventTask = Task { [weak self] in
             let stream = await source.events()
@@ -221,8 +218,8 @@ public final class HomeStore {
         eventTask = nil
         resendTask?.cancel()
         resendTask = nil
-        pruneLoop?.cancel()
-        pruneLoop = nil
+        pruneDeadline?.cancel()
+        pruneDeadline = nil
         cancelBackoffs()
         cancelOfflineDeadlines()
         for job in uploads.values { job.task?.cancel() }

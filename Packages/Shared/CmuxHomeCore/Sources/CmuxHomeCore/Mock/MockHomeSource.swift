@@ -152,7 +152,8 @@ public actor MockHomeSource: HomeSource {
     }
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
-        if options.latency > .zero { try? await clock.sleep(for: options.latency) }
+        // wakeup-allow: fixture the mock owner's simulated latency, once per op the person makes
+        if options.latency > .zero { try? await clock.sleep(for: options.latency, tolerance: leeway(options.latency)) }
         if holdingSubmits {
             try? await withOnceContinuation { (submit: OnceContinuation<Void, OnceContinuationError>) in heldSubmits.append(submit) }
         }
@@ -234,7 +235,8 @@ public actor MockHomeSource: HomeSource {
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         uploadCalls.append(file.ref.hash)
         progressCallbacks.append(file.progress)
-        if options.latency > .zero { try await clock.sleep(for: options.latency) }
+        // wakeup-allow: fixture the mock owner's simulated latency, once per upload the person makes
+        if options.latency > .zero { try await clock.sleep(for: options.latency, tolerance: leeway(options.latency)) }
         guard online else { throw HomeRejection.ownerUnreachable }
         file.progress(0.25)
         file.progress(0.5)
@@ -783,15 +785,23 @@ public actor MockHomeSource: HomeSource {
         let responders = ids.compactMap { id in summary.participants.first { $0.id == id } }
         guard !responders.isEmpty else { return }
         let delay = options.replyDelay
+        let tolerance = leeway(delay)
         let clock = self.clock
         Task {
             for responder in responders {
-                if delay > .zero { try? await clock.sleep(for: delay) }
+                // wakeup-allow: fixture a mock Chief's simulated pause before it types, once per message I send
+                if delay > .zero { try? await clock.sleep(for: delay, tolerance: tolerance) }
                 self.typing(responder.id, in: conversation, on: true)
-                if delay > .zero { try? await clock.sleep(for: delay) }
+                // wakeup-allow: fixture a mock Chief's simulated typing before it answers, once per message I send
+                if delay > .zero { try? await clock.sleep(for: delay, tolerance: tolerance) }
                 self.reply(as: responder, in: conversation)
             }
         }
+    }
+
+    /// The leeway of a simulated delay (``HomeWakeLeeway``).
+    private nonisolated func leeway(_ delay: Duration) -> Duration {
+        HomeWakeLeeway(delay: delay).tolerance
     }
 
     private func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
