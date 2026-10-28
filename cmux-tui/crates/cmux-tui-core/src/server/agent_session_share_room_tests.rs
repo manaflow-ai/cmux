@@ -4,7 +4,7 @@
 use super::super::{MAX_SHARES, digest, hex};
 use super::*;
 use crate::server::agent_session_attach_tests::{
-    Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
+    Client, FakeAcpmux, Fixture, SESSION, WAIT, agent_tab, assert_code, mux_with,
 };
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
@@ -69,6 +69,8 @@ struct Shared {
     delete_closes_host: AtomicBool,
     /// Host sockets neither read nor write while set, as a connection lost without a close.
     silent: AtomicBool,
+    /// The guests the next `hello` names as connected.
+    hello: Mutex<Vec<Value>>,
 }
 
 struct FakeRoom {
@@ -299,7 +301,8 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
     *shared.to_host.lock().unwrap() = Some(outbox);
     let _ = seen.send(Seen::Host { conn, bearer });
     socket.get_mut().set_read_timeout(Some(Duration::from_millis(10))).unwrap();
-    let hello = json!({"v": 1, "t": "hello", "guests": []}).to_string();
+    let guests = shared.hello.lock().unwrap().clone();
+    let hello = json!({"v": 1, "t": "hello", "guests": guests}).to_string();
     let _ = socket.send(Message::text(hello));
     loop {
         if shared.silent.load(Ordering::SeqCst) {
@@ -365,7 +368,15 @@ fn fast() -> Timing {
 
 /// A daemon with one agent chat, bridged to `room`.
 fn bridged(label: &str, room: &FakeRoom) -> (FakeAcpmux, Arc<Mux>, u64, Client) {
-    let fake = FakeAcpmux::start(label);
+    bridged_with(label, room, Fixture::default())
+}
+
+fn bridged_with(
+    label: &str,
+    room: &FakeRoom,
+    fixture: Fixture,
+) -> (FakeAcpmux, Arc<Mux>, u64, Client) {
+    let fake = FakeAcpmux::start_with(label, fixture);
     let mux = mux_with(&fake, label);
     assert!(shares(&mux).bridge.configure(Some(&room.url), fast()));
     let surface = agent_tab(&mux, Some(SESSION));
@@ -1351,4 +1362,167 @@ fn a_room_end_stands_when_its_write_fails() {
         std::thread::sleep(Duration::from_millis(5));
     }
     shares_of(&mux).refuse_writes.store(false, Ordering::Relaxed);
+}
+
+// MARK: The guest relay
+
+impl FakeRoom {
+    /// The next frame of type `t` the daemon sent on host socket `conn`.
+    fn next(&self, conn: u64, t: &str) -> Value {
+        let wanted =
+            |s: &Seen| matches!(s, Seen::Frame { conn: c, frame } if *c == conn && frame["t"] == t);
+        match self.take(t, wanted) {
+            Seen::Frame { frame, .. } => frame,
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// A transcript record of `bytes` bytes of text.
+fn sized(seq: u64, bytes: usize) -> Value {
+    json!({"sessionId": SESSION, "seq": seq, "dir": "in", "kind": "agent_message",
+        "msg": {"text": "x".repeat(bytes)}})
+}
+
+/// A share with two redeemed guests and its host socket past `guests`: (share, [guest ids], conn).
+fn two_guests(room: &FakeRoom, owner: &mut Client, surface: u64) -> (Value, [String; 2], u64) {
+    let reply = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "owner_token":OWNER_TOKEN, "uses":2}));
+    let share = reply["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.next(conn, "guests")["active"], json!([]));
+    let mut guests = [String::new(), String::new()];
+    for (index, name) in ["Ann", "Bob"].into_iter().enumerate() {
+        let reply = owner.request(json!({"cmd":"agent-session-share-redeem",
+            "share_id":share["share_id"], "secret":share["secret"], "name":name,
+            "attempt_id":format!("attempt-{index}")}));
+        guests[index] = reply["data"]["guest_id"].as_str().unwrap().to_owned();
+    }
+    (share, guests, conn)
+}
+
+#[test]
+fn a_guest_gets_a_bounded_snapshot_its_own_records_and_its_prompts_states() {
+    let room = FakeRoom::start(&[]);
+    // 200 KiB, 200 KiB, a 300 KiB record (sent cut) and 200 KiB: the newest that fit in 512 KiB.
+    let page = vec![
+        sized(10, 200 << 10),
+        sized(11, 200 << 10),
+        sized(12, 300 << 10),
+        sized(13, 200 << 10),
+    ];
+    let history = vec![sized(3, 10), sized(4, 10)];
+    let fixture = Fixture { page, history, ..Fixture::default() };
+    let (mut fake, _mux, surface, mut owner) = bridged_with("relay-snap", &room, fixture);
+    let (_, [ann, bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    let snapshot = room.next(conn, "snapshot");
+    assert!(snapshot.to_string().len() <= 512 << 10, "the whole frame fits");
+    assert_eq!((snapshot["to"].clone(), snapshot["has_more"].clone()), (json!(ann), json!(true)));
+    let seqs: Vec<u64> = snapshot["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["seq"].as_u64().unwrap())
+        .collect();
+    assert_eq!(seqs, vec![11, 12, 13], "the newest records, oldest first");
+    let cut = &snapshot["records"][1];
+    assert_eq!(
+        (cut["truncated"].clone(), cut["kind"].clone()),
+        (json!(true), json!("agent_message"))
+    );
+    assert!(cut["full_bytes"].as_u64().unwrap() > 300 << 10 && cut.get("msg").is_none());
+    assert_eq!(
+        (snapshot["watermark"].clone(), snapshot["chat"]["status"].clone()),
+        (json!(13), json!("running"))
+    );
+    // The record acpmux sent while the attach was answered follows the snapshot, to Ann only.
+    let early = room.next(conn, "records");
+    assert_eq!((early["to"].clone(), early["records"][0]["seq"].clone()), (json!([ann]), json!(2)));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    // Ann's prompt reaches acpmux as hers and held; its states follow acpmux's records.
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c1",
+        "text": "hello"}));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "session/prompt");
+    let prompt = sent["params"]["_meta"]["acpmux"]["promptId"].as_str().unwrap().to_owned();
+    assert_eq!(sent["params"]["_meta"]["acpmux"]["author"]["approval"], "owner");
+    let state = |state: &str| {
+        json!({"v": 1, "t": "prompt_state", "guest_id": ann,
+        "client_id": "c1", "prompt_id": prompt, "state": state})
+    };
+    assert_eq!(room.next(conn, "prompt_state"), state("held"));
+    for (seq, kind, extra) in [
+        (20, "queued", json!({"awaitingOwner": true, "revision": 0})),
+        (21, "queue_approved", json!({"revision": 0})),
+    ] {
+        let mut msg = json!({"promptId": prompt});
+        msg.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        fake.notify(
+            "_acpmux/event",
+            json!({"sessionId": SESSION, "seq": seq, "dir": "mux",
+            "kind": kind, "msg": msg}),
+        );
+        let records = room.next(conn, "records");
+        assert_eq!(
+            (records["to"].clone(), records["records"][0]["seq"].clone()),
+            (json!([ann]), json!(seq))
+        );
+    }
+    assert_eq!(room.next(conn, "prompt_state"), state("approved"), "held was already said");
+    room.send(json!({"v": 1, "t": "prompt_status", "guest_id": ann, "client_ids": ["c1", "c9"]}));
+    assert_eq!(room.next(conn, "prompt_state"), state("approved"));
+    room.send(json!({"v": 1, "t": "older", "guest_id": ann, "before_seq": 11}));
+    let page = room.next(conn, "page");
+    assert_eq!((page["to"].clone(), page["has_more"].clone()), (json!(ann), json!(false)));
+    assert_eq!(page["records"].as_array().unwrap().len(), 2);
+    // Nothing went to Bob, whose browser never joined, nor about a prompt it never sent.
+    room.none("a frame for Bob", |s| {
+        matches!(s, Seen::Frame { frame, .. }
+        if frame.to_string().contains(&bob))
+    });
+    room.none("a second state", |s| {
+        matches!(s, Seen::Frame { frame, .. }
+        if frame["t"] == "prompt_state")
+    });
+}
+
+#[test]
+fn reconnects_get_fresh_snapshots_and_a_kick_ends_the_guests_relay() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-again", &room);
+    let (share, [ann, bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    // A guest reconnect: a fresh snapshot.
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    // A host reconnect: `guests` first, then a snapshot for each guest still connected.
+    room.shared
+        .hello
+        .lock()
+        .unwrap()
+        .extend([json!({"guest_id": ann, "name": "Ann"}), json!({"guest_id": bob, "name": "Bob"})]);
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "guests", "active": [ann, bob]}));
+    let mut to: Vec<Value> = (0..2).map(|_| room.next(conn, "snapshot")["to"].clone()).collect();
+    to.sort_by_key(Value::to_string);
+    let mut both = vec![json!(ann), json!(bob)];
+    both.sort_by_key(Value::to_string);
+    assert_eq!(to, both);
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    // A kick ends Ann's relay at the daemon: her prompts reach nothing.
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"],
+        "guest_id":ann});
+    assert_eq!(owner.request(kick)["ok"], true);
+    assert_eq!(room.next(conn, "kick")["guest_id"], json!(ann));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c1",
+        "text": "hello"}));
+    fake.no_frame();
+    // Bob's still does.
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": bob, "client_id": "c1",
+        "text": "hello"}));
+    assert_eq!(fake.frame()["method"], "session/prompt");
+    assert_eq!(room.next(conn, "prompt_state")["guest_id"], json!(bob));
 }

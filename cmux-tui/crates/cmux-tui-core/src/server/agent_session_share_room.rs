@@ -9,10 +9,12 @@
 //! with the change: the kick is resent on every host connect until the room answers `kicked`, and
 //! the `DELETE` is retried until it is answered (or the share's expiry ends it at the room).
 //!
-//! Everything waits on events: the socket, a command channel, and one-shot sleeps for backoff
-//! (1 s doubling to 60 s), run only while something is pending. The relay of each guest's chat
-//! (snapshot, records, prompts, presence) comes next; until then the room's guest frames
-//! (`guest_joined`, `guest_prompt`, `older`, ...) go unanswered.
+//! Each guest whose browser is in the room gets a relay of the chat (`agent_session_share_relay.rs`)
+//! from the room's `hello` or `guest_joined` until its `guest_left`, a kick or the share's end; a
+//! host or guest reconnect starts it again, with a fresh snapshot.
+//!
+//! Everything waits on events: the sockets, a command channel, and one-shot sleeps for backoff
+//! (1 s doubling to 60 s), run only while something is pending.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,6 +32,10 @@ use zeroize::Zeroizing;
 
 use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
+use crate::server::RenderService;
+
+#[path = "agent_session_share_relay.rs"]
+mod relay;
 
 type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -83,6 +89,8 @@ pub(in crate::server) struct Bridge {
     runtime: OnceLock<Option<tokio::runtime::Runtime>>,
     hosts: Mutex<HashMap<String, (u64, mpsc::UnboundedSender<Cmd>)>>,
     next_host: AtomicU64,
+    /// The guest relays' connections' outbound budget.
+    render: OnceLock<Arc<RenderService>>,
 }
 
 impl Drop for Bridge {
@@ -788,6 +796,8 @@ async fn session(
     let mut pinged = false;
     // The reason of the room's own `end`, if it sent one.
     let mut room_end: Option<String> = None;
+    let (relay_out, mut relayed) = mpsc::unbounded_channel();
+    let mut guests = Guests { relays: HashMap::new(), next: 0, out: relay_out };
     loop {
         let quiet = heard + if pinged { timing.heartbeat * 2 } else { timing.heartbeat };
         let out = tokio::select! {
@@ -801,14 +811,17 @@ async fn session(
             frame = stream.next() => match frame {
                 Some(Ok(Message::Text(text))) => {
                     (heard, pinged) = (tokio::time::Instant::now(), false);
+                    let frame: Value = serde_json::from_str(text.as_str()).unwrap_or(Value::Null);
                     // The room says why it ends the share before it closes with 4001.
-                    if let Ok(frame) = serde_json::from_str::<Value>(text.as_str())
-                        && frame.get("t").and_then(Value::as_str) == Some("end")
-                    {
+                    if frame.get("t").and_then(Value::as_str) == Some("end") {
                         room_end = frame.get("reason").and_then(Value::as_str).map(str::to_owned);
                     }
                     let mux = mux.upgrade()?;
-                    answer(&mux, share_id, text.as_str(), &mut ready)
+                    let out = answer(&mux, share_id, &frame, &mut ready);
+                    if ready {
+                        guests.room(&mux, share_id, &frame);
+                    }
+                    out
                 }
                 Some(Ok(Message::Close(frame))) => {
                     let code = frame.map(|frame| u16::from(frame.code));
@@ -859,6 +872,14 @@ async fn session(
                 }
                 None => return None,
             },
+            relayed = relayed.recv() => match relayed {
+                Some(relay::Out::Frame(frame)) => vec![frame],
+                Some(relay::Out::Ended(guest, generation)) => {
+                    guests.ended(&guest, generation);
+                    continue;
+                }
+                None => continue,
+            },
         };
         for frame in out {
             if !put(&mut sink, Message::text(frame.to_string())).await {
@@ -880,6 +901,91 @@ fn reconcile(mux: &Mux, share_id: &str) -> Vec<Value> {
     out
 }
 
+/// The relays of one host socket's guests (dropped with it).
+struct Guests {
+    relays: HashMap<String, relay::Relay>,
+    next: u64,
+    out: mpsc::UnboundedSender<relay::Out>,
+}
+
+impl Guests {
+    /// A room frame about the guests' browsers, after the daemon's `guests`.
+    fn room(&mut self, mux: &Arc<Mux>, share_id: &str, frame: &Value) {
+        let guest = frame.get("guest_id").and_then(Value::as_str).unwrap_or_default();
+        let ask = match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
+            "hello" => {
+                self.relays.clear();
+                for guest in frame.get("guests").and_then(Value::as_array).into_iter().flatten() {
+                    self.open(
+                        mux,
+                        share_id,
+                        guest.get("guest_id").and_then(Value::as_str).unwrap_or_default(),
+                        0,
+                    );
+                }
+                return;
+            }
+            // A guest's (re)connect gets a fresh snapshot.
+            "guest_joined" => {
+                let sockets = self.relays.remove(guest).map_or(0, |relay| relay.sockets);
+                return self.open(mux, share_id, guest, sockets);
+            }
+            "guest_left" => {
+                if let Some(relay) = self.relays.get_mut(guest) {
+                    relay.sockets = relay.sockets.saturating_sub(1);
+                    if relay.sockets == 0 {
+                        self.relays.remove(guest);
+                    }
+                }
+                return;
+            }
+            "guest_prompt" => relay::Ask::Prompt {
+                client_id: frame
+                    .get("client_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                text: frame.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            },
+            "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
+            "older" => match frame.get("before_seq").and_then(Value::as_u64) {
+                Some(before) => relay::Ask::Older(before),
+                None => return,
+            },
+            "prompt_status" => relay::Ask::Status(
+                (frame.get("client_ids").and_then(Value::as_array).into_iter().flatten())
+                    .filter_map(|id| id.as_str().map(str::to_owned))
+                    .collect(),
+            ),
+            _ => return,
+        };
+        if let Some(relay) = self.relays.get(guest) {
+            let _ = relay.asks.send(ask);
+        }
+    }
+
+    /// Starts the relay of a guest the daemon holds active.
+    fn open(&mut self, mux: &Arc<Mux>, share_id: &str, guest: &str, sockets: usize) {
+        if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
+            return;
+        }
+        let bridge = &shares(mux).bridge;
+        let render = bridge.render.get_or_init(|| Arc::new(RenderService::new())).clone();
+        self.next = self.next.wrapping_add(1);
+        let ids = (share_id, guest);
+        if let Some(mut relay) = relay::start(mux, render, ids, self.next, self.out.clone()) {
+            relay.sockets = relay.sockets.saturating_add(sockets);
+            self.relays.insert(guest.to_owned(), relay);
+        }
+    }
+
+    fn ended(&mut self, guest: &str, generation: u64) {
+        if self.relays.get(guest).is_some_and(|relay| relay.generation == generation) {
+            self.relays.remove(guest);
+        }
+    }
+}
+
 /// The redeem refusals the room may pass to a guest.
 const GUEST_REFUSALS: [&str; 8] = [
     "share.secret",
@@ -893,8 +999,7 @@ const GUEST_REFUSALS: [&str; 8] = [
 ];
 
 /// The daemon's answer to one room frame.
-fn answer(mux: &Mux, share_id: &str, text: &str, ready: &mut bool) -> Vec<Value> {
-    let frame: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Value> {
     if frame.get("v").and_then(Value::as_u64) != Some(1) {
         return Vec::new();
     }
