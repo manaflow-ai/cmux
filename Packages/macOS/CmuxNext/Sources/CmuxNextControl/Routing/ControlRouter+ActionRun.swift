@@ -113,7 +113,9 @@ extension ControlRouter {
         var placed = given
         Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
-        guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
+        // A pane or tab target brings the agent chat it shows (`ControlCatalog.impliedFacts`).
+        guard call.snapshot.catalog.isAvailable(action, target: request.target, in: call.snapshot.topology)
+                || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
             ])

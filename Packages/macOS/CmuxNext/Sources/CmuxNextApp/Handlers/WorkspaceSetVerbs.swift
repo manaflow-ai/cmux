@@ -33,6 +33,8 @@ enum WorkspaceSetVerbs {
             // A pane on a canvas screen brings the canvas actions (CanvasHandlers).
             if let pane, pane.workspace?.layoutModel.canvasScreenID(containing: pane.layoutPaneID) != nil { facts.insert(.canvasLayout) }
             if let key = pane?.currentTabKey, services.agentTabs.existingView(key) != nil { facts.insert(.agentPaneFocused) }
+            // A tab target names its own chat, shown in its pane or not (`agent set-model --target tab:…`).
+            if target.kind == .tab, services.agentTabs.existingView(target.id) != nil { facts.insert(.agentPaneFocused) }
             return facts
         }
     }

@@ -289,11 +289,33 @@ public struct ControlCatalog: Sendable {
     }
 
     /// Availability for a run with an explicit target, which stands in for
-    /// the facts it implies (`ActionContext.implied(byTargetKind:)`).
-    func isAvailable(_ action: ControlActionInfo, target: ControlTargetRef?) -> Bool {
+    /// the facts it implies: its kind's (`ActionContext.implied(byTargetKind:)`)
+    /// and the agent chat it shows in `topology` (`impliedFacts(of:in:)`).
+    func isAvailable(_ action: ControlActionInfo, target: ControlTargetRef?, in topology: ControlTopology) -> Bool {
         let kind = target.flatMap { ActionTargetKind(rawValue: $0.kind) }
-        let mask = contextMask | ActionContext.implied(byTargetKind: kind).rawValue
+        var implied = ActionContext.implied(byTargetKind: kind)
+        if let target { implied.formUnion(Self.impliedFacts(of: target, in: topology)) }
+        let mask = contextMask | implied.rawValue
         return action.isAvailable(contextMask: mask, debugActionsAvailable: debugActionsAvailable)
+    }
+
+    /// `agentPaneFocused` for a pane target whose selected tab is an agent
+    /// chat, or a tab target that is one, so `cmux agent set-model --target
+    /// pane:<id>` runs with no chat focused. The App's registry adds the same
+    /// fact on the main actor (`ActionRegistry.targetContext`); this check runs
+    /// first, off the main actor. Empty for any other target.
+    static func impliedFacts(of target: ControlTargetRef, in topology: ControlTopology) -> ActionContext {
+        let tab: ControlTabInfo?
+        switch ActionTargetKind(rawValue: target.kind) {
+        case .pane:
+            let pane = topology.pane(id: target.id)?.pane
+            tab = pane?.tabs.first { $0.id == pane?.selectedTabID }
+        case .tab:
+            tab = topology.tab(id: target.id)?.tab
+        default:
+            tab = nil
+        }
+        return tab?.agentSessionID == nil ? [] : .agentPaneFocused
     }
 
     func json(_ action: ControlActionInfo) -> JSONValue {
