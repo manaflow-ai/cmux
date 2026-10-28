@@ -335,4 +335,15 @@ mod tests {
         assert!(snapshot.dns_name.is_none());
         assert!(snapshot.ips.is_empty());
     }
+
+    #[test]
+    fn stale_watch_generation_cannot_publish_after_logout() {
+        let controller = Controller::new("/tmp/cmux-tailnet-test", "test");
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.generation = 2;
+        }
+        controller.update_if_current(1, |snapshot| snapshot.state = "running");
+        assert_eq!(controller.snapshot().state, "not_started");
+    }
 }
