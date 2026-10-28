@@ -60,7 +60,21 @@ const MAX_FEATURE_TEXT: usize = 128;
 /// Installs the daemon's features, resolved once at start, that hellos
 /// reconcile against. False when they were installed already.
 pub fn install_daemon_features(mux: &Mux, features: Live) -> bool {
+    apply_feature_gates(mux, &features);
     mux.control_clients.features.set(features).is_ok()
+}
+
+/// The daemon gates that a [`Live`] snapshot sets at owner start, so each
+/// follows its channel default (plans/cmux-next/feature-switch-policy.md),
+/// the env lists and `DisabledFeatures` (all folded into the snapshot), not
+/// only the env lists the gate read when the mux was built. A snapshot whose
+/// table does not declare a gate's feature leaves that gate as it was.
+fn apply_feature_gates(mux: &Mux, features: &Live) {
+    let value =
+        |name: &str| features.snapshot().feature(name).map(|feature| features.is_enabled(feature));
+    if let Some(enabled) = value(super::request_priority::FEATURE) {
+        mux.control_clients.person_first.set(enabled);
+    }
 }
 
 /// The daemon's features with the kill switches hellos turned off; None

@@ -19,7 +19,7 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
     },
     crate::FeatureDef {
         name: "daemonPersonFirst",
-        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        defaults: crate::Defaults { dev: true, nightly: true, release: false },
         kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
