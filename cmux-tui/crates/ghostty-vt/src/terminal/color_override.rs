@@ -9,7 +9,7 @@ pub(super) struct ColorOverrideTracker {
     pub(super) foreground: bool,
     pub(super) background: bool,
     pub(super) cursor: bool,
-    pub(super) palette: [u64; 4],
+    pub(super) palette: PaletteSet,
 }
 
 #[derive(Default)]
@@ -204,7 +204,7 @@ impl ColorOverrideTracker {
                 while let (Some(index), Some(value)) = (parts.next(), parts.next()) {
                     let Some(index) = index.parse::<u8>().ok() else { continue };
                     if value != "?" && parse_color(value).is_some() {
-                        self.set_palette_authored(index as usize, true);
+                        self.palette.set(index, true);
                     }
                 }
             }
@@ -215,10 +215,10 @@ impl ColorOverrideTracker {
                     let Some(index) = value.parse::<u8>().ok() else {
                         continue;
                     };
-                    self.set_palette_authored(index as usize, false);
+                    self.palette.set(index, false);
                 }
                 if !had_parameter {
-                    self.palette.fill(0);
+                    self.palette.clear();
                 }
             }
             10..=12 => {
@@ -250,19 +250,6 @@ impl ColorOverrideTracker {
         self.foreground = false;
         self.background = false;
         self.cursor = false;
-        self.palette.fill(0);
-    }
-
-    pub(super) fn set_palette_authored(&mut self, index: usize, authored: bool) {
-        let (word, bit) = (index / 64, index % 64);
-        if authored {
-            self.palette[word] |= 1u64 << bit;
-        } else {
-            self.palette[word] &= !(1u64 << bit);
-        }
-    }
-
-    pub(super) fn palette_authored(&self, index: usize) -> bool {
-        self.palette[index / 64] & (1u64 << (index % 64)) != 0
+        self.palette.clear();
     }
 }
