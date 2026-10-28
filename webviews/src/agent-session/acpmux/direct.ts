@@ -1799,6 +1799,47 @@ export class AcpmuxDirectClient {
     this.emit("replay");
   }
 
+  /// A client with no connection fed one chat's records from another source (the guest page's
+  /// room, guest/shareSocket.ts). `feed` folds them; nothing is ever sent.
+  static fed(sessionId: string, listener: Listener): AcpmuxDirectClient {
+    const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
+    client.closed = true;
+    return client;
+  }
+
+  /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is
+  /// taken as this client's). `snapshot` replaces what is held; `older` adds a page before it and
+  /// folds again from the start; `live` folds only records past the newest held, in seq order,
+  /// and draws once per display frame.
+  feed(events: EventRecord[], mode: "snapshot" | "older" | "live"): void {
+    const sessionId = this.selectedSessionId;
+    const own = events
+      .filter((event) => event.seq > 0)
+      .map((event) => ({ ...event, sessionId }))
+      .sort((a, b) => a.seq - b.seq);
+    if (mode !== "live") {
+      const first = this.firstSeq ?? Number.POSITIVE_INFINITY;
+      this.events = mode === "snapshot" ? own : [...own.filter((event) => event.seq < first), ...this.events];
+      this.rebuild();
+      this.emit();
+      return;
+    }
+    for (const event of own) {
+      if (event.seq <= this.lastSeq) continue;
+      this.events.push(event);
+      this.lastSeq = event.seq;
+      this.firstSeq ??= event.seq;
+      this.reduce(event);
+    }
+    const schedule = AcpmuxDirectClient.scheduleFrame;
+    if (!schedule) return this.emit();
+    if (this.frameSnapshot !== undefined) return;
+    this.frameSnapshot = "connected";
+    schedule(() => {
+      if (this.frameSnapshot !== undefined) this.emit();
+    });
+  }
+
   /// Every recorded transcript event of a session, oldest first, for session replay.
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
     const events: EventRecord[] = [];
