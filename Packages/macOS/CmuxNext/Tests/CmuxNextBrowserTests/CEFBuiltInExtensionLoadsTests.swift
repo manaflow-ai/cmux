@@ -41,12 +41,12 @@ import Testing
     /// Only the feature on a fork with the call, with a folder to load, moves the load to first tabs.
     @Test func theLoaderStartsAtFirstTabsOnlyWithTheFeatureTheForkAndAFolder() {
         let loader = CEFBuiltInExtensionLoader()
-        #expect(!loader.start([Self.folder], forkSupports: true), "feature off")
+        #expect(loader.start([Self.folder], forkSupports: true) != .atFirstTab, "feature off")
         loader.featureOn = true
-        #expect(!loader.start([Self.folder], forkSupports: false), "an old fork")
-        #expect(!loader.start([], forkSupports: true), "nothing to load")
+        #expect(loader.start([Self.folder], forkSupports: false) != .atFirstTab, "an old fork")
+        #expect(loader.start([], forkSupports: true) != .atFirstTab, "nothing to load")
         #expect(loader.loads.folders.isEmpty)
-        #expect(loader.start([Self.folder], forkSupports: true))
+        #expect(loader.start([Self.folder], forkSupports: true) == .atFirstTab)
         #expect(loader.loads.folders == [Self.folder])
     }
 
@@ -173,7 +173,7 @@ import Testing
         host.add(tab)
         host.ensureCreated(tab)
         let old = try #require(LoadsSpy.replies.first)
-        #expect(runtime.builtInLoader.start([Self.folder], forkSupports: true))
+        #expect(runtime.builtInLoader.start([Self.folder], forkSupports: true) == .atFirstTab)
         turns.endTurns()
         #expect(LoadsSpy.calls.count == 2 && !LoadsSpy.calls.contains("create"))
 
