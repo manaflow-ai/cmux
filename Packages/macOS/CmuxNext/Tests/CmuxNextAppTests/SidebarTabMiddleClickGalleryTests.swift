@@ -33,10 +33,18 @@ import Testing
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
         window.orderFrontRegardless()
         // The store's part: a tab the sidebar asked to close leaves its workspace.
+        // A listed tab leaving moves rows, so the sections are set (`patchWorkspaces` refuses that change).
         model.onIntent = { intent in
-            guard String(describing: intent).hasPrefix("closeTab"), var row = model.workspace(Fixture.shown) else { return model.apply(intent) }
-            row.tabs.removeAll { $0.id == Fixture.first }
-            _ = model.patchWorkspaces([row])
+            guard String(describing: intent).hasPrefix("closeTab") else { return model.apply(intent) }
+            model.sections = model.sections.map { section in
+                var section = section
+                section.nodes = section.nodes.map { node in
+                    guard case var .workspace(row) = node, row.id == Fixture.shown else { return node }
+                    row.tabs.removeAll { $0.id == Fixture.first }
+                    return .workspace(row)
+                }
+                return section
+            }
         }
         sidebar.renderNow()
         let list = sidebar.list
