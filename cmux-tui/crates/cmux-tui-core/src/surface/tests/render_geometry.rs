@@ -360,6 +360,58 @@ fn resize_replay_preserves_a_valid_large_inflight_kitty_upload() {
     );
 }
 
+/// A replay that does not fit behind the frames still queued replaces them
+/// instead of overflowing the mirror (H10 review: the replay now waits only
+/// for the frames before the resize, so later output may be queued when it
+/// is built). An ~8.4 MB in-flight Kitty upload, a resize, 9 MiB of later
+/// output queued (16 MiB queue): the mirror gets the replay, not a disconnect.
+#[test]
+fn a_large_replay_replaces_queued_later_output_instead_of_overflowing() {
+    const IMAGE_WIDTH: usize = 2_048;
+    const IMAGE_HEIGHT: usize = 1_024;
+    let pixels = vec![0xff; IMAGE_WIDTH * IMAGE_HEIGHT * 3];
+    let payload = base64::engine::general_purpose::STANDARD.encode(&pixels);
+    let first_chunk = format!(
+        "\x1b_Ga=t,t=d,f=24,i=197,s={IMAGE_WIDTH},v={IMAGE_HEIGHT},m=1,q=2;{}\x1b\\",
+        &payload[..payload.len() - 4]
+    )
+    .into_bytes();
+    let mux = Mux::new_for_test("large-replay-behind-output", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_stream().unwrap();
+    while attach.stream.try_recv().is_ok() {}
+    pty.term.lock().unwrap().vt_write(&first_chunk);
+    surface.resize(81, 24).unwrap();
+    // Later output, queued before the mirror takes anything: 9 MiB, more
+    // than the queue's room beside the replay.
+    let line = vec![b'x'; 64 * 1024];
+    for _ in 0..144 {
+        pty.broadcast_attach_output(&line);
+    }
+    let mut frames = 0;
+    loop {
+        match attach.stream.try_recv() {
+            Ok(
+                AttachFrame::ResizedWithColors { cols: 81, .. }
+                | AttachFrame::Resized { cols: 81, .. },
+            ) => {
+                break;
+            }
+            Ok(_) => {
+                frames += 1;
+                assert!(frames < 10_000, "no replay");
+            }
+            Err(error) => panic!(
+                "the mirror lost its stream instead of getting the replay ({error:?}, overflowed: {})",
+                attach.lifecycle.is_canceled()
+            ),
+        }
+    }
+    assert!(!attach.lifecycle.is_canceled(), "the mirror was disconnected");
+}
+
 #[test]
 fn resize_replay_budget_covers_inflight_state_and_transport_limits() {
     assert_eq!(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_480);

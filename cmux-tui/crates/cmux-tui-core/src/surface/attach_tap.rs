@@ -618,8 +618,8 @@ pub(super) struct AttachTapQueue {
     replay_building: bool,
     /// Items ever queued and ever taken. A queued item that later output
     /// merges into is one item.
-    pushed: u64,
-    popped: u64,
+    pub(super) pushed: u64,
+    pub(super) popped: u64,
     /// `pushed` when `needs_replay` was set: the replay is due once `popped`
     /// reaches it.
     replay_after: u64,
@@ -930,7 +930,22 @@ impl AttachTap {
             self.lifecycle.cancel();
             return false;
         }
-        self.push(queue, QueuedFrame::new(frame))
+        let item = QueuedFrame::new(frame);
+        // The replay is the terminal at the caller's cut, and every queued
+        // frame is output from before it: when the replay does not fit
+        // behind them, they are dropped, as the replay replaces them, so a
+        // replay within VT_REPLAY_MAX_BYTES always fits (an empty queue's
+        // room) instead of overflowing a mirror that keeps up (H10 review).
+        // Their key-press flow marks are trace only; this case would
+        // otherwise disconnect the mirror.
+        if item.retained_bytes() > queue.max_retained_bytes.saturating_sub(queue.retained_bytes)
+            || queue.frames.len() >= queue.max_frames
+        {
+            queue.frames.clear();
+            queue.popped = queue.pushed;
+            queue.retained_bytes = 0;
+        }
+        self.push(queue, item)
     }
 
     /// Whether this viewer would take a local-history READY of a resize now.

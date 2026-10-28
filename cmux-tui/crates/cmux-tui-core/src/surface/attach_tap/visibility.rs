@@ -44,6 +44,7 @@ impl AttachTapQueue {
     /// it shows. Not a backlog resync.
     pub(super) fn mark_dirty(&mut self) {
         self.frames.clear();
+        self.popped = self.pushed;
         self.retained_bytes = 0;
         self.needs_snapshot = true;
         self.snapshot_deferred = false;
