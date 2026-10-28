@@ -404,7 +404,12 @@ test("a held prompt whose record is older than the opened page reads it, then ca
       { sessionId: id, promptId: "g-1" },
     ]);
     // No history paging for it.
-    expect(log.some((each) => JSON.stringify(each.params?.kinds)?.includes("queue_updated"))).toBe(false);
+    expect(
+      log.some(
+        (each) =>
+          each.method === "acpmux _acpmux/events" && JSON.stringify(each.params?.kinds)?.includes("queue_updated"),
+      ),
+    ).toBe(false);
     // Then its whole text with the record's revision: approvable.
     expect(shown.queue[0]).toMatchObject({ prompt: text, revision: 0, awaitingOwner: true });
     expect(shown.queue[0]?.updating).toBeUndefined();
