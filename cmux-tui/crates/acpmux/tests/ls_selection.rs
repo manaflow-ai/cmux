@@ -101,6 +101,7 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     assert!(full.status.success(), "full listing failed: {full:?}");
     let full_value: Value = serde_json::from_slice(&full.stdout).unwrap();
     assert_eq!(full_value["sessions"].as_array().map(Vec::len), Some(3_000));
+    eprintln!("ls benchmark baseline: full={} bytes/{full_elapsed:?}", full.stdout.len());
     let (selected, selected_elapsed) =
         run(&root, &["--json", "ls", "--limit", "20", "--fields", "name,harness,model,status,cwd"]);
     assert!(selected.status.success(), "selected listing failed: {selected:?}");
@@ -119,7 +120,7 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
         "selection slower than full listing: {selected_elapsed:?} > {full_elapsed:?}"
     );
     eprintln!(
-        "ls benchmark: full={} bytes/{full_elapsed:?}; selected={} bytes/{selected_elapsed:?}",
+        "ls benchmark head: full={} bytes/{full_elapsed:?}; selected={} bytes/{selected_elapsed:?}",
         full.stdout.len(),
         selected.stdout.len()
     );
