@@ -329,7 +329,8 @@ def lease_crashes(host, app, bundle_id, since_epoch, left):
         return []
     crashes = parse_crash_listing(listing.stdout.decode(errors="replace"))
     for crash in crashes:
-        log(f"[{host}] CRASH of the app under test: {crash['file']} {crash['signal']} {' < '.join(crash['frames'][:2])}")
+        kind = "deliberate crash (debug.crash.app)" if is_deliberate_crash(crash) else "CRASH of the app under test"
+        log(f"[{host}] {kind}: {crash['file']} {crash['signal']} {' < '.join(crash['frames'][:2])}")
     return crashes
 
 
@@ -353,6 +354,7 @@ def take_results(files, out, ids):
 def crashed_results(results, crashes):
     """`results` with every journey failed when the app under test crashed during the lease (`crashes`, from
     ``parse_crash_listing``): a crash the app relaunched from can hide behind a later pass."""
+    crashes = [c for c in crashes if not is_deliberate_crash(c)]
     if not crashes:
         return results
     first = crashes[0]
@@ -363,6 +365,15 @@ def crashed_results(results, crashes):
         own = result.get("reason") or ""
         failed[journey] = {**result, "status": "fail", "reason": what + (f"; {own}" if own else ""), "crashes": crashes}
     return failed
+
+
+# A crash a journey asks for (debug.crash.app, app-life-crash-recovers) has this frame on its faulting thread.
+DELIBERATE_CRASH_FRAME = "DebugCrashes.crashApp"
+
+
+def is_deliberate_crash(crash):
+    """Whether a crash report is the app's own debug.crash.app (a journey step), not a crash of the build."""
+    return any(DELIBERATE_CRASH_FRAME in frame for frame in crash.get("frames", []))
 
 
 def parse_crash_listing(text):
