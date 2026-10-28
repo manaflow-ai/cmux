@@ -11,7 +11,12 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import type { ComposerAttachment, PromptBlock } from "../src/agent-session/acpmux/attachments";
+import {
+  inlineTokenIds,
+  withoutInlineTokens,
+  type ComposerAttachment,
+  type PromptBlock,
+} from "../src/agent-session/acpmux/attachments";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
@@ -326,8 +331,11 @@ const linesLabel = (n: number) => translate("transcript.pastedLines", { n, count
 
 test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn the same before and after acpmux's echo", async () => {
   const composed = await compose(TYPED, [LOG]);
-  expect(composed.text).toBe(TYPED);
+  // The paste sits in the prompt where it went, after the typed text.
+  expect(withoutInlineTokens(composed.text)).toBe(TYPED);
+  expect(composed.text.startsWith(TYPED)).toBe(true);
   expect(composed.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
+  expect(inlineTokenIds(composed.text)).toEqual(composed.attachments.map((chip) => chip.id));
 
   const { blocks, record, pending, echoed, before, after } = await roundTrip(composed);
   // The wire: the typed block, then the paste as its own block, marked.
@@ -362,8 +370,10 @@ test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn
 
 test("two pastes with nothing typed come back as two chips in the order they were pasted, before and after the echo", async () => {
   const composed = await compose("", [LOG, TRACE]);
-  expect(composed.text).toBe("");
+  // Nothing typed: the prompt is the two pastes, in the order they went in.
+  expect(withoutInlineTokens(composed.text)).toBe("");
   expect(composed.attachments.map((chip) => chip.kind)).toEqual(["pasted", "pasted"]);
+  expect(inlineTokenIds(composed.text)).toEqual(composed.attachments.map((chip) => chip.id));
 
   const { blocks, record, pending, before, after } = await roundTrip(composed);
   expect(blocks).toEqual([
