@@ -529,6 +529,38 @@ test("New Tab offers no Plan for a no-project chat, whose send would drop it", a
   expect(asks[0]?.[4]).toBe(true);
 });
 
+// Review of #27049 at 43446b78 (P2): the page keeps each harness's last + mode pick, so Plan for
+// one harness survives a mode pick for another and a switch back.
+test("New Tab keeps each harness's own + mode pick", async () => {
+  const asks: unknown[][] = [];
+  const page = (harness: string) =>
+    addPage({
+      cwd: "/chosen",
+      startCwd: "/chosen",
+      snapshot: noChat([], {
+        summary: {
+          sessionId: "deferred",
+          harness,
+          cwd: "/chosen",
+          modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+        },
+      }),
+      onPlusMode: async () => {},
+      onAsk: (...args) => asks.push(args),
+    });
+  await page("claude");
+  await openAdd();
+  await chooseAdd("add.mode.plan");
+  await page("codex");
+  await openAdd();
+  await chooseAdd("add.mode.plan");
+  await page("claude");
+  await draft("plan it");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks[0]?.[0]).toBe("claude");
+  expect(asks[0]?.[7]).toBe("plan");
+});
+
 test("a refused New Tab mode change keeps every draft byte and attachment", async () => {
   await addPage({
     snapshot: noChat([], {

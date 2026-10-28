@@ -550,3 +550,29 @@ for (const place of ["devbox", "Do not work in a project"] as const)
       { method: "chat.send", params: { text: "plan the change" } },
     ]);
   });
+
+// Review of #27049 at 43446b78 (P1): a Plan picked, then another folder on this Mac or a saved
+// local environment, sends a fresh `chat.new` for that place; the mode goes with it in the same
+// turn, so the switch holds it until that chat starts.
+for (const place of ["api", "Web"] as const)
+  test(`a Plan picked before the place changes to ${place} on this Mac goes with the new chat`, async () => {
+    const calls = await mountPlanning();
+    await click(folderButton());
+    await click($$('[role="option"]').find((option) => option.textContent === "app"));
+    await openPlus();
+    await pickPlus("add.mode.plan");
+    if (place === "api") {
+      await click(folderButton());
+      await click($$('[role="option"]').find((option) => option.textContent === place));
+    } else {
+      await click(environmentButton());
+      await click(row(place));
+    }
+    calls.length = 0;
+    await ask("plan the change");
+    expect(order(calls)).toEqual([
+      { method: "chat.new", params: expect.objectContaining({ harness: "claude", cwd: place === "api" ? API : APP }) },
+      { method: "chat.mode", params: { modeId: "plan" } },
+      { method: "chat.send", params: { text: "plan the change" } },
+    ]);
+  });

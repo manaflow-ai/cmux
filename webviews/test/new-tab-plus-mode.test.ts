@@ -53,3 +53,14 @@ test("a refused mode rejects, so the menu stays open with its error", async () =
     "refused",
   );
 });
+
+test("a send on this Mac with a + mode issues chat.mode right after chat.new, before the prompt", async () => {
+  const { actions, calls } = host();
+  actions.onAsk("claude", "plan it", "/work/app", undefined, undefined, undefined, undefined, "plan");
+  // Issued in the send's own turn: the switch holds the mode as it holds the prompt.
+  expect(calls.filter(([method]) => method !== "newTab.remember")).toEqual([
+    ["chat.new", { harness: "claude", cwd: "/work/app" }],
+    ["chat.mode", { modeId: "plan" }],
+    ["chat.send", { text: "plan it" }],
+  ]);
+});
