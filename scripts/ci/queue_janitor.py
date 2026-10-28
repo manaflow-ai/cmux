@@ -204,7 +204,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
-from delivery_workflows import REPLACEMENT_JOB_READS, build_started, is_delivery_run  # noqa: E402
+from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
 
@@ -2318,7 +2318,8 @@ def superseded_candidates(runs: Sequence[Mapping[str, Any]],
     found = [run for run in runs
              if run.get("status") in IN_FLIGHT_RUN_STATUSES and run.get("id") in jobs_by_run
              and is_delivery_run(run.get("path"), run.get("name"), run.get("display_title"))
-             and complete_jobs(jobs_by_run[run["id"]]) is not None and build_started(jobs_by_run[run["id"]]) is None]
+             and complete_jobs(jobs_by_run[run["id"]]) is not None
+             and (mine := attempt_jobs(run, jobs_by_run[run["id"]])) is not None and build_started(mine) is None]
     return sorted(found, key=lambda run: (str(run.get("created_at") or ""), run["id"]))
 
 
