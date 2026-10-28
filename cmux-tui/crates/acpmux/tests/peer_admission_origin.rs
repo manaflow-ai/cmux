@@ -2,27 +2,23 @@
 //! peer the placement engine would put it on instead (`suggestedHost`, `hub/admission.rs`). A
 //! peer daemon's connection never learns this host's peers (`tests/peer_state_origin.rs`): its
 //! warning names none, and says nothing of whether any of them has room. One test function:
-//! the registry and the host budget are read from this process's environment.
+//! the registry is read from this process's environment.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/), and its hubs read the
-// registry and host budget `main_test` writes.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in()
-    .with_env(&[("FLEET_REGISTRY", REGISTRY), ("ACPMUX_HOST_BUDGET", BUDGET)]);
+// This process runs stand-in agents (the fake agents under tests/), and its hub reads the
+// registry the test writes.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("FLEET_REGISTRY", REGISTRY)]);
 const REGISTRY: &str = concat!(env!("CARGO_TARGET_TMPDIR"), "/peer-admission-origin-registry.json");
-const BUDGET: &str = concat!(env!("CARGO_TARGET_TMPDIR"), "/peer-admission-origin-budget.json");
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
-use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{
-    Origin, WsAuth, bind_ws, serve_connection, serve_connection_with, serve_ws_with,
-};
+use acpmux::server::{Origin, serve_connection, serve_connection_with};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,30 +59,46 @@ async fn call(hub: &Arc<Hub>, origin: Option<Origin>, m: &str, params: Value) ->
     }
 }
 
-/// B's WebSocket listener with a peer token; returns its port and the token.
-async fn listen(b: Arc<Hub>) -> (u16, String) {
-    let home = std::env::temp_dir().join(format!("peer-admission-origin-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&home);
-    let auth = PeerAuth::create(&home).unwrap();
-    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
-    let l = bind_ws("127.0.0.1:0").await.unwrap();
+/// A fake peer daemon whose `_acpmux/host_health` reading is fixed, with room for many lanes
+/// whatever this machine runs (`placement.rs`): it lists no session and answers `{}` to the rest.
+async fn fake_peer() -> u16 {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
-    let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
-    tokio::spawn(serve_ws_with(b, l, "tok".into(), auth));
-    (port, token)
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "build": "older", "origin": "peer", "features": []}}}),
+                        method::MUX_WATCH => json!({"sessions": []}),
+                        "_acpmux/host_health" => json!({"cpus": 64, "load": [1.0, 1.0, 1.0],
+                            "disk": {"freeBytes": 500_u64 << 30, "totalBytes": 1000_u64 << 30},
+                            "liveSessions": 0}),
+                        _ => json!({}),
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    port
 }
 
 #[tokio::test]
 async fn a_peer_connections_lane_cap_warning_names_none_of_this_hosts_peers() {
-    // Never over budget, whatever else this machine runs: `far`, a peer on this very machine,
-    // has room by its reading (`placement.rs`).
-    let budget = json!({"formula": {"load1_per_core": 1000, "cores": "logical", "pressure": "warn",
-        "psi_some_avg10": 1000, "min_available_ram_fraction": 0.0, "swap_growth_mb_per_min": 1e9}});
-    std::fs::write(BUDGET, budget.to_string()).unwrap();
-    let b = hub();
-    let (port, token) = listen(b.clone()).await;
+    let port = fake_peer().await;
     let a = hub();
-    a.add_peer("far", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+    a.add_peer("far", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
     // This host is at its cap of none; `far` has room for many.
@@ -98,7 +110,8 @@ async fn a_peer_connections_lane_cap_warning_names_none_of_this_hosts_peers() {
     };
     let registry = json!({"machines": {here.clone(): lanes(0), "far": lanes(1000)}});
     std::fs::write(REGISTRY, registry.to_string()).unwrap();
-    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fake"}}});
 
     // The unix socket hears where to start it instead.
     let mine = call(&a, None, method::SESSION_NEW, new.clone()).await;
@@ -115,5 +128,4 @@ async fn a_peer_connections_lane_cap_warning_names_none_of_this_hosts_peers() {
     assert!(!warning.contains("far"), "a peer was told of this host's peer: {warning}");
     assert!(!warning.contains("connected host"), "nor whether any has room: {warning}");
     let _ = std::fs::remove_file(REGISTRY);
-    let _ = std::fs::remove_file(BUDGET);
 }
