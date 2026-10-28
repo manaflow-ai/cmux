@@ -121,7 +121,6 @@ public final class NativePopupHost {
     public func closePanel() {
         hide()
         panel.parent?.removeChildWindow(panel)
-        panel.isReleasedWhenClosed = false
         panel.close()
     }
 
