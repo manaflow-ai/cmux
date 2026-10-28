@@ -248,7 +248,10 @@ pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>
         Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
-            let none = m.contains("no session") || m.contains("not found") || m.contains("matches");
+            let none = m.contains("no session")
+                || m.contains("no local session")
+                || m.contains("not found")
+                || m.contains("matches");
             if none { Ok(None) } else { Err(e) }
         }
     }
