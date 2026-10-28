@@ -22,12 +22,13 @@ struct NotificationsPanelRow: Hashable, Identifiable {
     let terminal: String?
 
     /// The producer's name, the one Settings gives it, so a row reads the way
-    /// the `notifications.sources.<source>` setting that governs it does. The
-    /// app's one wire mapping decides, so `daemon` and a value this build does
-    /// not know read as agent-side, as they do everywhere else.
+    /// the `notifications.sources.<source>` setting that governs it does.
+    /// `NotificationSource(wire:)` decides, the one wire mapping, so `daemon`
+    /// and a value this build does not know read as agent-side, as they do
+    /// everywhere else.
     var sourceLabel: String? {
         guard let source, !source.isEmpty else { return nil }
-        return NotificationCenterService.source(source).settingsTitle.text
+        return NotificationSource(wire: source).settingsTitle.text
     }
 
     /// Every ledger entry, newest first (the daemon's order). `workspace`
