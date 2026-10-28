@@ -56,6 +56,34 @@ struct SidebarTabMiddleClickTests {
         #expect(sent() == [.close([Fixture.other])])
     }
 
+    /// Leo 2026-10-28: "when you're hovering over that, I think it also wants the close button on there as well."
+    /// A hovered tab row shows the workspace row's ✕ (one button, `SidebarRowCloseButton`) on the trailing column,
+    /// where the tab's status gives way; its press closes the tab as the middle-click does; the hover's end hides it.
+    @Test func aHoveredTabRowShowsTheCloseAtItsEnd() throws {
+        let (list, window, sent) = Self.recording()
+        defer { window.close() }
+        let row = try Fixture.tabRow(list, Fixture.shown, Fixture.first)
+        row.layoutSubtreeIfNeeded()
+        #expect(row.closeButton.isHidden, "a tab row at rest shows a ✕")
+        row.isHovered = true
+        row.layoutSubtreeIfNeeded()
+        #expect(!row.closeButton.isHidden && row.closeButton.alphaValue == 1, "a hovered tab row shows no ✕")
+        let b = row.layoutBounds
+        #expect(row.closeButton.frame == SidebarStyle.rowCloseFrame(rowWidth: b.width, centerY: b.height / 2))
+        // The row hands a click there to the ✕ alone; the rest of the row stays the list's.
+        let center = NSPoint(x: row.closeButton.frame.midX, y: row.closeButton.frame.midY)
+        #expect(row.hitTest(row.convert(center, to: row.superview)) === row.closeButton)
+        #expect(row.hitTest(row.convert(NSPoint(x: b.midX / 2, y: b.midY), to: row.superview)) == nil)
+        // The same ✕ as a workspace row's (both from `SidebarIconButton.rowClose`).
+        let workspace = try #require(list.rowViews[.workspace(Fixture.shown)] as? WorkspaceRowView)
+        #expect(workspace.closeButton.icon == row.closeButton.icon)
+        row.closeButton.onPress?()
+        #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.first)])
+        row.isHovered = false
+        row.layoutSubtreeIfNeeded()
+        #expect(row.closeButton.isHidden, "the ✕ stayed after the hover ended")
+    }
+
     // MARK: - Search Tabs rows
 
     private final class ThreeRows: NSObject, NSTableViewDataSource {
