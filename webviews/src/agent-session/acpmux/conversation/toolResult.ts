@@ -319,11 +319,22 @@ export function losesNumbers(printed: string): boolean {
 /// Markdown structure in a result's text: a heading, a fence, a list, a table, a quote line or
 /// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
 const MARKDOWN =
-  /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*).*)/m;
+  /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
 const LOG_LINE =
   /^\s*(?:\[[^\]]+\]\s*)?(?:(?:\[(?:debug|info|warn|error|trace)\]|(?:debug|info|warn|error|trace)\b)|(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)/i;
+const CODE_LINE =
+  /^\s*(?:(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|try|except|async|await|export)\b|[A-Za-z_]\w*\s*=\s*[^=])/m;
+const DUNDER = /(?:^|[^\w])__\w+__(?=$|[^\w])/;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
+
+function isMarkdownText(text: string, web = false): boolean {
+  if (text.length > MAX_MARKDOWN_CHARS) return false;
+  const lines = text.split("\n").filter(Boolean);
+  if (!lines.length || lines.every((line) => LOG_LINE.test(line))) return false;
+  if (CODE_LINE.test(text) || DUNDER.test(text)) return false;
+  return web || MARKDOWN.test(text);
+}
 
 /// What an opened non-shell call shows of `output` (ToolRow.tsx), and what Find in Chat reads of it
 /// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
@@ -338,15 +349,13 @@ export function toolResult(
   const { text, lang } = read(output, clean, strip);
   if (lang === "json" || text.length > MAX_MARKDOWN_CHARS) return { text, lang };
   if (options.kind === "execute") return { text, lang: "text" };
-  const lines = text.split("\n").filter(Boolean);
-  const log = lines.length > 0 && lines.every((line) => LOG_LINE.test(line));
   const webRead =
     options.markdown ||
     options.kind === "fetch" ||
     /^\s*(?:fetch|web[\s._:-]*read)(?:\s|:|$)/i.test(options.title ?? "");
   return {
     text,
-    lang: !log && (lang === "markdown" || webRead || MARKDOWN.test(text)) ? "markdown" : "text",
+    lang: isMarkdownText(text, lang === "markdown" || webRead) ? "markdown" : "text",
   };
 }
 
@@ -416,7 +425,7 @@ function fromJSON(
       const nested = fromJSON(inner, text, depth + 1, clean, allowed);
       return { ...nested, images: orderedImages([...nested.images, ...images], allowed) };
     }
-    const markdown = text.length <= MAX_MARKDOWN_CHARS && MARKDOWN.test(text);
+    const markdown = isMarkdownText(text);
     return { text, lang: markdown ? "markdown" : "text", images: orderedImages(images, allowed) };
   }
   // JSON the tool returned. On one line it is indented, unless that would change it (a number a
