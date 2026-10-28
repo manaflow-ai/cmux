@@ -1,5 +1,5 @@
 //! Direct relay tests: a fake app and a fake Chromium Host, each on a
-//! socket pair with the provider (p01-process-233).
+//! socket pair with the provider.
 
 use super::*;
 use crate::provider::{Frame, ProviderSecret, TabAnnounce};

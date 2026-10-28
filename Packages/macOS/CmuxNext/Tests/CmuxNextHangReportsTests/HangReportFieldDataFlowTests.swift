@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Schema 3's field data end to end (p09-observability-063): the collector takes the black box once per report
+/// Schema 3's field data end to end: the collector takes the black box once per report
 /// at a long hang or a slow key frame, and the service sends this launch's delta and an earlier launch's section,
 /// marks them sent once the server took the report, and deletes the earlier launch's file then.
 struct HangReportFieldDataFlowTests {

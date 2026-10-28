@@ -22,25 +22,25 @@ import Darwin
 ///   submission's estimate. One that submits nothing within ``contentDeadlineNanos`` closes with `presented`
 ///   skipped (no echo), so the table cannot fill.
 /// - A Chromium page in its own host process reports when the frame that shows an input reached the display, by the
-///   input's event time (``hostPresented(eventNanos:at:)``, p04-input-066): that time closes the page's slot with
+///   input's event time (``hostPresented(eventNanos:at:)``): that time closes the page's slot with
 ///   source ``InputPresentationSource/hostFeedback``, as the viz presentation feedback of a renderer's frame closes
 ///   its events' `EventMetrics` (cc/metrics/compositor_frame_reporter.cc, `DidPresentCompositorFrame`). While no
 ///   page reports (``pagesReportPresentation`` off: an in-process page, a host whose fork has no feedback), a page's
 ///   slot closes as a view's does, with its turn's commit estimate.
 /// - In DEV and bench builds a WebKit page reports, by its own clock, when the frame after its handler of an input
-///   painted (``WebPageInputTiming``, p04-input-099): ``pagePresented(_:eventNanos:at:)`` closes the page's slot with
+///   painted (``WebPageInputTiming``): ``pagePresented(_:eventNanos:at:)`` closes the page's slot with
 ///   source ``InputPresentationSource/pageEstimated``.
 /// - Estimates come from ``InputPresentationEstimating`` (`PresentationClock`): resolved by the window's next real
 ///   tick, with how the vsync was found (``InputPresentationSource``) and whether the display has a variable refresh
 ///   rate. Then the slot closes, goes into the single-writer ``InputLatencyRing`` and is recorded as one
 ///   ``SignpostName/inputLatency`` event. A missed commit (``CommitBoundary/Outcome/missed``) closes a view's slot
 ///   with `mainCommit` and `presented` skipped, so readers drop it instead of counting idle time.
-/// - Every half ring goes to the batch sink (the ledger, p04-input-002) as one array.
+/// - Every half ring goes to the batch sink (the ledger) as one array.
 /// - A commit the run loop ran before a slot's dispatch returned ran inside that dispatch (a menu, a sheet, a tracking
-///   loop): the slot gets `causedFrameUpdate`, as its input produced that frame (p04-input-005).
+///   loop): the slot gets `causedFrameUpdate`, as its input produced that frame.
 /// - A slot opened with an ``InputFrameInterval`` also carries the older `key.frame` or `key.scroll_frame` interval
 ///   (``InputFrameIntervals``), begun with the slot and ended at its turn's commit with the slot's target then, so
-///   their readers keep working with no second classification or commit boundary (p04-input-005).
+///   their readers keep working with no second classification or commit boundary.
 ///
 /// The per-event path makes no allocation, takes no lock and builds no `String`: the pending and waiting lists are
 /// reserved at init, the commit boundary is two run-loop observers made once and armed by a flag
@@ -106,13 +106,17 @@ public final class InputLatencyTracker {
 
     /// Slots closed since launch.
     public private(set) var closedCount: UInt64 = 0
+    /// The slot of the key press being dispatched now, from its ``begin(kind:target:entrypoint:eventTimestamp:window:arrivedMain:frameInterval:)``
+    /// to its ``endDispatch(_:)``: a terminal arms its echo stages on it and sends it to the daemon as the key's flow
+    /// (``CmuxNextInputCore/InputLatencyToken/keyFlow``).
+    public private(set) var dispatchingKey: InputLatencyToken?
     /// Host presentation reports since launch that matched no open Chromium page slot (``hostPresented(eventNanos:at:)``):
     /// an input the tracker did not track, a slot that closed at its deadline first, or a report with no usable time.
     public internal(set) var unmatchedHostPresentations: UInt64 = 0
     /// Chromium pages report the frame that shows each input (``hostPresented(eventNanos:at:)``): set by the page's
     /// host from its `ready` frame. On, a ``InputTarget/chromiumPage`` slot waits for that report after its turn; off
     /// (no fork has the feedback yet, and an in-process page never reports), it closes with its turn's commit
-    /// estimate, source ``InputPresentationSource/estimatedVsync`` (p04-input.md, p04-input-066).
+    /// estimate, source ``InputPresentationSource/estimatedVsync`` (p04-input.md).
     public var pagesReportPresentation = false
 
     /// A tracker on the main run loop's commit, an `input` signposter and `CLOCK_UPTIME_RAW`.
@@ -218,6 +222,7 @@ public final class InputLatencyTracker {
             hasFrameInterval = true
         }
         pending.append(Pending(token: token, window: window, target: target, kind: kind, hasFrameInterval: hasFrameInterval))
+        if kind == .keyPress { dispatchingKey = token }
         boundary.arm()
         return token
     }
@@ -261,6 +266,7 @@ public final class InputLatencyTracker {
     // perf-hot: 0.05us input-latency-mark
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
+        if dispatchingKey == token { dispatchingKey = nil }
     }
 
     // MARK: Closing

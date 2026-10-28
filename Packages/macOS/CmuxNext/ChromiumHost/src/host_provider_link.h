@@ -1,5 +1,5 @@
 // Agent CDP from the browser host straight to this Chromium Host
-// (plans/cmux-next/chrome-parity/p01-process.md, task p01-process-233).
+// (plans/cmux-next/chrome-parity/p01-process.md).
 //
 // The browser host (cmux-tui/crates/cmux-browser-host, provider_link/
 // direct_relay.rs) drives agent sessions on cmux's Chromium tabs over raw

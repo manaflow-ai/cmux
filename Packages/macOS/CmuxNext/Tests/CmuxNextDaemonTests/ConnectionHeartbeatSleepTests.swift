@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p14-energy-120: the daemon heartbeat asks nothing while the Mac or its displays sleep, counts no
+/// The daemon heartbeat asks nothing while the Mac or its displays sleep, counts no
 /// miss for an ask the sleep cut off, and asks once soon after a wake finds the network.
 @Suite(.timeLimit(.minutes(1)))
 struct ConnectionHeartbeatSleepTests {

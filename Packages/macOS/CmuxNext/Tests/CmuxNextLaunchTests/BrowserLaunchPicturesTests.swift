@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The browser pages' pictures from the last quit (p08-startup-043): written per profile, private, each save
+/// The browser pages' pictures from the last quit: written per profile, private, each save
 /// replacing the last; read off the main thread at launch, handed out once and never waited for; the untaken ones
 /// dropped after the keep; and a pane of another size shows none, nor tells its page to keep a hole for it. Which
 /// pages are never pictured the app decides (`BrowserLaunchPictureShotsTests`).

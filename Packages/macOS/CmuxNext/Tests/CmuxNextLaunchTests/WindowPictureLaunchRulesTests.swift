@@ -8,7 +8,7 @@ import Observation
 import Testing
 import UniformTypeIdentifiers
 
-/// When a launch may show the front window's saved picture, and what the picture may show (p08-startup-063): a test
+/// When a launch may show the front window's saved picture, and what the picture may show: a test
 /// per invalidation rule (the setting off, crash recovery, incognito leftovers, each whole-picture meta field, each
 /// layout region) and per privacy fill (Secure Input, a withheld page, a page with no picture), plus the store
 /// handing out only an allowed picture and recording why it refused one.
@@ -67,7 +67,7 @@ struct WindowPictureLaunchRulesTests {
         #expect(WindowPictureStore.use(Self.meta(), for: Self.meta(), launch: Self.facts { $0.recovered = true }) == .refuse(.crashRecovery))
     }
 
-    /// p01-process-152: after `kill -9` the launch is not a crash recovery, but the picture is still the quit's before
+    /// After `kill -9` the launch is not a crash recovery, but the picture is still the quit's before
     /// the killed run, terminal regions included, while the daemon's newer screens come live: never shown under
     /// `relaunchReattach`, which says so through the same value as the terminal frames' discard.
     @Test func aKillNineLaunchThatReattachesShowsNone() {

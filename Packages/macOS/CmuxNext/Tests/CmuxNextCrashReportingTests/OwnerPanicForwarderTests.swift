@@ -5,7 +5,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-075: every shipped Rust role's panic and hang logs reach Sentry through one forwarder. A hang
+/// Every shipped Rust role's panic and hang logs reach Sentry through one forwarder. A hang
 /// line (cmux-hang-watch `hangs-<pid>.jsonl`, schema 1) is an event whose crashed thread carries the hung stack
 /// (`instruction_addr` = image address + offset) and whose debug_meta lists every image UUID; each line is sent
 /// once across restarts, and nothing is sent while telemetry is off.

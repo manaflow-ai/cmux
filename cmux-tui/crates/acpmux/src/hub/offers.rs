@@ -28,6 +28,7 @@
 //!   plain text, and nothing runs before the person accepts.
 
 use super::{Hub, Session};
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
@@ -99,7 +100,7 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
     match params.get("groupId") {
         None | Some(Value::Null) => {}
         Some(Value::String(group)) if one_line(group, MAX_GROUP_BYTES) => {
-            record["groupId"] = Value::String(group.clone());
+            record.set("groupId", Value::String(group.clone()));
         }
         Some(_) => {
             return Err(RpcError::invalid_params(format!(
@@ -113,7 +114,7 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
             return Err(RpcError::invalid_params(format!("{key} is too long")));
         }
         if !value.is_empty() {
-            record[key] = Value::String(value.to_owned());
+            record.set(key, Value::String(value.to_owned()));
         }
     }
     Ok(record)
@@ -132,7 +133,7 @@ impl Hub {
             return Err(RpcError::invalid_params("a chat a remote device started offers no chats"));
         }
         let record = offer_record(session, params)?;
-        let offer_id = record["offerId"].as_str().unwrap_or_default().to_owned();
+        let offer_id = record.field("offerId").as_str().unwrap_or_default().to_owned();
         self.with_open_offers(session, |open| {
             if open.len() >= OPEN_LIMIT {
                 return Err(RpcError::invalid_params(format!(
@@ -213,7 +214,7 @@ impl Hub {
         let mut decision = json!({"offerId": offer_id, "outcome": outcome});
         if let Some(child) = &child {
             self.save_meta(child);
-            decision["childSessionId"] = Value::String(child.id.clone());
+            decision.set("childSessionId", Value::String(child.id.clone()));
         }
         self.append(session, "mux", "session_offer_decision", decision.clone());
         // A chat whose first turn ended before this answer sends its result now.

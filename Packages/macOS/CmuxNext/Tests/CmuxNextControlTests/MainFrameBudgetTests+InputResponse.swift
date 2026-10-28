@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The input-response state and the typing-burst rate of ``MainFrameBudget`` (p06-scheduler-002):
+/// The input-response state and the typing-burst rate of ``MainFrameBudget``:
 /// a discrete input that expects a frame holds automation and background until the next
 /// link tick has rendered (at most 100 ms), and while a person types they run one task per 100 ms.
 extension MainFrameBudgetTests {

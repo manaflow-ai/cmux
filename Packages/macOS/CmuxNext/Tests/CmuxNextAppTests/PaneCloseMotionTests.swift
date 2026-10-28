@@ -312,8 +312,8 @@ struct PaneCloseMotionTests {
         var closes = 0
     }
 
-    /// A window the person closes fades out as a whole on the render server (chrome-parity
-    /// p03-rendering-034): one additive `exit` spring on its frame view's layer opacity, from +1
+    /// A window the person closes fades out as a whole on the render server:
+    /// one additive `exit` spring on its frame view's layer opacity, from +1
     /// to 0 in the key's frame, critically damped so it never comes back up, within the old fade's
     /// 0.35 s budget; no window alpha and no window call per frame; it takes no click while it
     /// fades, closes once when the spring lands, and shows whole with its own look if it opens again.

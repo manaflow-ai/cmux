@@ -44,7 +44,7 @@ public import WebKit
 ///   is `renderer`, `extension_renderer`, `gpu`, `network`, `utility` or `other`;
 ///   `renderer_client_id` is null but for `renderer`; `hosts` names what the renderer runs
 ///   (`page:<id>#<instance>`, `spare:cef_window`, `spare:cef_pages_window`, `browser_tab:<id>`), empty when nothing known does.
-/// - `retire` (p13-webui-064): `pending`, the closed pages whose engine page waits for the retirer's deadline;
+/// - `retire`: `pending`, the closed pages whose engine page waits for the retirer's deadline;
 ///   `engine_closes`, the engine page closes of the host's pages since launch; `engine_closes_in_close_turn`,
 ///   those that ran inside ``WebUIHost/close(_:)`` (0: a close asks no engine page to end in its turn);
 ///   `engine_close_uptimes`, the system uptime in seconds (the clock of `debug.action_budget`) of the last 32,
@@ -116,7 +116,7 @@ nonisolated public struct WebUICensus: Sendable {
         public var browserID: Int32?
         public var rendererClients: [Int32]
         public var webKitPID: Int32?
-        /// Runs of router envelopes sent as scripts, and as data on the page push channel (p13-webui-079).
+        /// Runs of router envelopes sent as scripts, and as data on the page push channel.
         public var scriptDeliveries = 0
         public var dataDeliveries = 0
 

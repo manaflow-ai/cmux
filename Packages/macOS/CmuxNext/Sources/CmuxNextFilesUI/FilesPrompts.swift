@@ -88,7 +88,7 @@ struct FilesPrompts {
     }
 
     /// Shows `alert` as a sheet on the Files window. With no window there is nothing to attach it to, and
-    /// no nested modal loop stands in for one (p02-threads-132): the answer is Cancel.
+    /// no nested modal loop stands in for one: the answer is Cancel.
     private func run(_ alert: NSAlert) async -> NSApplication.ModalResponse {
         guard let window = window() else { return .cancel }
         // A sheet that went away without an answer is Cancel too.

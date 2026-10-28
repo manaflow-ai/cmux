@@ -7,7 +7,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The navigation mirrors of the Chromium Host (task p01-process-016) in the real host process:
+/// The navigation mirrors of the Chromium Host in the real host process:
 /// a Debug app's `<Product> Chromium Host` runs Chromium, this process loads the app's
 /// `libcmux_cef_shim_remote.dylib` (the shim ABI cmux loads in host mode, task 014), opens a
 /// `file://` probe page, navigates it, and reads `cmux_shim_tab_navigation_state` and

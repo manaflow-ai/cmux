@@ -1,4 +1,4 @@
-//! Trace control on a terminal host (p09-observability-015): the daemon's
+//! Trace control on a terminal host: the daemon's
 //! `TraceControl` request, the host's answer and its `TraceControlAck`.
 //!
 //! Request payload: `op u8` (1 start, 2 stop, 3 status), `categories u64`.

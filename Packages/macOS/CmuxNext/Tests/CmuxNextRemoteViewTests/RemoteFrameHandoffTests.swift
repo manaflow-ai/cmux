@@ -6,7 +6,7 @@ import Testing
 // The mock host exists in development builds only.
 #if DEBUG
 /// Decoded frames cross threads as checked Sendable values over one CoreVideo hand-off wrapper, and
-/// the mock host's encoder is an actor on its own serial queue (p10-stability-056). Run under TSan:
+/// the mock host's encoder is an actor on its own serial queue. Run under TSan:
 /// the encoder runs on the mock's queue, its output on a VideoToolbox thread, the decode on the
 /// pipeline actor, and the readers on the cooperative pool.
 @Suite struct RemoteFrameHandoffTests {

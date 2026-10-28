@@ -9,8 +9,8 @@ import CmuxNextSettings
 /// - `debug.memory` (every build, read-only): ``DebugMemoryControl``.
 /// - `debug.discards` (every build, read-only): cmux's chrome://discards
 ///   (`chrome/browser/ui/webui/discards/discards_ui.cc`) over the rows the discard planner's owners
-///   report (``ContentDiscardReport``, p07-memory-011): the nine content kinds and one row per content.
-///   Its socket policy is `debug.memory`'s (``DebugMemoryControl``, p07-memory-076): the main-actor
+///   report (``ContentDiscardReport``): the nine content kinds and one row per content.
+///   Its socket policy is `debug.memory`'s (``DebugMemoryControl``): the main-actor
 ///   body only copies the report, a value; `kind` is parsed and the answer filtered, redacted
 ///   (``MemoryDiagnosticsReport/opaqueToken(_:)`` on every content key) and encoded off the main actor.
 /// - `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override, which

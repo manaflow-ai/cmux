@@ -5,7 +5,7 @@ import MessagesLabSidebar
 
 /// The Home transcript's process-wide pixel caches (row bitmaps, decoded media, long-text tiles and
 /// bubble outlines, `MessagesLabTranscriptCaches`) and each Home list's row bitmaps as one lossless
-/// consumer of the Mac's memory coordinator (p07-memory-081), with one byte budget
+/// consumer of the Mac's memory coordinator, with one byte budget
 /// (`SubsystemBudget.homeRenderBitmapBytes`, which the caller passes).
 ///
 /// Chrome registers each cache as a consumer where it is built (base/memory_coordinator/memory_consumer.h);

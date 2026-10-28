@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-211: an agent's capture of a tab nobody sees votes on the tab's node, so the tab
+/// An agent's capture of a tab nobody sees votes on the tab's node, so the tab
 /// renders for it, and the vote ends with the capture (Chromium's DevTools page handler holds a
 /// `stay_hidden` capturer count for `Page.captureScreenshot` and `Page.startScreencast`).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct BrowserHostProviderCaptureTests {

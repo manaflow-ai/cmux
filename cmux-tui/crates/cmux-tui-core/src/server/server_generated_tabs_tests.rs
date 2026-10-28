@@ -1,4 +1,4 @@
-//! The generated `tabs` params (p05-ipc-029) decode every request line
+//! The generated `tabs` params decode every request line
 //! exactly as the hand-written `Command` variants did before that task (frozen
 //! below): the same value, or an error for the same line. Lines come from
 //! spec/fixtures/server-generated/tabs.json and from 1,000 proptest lines

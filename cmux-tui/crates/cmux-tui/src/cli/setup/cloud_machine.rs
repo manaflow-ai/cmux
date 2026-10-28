@@ -25,6 +25,8 @@
 //! of them on its socket, so a plan that allows no more machines comes back
 //! as the create's refusal, with the app's text.
 
+use crate::cli::json_fields::JsonFields;
+
 mod state;
 
 use serde_json::{Value, json};
@@ -69,7 +71,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         return forget(report, dry_run);
     }
     if !applies(global) {
-        report["state"] = json!("not_applicable");
+        report.insert("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     if let Err(action) = signed_in(global) {
@@ -86,7 +88,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
     let look = look(&listing, &saved);
     if let Some(id) = &look.gone {
         // Killed, or gone from cmux: setup no longer has a machine.
-        report["before"] = json!({"id": id, "status": "gone"});
+        report.insert("before", json!({"id": id, "status": "gone"}));
         if !dry_run {
             Saved::default().save()?;
         }
@@ -100,28 +102,31 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             needs_user(report, action)
         }
         Step::Machine { row, made, inferred } => {
-            let id = row["id"].as_str().unwrap_or_default().to_owned();
-            report["after"] = row.clone();
-            report["machine"] = row.clone();
+            let id = row.field("id").as_str().unwrap_or_default().to_owned();
+            report.insert("after", row.clone());
+            report.insert("machine", row.clone());
             if let Some(note) = paused_note(&row) {
-                report["note"] = json!(note);
+                report.insert("note", json!(note));
             }
             let ours = (made && !inferred) || saved.machine_id.as_deref() == Some(id.as_str());
             let action = machine_step(&row, ours);
-            report["state"] = json!(match (&action, made, dry_run) {
-                (Some(_), _, _) => "needs_user",
-                (None, true, true) => "planned",
-                (None, true, false) => "changed",
-                (None, false, _) => "ok",
-            });
-            report["user_action"] = action.unwrap_or(Value::Null);
+            report.insert(
+                "state",
+                json!(match (&action, made, dry_run) {
+                    (Some(_), _, _) => "needs_user",
+                    (None, true, true) => "planned",
+                    (None, true, false) => "changed",
+                    (None, false, _) => "ok",
+                }),
+            );
+            report.insert("user_action", action.unwrap_or(Value::Null));
             if inferred {
-                report["inferred"] = json!(true);
+                report.insert("inferred", json!(true));
             }
             if made {
-                report["undo"] = json!(undo(&id));
+                report.insert("undo", json!(undo(&id)));
                 if inferred {
-                    report["undo_note"] = json!(inferred_note(&id));
+                    report.insert("undo_note", json!(inferred_note(&id)));
                 }
                 if !dry_run {
                     keep(&mut report, &Saved { machine_id: Some(id), ..Saved::default() });
@@ -130,13 +135,16 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             Ok(Outcome { report, failed: false })
         }
         Step::Ask { key, .. } if dry_run => {
-            report["state"] = json!("planned");
-            report["undo"] = json!(undo("MACHINE_ID"));
-            report["cost"] = json!(COST);
+            report.insert("state", json!("planned"));
+            report.insert("undo", json!(undo("MACHINE_ID")));
+            report.insert("cost", json!(COST));
             if key.is_some() {
-                report["note"] = json!(
-                    "A create setup sent earlier has no answer and cmux shows nothing new; the \
+                report.insert(
+                    "note",
+                    json!(
+                        "A create setup sent earlier has no answer and cmux shows nothing new; the \
                      run sends that same create again"
+                    ),
                 );
             }
             Ok(Outcome { report, failed: false })
@@ -168,7 +176,7 @@ pub(super) fn status(global: &GlobalArgs) -> Value {
             json!({"task": TASK, "state": "needs_user", "user_action": action, "fix": RERUN})
         }
         Step::Machine { row, made, inferred } => {
-            let id = row["id"].as_str().unwrap_or_default();
+            let id = row.field("id").as_str().unwrap_or_default();
             let ours = (made && !inferred) || saved.machine_id.as_deref() == Some(id);
             let action = machine_step(&row, ours);
             let (state, fix) = match action {
@@ -192,15 +200,15 @@ fn forget(mut report: Value, dry_run: bool) -> Result<Outcome, Refusal> {
     let _lock = if dry_run { None } else { Some(Saved::lock()?) };
     let saved = Saved::load();
     if saved.is_empty() {
-        report["state"] = json!("ok");
+        report.insert("state", json!("ok"));
         return Ok(Outcome { report, failed: false });
     }
-    report["before"] = saved.to_json();
+    report.insert("before", saved.to_json());
     if dry_run {
-        report["state"] = json!("planned");
+        report.insert("state", json!("planned"));
     } else {
         Saved::default().save()?;
-        report["state"] = json!("changed");
+        report.insert("state", json!("changed"));
     }
     Ok(Outcome { report, failed: false })
 }
@@ -365,7 +373,7 @@ fn create(
         }
     };
     eprintln!("cmux: setup cloud-machine: waiting for the person to allow a new Cloud machine");
-    report["cost"] = json!(COST);
+    report.insert("cost", json!(COST));
     let params = Value::Object(super::super::app::action_run_params(
         CREATE,
         super::super::app::ActionName::Any,
@@ -379,49 +387,51 @@ fn create(
         Some(&key),
     );
     let result = match answer {
-        Ok(run) => run["result"].clone(),
+        Ok(run) => run.field("result").clone(),
         Err(error) => {
-            let code = error["code"].as_str().unwrap_or_default();
-            let declined = code == "unavailable" && error["data"]["reason"] == DECLINED_REASON;
+            let code = error.field("code").as_str().unwrap_or_default();
+            let declined =
+                code == "unavailable" && error.field("data").field("reason") == DECLINED_REASON;
             // Nothing ran: the app says so, or the request never left.
             let not_run = code == "busy"
-                || error["data"]["not_run"] == true
-                || error["details"]["state"] == "not_run";
+                || error.field("data").field("not_run") == true
+                || error.field("details").field("state") == "not_run";
             if declined || not_run {
                 Saved::default().save()?;
             }
-            let action = if declined {
-                declined_step()
-            } else if matches!(code, "app.transport" | "timeout") {
-                // The create may have gone through: the rerun reads the list.
-                wait_step()
-            } else if not_run {
-                app_problem(&error)
-            } else {
-                let mut action = app_problem(&error);
-                action["text"] = json!(format!(
+            let action =
+                if declined {
+                    declined_step()
+                } else if matches!(code, "app.transport" | "timeout") {
+                    // The create may have gone through: the rerun reads the list.
+                    wait_step()
+                } else if not_run {
+                    app_problem(&error)
+                } else {
+                    let mut action = app_problem(&error);
+                    action.insert("text", json!(format!(
                     "{}. Setup keeps the request, so a rerun makes no second machine; once the \
                      cause is fixed (a plan with room, say), `{FORGET}` lets setup ask again",
-                    action["text"].as_str().unwrap_or_default()
-                ));
-                action
-            };
+                    action.field("text").as_str().unwrap_or_default()
+                )));
+                    action
+                };
             return needs_user(report, action);
         }
     };
-    if let Some(id) = result["machine_id"].as_str() {
+    if let Some(id) = result.field("machine_id").as_str() {
         let row = view(&result);
-        report["after"] = row.clone();
-        report["machine"] = row;
-        report["undo"] = json!(undo(id));
-        report["state"] = json!("changed");
+        report.insert("after", row.clone());
+        report.insert("machine", row);
+        report.insert("undo", json!(undo(id)));
+        report.insert("state", json!("changed"));
         keep(&mut report, &Saved { machine_id: Some(id.to_owned()), ..Saved::default() });
         return Ok(Outcome { report, failed: false });
     }
     // Pending, or an app that answers no machine: the key stays, and with a
     // creation id the rerun follows that creation.
-    if let Some(creation) = result["creation_id"].as_str().filter(|id| !id.is_empty()) {
-        report["after"] = json!({"creation_id": creation});
+    if let Some(creation) = result.field("creation_id").as_str().filter(|id| !id.is_empty()) {
+        report.insert("after", json!({"creation_id": creation}));
         let saved = Saved {
             creation_id: Some(creation.to_owned()),
             key: Some(key),
@@ -446,8 +456,8 @@ fn keep(report: &mut Value, saved: &Saved) {
 
 /// The result when the person must do `action` first.
 fn needs_user(mut report: Value, action: Value) -> Result<Outcome, Refusal> {
-    report["state"] = json!("needs_user");
-    report["user_action"] = action;
+    report.insert("state", json!("needs_user"));
+    report.insert("user_action", action);
     Ok(Outcome { report, failed: false })
 }
 
@@ -485,13 +495,13 @@ fn read(global: &GlobalArgs, method: &str) -> Result<Value, Value> {
 /// Ok when the person is signed in to cmux and Cloud can run in this build.
 fn signed_in(global: &GlobalArgs) -> Result<(), Value> {
     let auth = read(global, "auth.status")?;
-    if let Some(reason) = auth["cloud_unavailable"].as_str() {
+    if let Some(reason) = auth.field("cloud_unavailable").as_str() {
         return Err(action("app", &format!("cmux Cloud cannot run here: {reason}"), None));
     }
-    if auth["signed_in"] == true {
+    if auth.field("signed_in") == true {
         return Ok(());
     }
-    if auth["restoring"] == true {
+    if auth.field("restoring") == true {
         return Err(action(
             "wait",
             "cmux is restoring the person's sign-in; run `cmux setup cloud-machine` again in a \

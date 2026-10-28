@@ -1,4 +1,4 @@
-/// The page relay channels of one ``WebUIHost`` (p13-webui-066): one per daemon service and daemon
+/// The page relay channels of one ``WebUIHost``: one per daemon service and daemon
 /// page id (`cmux.history` -> `history`), shared by every page tab of that id. The app's channel
 /// type (`PageRelayChannel`, a daemon connection with the `page_relay` role) lives in the app
 /// target, which knows the daemon; the host only keeps them, so no channel is a process-wide static.

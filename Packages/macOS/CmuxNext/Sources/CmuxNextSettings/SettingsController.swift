@@ -123,7 +123,7 @@ public final class SettingsController {
 
     /// Applies the launch's read as the first load, on the calling thread, with no file call and no
     /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnostics:)``
-    /// waits until after the first frame (p08-startup-079; Chrome applies the profile's read
+    /// waits until after the first frame (Chrome applies the profile's read
     /// preferences before the first window and arms the file watchers later). Nothing without a
     /// launch read or after the first load.
     public func adoptLaunchRead() {

@@ -1,4 +1,4 @@
-//! A frontend subscription scoped by its visible surfaces (p06-scheduler-227):
+//! A frontend subscription scoped by its visible surfaces:
 //! a hidden surface's field events coalesce into one per slot and flush on the
 //! aligned grid or at once on show; structural events, exits and the
 //! frontend's own changes never wait; other subscriptions are unchanged.

@@ -62,7 +62,7 @@ const TAPBACK_EMOJI: Record<string, string> = {
 };
 const MAX_PAGE = 200;
 /** The app's host verb that records a gesture-backed op's `transaction` as the person's
- * (CmuxNextPages PagePersonCauseRoute, p06-scheduler-231). */
+ * (CmuxNextPages PagePersonCauseRoute). */
 export const PERSON_CAUSE_OP = "cmux.host.cause.person";
 /** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
 const RUNS_CAPABILITY = "conversation-runs-v1";

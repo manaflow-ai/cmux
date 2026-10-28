@@ -1,4 +1,4 @@
-/// A binding's `when` clause compiled once per binding table (p04-input-055): its tests of the
+/// A binding's `when` clause compiled once per binding table: its tests of the
 /// legacy context bits (`terminalFocused`, `!codeEditorFocused`, ...) become masks checked
 /// against ``ActionContext`` in one AND each, so a key-down resolves without a dictionary lookup
 /// per bit test. Tests the bits cannot answer (`==`, `!=`, `=~`, `in`, a key with no bit) stay

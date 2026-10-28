@@ -231,7 +231,7 @@ uint64_t stats_unhandled_input_acks() {
   return stats.input_acks_unhandled;
 }
 
-// The input acks (kOpInputAck, task p01-process-042) the callback got, in order.
+// The input acks (kOpInputAck) the callback got, in order.
 struct InputAck {
   int32_t browser, kind;
   uint32_t seq;
@@ -521,7 +521,7 @@ void SayHello(Host* host, std::vector<const char*> exports) {
   CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
 }
 
-// cmux_shim_set_energy_saver in host mode (task p14-energy-045): the host's end sees kOpEnergySaver,
+// cmux_shim_set_energy_saver in host mode: the host's end sees kOpEnergySaver,
 // versioned, on each edge; the call answers 1 only for a host whose HELLO listed the saver; a new
 // host gets the saver once while it is on, and nothing while it is off; a host without the saver
 // gets no frame.
@@ -577,7 +577,7 @@ void TestEnergySaver() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 }
 
-// The provider link frames among `messages` (task p01-process-233): "<socket or <none>> <link id>".
+// The provider link frames among `messages`: "<socket or <none>> <link id>".
 std::vector<std::string> ProviderLinkFrames(const std::vector<Message>& messages) {
   std::vector<std::string> out;
   for (const Message& m : messages) {
@@ -589,7 +589,7 @@ std::vector<std::string> ProviderLinkFrames(const std::vector<Message>& messages
   return out;
 }
 
-// The host watch (task p01-process-084): a host whose HELLO lists kHangWatchHelloName has the
+// The host watch: a host whose HELLO lists kHangWatchHelloName has the
 // seqs cmux_remote_shim_order_input gives counted against its kOpInputDispatched. The callback
 // hears the first waiting seq, a dispatch that leaves later ones waiting, the dispatch that
 // settles them, and each kOpHostHang; a detach settles what waited. A host without the name
@@ -1061,8 +1061,7 @@ int main() {
     cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
-  // A password reveal's REPLY goes to its own sink, never to the reply callback (task
-  // p01-process-025).
+  // A password reveal's REPLY goes to its own sink, never to the reply callback.
   {
     static std::vector<std::pair<uint32_t, std::string>> revealed;
     static bool null_password = false;
@@ -1218,7 +1217,7 @@ int main() {
     }
   }
 
-  // The page's IME ops are ordered too (p04-input-064): a commit is applied after the key frame
+  // The page's IME ops are ordered too: a commit is applied after the key frame
   // written before it, never ahead of it.
   {
     uint32_t ctl = 0;
@@ -1465,7 +1464,7 @@ int main() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 
   // A reveal no answer reaches ends once as not found, revealed(token, NULL, 0): a detach, the
-  // host's exit, a malformed answer, a queued op that was then not sent (task p01-process-025).
+  // host's exit, a malformed answer, a queued op that was then not sent.
   {
     static std::vector<std::pair<uint32_t, bool>> ended;  // token, and whether password was NULL
     const cmux_remote::PasswordRevealedFn sink = [](uint32_t token, const char* password, size_t) {

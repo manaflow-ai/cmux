@@ -99,7 +99,7 @@ struct LayoutHiddenMotionTests {
         #expect(frame != nil && frame?.rect == frame?.targetRect)
     }
 
-    // MARK: Automation bursts (p06-scheduler-038)
+    // MARK: Automation bursts
 
     /// One screen of one pane in a window, bursts on (`automationBurstSnap`), with the test as the
     /// display clock and the burst clock.

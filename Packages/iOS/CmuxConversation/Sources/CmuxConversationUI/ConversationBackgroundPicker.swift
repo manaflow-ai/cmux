@@ -12,8 +12,10 @@ enum ConversationBackgroundChoice {
     case draft(ConversationBackgroundDraft)
     case photo(PickedPhoto)
 
-    /// Crosses from the photo picker's loading queue to the main actor once; never mutated.
-    struct PickedPhoto: @unchecked Sendable {
+    /// Crosses from the photo picker's loading queue to the main actor once.
+    /// Every field is Sendable (the Core Graphics overlay makes `CGImage`
+    /// Sendable), so the compiler checks it.
+    struct PickedPhoto: Sendable {
         var data: Data
         var mimeType: String
         var width: Int

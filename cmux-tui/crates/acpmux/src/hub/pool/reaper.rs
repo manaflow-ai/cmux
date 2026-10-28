@@ -35,8 +35,7 @@ pub fn tree_rss_bytes(root: u32) -> u64 {
         .collect();
     let mut tree = vec![root];
     let mut i = 0;
-    while i < tree.len() {
-        let parent = tree[i];
+    while let Some(&parent) = tree.get(i) {
         tree.extend(rows.iter().filter(|r| r.1 == parent && r.0 != parent).map(|r| r.0));
         i += 1;
     }

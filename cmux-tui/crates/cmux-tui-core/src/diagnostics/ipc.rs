@@ -102,8 +102,8 @@ impl Default for IpcStats {
 
 impl IpcStats {
     /// A connection's stream 0 opened; it counts as open until the guard
-    /// drops. No connection opens a second stream yet (attach-streams,
-    /// p05-ipc-074), so today this counts open connections.
+    /// drops. No connection opens a second stream yet (attach-streams),
+    /// so today this counts open connections.
     #[must_use = "the stream counts as open until the guard drops"]
     pub fn stream_opened(&self) -> OpenStream<'_> {
         self.streams_opened.fetch_add(1, Ordering::Relaxed);

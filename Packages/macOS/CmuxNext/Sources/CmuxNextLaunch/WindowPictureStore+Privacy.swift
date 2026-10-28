@@ -1,6 +1,6 @@
 public import AppKit
 
-/// The privacy fills of a window's picture (p08-startup-063, section 3C): what must never reach the disk shows the
+/// The privacy fills of a window's picture: what must never reach the disk shows the
 /// theme background instead. A terminal holding Secure Input is filled even when the quit took its frame; a browser
 /// page that is withheld (an incognito profile, Secure Input, protected media, a window hidden from screen capture)
 /// is filled even when a picture of it exists, and so is one the quit took no picture of. A whole window that is

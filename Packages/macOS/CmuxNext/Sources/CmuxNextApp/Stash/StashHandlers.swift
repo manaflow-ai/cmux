@@ -51,7 +51,7 @@ enum StashHandlers {
                 return found.isEmpty ? StashHandlerStrings.noPage : nil
             }
             ActionTargetVisibility.hide(id, in: registry) { invocation in
-                // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+                // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
                 guard invocation.target?.kind == .tab, let id = invocation.target?.id, let (_, pane) = services.locateTab(id) else { return false }
                 return !services.machines.daemon(forPane: pane).isLocal
             }
@@ -103,7 +103,7 @@ enum StashHandlers {
         let services = context.services
         let found: (TabModel, PaneModel)?
         if quiet {
-            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+            // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
             found = invocation.target.flatMap { $0.kind == .tab ? services.locateTab($0.id) : nil }
         } else {
             found = context.daemonTab(invocation).map { ($0.tab, $0.pane) }

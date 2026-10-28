@@ -5,6 +5,8 @@
 
 use super::person::{REASON, person_required, valid_key};
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
@@ -24,6 +26,10 @@ pub const CALLER_FIELD: &str = "callerSession";
 pub const START_MODE_FIELD: &str = "mode";
 
 /// This daemon run's caller secret: 32 random bytes, in memory only.
+#[allow(
+    clippy::expect_used,
+    reason = "no OS randomness means no safe token; Chrome's base/rand_util_posix.cc CHECKs the same"
+)]
 fn caller_secret() -> &'static [u8; 32] {
     static SECRET: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
     SECRET.get_or_init(|| {
@@ -108,8 +114,10 @@ fn read_host_name() -> Option<String> {
     if rc != 0 {
         return None;
     }
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    Some(String::from_utf8_lossy(&buf[..end]).into_owned())
+    // A name that fills the buffer has no NUL: all of it is the name.
+    let name =
+        std::ffi::CStr::from_bytes_until_nul(&buf).map_or(buf.as_slice(), std::ffi::CStr::to_bytes);
+    Some(String::from_utf8_lossy(name).into_owned())
 }
 
 #[cfg(not(unix))]
@@ -142,7 +150,7 @@ pub fn mode_person_required(
     };
     let mut data = json!({"reason": REASON, "mode": mode, "preset": preset});
     if local {
-        data["host"] = json!(host);
+        data.set("host", json!(host));
     }
     RpcError::new(-32000, message).with_data(data)
 }
@@ -368,9 +376,10 @@ impl Hub {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .or_else(|| name.and_then(|n| cfg.presets.get(n)).map(|p| p.harness.clone()));
-            harness
-                .and_then(|h| cfg.resolve_harness(&h).ok())
-                .map(|profile| crate::config::derive_family(&profile, &cfg.harnesses[&profile]))
+            harness.and_then(|h| cfg.resolve_harness(&h).ok()).and_then(|profile| {
+                let harness = cfg.harnesses.get(&profile)?;
+                Some(crate::config::derive_family(&profile, harness))
+            })
         };
         match family {
             Some(f) if self.web_modes().config_value_asks(&f, None, Some(mode)) => Ok(()),
@@ -458,8 +467,7 @@ impl Hub {
         let last = || {
             session
                 .stderr_tail
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .iter()
                 .rev()
                 .map(|l| l.trim().to_owned())

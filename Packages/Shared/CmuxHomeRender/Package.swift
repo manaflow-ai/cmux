@@ -25,11 +25,11 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxHomeCore"),
-        // blockingCall for the thumbnail reads (p02-threads-130, 146).
+        // blockingCall for the thumbnail reads.
         .package(path: "../CmuxThreading"),
         .package(path: "../CmuxFuzzSupport"),
-        // Invariant (p10-stability-099): CrashGuard's faults report through notFatalUntil.
-        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        // Invariant: CrashGuard's faults report through notFatalUntil.
+        // OnceContinuation, the continuation that resumes exactly once.
         .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [

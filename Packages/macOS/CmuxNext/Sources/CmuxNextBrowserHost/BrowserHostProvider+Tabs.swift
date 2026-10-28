@@ -14,7 +14,7 @@ struct AccessKey: Hashable {
 extension BrowserHostProvider {
     /// Follows the tab list and every CEF tab's extension access, and sends what changed. Only
     /// agents use it, and the read walks every tab (and may read extension manifests from disk), so
-    /// it runs only in an automation-class task (owner `browser-host.tabs`, p06-scheduler-036),
+    /// it runs only in an automation-class task (owner `browser-host.tabs`),
     /// never in the turn of a change or in a person's input response: a change posts the task, which
     /// reads again, tracked for the next change. A burst of changes before it runs is one read.
     /// Idempotent.

@@ -285,6 +285,7 @@ fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
 
 mod document_authority;
 mod navigation_barriers;
+mod panic_free_inputs;
 mod pointer_capture;
 mod reconfigure_and_attach;
 mod runtime_routes;

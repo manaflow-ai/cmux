@@ -312,7 +312,7 @@ impl Peer {
         let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
-            "url": self.url,
+            "url": shown_url(&self.url),
             "connected": self.connected.load(Ordering::SeqCst),
             "error": self.last_error.lock_or_recover().clone(),
             "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
@@ -464,7 +464,11 @@ impl Peer {
         token: Option<&str>,
         peer_token: Option<&str>,
     ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request, String> {
-        let mut req = url.into_client_request().map_err(|e| e.to_string())?;
+        // A peer URL saved with `?token=` in it: the listener takes the token
+        // only from a header, so it moves there and out of the URL.
+        let (url, query_token) = lift_query_token(url);
+        let token = token.or(query_token.as_deref());
+        let mut req = url.as_str().into_client_request().map_err(|e| e.to_string())?;
         if let Some(t) = token {
             req.headers_mut().insert(
                 "authorization",
@@ -494,7 +498,7 @@ impl Peer {
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
-        tracing::info!(peer = %self.name, "connected to {}", self.url);
+        tracing::info!(peer = %self.name, "connected to {}", lift_query_token(&self.url).0);
 
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
@@ -894,9 +898,99 @@ impl Drop for ForgetPending {
     }
 }
 
+/// `url` without its `token=` query items, and the first one's value.
+/// `url` as clients see it: without a query token (``lift_query_token``).
+pub fn shown_url(url: &str) -> String {
+    lift_query_token(url).0
+}
+
+/// Whether a query item's key (percent-decoded, any case) is `token`.
+fn is_token_key(key: &str) -> bool {
+    let mut decoded = Vec::with_capacity(key.len());
+    let mut rest = key.as_bytes();
+    while let Some((&first, tail)) = rest.split_first() {
+        // An escape is `%` and two hex digits. Reading them as bytes, not
+        // as `&key[..]`, never cuts through a multi-byte character.
+        if first == b'%'
+            && let Some((hex, after)) = tail.split_at_checked(2)
+            && let Some(byte) =
+                std::str::from_utf8(hex).ok().and_then(|hex| u8::from_str_radix(hex, 16).ok())
+        {
+            decoded.push(byte);
+            rest = after;
+        } else {
+            decoded.push(first);
+            rest = tail;
+        }
+    }
+    decoded.eq_ignore_ascii_case(b"token")
+}
+
+pub fn lift_query_token(url: &str) -> (String, Option<String>) {
+    let (rest, fragment) = url.split_once('#').map_or((url, None), |(r, f)| (r, Some(f)));
+    let Some((base, query)) = rest.split_once('?') else { return (url.to_owned(), None) };
+    let mut token = None;
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|item| match item.split_once('=').filter(|(key, _)| is_token_key(key)) {
+            Some((_, t)) => {
+                if token.is_none() && !t.is_empty() {
+                    token = Some(t.to_owned());
+                }
+                false
+            }
+            None => true,
+        })
+        .collect();
+    let mut out = base.to_owned();
+    if !kept.is_empty() {
+        out.push('?');
+        out.push_str(&kept.join("&"));
+    }
+    if let Some(f) = fragment {
+        out.push('#');
+        out.push_str(f);
+    }
+    (out, token)
+}
+
 #[cfg(test)]
 mod remote_config_tests {
     use super::*;
+
+    #[test]
+    fn a_query_token_moves_out_of_a_peer_url() {
+        assert_eq!(
+            lift_query_token("ws://h:1/?token=abc"),
+            ("ws://h:1/".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(
+            lift_query_token("ws://h:1/acp?x=1&token=abc&y=2"),
+            ("ws://h:1/acp?x=1&y=2".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(lift_query_token("ws://h:1/"), ("ws://h:1/".to_owned(), None));
+        assert_eq!(
+            lift_query_token("ws://h:1/?mytoken=a"),
+            ("ws://h:1/?mytoken=a".to_owned(), None)
+        );
+        // Any spelling of the key a server reads as `token` leaves the URL.
+        assert_eq!(
+            lift_query_token("ws://h:1/?Token=abc"),
+            ("ws://h:1/".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(
+            lift_query_token("ws://h:1/?%74oken=abc&x=1"),
+            ("ws://h:1/?x=1".to_owned(), Some("abc".to_owned()))
+        );
+        // A `%` before a multi-byte character is not an escape, and reading
+        // it never cuts through the character.
+        assert_eq!(lift_query_token("ws://h:1/?%é=2&x=1"), ("ws://h:1/?%é=2&x=1".to_owned(), None));
+    }
+
+    #[test]
+    fn a_peer_summary_never_shows_a_url_token() {
+        assert_eq!(shown_url("ws://h:1/?token=abc&x=1"), "ws://h:1/?x=1");
+    }
 
     #[test]
     fn the_links_own_attach_names_its_byte_limit() {

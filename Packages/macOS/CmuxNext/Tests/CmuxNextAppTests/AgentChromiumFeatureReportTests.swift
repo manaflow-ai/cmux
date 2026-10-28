@@ -7,8 +7,8 @@ import Testing
 
 /// `features.list` (and so the Labs card and a bench's recorded features) reports `agentChromium` as
 /// `AppServices.agentChromiumChat` runs it: Debug Settings `agent.chromium` is its live local override
-/// (source `local`) on DEV and NIGHTLY, and never under policy, the environment lists or in Release
-/// (p12-perf-process-104). Run: `swift test --filter AgentChromiumFeatureReportTests`.
+/// (source `local`) on DEV and NIGHTLY, and never under policy, the environment lists or in Release.
+/// Run: `swift test --filter AgentChromiumFeatureReportTests`.
 @MainActor
 @Suite struct AgentChromiumFeatureReportTests {
     private static let name = Feature.agentChromium.name

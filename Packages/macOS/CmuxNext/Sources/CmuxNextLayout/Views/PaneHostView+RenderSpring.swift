@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// A pane host on a render-server spring (chrome-parity R2, p03-rendering-022a): its frame is at rest
+/// A pane host on a render-server spring (chrome-parity R2): its frame is at rest
 /// from the spring's start, and additive springs of its backing layer show it moving there.
 extension PaneHostView {
     /// The key paths a render-server spring of the host animates on its backing layer (each with its

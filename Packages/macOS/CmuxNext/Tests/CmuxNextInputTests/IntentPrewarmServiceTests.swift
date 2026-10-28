@@ -5,7 +5,7 @@ import CmuxNextInputDiagnostics
 import CmuxNextWakeups
 import Testing
 
-/// Hover-dwell prewarm (p04-input-043) and pointer-down prewarm (p04-input-042, a press on a row that
+/// Hover-dwell prewarm and pointer-down prewarm (a press on a row that
 /// commits on its release is admitted to the same FIFO on its turn and its work starts on a background-class
 /// deadline at zero, never on the press's turn): one dwell MainDeadline, pending only while the pointer rests on a cold
 /// target, restarted on another target and cancelled on nothing, a press or a commit; the prewarm starts
@@ -13,7 +13,7 @@ import Testing
 /// pressure warning or worse, and critical pressure cancels the held prewarms (Chrome's speculation rules:
 /// anchor_element_interaction_tracker.cc, prerender_host_registry.cc).
 ///
-/// Key steps (p04-input-044): a next/previous key's prewarm of the following item is one background-class
+/// Key steps: a next/previous key's prewarm of the following item is one background-class
 /// deadline, never run in the key's turn; three presses prewarm items 2, 3, 4 in order through the FIFO of 2;
 /// a step the other way cancels the old direction's key-step prewarms.
 @MainActor @Suite(.timeLimit(.minutes(1)))
@@ -137,7 +137,7 @@ struct IntentPrewarmServiceTests {
         #expect(rig.service.isDwelling)
     }
 
-    // MARK: Pointer down (p04-input-042)
+    // MARK: Pointer down
 
     /// The press's turn admits and counts; the warmer's work runs only once the background-class press
     /// deadline fires, at zero (no dwell): the press-to-release time is the head start.
@@ -454,7 +454,7 @@ struct IntentPrewarmServiceTests {
         #expect(rig.service.counters.used == 1)
     }
 
-    // MARK: Key steps (p04-input-044)
+    // MARK: Key steps
 
     @Test func aKeyStepsPrewarmRunsAtTheBackgroundClassNeverInTheKeysTurn() {
         let rig = Rig()

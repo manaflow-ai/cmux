@@ -63,7 +63,7 @@ import Testing
         var value = false
     }
 
-    /// p06-scheduler-339 (fixer): the session-state wait has no time limit. Its keyed wait's bound passing on an
+    /// The session-state wait has no time limit. Its keyed wait's bound passing on an
     /// unchanged connection with the session still unknown files the wait again; it returns only when the stream
     /// answers (or the connection changes).
     @Test func aSessionStateWaitDoesNotReturnWhenItsKeyedBoundPasses() async {

@@ -1,5 +1,5 @@
 // Which page may take focus when no focus_request_fn is installed: the
-// Chromium Host's mode (task p01-process-032). cmux installs no focus handler
+// Chromium Host's mode. cmux installs no focus handler
 // there; it marks each page its window's first responder shows embedder-active
 // (cmux_shim_browser_set_embedder_active, fork API 30), and only a marked page
 // may be focused, by cmux or by Chromium's own request after a navigation it

@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p08-startup-074: the daemon's launch snapshot is read and decoded off main. `main` begins the read on the files
+/// The daemon's launch snapshot is read and decoded off main. `main` begins the read on the files
 /// lane (``LaunchSnapshotPrefetch``); the local daemon's start applies it in its own turn when the read has ended
 /// first, else on the read's end, and the launch window opens on ``DaemonLaunchSnapshot/whenSettled(_:)``. Before,
 /// `DaemonService.start` called `LaunchSnapshot.load` (up to 8 MiB of JSON) on the main thread.

@@ -10,7 +10,7 @@ import CmuxNextDesign
 /// an ordinary subview that AppKit moves with its ancestors
 /// (`content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`).
 ///
-/// It replaces the app-wide `browserChildWindowPagesNeedUpdate` notification (p06-scheduler-046). The
+/// It replaces the app-wide `browserChildWindowPagesNeedUpdate` notification. The
 /// window's layout owner asks through ``AppKit/NSWindow/updateBrowserPageGeometry(force:)``; only this
 /// window's registered pages hear it (no other window's, and no NotificationCenter dispatch), and each
 /// compares what it shows with its last update and tells the fork only on a change, so moving one page

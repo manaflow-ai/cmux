@@ -50,7 +50,7 @@ nonisolated struct CrashReportWriter: Sendable {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The JSON object of an end of the Chromium Host (p01-process-085): its signal or exit code, what it ran and its
+    /// The JSON object of an end of the Chromium Host: its signal or exit code, what it ran and its
     /// log's last lines, URLs replaced (``ChromiumHostCrashRecord``). `debug.crashes` lists the same object.
     func report(for record: ChromiumHostCrashRecord) -> [String: Any] {
         var object: [String: Any] = [

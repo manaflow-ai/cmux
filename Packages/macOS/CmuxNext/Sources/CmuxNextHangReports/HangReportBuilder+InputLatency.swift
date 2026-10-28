@@ -1,6 +1,6 @@
 import CmuxNextInputCore
 
-/// The input latency part of a report (p04-input-010), copied by allow-list like the rest: labels
+/// The input latency part of a report, copied by allow-list like the rest: labels
 /// only from the input enums' closed sets, bucket edges from ``InputLatencyBuckets``, counts and
 /// milliseconds clamped. A row whose labels or bucket shape do not match is left out.
 extension HangReportBuilder {

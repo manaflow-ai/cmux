@@ -47,7 +47,7 @@ struct GlassModeWatchTests {
         _ = watch
     }
 
-    /// p06-scheduler-301: the glass tunable is a scheduled observation. A Debug choice applies as one posted
+    /// The glass tunable is a scheduled observation. A Debug choice applies as one posted
     /// `visible` task on the app's scheduler, not in the turn of the change and not as an unclassed main hop.
     @Test func aGlassChoiceAppliesAsOnePostedVisibleTask() {
         let store = Self.lensStore()

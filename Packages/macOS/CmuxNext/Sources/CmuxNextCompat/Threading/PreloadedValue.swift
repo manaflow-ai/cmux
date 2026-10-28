@@ -8,8 +8,7 @@ import Atomics
 ///
 /// A read before the load (a test, or a reader that beat the lane) runs `read` itself, through the checked
 /// seams it uses, so on the main thread the blocking detector records it; the first value stored wins. It
-/// replaces a static initializer that blocked whichever thread asked first while the others waited
-/// (p02-threads-122).
+/// replaces a static initializer that blocked whichever thread asked first while the others waited.
 public nonisolated final class PreloadedValue<Value: Sendable>: Sendable {
     private final class Installed: Sendable {
         let value: Value

@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// `debug.input` section `gate` from the app's ``MainJobGate`` (p04-input-076; DC2, DC10): one copy
+/// `debug.input` section `gate` from the app's ``MainJobGate`` (DC2, DC10): one copy
 /// of its atomic counters per read, nothing per job. With no gate (feature `mainJobGate` off) every
 /// count is zero: nothing was held. The input-wait and non-Swift fields are not the gate's to
 /// measure, so they stay absent.

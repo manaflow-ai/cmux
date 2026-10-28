@@ -7,9 +7,9 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The Settings, History and Cloud coordinator on the app's one preload slot (``PagePreloads``,
-/// p13-webui-045): nothing preloads at launch; an open names the page, which preloads once input is
-/// quiet, into an empty slot only (it never evicts New Tab's page, p13-webui-044, and arms again
+/// The Settings, History and Cloud coordinator on the app's one preload slot (``PagePreloads``):
+/// nothing preloads at launch; an open names the page, which preloads once input is
+/// quiet, into an empty slot only (it never evicts New Tab's page, and arms again
 /// when the slot empties); no page preloads while its owner keeps a view that the next open shows;
 /// a preload boots with the document attributes a cold open uses, and an open with others opens cold.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))

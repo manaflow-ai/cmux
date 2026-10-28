@@ -1,4 +1,4 @@
-// Every page's automatic keep reasons (p13-webui-089): the first trusted edit or form interaction
+// Every page's automatic keep reasons: the first trusted edit or form interaction
 // tells the host once, untrusted events count for nothing, and the page's save, a route change or a
 // store's save end the edits. before_unload holds only while the page asks (askBeforeUnload), never
 // for a listener a library adds, and createPageClient installs the watch on every bridged page.

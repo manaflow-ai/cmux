@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// The input journal's tap subscription (p04-input-011), driven through a tap the way
+/// The input journal's tap subscription, driven through a tap the way
 /// `CmuxApplication.sendEvent` drives it: keys, flags, buttons, drags and scrolls are journaled,
 /// pointer moves are not, and the invariant monitor hears presses and the left mouse-up.
 @MainActor @Suite(.serialized)

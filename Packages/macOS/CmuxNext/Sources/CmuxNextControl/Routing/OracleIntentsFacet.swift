@@ -2,7 +2,7 @@
 public import CmuxNextDaemon
 public import CmuxNextOracle
 
-/// The oracle's `intents` facet (p15-oracle-040, schemas/oracle/snapshot-v1.schema.json `intents`): the daemon
+/// The oracle's `intents` facet (schemas/oracle/snapshot-v1.schema.json `intents`): the daemon
 /// store's pending intents, each as its transaction (relabeled by the runner), case name and target's public id,
 /// and three totals since launch that only grow: intents applied, intents the store rolled back because the
 /// daemon refused their command (``IntentTotals``), and refused perform turns (``OracleActionTurns``). The runner

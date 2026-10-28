@@ -19,7 +19,7 @@
 #[cfg(unix)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // The host's black box first (p09-observability-095), in the app's trace
+    // The host's black box first, in the app's trace
     // folder; the short-lived client commands (eval, list, ...) keep none.
     if args.first().is_some_and(|command| command == "serve") {
         drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::BrowserHost));

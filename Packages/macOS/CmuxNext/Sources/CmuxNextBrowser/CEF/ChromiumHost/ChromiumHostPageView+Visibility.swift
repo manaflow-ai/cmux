@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextWakeups
 
 /// What the person sees of a hosted page: `cmux_shim_page_visibility_t`, the value of
-/// `cmux_shim_browser_set_page_visibility` (task p01-process-220), Chrome's `content::Visibility`
+/// `cmux_shim_browser_set_page_visibility`, Chrome's `content::Visibility`
 /// of a tab.
 nonisolated enum ChromiumHostPageVisibility: Int32, Sendable {
     /// Shown: the page draws.

@@ -40,8 +40,8 @@ import Testing
         #expect(row.key.isEmpty, "a stale index configures nothing")
     }
 
-    /// One input of either property, its choices read from `data` (the libFuzzer entry,
-    /// p10-stability-182): a fresh model or controller, then steps until the input is used up.
+    /// One input of either property, its choices read from `data` (the libFuzzer entry):
+    /// a fresh model or controller, then steps until the input is used up.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         if rng.bool() {

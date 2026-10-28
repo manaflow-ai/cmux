@@ -67,10 +67,10 @@ DEBUG_CLI = REPO / "scripts" / "cmux-debug-cli.sh"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
+import normalize  # noqa: E402 - sibling of this file
 
 try:
-    import driver_daemon  # noqa: E402 - the daemon driver's case runner (p15-oracle-023)
+    import driver_daemon  # noqa: E402 - the daemon driver's case runner
     from driver_daemon import (  # noqa: E402
         BUILD_RECEIPT,
         DEFAULT_STATE_BASE,

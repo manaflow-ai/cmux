@@ -34,6 +34,7 @@ use super::{
     BrowserCommand, BrowserSession, BrowserSurface, BrowserWorkerSuccess, SequencedBrowserCommand,
     normalize_url,
 };
+use crate::panic_free::RecoverPoison;
 
 #[derive(Default)]
 pub(super) struct NavigationHold {
@@ -81,7 +82,7 @@ impl crate::Mux {
 
 impl BrowserSurface {
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
-        if let Some(reason) = self.navigation_hold.lock().unwrap().attach_failure.clone() {
+        if let Some(reason) = self.navigation_hold.lock().recover_poison().attach_failure.clone() {
             anyhow::bail!("browser failed: {reason}");
         }
         self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
@@ -110,7 +111,7 @@ impl BrowserSurface {
     /// navigation and refuse new ones until a new bootstrap attempt starts.
     pub(crate) fn abandon_attach(&self, message: String) {
         {
-            let mut hold = self.navigation_hold.lock().unwrap();
+            let mut hold = self.navigation_hold.lock().recover_poison();
             hold.attach_failure = Some(message.clone());
             hold.held = None;
         }
@@ -124,7 +125,7 @@ impl BrowserSurface {
 
     /// A new bootstrap attempt started, so navigation may be held again.
     pub(super) fn expect_attach(&self) {
-        self.navigation_hold.lock().unwrap().attach_failure = None;
+        self.navigation_hold.lock().recover_poison().attach_failure = None;
     }
 
     pub(crate) fn navigate_confirmed(&self, url: &str) -> anyhow::Result<()> {
@@ -136,14 +137,14 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let command = order.sequence(command);
-        *self.latest_nav.lock().unwrap() = Some(command);
+        *self.latest_nav.lock().recover_poison() = Some(command);
         let wake = order.sequence(BrowserCommand::WakeLatest);
         match tx.try_send(wake) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => {
-                self.latest_nav.lock().unwrap().take();
+                self.latest_nav.lock().recover_poison().take();
                 anyhow::bail!("browser command worker is closed")
             }
         }
@@ -161,12 +162,12 @@ impl BrowserSurface {
             // session under the same hold lock, so a navigation is either
             // held before attach consumes the hold or runs against the live
             // session; it can never fall between the two.
-            let mut hold = self.navigation_hold.lock().unwrap();
+            let mut hold = self.navigation_hold.lock().recover_poison();
             if !hold.is_current(sequence) {
                 anyhow::ensure!(!confirmed, "navigation was superseded by a newer navigation");
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let session = self.session.lock().unwrap().clone();
+            let session = self.session.lock().recover_poison().clone();
             if session.is_none() && !self.is_dead() {
                 if let Some(reason) = &hold.attach_failure {
                     anyhow::bail!("browser failed: {reason}");
@@ -199,11 +200,11 @@ impl BrowserSurface {
         used: Option<BrowserSession>,
         error: anyhow::Error,
     ) -> anyhow::Result<BrowserWorkerSuccess> {
-        let mut hold = self.navigation_hold.lock().unwrap();
+        let mut hold = self.navigation_hold.lock().recover_poison();
         if !hold.is_current(sequence) {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let current = self.session.lock().unwrap().clone();
+        let current = self.session.lock().recover_poison().clone();
         let target = HeldNavigation { sequence, url: url.to_string() };
         match current {
             None if hold.attach_failure.is_none() => {
@@ -228,7 +229,7 @@ impl BrowserSurface {
         session: BrowserSession,
         bootstrap_url: &str,
     ) -> anyhow::Result<()> {
-        let mut hold = self.navigation_hold.lock().unwrap();
+        let mut hold = self.navigation_hold.lock().recover_poison();
         self.mark_live(session)?;
         hold.attach_failure = None;
         let newest = hold.newest;
@@ -251,9 +252,9 @@ impl BrowserSurface {
     /// original sequence, so any navigation issued after it still wins.
     fn publish_held_navigation(&self, target: HeldNavigation) {
         let Ok(tx) = self.command_sender() else { return };
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         {
-            let mut latest = self.latest_nav.lock().unwrap();
+            let mut latest = self.latest_nav.lock().recover_poison();
             if latest.as_ref().is_some_and(|newer| newer.sequence > target.sequence) {
                 return;
             }

@@ -5,7 +5,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-079: the previous run's crash event, sent at the next launch, gets that run's crash keys as
+/// The previous run's crash event, sent at the next launch, gets that run's crash keys as
 /// tags and, with the hang-reports opt-in, its black box as `blackbox.txt`, exactly once, with catalog names and
 /// numbers only and 0 key records.
 @Suite struct PreviousRunCrashEvidenceTests {

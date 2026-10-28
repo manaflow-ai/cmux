@@ -1,6 +1,6 @@
 //! The byte, render and browser views as drains on the sequenced pool, on a
-//! client-minted attach stream (p05-ipc-079) or a legacy one
-//! (p01-process-125): the work of the former `mux-attach-out`,
+//! client-minted attach stream or a legacy one:
+//! the work of the former `mux-attach-out`,
 //! `mux-render-attach-out` and `mux-attach-notifications` threads, without
 //! the threads. The snapshot view's drain is in snapshot_attach_out.rs.
 
@@ -14,6 +14,7 @@ use crate::Mux;
 use crate::RenderAttachFrame;
 use crate::RenderAttachStream;
 use crate::SurfaceId;
+use crate::input_stages::InputStageRing;
 use crate::panic_free::RecoverPoison;
 use crate::server::AttachWireShape;
 use crate::server::MessageWriter;
@@ -76,17 +77,19 @@ impl StreamView<'_> {
     }
 
     /// A replay byte view: the terminal's output is the echo path.
+    /// Each echo goes out with its press's stages from `key_stages`.
     pub(crate) fn start_bytes(
         self,
         attach: AttachStream,
         shape: AttachWireShape,
+        key_stages: Option<Arc<InputStageRing>>,
     ) -> anyhow::Result<()> {
         self.start(
             true,
             |source: &BytesSource, hook| {
                 source.attach.stream.on_ready(hook);
             },
-            BytesSource { attach, shape },
+            BytesSource { attach, shape, key_stages },
         )
     }
 
@@ -118,6 +121,8 @@ impl StreamView<'_> {
 struct BytesSource {
     attach: AttachStream,
     shape: AttachWireShape,
+    /// The terminal's key presses' stages, read as each echo goes out.
+    key_stages: Option<Arc<InputStageRing>>,
 }
 
 impl ViewSource for BytesSource {
@@ -126,8 +131,14 @@ impl ViewSource for BytesSource {
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
         match self.attach.stream.try_recv() {
             Ok(frame) => {
-                let sent =
-                    out.writer.send_attach_frame(out.surface, &frame, self.shape, &out.stream);
+                let stages = self.key_stages.as_ref().and_then(|ring| ring.stages(frame.flow()));
+                let sent = out.writer.send_attach_frame(
+                    out.surface,
+                    &frame,
+                    self.shape,
+                    stages,
+                    &out.stream,
+                );
                 if out.sent(sent) { Step::Sent } else { Step::End }
             }
             Err(TryRecvError::Empty) => Step::Empty,

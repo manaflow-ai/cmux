@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// How host mode turns `<select>` popups as cmux menus on (p01-process-060, feature
+/// How host mode turns `<select>` popups as cmux menus on (feature
 /// `chromiumHostPopupMenus`): the source's choice reaches the host start, the start asks the host for
 /// POPUP_MENU only with the feature on and a fork at API 31, a POPUP_MENU with no menus to show it is
 /// answered -1, and the host's end closes an open menu with no answer.

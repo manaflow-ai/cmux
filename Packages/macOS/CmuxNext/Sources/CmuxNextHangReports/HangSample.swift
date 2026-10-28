@@ -17,7 +17,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         /// first in its life (``DaemonDiagnosticSite``; wire schema 3 only); ``HangSample/daemon`` says which.
         case daemon
         /// cmux's hang watch: a registered thread or lane still inside its scope 2 s past its budget
-        /// (p09-observability-068, Chrome's `HangWatcher`; wire schema 3 only). ``HangSample/thread`` names it.
+        /// (Chrome's `HangWatcher`; wire schema 3 only). ``HangSample/thread`` names it.
         case hangWatch = "hangwatch"
     }
 
@@ -168,7 +168,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     }
 
     /// Where the launch was when a watchdog stall or hang before startup completion ran (the watchdog's
-    /// `startup_phase` and `startup_task`, p08-startup-088): the launch phase and the `main()` step or startup
+    /// `startup_phase` and `startup_task`): the launch phase and the `main()` step or startup
     /// task running. Wire schema 3 only (``HangReport/WireSchema/carriesStartupTag``); the builder keeps only a
     /// known phase and a code-defined task name (``HangReportBuilder/safeStartup(_:)``).
     public struct Startup: Codable, Sendable, Hashable {

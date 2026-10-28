@@ -1,5 +1,5 @@
-// Autofill, password and <datalist> suggestions as data (fork API 31, task
-// p01-process-172; drawn by cmux, task 061), with no CEF
+// Autofill, password and <datalist> suggestions as data (fork API 31;
+// drawn by cmux, task 061), with no CEF
 // (scripts/cmux-next/test-shim-suggestion-rows-cpp.sh compiles it alone).
 // The Fork* structs copy include/cef_cmux.h of manaflow-ai/cef
 // cp/p01-process-172 (the artifact's header is older than API 31); the

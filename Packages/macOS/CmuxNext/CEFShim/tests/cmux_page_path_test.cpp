@@ -238,7 +238,7 @@ int main() {
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", (1u << 27) | (1u << 8)), "no grant with geolocation");
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", 0), "no grant for nothing");
 
-  // cmux.shared (p13-webui-050): ACAO only for a first-party page origin,
+  // cmux.shared: ACAO only for a first-party page origin,
   // serialized exactly; never for a web page, an app page or itself.
   auto acao = [](const std::string& origin) { return cmux_shim::SharedChunkAllowedOrigin(origin); };
   Expect(acao("cmux-page://cmux.settings") == "cmux-page://cmux.settings", "shared ACAO for Settings");

@@ -49,8 +49,8 @@ extension GhosttyAction {
 }
 
 /// One surface's Ghostty state actions (title, working directory, progress, scrollbar, search counts),
-/// applied once per frame of its window, latest wins per ``GhosttyActionSlot``
-/// (p04-input-079). A streaming program sends a scrollbar and often a title on every app tick; the
+/// applied once per frame of its window, latest wins per ``GhosttyActionSlot``.
+/// A streaming program sends a scrollbar and often a title on every app tick; the
 /// surface's model now changes once per frame however many came.
 ///
 /// Chrome does the same twice: `Browser::ScheduleUIUpdate` (chrome/browser/ui/browser.cc) keeps one
@@ -62,7 +62,7 @@ extension GhosttyAction {
 ///
 /// Its ``FrameClient`` is a batch client (it keeps ticking at the stall rate for an occluded window),
 /// made with the first action and active only while one waits: an idle surface has no frame client.
-/// The client follows the surface's tab node (p06-scheduler-218): while nobody sees the terminal, what
+/// The client follows the surface's tab node: while nobody sees the terminal, what
 /// waits stays held, latest wins per slot, and applies once in the first frame after it shows. A title
 /// (``GhosttyActionSlot/waitsWhileHidden``) still applies at the next frame, after what waits before it
 /// (a hidden

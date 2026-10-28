@@ -1,7 +1,7 @@
 import Testing
 @testable import CmuxHomeCore
 
-/// p14-energy-067b: Home's waits are flexible, so the kernel can fold them into wakes that happen
+/// Home's waits are flexible, so the kernel can fold them into wakes that happen
 /// anyway (plans/cmux-next/chrome-parity/p14-energy.md B), and a keepalive pings only after quiet.
 @Suite struct HomeWakeLeewayTests {
     @Test func theLeewayFollowsChromiumBelowOneSecondAndTenPercentAbove() {

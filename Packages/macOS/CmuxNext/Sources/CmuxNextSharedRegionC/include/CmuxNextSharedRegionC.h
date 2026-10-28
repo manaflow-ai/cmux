@@ -28,7 +28,7 @@ int cmux_shared_region_create(const void *bytes, size_t count);
 // Unix socket, so it passes the shm descriptor and checks its type.
 int cmux_shared_region_is_sealed(int fd);
 
-// The Chromium host input ring (p01-process-041; ChromiumHostInputRing.swift,
+// The Chromium host input ring (ChromiumHostInputRing.swift,
 // ChromiumHost/src/chromium_host_input_ring.h).
 //
 // A read-write, close-on-exec descriptor of an unlinked POSIX shared memory

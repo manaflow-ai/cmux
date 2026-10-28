@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/Layout and Requests/TabMove
-/// (p05-ipc-038): the line each one sends today is recorded in
+/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/Layout and Requests/TabMove:
+/// the line each one sends today is recorded in
 /// cmux-tui/spec/fixtures/layout-tab-move-requests/lines.json and compared here as JSON (key order does
 /// not count). The migration to the generated `<Name>Request` types (CmuxNextWireGen RequestEmitter) must
 /// keep these goldens green. The daemon side reads the same file (cmux-tui-core

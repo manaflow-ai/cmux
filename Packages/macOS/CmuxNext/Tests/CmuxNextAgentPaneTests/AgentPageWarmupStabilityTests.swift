@@ -6,7 +6,7 @@ import Testing
 import WebKit
 @testable import CmuxNextAgentPane
 
-/// p09-observability-108: the agent pages' WebKit warm-up page hears its content process's end whenever it was made,
+/// The agent pages' WebKit warm-up page hears its content process's end whenever it was made,
 /// before the launch settled too, and that end is one `warmup` stability event; the page stays until the settle.
 @MainActor @Suite struct AgentPageWarmupStabilityTests {
     private final class Reports {

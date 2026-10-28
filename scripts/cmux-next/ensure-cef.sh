@@ -153,7 +153,7 @@ dest="$root/$version$suffix"
 # The framework's GN args (archive.json gn_args): DCHECKs must be off, or a
 # DCHECK that web content reaches aborts cmux (crash-elimination.md). A warning
 # until the manifest sets "require_dcheck_off": true (the cmux.17 pin).
-# "require_official_pgo": true (chrome-parity p08-startup-047) also refuses a
+# "require_official_pgo": true also refuses a
 # manifest without the A/B record it won, and a framework that is not
 # is_official_build=true with the manifest's pinned pgo_profile.
 check_build_flags() { # <cef folder>

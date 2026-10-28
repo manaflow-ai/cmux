@@ -163,7 +163,7 @@ fn every_verb(surface: u64, cwd: &str) -> Vec<Value> {
 // MARK: Decoding
 
 /// The verbs decode through the one `cmd`-tagged enum spec/sdk-schema.json
-/// types (p05-ipc-019): each well-formed verb, receive-abort included, is
+/// types: each well-formed verb, receive-abort included, is
 /// read; an unknown verb, an unknown param and a mistyped one are not.
 #[test]
 fn every_verb_decodes_by_its_cmd_and_nothing_else_does() {

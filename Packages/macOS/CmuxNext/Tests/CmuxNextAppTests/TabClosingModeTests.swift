@@ -3,7 +3,7 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// Closing mode's exit watch on the app's input tap (p04-input-014): once the pointer leaves the strip
+/// Closing mode's exit watch on the app's input tap: once the pointer leaves the strip
 /// in closing mode the watch hears moves in the strip's window, presses in every window of the app
 /// and other apps' events through `globalObserve`; a press outside the strip ends closing mode, and
 /// every end path gives the tap back all three subscriptions.

@@ -4,7 +4,7 @@ import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
 import Testing
 
-/// HomeService's own observations and waits (p06-scheduler-308, plans/cmux-next/chrome-parity/
+/// HomeService's own observations and waits (plans/cmux-next/chrome-parity/
 /// p06-scheduler.md rules 3 and 9): its loops are `ServiceObservation`s, so their side effects run
 /// while no Home view exists, and `awaitHomeEnsured` is a keyed wait that only the latest
 /// `ensure_home` settles.

@@ -7,7 +7,7 @@ import Foundation
 import Testing
 
 /// A bridge child is killed where its last reference drops, often the main thread when a connection closes, and
-/// reaped on the bridge's reap queue from a process-exit source (p02-threads-128). It used to `waitpid` for the
+/// reaped on the bridge's reap queue from a process-exit source. It used to `waitpid` for the
 /// child inside its lock on the dropping thread.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct BridgeChildReapTests {

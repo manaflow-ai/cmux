@@ -11,7 +11,7 @@ pub enum BlockingMode {
     /// `CMUX_DAEMON_BLOCKING=record`).
     Record,
     /// Record the site, then panic at the caller's location (the Debug default
-    /// since the sweep passed in record mode, task p02-threads-021). Debug
+    /// since the sweep passed in record mode). Debug
     /// builds only; Release treats it as [`BlockingMode::Record`].
     Panic,
 }

@@ -8,7 +8,7 @@ import Testing
 
 private typealias PageJSON = CmuxNextSettings.JSONValue
 
-/// The diff tab's prefs stream through a real ``PageRouter`` hold (p13-webui-027). Each event is
+/// The diff tab's prefs stream through a real ``PageRouter`` hold. Each event is
 /// the whole prefs, so while the page is hidden or frozen the router keeps only the newest
 /// (`.latest`): at release the page gets that one, with no gap, and each older one is reported
 /// dropped once. The languages stream sends the whole pack and names the same policy

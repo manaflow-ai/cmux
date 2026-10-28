@@ -13,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Page policies batch 3 (p07-memory-026, `memoryDiscardInternalPages`): the Files tree, the Files
+/// Page policies batch 3 (`memoryDiscardInternalPages`): the Files tree, the Files
 /// pane, Find, the Markdown and code editor pages and the diff each declare when a hidden tab's view
 /// goes, what keeps it and what it saves. A file page with unsaved edits is never discarded at any
 /// pressure (Chrome's `kUserEdits`, cmux's lead rule); a discard changes no file's grant or route;

@@ -53,7 +53,7 @@ import CmuxNextWakeupsTestSupport
         #expect(!work.frames.hasLink, "the link goes away with the backlog")
     }
 
-    /// p06-scheduler-207, through the app's path (`SidebarRowFeed` on a budgeted `visible`
+    /// Through the app's path (`SidebarRowFeed` on a budgeted `visible`
     /// SidebarRows queue, its causes from `mainWork.causes`): 400 rows an automation change marked,
     /// then one a person's change marked. One row a flush and 1 ms a row map, so each automation
     /// flush is a 1 ms task. The person's row patches first, in the first frame; the automation
@@ -111,7 +111,7 @@ import CmuxNextWakeupsTestSupport
     }
 
     /// The person's turn is open (a key that expects a frame): the queue's person item goes to the
-    /// budget's `InputResponsePass` (p06-scheduler-206) and runs before that turn's commit, on a fake
+    /// budget's `InputResponsePass` and runs before that turn's commit, on a fake
     /// run loop. Frontend, program and automation items stay for the next frame: the frontend's
     /// unbudgeted with the frame clients, the others under the class budget. A person item queued
     /// before the turn opened is not the pass's: it waits for the frame too.
@@ -171,7 +171,7 @@ import CmuxNextWakeupsTestSupport
         #expect(scheduled.flushes.map { $0.cause } == [.automation, .person, .automation], "a flush that ran is scheduled again")
     }
 
-    // MARK: ContentPresentation on the budget window (p06-scheduler-010)
+    // MARK: ContentPresentation on the budget window
 
     /// A pane selection automation changed (a CLI or agent request) is budgeted `visible` work: a
     /// pending key holds it one frame, never two.

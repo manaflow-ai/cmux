@@ -66,7 +66,7 @@ import Testing
         #expect(!MotionTrace.isEnabled)
     }
 
-    /// p03-rendering-068: a popup's open forced a commit (`CATransaction.flush` in `openPopup`) so the
+    /// A popup's open forced a commit (`CATransaction.flush` in `openPopup`) so the
     /// card's first frame (opacity 0) reached the screen before the window turned opaque. The window
     /// now turns opaque right after the run loop's own commit of the open's turn: at Core Animation's
     /// commit order (one after the probe's `beforeOrder`) it is still clear, and before the run loop

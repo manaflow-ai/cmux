@@ -2,6 +2,7 @@
 //! `_acpmux/harness/health` and the daemon's periodic check.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
 use crate::maintenance::JobSpec;
@@ -133,10 +134,10 @@ impl Hub {
                 };
                 let mut out = json!({"id": id, "ok": ok});
                 if let Some(v) = version(&id) {
-                    out["version"] = json!(v);
+                    out.set("version", json!(v));
                 }
                 if let Some(e) = error {
-                    out["error"] = json!(e);
+                    out.set("error", json!(e));
                 }
                 out
             })

@@ -1,7 +1,7 @@
 @testable import CmuxNextInputCore
 import Testing
 
-/// An input's longest stage interval (p04-input-009, the latency HUD's input rows): the same
+/// An input's longest stage interval (the latency HUD's input rows): the same
 /// intervals the ledger files under each stage, by time not declaration, without
 /// `lastGenerated` (read from `InputLatencyLedger.interval(to:in:)`), and none for an input that
 /// reached fewer than two stages. Run:

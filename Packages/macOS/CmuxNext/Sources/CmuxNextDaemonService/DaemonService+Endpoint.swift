@@ -18,8 +18,8 @@ extension DaemonService {
         return endpoint
     }
 
-    /// This machine's control connection, which its terminal views attach on (`TerminalAttachment.attach(on:)`,
-    /// p05-ipc-098): as streams when the connection streams terminals, else each on a connection of its own to
+    /// This machine's control connection, which its terminal views attach on (`TerminalAttachment.attach(on:)`):
+    /// as streams when the connection streams terminals, else each on a connection of its own to
     /// the connection's current endpoint. Waits for the first connect while the service starts.
     public func machineConnection() async throws -> DaemonConnection {
         if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }

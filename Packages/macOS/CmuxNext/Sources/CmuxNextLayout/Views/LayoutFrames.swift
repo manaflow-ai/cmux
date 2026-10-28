@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The frames of one kind of view on a screen, panes or dividers (p03-rendering-106): where each one rests,
+/// The frames of one kind of view on a screen, panes or dividers: where each one rests,
 /// the rect the model's geometry gives it, and the spring that carries it there while the CPU steps the
 /// motion (`motion.renderServer` off, or a kind the render server does not take). A motion the render server
 /// took rests here in the change's turn; where each pane sweeps on its way is the plan's

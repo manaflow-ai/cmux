@@ -3,7 +3,7 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// The sidebar list's responsive scrolling (p03-rendering-110, feature `responsiveScrolling`): with the feature
+/// The sidebar list's responsive scrolling (feature `responsiveScrolling`): with the feature
 /// on, its scroll view opts in and a trackpad gesture reaches `super` only once ``ScrollAxisLatch`` rails it
 /// vertical (or it ends too short to show an axis), then whole from its `mayBegin`, so a horizontal swipe (and its
 /// momentum) stays the paging's and never becomes AppKit's to track. With it off, the list scrolls on the main

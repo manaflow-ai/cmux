@@ -147,20 +147,8 @@ impl<T> Pool<T> {
         if key.origin == Origin::Remote {
             return Wanted::default();
         }
-        let mut evicted = Vec::new();
         // A new key for an occupied slot: the old entry is discarded.
-        let mut i = 0;
-        while i < self.entries.len() {
-            if self.entries[i].key != key && self.entries[i].key.same_slot(&key) {
-                let e = self.entries.remove(i);
-                e.settle();
-                if let Slot::Ready(t) = e.slot {
-                    evicted.push(t);
-                }
-            } else {
-                i += 1;
-            }
-        }
+        let mut evicted = self.remove_where(|e| e.key != key && e.key.same_slot(&key));
         for e in self.entries.iter_mut().filter(|e| e.key.cwd == key.cwd) {
             match role {
                 Role::LastUsed => e.last_used = e.key == key,
@@ -200,20 +188,22 @@ impl<T> Pool<T> {
     }
 
     fn drop_unwanted(&mut self) -> Vec<T> {
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < self.entries.len() {
-            if self.entries[i].wanted() {
-                i += 1;
-                continue;
-            }
-            let e = self.entries.remove(i);
-            e.settle();
-            if let Slot::Ready(t) = e.slot {
-                out.push(t);
-            }
-        }
-        out
+        self.remove_where(|e| !e.wanted())
+    }
+
+    /// Remove every entry `doomed` picks, in order, settling each; returns
+    /// the ready sessions among them.
+    fn remove_where(&mut self, mut doomed: impl FnMut(&Entry<T>) -> bool) -> Vec<T> {
+        self.entries
+            .extract_if(.., |e| doomed(e))
+            .filter_map(|e| {
+                e.settle();
+                match e.slot {
+                    Slot::Ready(t) => Some(t),
+                    _ => None,
+                }
+            })
+            .collect()
     }
 
     /// A start finished at `now`. Returns the session back when the pool no
@@ -286,20 +276,7 @@ impl<T> Pool<T> {
 
     /// Remove every entry whose idle deadline passed; returns their sessions.
     pub fn expire(&mut self, now: Duration) -> Vec<T> {
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < self.entries.len() {
-            if self.entries[i].deadline > now {
-                i += 1;
-                continue;
-            }
-            let e = self.entries.remove(i);
-            e.settle();
-            if let Slot::Ready(t) = e.slot {
-                out.push(t);
-            }
-        }
-        out
+        self.remove_where(|e| e.deadline <= now)
     }
 
     /// Keep the ready sessions' RSS (`rss`, bytes) at or under `cap`: the

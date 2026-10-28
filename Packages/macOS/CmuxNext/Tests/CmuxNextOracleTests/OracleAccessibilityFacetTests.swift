@@ -4,7 +4,7 @@ import CmuxNextOracle
 import Foundation
 import Testing
 
-/// The ax facet (p15-oracle-216): per window, the kept AX elements in preorder with role, the localization key of
+/// The ax facet: per window, the kept AX elements in preorder with role, the localization key of
 /// their name (never the text), enabled, focused and depth; the tree is read in the main-actor turn and the keys off
 /// it. Run: `swift test --filter OracleAccessibilityFacetTests`.
 @MainActor

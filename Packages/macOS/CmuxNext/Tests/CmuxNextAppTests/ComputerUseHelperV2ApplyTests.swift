@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextComputerUse
 
-/// `apply(enabled:)` awaits the helper's spawn (p02-threads-037): an apply that turns Computer Use off while
+/// `apply(enabled:)` awaits the helper's spawn: an apply that turns Computer Use off while
 /// the spawn is in flight owns the state, whatever the spawn then does.
 @MainActor
 struct ComputerUseHelperV2ApplyTests {

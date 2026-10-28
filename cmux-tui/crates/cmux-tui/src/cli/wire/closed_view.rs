@@ -3,6 +3,8 @@
 
 use serde_json::Value;
 
+use crate::cli::json_fields::JsonFields;
+
 /// The widest MEMBERS cell, in characters, ellipsis included.
 const MAX_CELL: usize = 80;
 
@@ -15,7 +17,7 @@ pub(super) fn summarize(rows: &[Value]) -> Value {
                 let mut row = row.clone();
                 if let Some(members) = row.get("members").and_then(Value::as_array) {
                     let cell = members.iter().map(member).collect::<Vec<_>>().join(", ");
-                    row["members"] = Value::String(truncate(cell));
+                    row.insert("members", Value::String(truncate(cell)));
                 }
                 row
             })

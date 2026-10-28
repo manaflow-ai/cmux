@@ -11,7 +11,7 @@ public nonisolated struct ProviderSecret: Hashable, Sendable, CustomStringConver
     /// What the relay credential signs: `RELAY_CREDENTIAL_CONTEXT` in cmux-browser-host provider.rs.
     static let relayCredentialContext = Data("cmux-chromium-host-relay-v1".utf8)
 
-    /// The credential of the Chromium Host's relay link (task p01-process-233): HMAC-SHA256 of
+    /// The credential of the Chromium Host's relay link: HMAC-SHA256 of
     /// ``relayCredentialContext`` keyed by this secret's UTF-8 bytes, as 64 lowercase hex digits
     /// (`ProviderSecret::relay_credential` in provider.rs). It opens a relay link and no provider, so the
     /// app hands it, never the secret, to its Chromium Host.

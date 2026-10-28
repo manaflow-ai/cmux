@@ -1,4 +1,4 @@
-// A page's route, scroll and unsent inputs survive a discard (p13-webui-082): saved when the page
+// A page's route, scroll and unsent inputs survive a discard: saved when the page
 // hides, given back to the next document before its first paint, as Chrome's PageState is.
 import { describe, expect, test } from "bun:test";
 import { BridgePageClient, type PageClient, type ReplyHandler } from "./pageClient";

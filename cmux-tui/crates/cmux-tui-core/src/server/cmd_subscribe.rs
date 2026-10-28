@@ -124,7 +124,7 @@ pub(super) fn subscribe_command(
         probe,
     };
     // No thread: a drain on the pool, woken by the bus, the writer's room
-    // and the close of the writer or the stream (p01-process-203), as the
+    // and the close of the writer or the stream, as the
     // attach streams' pump (server/attach_pump.rs).
     let pump = AttachPump::new(&mux.sequenced_pool, SequencePriority::Control);
     writer.register_interrupt(pump.stop());

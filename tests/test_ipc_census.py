@@ -278,7 +278,7 @@ class ThreadQosTests(Fixture):
 
     def test_a_registered_spawn_and_the_role_map_set_the_qos(self):
         # cmux_threads::spawn registers the thread at its declared class before the closure
-        # runs, so every name passed to it is a thread with a QoS (p05-ipc-080).
+        # runs, so every name passed to it is a thread with a QoS.
         self.write("cmux-tui/crates/cmux-threads/src/spawn.rs", """
             pub fn spawn(name: impl Into<String>, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>> {
                 start(Builder::new(), name.into(), qos, f)

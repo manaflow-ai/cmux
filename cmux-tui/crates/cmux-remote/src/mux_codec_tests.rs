@@ -1,4 +1,4 @@
-//! Frames across the bridge codec (p01-process-237): read by header, cut into
+//! Frames across the bridge codec: read by header, cut into
 //! packets, joined back byte for byte, per stream in order.
 
 use std::collections::HashMap;

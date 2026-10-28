@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextApp
 import Testing
 
-/// The right sidebar's resize edge at most twice per frame (feature `pointerFrameDrags`,
-/// p04-input-031): the first drag event of a frame interval resizes in its own turn, the rest once
+/// The right sidebar's resize edge at most twice per frame (feature `pointerFrameDrags`):
+/// the first drag event of a frame interval resizes in its own turn, the rest once
 /// more at the frame, to the latest point; the release lands the pending resize first.
 @MainActor @Suite(.serialized) struct RightSidebarResizeHandleTests {
     final class Harness {

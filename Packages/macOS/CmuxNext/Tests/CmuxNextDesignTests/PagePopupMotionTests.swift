@@ -121,7 +121,7 @@ import Testing
         #expect(panel.parent == nil)
     }
 
-    /// The page's `popup` keep reason (p13-webui-032) follows the menu: one change as it shows, none
+    /// The page's `popup` keep reason follows the menu: one change as it shows, none
     /// for an update, one as it hides, and one as a dismiss from this side ends it.
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aPageMenuReportsItsShowAndItsEndOnce() throws {

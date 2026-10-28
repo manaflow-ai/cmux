@@ -1,6 +1,6 @@
 import AppKit
 
-/// A hidden conversation gives back its laid-out transcript (p07-memory-030): the rows, their cells, the open thread
+/// A hidden conversation gives back its laid-out transcript: the rows, their cells, the open thread
 /// view's rows and the bitmaps, tiles and decoded media only they drew. The store keeps the messages, the draft, the
 /// read state and every change that arrives meanwhile; the show lays out about 40 rows around the row that was at
 /// the top (MessagesWindowView.releaseRows).

@@ -107,7 +107,7 @@ final class AgentTabStore {
     var views: [String: AgentPaneView] = [:]
     /// A page is about to show: a tab's (``view(for:)``, an adopted spare) or a standalone chat (a
     /// prewarmed spare is not shown until adopted). The launch's New Tab feeds start right after the first frame
-    /// (`HomeService.postLaunchFeeds`, p08-startup-027).
+    /// (`HomeService.postLaunchFeeds`).
     var pageShown: @MainActor () -> Void = {}
     /// Agent tabs whose view waits for its launch post (`deferAtLaunch`).
     let launchDeferred = LaunchViewQueue()
@@ -405,7 +405,7 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         model.chatOpen = ChatOpenStages(chat: createTabs?.interval(ofTab: key)) // its open, while it waits for its first paint
-        // A tab its connection found (relaunch) that no open of this run made: its page follows the launch order (p08-startup-041).
+        // A tab its connection found (relaunch) that no open of this run made: its page follows the launch order.
         if seed == nil, store.restoredTabIDs.contains(key), createTabs?.interval(ofTab: key) == nil { model.pageOrigin = .launchRestore }
         relaunchWake.hand(key, to: model)
         wire(model, key: key)

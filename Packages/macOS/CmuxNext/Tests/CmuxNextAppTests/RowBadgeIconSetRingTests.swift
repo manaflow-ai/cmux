@@ -6,7 +6,7 @@ import Testing
 /// A corner badge sizes its ring to the glyph's kind: around the Codex-like set's 6 pt dot, the
 /// dot; around any other mark, its 10 pt box. A switch of the icon set while a row shows the badge
 /// keeps the glyph visible, so the glyph must still tell the badge to lay out, or the ring keeps
-/// the old set's size until the row's states change (p03-rendering-064 review).
+/// the old set's size until the row's states change.
 @MainActor @Suite(.serialized) struct RowBadgeIconSetRingTests {
     private static func apply(_ set: StatusIconSet) {
         var config = StatusIndicatorConfig.current

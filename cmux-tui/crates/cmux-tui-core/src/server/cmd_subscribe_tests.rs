@@ -1,5 +1,5 @@
-//! Page-relay subscriptions filter by event kind on the bus (chrome-parity
-//! p13-webui-067): a page relay that hears `history-changed` is never sent,
+//! Page-relay subscriptions filter by event kind on the bus:
+//! a page relay that hears `history-changed` is never sent,
 //! queued or rendered a terminal's `surface-output`, it still hears its own
 //! event, and a normal subscriber's stream is unchanged.
 
@@ -196,7 +196,7 @@ fn a_rendered_event_name_maps_back_to_its_kind() {
 
 /// A subscribed connection whose writer the test holds, and its probe. The
 /// subscription's drain holds one more reference to the probe while its
-/// pump runs (p01-process-203: a pump on the pool, not a thread).
+/// pump runs (a pump on the pool, not a thread).
 fn subscribed_with_writer(
     mux: &Arc<Mux>,
 ) -> (Arc<BoundedOutbound>, MessageWriter, Arc<SubscribeProbe>) {

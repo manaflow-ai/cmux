@@ -307,33 +307,11 @@ impl MachineActionWorker {
             preparation: Box::new(preparation),
         }) {
             Ok(()) => Ok(()),
-            Err(StdTrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
-                MachineControllerCommand::Perform { request, .. } => request,
-                MachineControllerCommand::SubscribeUpdates => {
-                    unreachable!("perform returned a subscription command")
-                }
-                MachineControllerCommand::AcknowledgeDurableNotice(_) => {
-                    unreachable!("perform returned a durable notice acknowledgement")
-                }
-                MachineControllerCommand::CommitReplacement { .. }
-                | MachineControllerCommand::AbortReplacement(_) => {
-                    unreachable!("perform returned a replacement decision")
-                }
-            })),
+            Err(StdTrySendError::Full(command)) => {
+                Err(MachineSubmitError::Busy(returned_perform_request(command)))
+            }
             Err(StdTrySendError::Disconnected(command)) => {
-                Err(MachineSubmitError::Stopped(match command {
-                    MachineControllerCommand::Perform { request, .. } => request,
-                    MachineControllerCommand::SubscribeUpdates => {
-                        unreachable!("perform returned a subscription command")
-                    }
-                    MachineControllerCommand::AcknowledgeDurableNotice(_) => {
-                        unreachable!("perform returned a durable notice acknowledgement")
-                    }
-                    MachineControllerCommand::CommitReplacement { .. }
-                    | MachineControllerCommand::AbortReplacement(_) => {
-                        unreachable!("perform returned a replacement decision")
-                    }
-                }))
+                Err(MachineSubmitError::Stopped(returned_perform_request(command)))
             }
         }
     }
@@ -359,6 +337,10 @@ impl MachineActionWorker {
             | Err(StdTrySendError::Disconnected(
                 MachineControllerCommand::AcknowledgeDurableNotice(delivery),
             )) => Err(delivery),
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: a failed try_send hands back the AcknowledgeDurableNotice it was given"
+            )]
             Err(StdTrySendError::Full(_)) | Err(StdTrySendError::Disconnected(_)) => {
                 unreachable!("durable notice sender returned a different command")
             }
@@ -392,6 +374,23 @@ impl MachineActionWorker {
         // in progress. Dropping the handle detaches that bounded cleanup so
         // quitting the TUI never waits for the provider deadline.
         self.worker.take();
+    }
+}
+
+/// The request of the `Perform` command a failed `try_send` handed back.
+#[allow(
+    clippy::unreachable,
+    reason = "INVARIANT: a failed try_send hands back the command it was given, and perform sends only Perform"
+)]
+fn returned_perform_request(command: MachineControllerCommand) -> MachineRequest {
+    match command {
+        MachineControllerCommand::Perform { request, .. } => request,
+        MachineControllerCommand::SubscribeUpdates
+        | MachineControllerCommand::AcknowledgeDurableNotice(_)
+        | MachineControllerCommand::CommitReplacement { .. }
+        | MachineControllerCommand::AbortReplacement(_) => {
+            unreachable!("try_send handed back a command perform did not send")
+        }
     }
 }
 

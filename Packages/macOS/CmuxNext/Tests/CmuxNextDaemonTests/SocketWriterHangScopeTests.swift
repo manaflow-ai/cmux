@@ -6,7 +6,7 @@ import Testing
 
 /// The daemon socket writer registers the `daemon.write` lane and sends each drain step inside one scope of
 /// 2 s (plans/cmux-next/chrome-parity/p09-observability.md, section E, task 069); a write waiting for the drain
-/// queue is in none, and so is an inline send of an idle writer (p05-ipc-140), which never waits for the socket.
+/// queue is in none, and so is an inline send of an idle writer, which never waits for the socket.
 /// The drain runs on a target the test holds; the first write comes from the main thread, which always queues,
 /// so both writes wait before the first step.
 @Suite(.timeLimit(.minutes(1))) struct SocketWriterHangScopeTests {

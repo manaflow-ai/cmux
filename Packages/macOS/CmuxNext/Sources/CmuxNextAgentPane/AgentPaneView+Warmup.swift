@@ -28,20 +28,20 @@ extension AgentPaneView {
     }
 }
 
-/// Starts WebKit for the agent pages after the first window frame (cx-z9kz0,
-/// p08-startup-017): WebKit's first-use setup, and the page pool's one-time
+/// Starts WebKit for the agent pages after the first window frame (cx-z9kz0):
+/// WebKit's first-use setup, and the page pool's one-time
 /// font listing (R81: registerUserInstalledFonts runs once per pool), then run
 /// before a later agent page loads. The view is made in the pool and data store
 /// of the agent pages' process groups (``WebUIHost/groupedWebKitConfiguration()``),
 /// so the first agent page can use its web content process. The app posts
-/// ``start(webUI:)`` at afterStartup (p08-startup-042): before startup
+/// ``start(webUI:)`` at afterStartup: before startup
 /// completes, the only WebKit views are those of the agent tabs the launch
 /// shows, each made in its own afterFirstFrame post once its picture drew
 /// (`LaunchViewQueue`), and the first of them starts WebKit itself, so the
 /// warm-up then makes nothing. It used to run before NSApplication.run, where
 /// it held the main thread 80-350 ms ahead of the first frame.
 ///
-/// It makes nothing when new agent pages open in Chromium (p13-webui-046): the
+/// It makes nothing when new agent pages open in Chromium: the
 /// page host's engine decision for the agent page
 /// (``AgentPaneView/newPagesShowInWebKit(chromiumChat:hosting:)``) is taken when
 /// it runs, so a launch with Chromium as the default makes no `WKWebView`, no
@@ -83,7 +83,7 @@ public final class AgentPageWarmup {
     private lazy var loadEnd = AgentPageWarmupLoadEnd(warmup: self)
     /// Whether the agent chat may run in Chromium, read at each engine decision.
     private let chromiumChat: @MainActor () -> Bool
-    /// Where the page's content-process end goes as a stability event (p09-observability-108); nil records none.
+    /// Where the page's content-process end goes as a stability event; nil records none.
     private let stability: RendererStability?
     /// The WebContent process the page committed in: grouped pages can run in it too
     /// (``WebUIHost/groupedWebKitConfiguration()``), so its end names it and counts that process once.

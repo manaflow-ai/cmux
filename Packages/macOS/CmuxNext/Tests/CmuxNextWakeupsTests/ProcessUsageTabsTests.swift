@@ -2,7 +2,7 @@ import CmuxNextWakeups
 import Darwin
 import Testing
 
-/// p14-energy-124: renderer CPU, wakeups and energy grouped per tab. A renderer serves a tab when it hosts
+/// Renderer CPU, wakeups and energy grouped per tab. A renderer serves a tab when it hosts
 /// its main frame (the fork's pid) or any of its frames (a renderer client id); same-site tabs share one
 /// renderer and both show its whole usage, and the renderer names both.
 @Suite struct ProcessUsageTabsTests {

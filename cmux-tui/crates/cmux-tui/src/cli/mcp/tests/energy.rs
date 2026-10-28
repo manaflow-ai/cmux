@@ -1,4 +1,4 @@
-//! The `energy_status` tool (p14-energy-033): it reads the app's
+//! The `energy_status` tool: it reads the app's
 //! `energy.status` (served in release builds too) and the session daemon's
 //! `energy.status`, returns the report `cmux energy status --json` prints,
 //! and changes nothing.

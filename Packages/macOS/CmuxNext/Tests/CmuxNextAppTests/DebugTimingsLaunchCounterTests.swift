@@ -3,7 +3,7 @@ import CmuxNextLaunch
 import CmuxNextSettings
 import Testing
 
-/// `debug.timings` reports the first frame's launch counters (p08-startup-007) as `launch_counters`,
+/// `debug.timings` reports the first frame's launch counters as `launch_counters`,
 /// apart from the time marks in `launch_ms_since_process_start`, and `markLaunch` feeds them from
 /// its milestone once.
 @MainActor struct DebugTimingsLaunchCounterTests {

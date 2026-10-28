@@ -15,6 +15,7 @@ use super::super::federation;
 use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
+use crate::cli::json_fields::JsonFields;
 
 const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
@@ -263,6 +264,10 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: CATALOG_JSON is a checked-in spec file compiled in with include_str!; its tests parse it"
+)]
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog"))
@@ -315,14 +320,14 @@ fn build() -> Vec<V2Tool> {
         else {
             continue;
         };
-        let fields = &descriptor["params"]["fields"];
+        let fields = &descriptor.field("params").field("fields");
         tools.push(V2Tool {
             name: tool_name(wire),
             operation,
             wire: wire.as_str(),
             mutation: class == "mutation",
             paginated: class == "read"
-                && descriptor["result"]["kind"] == "array"
+                && descriptor.field("result").field("kind") == "array"
                 && fields.get("limit").is_none(),
             descriptor,
         });
@@ -385,11 +390,11 @@ impl V2Tool {
     }
 
     fn selectors(&self) -> impl Iterator<Item = (&'static String, &'static Value)> {
-        self.descriptor["params"]["selectors"].as_object().into_iter().flatten()
+        self.descriptor.field("params").field("selectors").as_object().into_iter().flatten()
     }
 
     fn fields(&self) -> &'static Value {
-        &self.descriptor["params"]["fields"]
+        self.descriptor.field("params").field("fields")
     }
 
     fn description(&self) -> String {
@@ -410,7 +415,9 @@ impl V2Tool {
         {
             text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
         }
-        if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
+        if let Some(constraints) =
+            schema::joined(self.descriptor.field("params").field("constraints"))
+        {
             text.push(' ');
             text.push_str(&constraints);
         }
@@ -498,7 +505,7 @@ impl V2Tool {
         if self.operation == ResourceOperation::MachineGet {
             text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
         }
-        let selectors = self.descriptor["params"]["selectors"].as_object();
+        let selectors = self.descriptor.field("params").field("selectors").as_object();
         let fields = self.fields().as_object();
         let mut params = Map::new();
         for scope in ["machine", "session"] {
@@ -533,8 +540,8 @@ impl V2Tool {
                 }
                 _ if field.is_some() => {
                     let resource = field.and_then(|field| {
-                        (field["type"]["kind"] == "resource_id")
-                            .then(|| field["type"]["resource"].as_str())
+                        (field.field("type").field("kind") == "resource_id")
+                            .then(|| field.field("type").field("resource").as_str())
                             .flatten()
                     });
                     let value = match (resource, value.as_str()) {

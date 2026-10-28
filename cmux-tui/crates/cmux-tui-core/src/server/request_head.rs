@@ -1,5 +1,5 @@
-//! A request line's head, parsed once before anything else reads the line
-//! (p05-ipc-062). Chrome reads a Mojo message's header once
+//! A request line's head, parsed once before anything else reads the line.
+//! Chrome reads a Mojo message's header once
 //! (`mojo/public/cpp/bindings/lib/message.cc`, `Message::header()`) and
 //! routes on its name to the one receiver that decodes the payload
 //! (`mojo/public/cpp/bindings/lib/multiplex_router.cc`, `Accept`); the

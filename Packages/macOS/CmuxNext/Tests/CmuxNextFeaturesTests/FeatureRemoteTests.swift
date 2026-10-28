@@ -8,7 +8,7 @@ import CryptoKit
 #endif
 
 /// The signed flags document's feature keys and the store of its copies
-/// (p12-perf-process.md section 3.9, task p12-perf-process-092).
+/// (p12-perf-process.md section 3.9).
 struct FeatureRemoteTests {
     private static let kill = feature(0, "killThing", .killSwitch)
     private static let perf = feature(1, "perfThing", .perfPath)

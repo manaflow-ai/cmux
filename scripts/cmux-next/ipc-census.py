@@ -76,7 +76,7 @@ RUST_CRATES = "cmux-tui/crates/*.rs"
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
 EVENT_DECODER = f"{APP}/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift"
 SERVER = f"{CORE}/server.rs"
-# Families whose Command variants cmux-ipc build.rs generates (p05-ipc-026); Q15 counts only
+# Families whose Command variants cmux-ipc build.rs generates; Q15 counts only
 # the hand-written ones.
 SERVER_FAMILIES = "cmux-tui/crates/cmux-ipc/server-families.json"
 RESOURCE_WIRE_NAMES = f"{CORE}/resource/wire_name.rs"

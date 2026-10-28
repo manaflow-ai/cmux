@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// Every listing of Chromium helpers reads the parent it is given (task p01-process-225): the app in process, the
+/// Every listing of Chromium helpers reads the parent it is given: the app in process, the
 /// Chromium Host in host mode (``ChromiumHelperParent``), none while no host is attached. A helper of the wrong
 /// parent never shows: in host mode the app has no helper children, so a listing of the app's would show none.
 @Suite(.serialized)

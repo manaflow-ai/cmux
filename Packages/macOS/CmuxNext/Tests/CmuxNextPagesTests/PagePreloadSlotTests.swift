@@ -10,7 +10,7 @@ import Testing
 /// ``PagePreloadSlot`` holds at most one page, parks it in Chrome's order (visible load, cover,
 /// hidden, then frozen), refits it once per quiet size, claims it in the open's turn with its cover
 /// on top only at the size the cover shows and no implicit animation, takes the cover off at the
-/// first live frame or its limit, and drops it on any non-normal pressure (p13-webui-043; the host's
+/// first live frame or its limit, and drops it on any non-normal pressure (the host's
 /// memory registration is `WebUIHostPressureTests`).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PagePreloadSlotTests {

@@ -10,7 +10,7 @@ extension LineTransport {
     /// Routes one line by its fields, on the reader thread. ``LineRouteScan`` reads them from the reader's
     /// bytes, so a reply or an event is parsed once, by its reader. Only a line the scan cannot read is decoded
     /// as an ``Envelope`` here; a reply that is not `ok:true` is decoded once for its error fields, on the lane.
-    /// What a line causes (its handler, its waiter's resumption) goes to ``lane`` in wire order (p05-ipc-144):
+    /// What a line causes (its handler, its waiter's resumption) goes to ``lane`` in wire order:
     /// the reader counts and routes, and decodes nothing a handler reads. Returns the wait an attach stream's item
     /// leaves the reader, which it runs after the line, outside its hang scope (``AttachStreamSink``).
     func route<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, dispatch: EventDispatch,

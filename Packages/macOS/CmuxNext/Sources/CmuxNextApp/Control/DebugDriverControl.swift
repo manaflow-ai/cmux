@@ -76,7 +76,7 @@ enum DebugDriverControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
-            // What this launch runs of the shipping configuration idle-budget measures (p14-energy-100).
+            // What this launch runs of the shipping configuration idle-budget measures.
             ShippingModeReport { @MainActor [weak services] in
                 guard let services else { return nil }
                 let hangReports = await AppProcessRoot.shared.hangReports?.shippingModeState(setting: services.settings?.snapshot.hangReports)
@@ -172,7 +172,7 @@ enum DebugDriverControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
-            // p03-rendering-110: a list's composited frames read off main, around a stall (ScrollFrameProbe).
+            // A list's composited frames read off main, around a stall (ScrollFrameProbe).
             .async("debug.scroll_frames") { [weak services] call in
                 guard let services else { return .null }
                 return await scrollFrames(call.params, services)

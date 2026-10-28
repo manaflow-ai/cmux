@@ -1,5 +1,5 @@
 // Checks the Chromium Host's provider link (src/host_provider_link.h and
-// src/host_provider_link.mm, task p01-process-233): its frames and op
+// src/host_provider_link.mm): its frames and op
 // encode and decode; AgentRelays sends a relayed page's commands to the shim,
 // answers a refused one with a CDP error, takes the page's replies and events
 // off cmux's stream and keeps the page's watch on while either side wants it;

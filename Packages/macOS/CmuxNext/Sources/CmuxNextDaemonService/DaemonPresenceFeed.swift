@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextWakeups
 
-/// Feeds the app's one ``ConnectionPresence`` from its shown windows while it lives (p14-energy-064).
+/// Feeds the app's one ``ConnectionPresence`` from its shown windows while it lives.
 /// The composition root makes one, keeps it for the app's lifetime and hands ``presence`` to every
 /// machine's ``DaemonService``.
 @MainActor public final class DaemonPresenceFeed {

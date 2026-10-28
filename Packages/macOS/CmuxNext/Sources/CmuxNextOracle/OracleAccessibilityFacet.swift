@@ -1,7 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import Foundation
 
-/// The `ax` facet (p15-oracle-216, schemas/oracle/snapshot-v1.schema.json `facets.ax`): per window, the
+/// The `ax` facet (schemas/oracle/snapshot-v1.schema.json `facets.ax`): per window, the
 /// accessibility elements a person can focus or act on, in preorder, each with its role, the localization key of
 /// its name, whether it is enabled and whether it has the keyboard focus. It is the one facet whose subject is a
 /// view tree (p15-oracle.md section 4, rule 7 names model values for the others).

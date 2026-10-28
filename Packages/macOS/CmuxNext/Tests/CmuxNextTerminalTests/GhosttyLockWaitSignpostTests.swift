@@ -5,7 +5,7 @@ import CmuxNextCompat
 import Testing
 
 /// Each input wait ghostty-next reports for its terminal lock is one `ghostty.lock_wait` instant with the wait in
-/// ns (p04-input-078), and nothing reaches the ring while the ghostty category is off.
+/// ns, and nothing reaches the ring while the ghostty category is off.
 @MainActor
 struct GhosttyLockWaitSignpostTests {
     /// The records a test runtime writes, in order.

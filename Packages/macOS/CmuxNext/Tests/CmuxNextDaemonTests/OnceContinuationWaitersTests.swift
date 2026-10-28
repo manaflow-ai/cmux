@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The daemon module's waits on CmuxSafeConcurrency's OnceContinuation (p10-stability-087): each still answers
+/// The daemon module's waits on CmuxSafeConcurrency's OnceContinuation: each still answers
 /// as its raw continuation did, whichever of the producer and the waiter comes first.
 @Suite(.timeLimit(.minutes(1))) struct OnceContinuationWaitersTests {
     @Test func anIdleWaitReturnsWhenTheLastTicketCloses() async {

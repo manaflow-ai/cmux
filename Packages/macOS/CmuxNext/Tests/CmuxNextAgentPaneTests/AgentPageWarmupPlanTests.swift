@@ -3,9 +3,9 @@ import CmuxNextPagesTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The agent pages' WebKit warm-up (p08-startup-017): when its page may be made and when it goes,
+/// The agent pages' WebKit warm-up: when its page may be made and when it goes,
 /// which engine a new agent page opens in, decided with no side effect, and no warm-up page while agent
-/// pages open in Chromium (p13-webui-046).
+/// pages open in Chromium.
 @Suite struct AgentPageWarmupPlanTests {
     @Test func aWarmupQueuedPastTheSettleStillMakesItsPage() {
         var plan = AgentPageWarmupPlan()

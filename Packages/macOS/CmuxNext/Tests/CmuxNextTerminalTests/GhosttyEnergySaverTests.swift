@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// libghostty's side of Energy Saver (p14-energy-114): a fake runtime gets one
+/// libghostty's side of Energy Saver: a fake runtime gets one
 /// `ghostty_app_set_energy_saver` call per edge of the app's saver state and none for a state it
 /// already has; a state no app could take yet is sent when the app starts.
 @MainActor
