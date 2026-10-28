@@ -84,7 +84,7 @@ async function openPicker(
   efforts: string[] | undefined,
   inline: boolean,
   effortPicks: string[] = [],
-  effortsDeclared = false,
+  effortsDeclared: boolean | undefined = false,
 ) {
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const { PromptFocus } = await import("../src/agent-session/acpmux/promptFocus");
@@ -92,7 +92,7 @@ async function openPicker(
     id: "claude-opus-5-5",
     name: "Opus 5.5",
     efforts: efforts ?? [],
-    ...(effortsDeclared ? { effortsDeclared: true } : {}),
+    ...(effortsDeclared === undefined ? {} : { effortsDeclared }),
   };
   root = (await import("react-dom/client")).createRoot(host);
   await act(async () =>
@@ -156,6 +156,11 @@ test.each([
     row.textContent?.startsWith("Effort"),
   );
   expect(Boolean(effortSubmenu)).toBe(capability === "absent" && !inline);
+});
+
+test("a direct catalog's unmarked empty effort list remains explicitly unsupported", async () => {
+  await openPicker([], true, [], undefined);
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
 });
 
 test("the running model uses live session levels over stale catalog efforts", async () => {
