@@ -164,10 +164,10 @@ final class WindowRecordSaver {
         DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
         let records = currentRecords()
-        // Keys on every machine, plus those whose machine has not loaded yet
-        // (they must survive until it reconnects).
-        let live = Set(services.machines.allWorkspaces.compactMap(\.0.key))
-            .union(records.flatMap(\.workspaceKeys).filter { !manager.isDead($0.rawValue) })
+        // The records' keys that are not dead: a machine lists them (`isDead` looks each up, O(1) per store), or
+        // their machine has not loaded yet (they must survive until it reconnects). `prune` reads only the keys of
+        // `records`, so no walk of every machine's workspaces (the set of all of them was built on every save).
+        let live = Set(records.flatMap(\.workspaceKeys).filter { !manager.isDead($0.rawValue) })
         do {
             try await windowState.update { document in
                 document.windows = records
@@ -223,13 +223,15 @@ final class WindowRecordSaver {
     }
 
     /// Remembered tab per pane across the window's workspaces, read again only when an input moved
-    /// (its tab memory, its workspaces, a daemon batch): a save after a switch reads no pane.
+    /// (its tab memory, its workspaces, the panes they hold: each store's tab list revision): a save after a
+    /// switch, or after a batch that moved no pane (terminal output, titles, agent status), reads no pane.
+    // perf-hot: 50us tab-switch (every record save: each tab switch and focus move)
     private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
         guard let manager else { return [:] }
         let services = manager.services
         guard let state = manager.states[window.id] else { return [:] }
         let key = SelectedTabsKey(selection: state.selection.revision, workspaces: window.workspaceIDs,
-                                  batches: services.machines.daemons.map(\.store.appliedSequence))
+                                  tabLists: services.machines.daemons.map(\.store.tabListRevision))
         if let cached = selectedTabsCache[window.id], cached.key == key { return cached.tabs }
         var selected: [String: String] = [:]
         for id in window.workspaceIDs {
@@ -242,4 +244,4 @@ final class WindowRecordSaver {
     }
 }
 
-private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], batches: [UInt64] }
+private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], tabLists: [UInt64] }
