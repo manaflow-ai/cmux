@@ -46,6 +46,8 @@ import Foundation
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
+//   CmuxNextAppearance -> Compat, DesignTokens, Wakeups, CmuxTheme (the appearance state without views: DesignSettings,
+//     AppearanceSignals, the backdrop art catalog, the selection and its names; CmuxNextDesign re-exports it; p15-oracle-134)
 //   CmuxNextFeatures -> Compat, Wakeups, swift-atomics (base::FeatureList: the feature registry and the immutable
 //     resolved snapshot the App builds once, and the signed remote document's store, whose file I/O runs on
 //     BackgroundWork's files lane; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
@@ -67,8 +69,7 @@ import Foundation
 //   CmuxNextWireDigest -> nothing (FNV-1a 64, the schema digest CmuxNextIPC and CmuxNextWireGen share)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
-//   CmuxNextSettings -> DesignTokens, Design, Actions (cmux.json load/watch/apply, SettingsSchema; Design only for
-//     DesignSettings, toasts and backdrops until they move, MQ-settings-design)
+//   CmuxNextSettings -> Appearance, DesignTokens, Actions (cmux.json load/watch/apply, SettingsSchema; no UI target)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, InputCore, Oracle (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     InputBudget/ folds input latency batches off main)
@@ -960,7 +961,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextFilesTests",
             // CmuxFuzzSupport: FilePathFuzzTests (p10-stability-030).
-            dependencies: ["CmuxNextFiles", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            dependencies: ["CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -1147,7 +1148,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextCompat only (the thumbnail cache is a memory consumer).
         .target(
             name: "CmuxNextFileGrid",
-            dependencies: ["CmuxNextCompat"],
+            // Wakeups: each tile's thumbnail lands as a posted visible task (MainWorkScheduler).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1665,6 +1667,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCrashReportingTests",
             dependencies: [
                 "CmuxNextCrashReporting",
+                // ChromiumMinidumpTests: a fake ProcessRunning for the dump symbolizer's atos runs.
+                "CmuxNextWakeups",
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
                 // PreviousRunCrashEvidenceTests writes a previous run's black box and crash-key page.
@@ -1707,6 +1711,24 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 "CCmuxAppFFI",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Design's appearance state without views: DesignSettings and its AppearanceSignals, the
+        // backdrop art catalog, the backdrop selection's value and names (its string catalog) and
+        // the macOS wallpapers' paths. The domain layer between DesignTokens and Design
+        // (plans/cmux-next/architecture-refactor-DESIGN.md); Design re-exports it, Settings applies
+        // cmux.json to it.
+        .target(
+            name: "CmuxNextAppearance",
+            dependencies: [
+                "CmuxNextCompat",
+                "CmuxNextDesignTokens",
+                "CmuxNextWakeups",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+            ],
+            resources: [
+                .process("Localizable.xcstrings"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1868,6 +1890,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDesign",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextAppearance",
                 "CmuxNextDesignTokens",
                 // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
                 "CmuxNextIcons",
@@ -2146,7 +2169,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextBrowserTests",
             // Signposts: CEFTabSwitchShowTests' switch.tab interval.
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            "CmuxNextTestSupport",
                            // CmuxSafeConcurrency: OnceContinuation (CEFPasswordTests, as PasswordRevealBox takes it).
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
@@ -2196,10 +2219,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettings",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            // DesignTokens: the value types Settings parses and writes; Design only for what has not
-            // moved yet (DesignSettings, toasts, backdrops; MQ-settings-design, p15-oracle-231).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextActions", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089). No UI target (p15-oracle-134): the
+            // values come from DesignTokens and the state it applies to from Appearance.
+            dependencies: ["CmuxNextCompat", "CmuxNextDesignTokens", "CmuxNextAppearance", "CmuxNextActions", "CmuxNextWakeups",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -2207,8 +2230,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSettingsTests",
-            // Compat for the blocking detector (ConfigFileWatcherNoWaitTests).
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+            // Compat for the blocking detector (ConfigFileWatcherNoWaitTests). Design only for the tests that
+            // read the picker catalog or calm mode's hover and motion readers (BackdropArtCatalogTests,
+            // BackdropUserImagesTests, CalmModeSettingTests); the rest name Appearance and DesignTokens.
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextAppearance", "CmuxNextDesign", "CmuxNextDesignTokens",
+                           "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2285,6 +2311,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextDictation",
                 "CmuxNextDiff",
                 "CmuxNextEnergy",
                 "CmuxNextFeatures",
@@ -2651,6 +2678,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextVSCodeServer",
                 "CmuxNextRemoteFetch",
                 "CmuxNextBrowserCore",
+                "CmuxNextAppearance",
                 "CmuxNextBridge",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextCloud",

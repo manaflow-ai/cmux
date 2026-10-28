@@ -6,6 +6,7 @@ import Foundation
 public import Observation
 import os
 public import CmuxNextCompat
+public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -87,10 +88,15 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var observation: Task<Void, Never>?
+    /// The follow of `computerUse` (``follow(_:mainWork:lanes:disabledByPolicy:)``).
+    @ObservationIgnored private var observation: ServiceObservation<ComputerUseSettings?>?
+    /// The newest value no apply has taken yet, with the policy read when it came.
+    @ObservationIgnored private var wanted: (settings: ComputerUseSettings, disabledByPolicy: Bool)?
+    /// The one run of ``apply(_:disabledByPolicy:)`` at a time; values that come while it runs wait in ``wanted``.
+    @ObservationIgnored private var applying: Task<Void, Never>?
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
-    /// The app's lanes (``follow(_:lanes:disabledByPolicy:)``): the helper's signature checks run on their system lane.
+    /// The app's lanes (``follow(_:mainWork:lanes:disabledByPolicy:)``): the helper's signature checks run on their system lane.
     @ObservationIgnored private var lanes: (any MayBlockRunner)?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
@@ -134,20 +140,48 @@ public final class ComputerUseHelperDaemon {
     }
 
     /// Follows `computerUse.enabled`, `computerUse.driver` (and
-    /// DisabledFeatures) for the app's life. `lanes` are the app's: the helper
-    /// v2 reads acpmux's signature on their system lane.
-    public func follow(_ settings: SettingsController, lanes: any MayBlockRunner, disabledByPolicy: @escaping () -> Bool) {
+    /// DisabledFeatures) for the app's life, from the settings file's first load.
+    ///
+    /// - Parameters:
+    ///   - settings: The app's settings.
+    ///   - mainWork: The main-thread scheduler the follow flushes on.
+    ///   - lanes: The app's lanes: the helper v2 reads acpmux's signature on their system lane.
+    ///   - disabledByPolicy: Whether DisabledFeatures turns Computer Use off, read with each value.
+    ///
+    /// Each value applies (a helper start or stop) one at a time, the newest one only.
+    public func follow(_ settings: SettingsController, mainWork: MainWorkScheduler, lanes: any MayBlockRunner,
+                       disabledByPolicy: @escaping () -> Bool) {
         self.lanes = lanes
         upstream.lanes = lanes
         observation?.cancel()
-        observation = Task { [weak self, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await computerUse in ObservationStream({ settings.snapshot.computerUse }) {
-                guard let self else { return }
-                await apply(computerUse, disabledByPolicy: disabledByPolicy())
-            }
+        // A service observation: the helper starts and stops whether or not anything shows it. `background`: no view
+        // waits on it (a person's toggle in Settings flushes as user-blocking). Before the first load the snapshot
+        // holds defaults: nothing applies, so a helper the file turns on is never stopped first.
+        observation = ServiceObservation(.background, owner: "ComputerUseHelperDaemon.settings", on: mainWork) { [weak settings] in
+            guard let settings, settings.loadCount > 0 else { return nil }
+            return settings.snapshot.computerUse
+        } apply: { [weak self] computerUse in
+            guard let self, let computerUse else { return }
+            want(computerUse, disabledByPolicy: disabledByPolicy())
         }
+    }
+
+    /// Takes `settings` as the next value to apply; starts the apply run when none runs.
+    private func want(_ settings: ComputerUseSettings, disabledByPolicy: Bool) {
+        wanted = (settings, disabledByPolicy)
+        guard applying == nil else { return }
+        // task-owner: the one apply run; it applies the newest value until none is left, and quit cancels it
+        // main-hop-allow: only awaits the helpers' starts and stops, whose resolve, launch and spawn run off main
+        applying = Task { [weak self] in await self?.applyWanted() }
+    }
+
+    /// Applies each wanted value in turn, the newest one only, until none is left.
+    private func applyWanted() async {
+        while let next = wanted, !Task.isCancelled {
+            wanted = nil
+            await apply(next.settings, disabledByPolicy: next.disabledByPolicy)
+        }
+        applying = nil
     }
 
     /// Which helper runs. The default (driver legacy) is today's path only:
@@ -226,6 +260,9 @@ public final class ComputerUseHelperDaemon {
     public func applicationWillTerminate() {
         observation?.cancel()
         observation = nil
+        wanted = nil
+        applying?.cancel()
+        applying = nil
         generation &+= 1
         stop()
         upstream.terminateForQuit()

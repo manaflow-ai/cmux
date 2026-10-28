@@ -25,13 +25,16 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
-/// watchdog (from launch), the socket server with a display-link frame
+/// watchdog (made and started in `main()`, handed in), the socket server with a display-link frame
 /// source for the main-actor work queue, the snapshot publisher, and the
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    /// The watchdog (its busy windows end on the main deadline queue, p14-energy-065), and the app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
-    let watchdog: MainThreadWatchdog, crashKeys = CrashKeySlots()
+    /// The launch's watchdog, running since `main()` (p08-startup-088); its busy windows end on the main deadline
+    /// queue `main()` gave it and the scheduler (p14-energy-065).
+    let watchdog: MainThreadWatchdog
+    /// The app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
+    let crashKeys = CrashKeySlots()
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
@@ -77,10 +80,14 @@ final class AppControl {
     /// `idle.wakeups.*` (`AppServices.idleWakeups`): the same input ends its idle period at that input.
     weak var idleWakeups: IdleWakeupSampler?
 
-    /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
-    ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
-    init(mainWork: MainWorkScheduler, input: any InputObserving) {
-        (self.mainWork, self.input, watchdog) = (mainWork, input, MainThreadWatchdog(wakeUps: mainWork.wakeUps))
+    /// - Parameters:
+    ///   - mainWork: The app's one main-thread scheduler: control requests are its automation tasks, and
+    ///     the watchdog reads its board.
+    ///   - input: The app's input tap.
+    ///   - watchdog: The launch's main-thread watchdog, made and started first in `main()` on `mainWork`'s
+    ///     deadline queue (``MainWorkScheduler/wakeUps``).
+    init(mainWork: MainWorkScheduler, input: any InputObserving, watchdog: MainThreadWatchdog) {
+        (self.mainWork, self.input, self.watchdog) = (mainWork, input, watchdog)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
         self.renderStats = renderStats
@@ -93,9 +100,9 @@ final class AppControl {
                                           ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }
 
-    /// Starts stall and busy detection. Call first thing at launch.
-    func startWatchdog() {
-        watchdog.start()
+    /// Connects the running watchdog to the app: the hang-watch scopes, the scheduler's board, the helper
+    /// processes and the input. Call first thing in `applicationDidFinishLaunching`.
+    func attachWatchdog() {
         // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys, ring).
         watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys, trace: TraceRuntime.shared)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
@@ -331,9 +338,11 @@ extension AppControl {
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
+                var fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
                                                  over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
                                                  idleExitSeconds: call.params["idle_exit_s"]?.doubleValue)
+                // Host mode's input route (feature chromiumHostInputRing, p01-process-042), without building the engine.
+                if let route = services?.cache.chromium.built?.hostInputReport { fields["input_route"] = route }
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
             .async("debug.chromium_host.measure") { call in

@@ -33,6 +33,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use cmux_threads::ThreadQos;
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::surface::{ColdFreeze, ThawWake};
 
 /// Wakes the cold-scrollback worker; a send never blocks.
@@ -232,9 +233,15 @@ impl Mux {
     ) -> std::io::Result<()> {
         let Some(wakes) = self.install_cold_scrollback_wake() else { return Ok(()) };
         let mux = Arc::downgrade(self);
-        cmux_threads::spawn("mux-cold-scrollback", ThreadQos::Utility, move || {
-            run_cold_scrollback(&mux, &wakes, policy);
-        })?;
+        supervised::spawn_at(
+            "mux-cold-scrollback",
+            ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                run_cold_scrollback(&mux, &wakes, policy);
+            },
+        )?;
         Ok(())
     }
 

@@ -197,14 +197,14 @@ impl App {
             params["_meta"]["acpmux"]["effort"] = json!(effort);
         }
         self.status = format!("starting {}…", d.harness);
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
                     if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         let id = id.to_owned();
                         let c = client.clone();
-                        tokio::spawn(async move {
+                        super::background::spawn(tx.clone(), async move {
                             let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": App::prompt_blocks(&text, &images)})).await;
                         });
                     }
@@ -268,7 +268,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         self.status = "starting harness…".into();
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
                     if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
@@ -276,7 +276,7 @@ impl App {
                         if !first.is_empty() {
                             let id = id.to_owned();
                             let c = client.clone();
-                            tokio::spawn(async move {
+                            super::background::spawn(tx.clone(), async move {
                                 let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": first}]})).await;
                             });
                         }
@@ -300,7 +300,7 @@ impl App {
         self.show_harness_picker(json!({"harnesses":self.harnesses.iter().map(|h| json!({"harness":h})).collect::<Vec<_>>()}));
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request("_acpmux/models", json!({})).await {
                 Ok(v) => {
                     let _ = tx.send(AppMsg::HarnessCatalog(id, v));
@@ -360,7 +360,7 @@ impl App {
         self.model_picker_current_only = false;
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request("_acpmux/models", json!({})).await {
                 Ok(v) => {
                     let _ = tx.send(AppMsg::Models(v));

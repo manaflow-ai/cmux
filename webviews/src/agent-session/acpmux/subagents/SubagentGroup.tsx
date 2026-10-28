@@ -3,7 +3,7 @@
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
 // Every line has a fixed height (model.ts), so a running clock or a changing status never moves
 // the transcript.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
@@ -13,7 +13,7 @@ import type { Subagent } from "./subagentFold";
 import { AgentTonesContext } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { waveProps } from "../../../ui/wave";
-import { usePageInterval } from "../../../pages/shared/pageLifecycle";
+import { shownElapsed, useElapsedNow } from "../../../ui/useElapsedNow";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
@@ -47,10 +47,14 @@ export const STATE_LABEL = {
 /// Milliseconds a subagent has run: until it ended, or until `now`.
 export const elapsed = (agent: Subagent, now: number) => Math.max(0, (agent.endedAt ?? now) - agent.startedAt);
 
+/// The group's first start, on the session's clock; none for an empty group.
+export const groupStart = (agents: readonly Subagent[]): number | undefined =>
+  agents.length === 0 ? undefined : Math.min(...agents.map((agent) => agent.startedAt));
+
 /// The group's time: from its first start to its last end, or to `now` while one runs.
 export function groupElapsed(agents: readonly Subagent[], now: number): number {
-  if (agents.length === 0) return 0;
-  const start = Math.min(...agents.map((agent) => agent.startedAt));
+  const start = groupStart(agents);
+  if (start === undefined) return 0;
   const end = agents.some(running) ? now : Math.max(...agents.map((agent) => agent.endedAt ?? agent.startedAt));
   return Math.max(0, end - start);
 }
@@ -59,19 +63,20 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
 /// clock minus the session's; a peer runs on its own). A subagent's times are the session's.
 export const SubagentClockContext = createContext(0);
 
-/// The current time on the session's clock (SubagentClockContext), ticking each second only
-/// while `live`, so it counts against the subagents' own start and end times. A hidden pane's
-/// clock rests (the tray above the composer, a group card and the summary rows tick with it) and
-/// catches up the moment the pane shows again (usePageInterval).
-export function useNow(live: boolean): number {
+/// The current time on the session's clock (SubagentClockContext), ticking only while `live`, so
+/// it counts against the subagents' own start and end times. It ticks each second; given `since`
+/// (a session-clock start), each minute once that time is past a minute, for a label that shows
+/// `shownElapsed` (ui/useElapsedNow.ts). It reads the page's one clock (pageClock.ts): a hidden
+/// pane's clock rests (the tray above the composer, a group card and the summary rows tick with
+/// it) and ticks once the moment the pane shows again.
+export function useNow(live: boolean, since?: number): number {
   const offset = useContext(SubagentClockContext);
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (live) setNow(Date.now());
-  }, [live]);
-  usePageInterval(() => setNow(Date.now()), live ? 1000 : null, { catchUpOnShow: true });
-  return now - offset;
+  return useElapsedNow(since === undefined ? undefined : since + offset, { enabled: live }) - offset;
 }
+
+/// A subagent time as its label shows it: whole minutes past the first while it runs (useNow with
+/// `since`), the exact time once it ended.
+const shownTime = (ms: number, live: boolean) => formatDuration(live ? shownElapsed(ms) : ms);
 
 /// A subagent's avatar: the harness's mark in the agent's tone, and its place in the running wave
 /// (ui/wave.ts) when `wave` is set. No status dot on its corner: the row says the state in words
@@ -129,7 +134,7 @@ export function SubagentGroupHeader({
   const language = usePaneLanguage();
   const agents = row.subagents ?? [];
   const live = agents.some(running);
-  const now = useNow(live);
+  const now = useNow(live, groupStart(agents));
   const controls = expanded ? agents.map((agent) => `${row.id}:${agent.id}`).join(" ") : undefined;
   return (
     <button type="button" className="cv-subagents" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
@@ -142,7 +147,7 @@ export function SubagentGroupHeader({
       <span className="cv-subagents__text">
         <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
-      <span className="cv-subagents__time">{formatDuration(groupElapsed(agents, now))}</span>
+      <span className="cv-subagents__time">{shownTime(groupElapsed(agents, now), live)}</span>
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -160,7 +165,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const stop = useContext(SubagentStopContext);
   const tones = useContext(AgentTonesContext);
   const agent = row.subagents?.[0];
-  const now = useNow(agent ? running(agent) : false);
+  const now = useNow(agent ? running(agent) : false, agent?.startedAt);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [running(agent) ? (agent.action ?? t(label)) : t(label), ...subagentProgress(t, language, agent)].join(
@@ -176,7 +181,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         </span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
+      <span className="cv-subagent__time">{shownTime(elapsed(agent, now), running(agent))}</span>
     </>
   );
   const line = !open ? (
