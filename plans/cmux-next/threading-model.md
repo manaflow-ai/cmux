@@ -279,7 +279,7 @@ part of the name.
 | `relay-input` (cmux-tui relay, `main.rs`, one per relay) | Copying stdin (the person's keys) to the session socket | stdin (`read`), the socket (`write`) | user-interactive (`ECHO_PATH_QOS`, `cmux_threads::spawn`, p04-input-084) | user-interactive (closed list) | yes | `io::copy` buffer; ends at stdin EOF |
 | `mux-terminal-io` (one per owner; mux/terminal_work/read_loop.rs) | Readiness of every daemon-local PTY's output: one kqueue (epoll on Linux), routing only, as Chrome's IO thread (content/browser/browser_thread_impl.cc over base/message_loop/message_pump_kqueue.cc) | The kqueue or epoll set, no timeout (0 idle wakeups) | user-interactive | user-interactive (closed list) | yes | One thread; starts with the owner's first local PTY (p07-memory-095) |
 | `mux-terminal-read` (read loop workers) | Reading and parsing a ready local PTY's output (`surface/local_reader.rs`): at most one run per terminal at once, so its output stays in order; a run reads 4 chunks and yields | The PTY (nonblocking read), the parser lock | user-interactive | user-interactive (closed list) | yes | At most 4 running, plus one for each worker inside `will_block` (a query response write that waits; Chrome's ScopedBlockingCall WILL_BLOCK); one parks with no timeout, the others exit when idle (p07-memory-095) |
-| `surface-<id>-reader` (holder and byte-backend terminals only), `surface-<id>-host`, `surface-<id>-host-frames` | One terminal's holder or backend output or its host's frames; the cwd, progress, program status, notifications and exit its output changes are published by queued `work` items (Files lane, the terminal's sequence), never on the reader: each is a SQLite registry commit (MQ-13). `surface-<id>-host` disallows blocking only while it streams a host connection: between connections it runs the host's lifecycle (exit or lost-connection commit, reconnect backoff, record reads, handshake), which may block, as no echo crosses it then | Its holder sink, backend channel or host socket (own descriptor) | user-interactive | user-interactive; utility while its workspace is hidden (task 236); holder terminals move to the VT pool (p01-process-120), hosted ones to the read loop (p07-memory-095b) | yes | One per terminal (see [Per-terminal threads](#why-the-daemon-keeps-thread-per-connection)) |
+| `surface-<id>-reader` (holder and byte-backend terminals only), `surface-<id>-host`, `surface-<id>-host-frames` | One terminal's holder or backend output or its host's frames; the cwd, progress, program status, notifications and exit its output changes are published by queued `work` items (Files lane, the terminal's sequence), never on the reader: each is a SQLite registry commit (MQ-13). `surface-<id>-host` disallows blocking only while it streams a host connection: between connections it runs the host's lifecycle (exit or lost-connection commit, reconnect backoff, record reads, handshake), which may block, as no echo crosses it then | Its holder sink, backend channel or host socket (own descriptor) | user-interactive | user-interactive; utility while its workspace is hidden (task 236); holder terminals move to the VT pool (p01-process-120), hosted ones to the read loop (p07-memory-095b) | yes | One per terminal (see [Per-terminal threads](#daemon-connection-threads-today-and-the-p05-ipc-target)) |
 | `surface-frames` (one per process) | Frame production for every surface (one thread, not one per terminal) | Its condition variable, no timer at idle | user-interactive | user-interactive (closed list) | yes | One thread |
 | `mux-reaper` (one per process, `cmux_threads::reaper`, task 237) | Waiting for the exits of the daemon's children: terminal shells, terminal hosts, terminal holders, Chief brains, the journal plugin; each exit completes on a `work` system-lane item (reaped with `waitpid`, or left a zombie for `watch_exited`) | kqueue `EVFILT_PROC` `NOTE_EXIT` (macOS), pidfds in one epoll set (Linux); no timeout, 0 idle wakeups | utility | same | yes | One thread for every child; a child it cannot register (Linux without `pidfd_open`, no descriptor left): one `mux-reap-wait` for it; when even that thread cannot start, the caller's own fallback (`terminal-host-reaper`, `holder-reaper` outside a mux, the journal plugin's timed poll, a failed launch) |
 | `surface-<id>-wait` (holder and byte-backend terminals) | Waiting for one terminal's end on a holder or an app backend (not a child of the daemon) | The holder sink or the backend channel | not set | as today | no | One thread per holder or backend terminal |
@@ -348,27 +348,44 @@ acpmux (its own process): tokio multi-thread runtime with `acpmux-socket-read` /
 / out 4096 per connection, a full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub
 broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f).
 
-Per-stream lanes (PL-conn, `pl-conn`) are not on feat-cmux-next yet; they get a row here when they land.
+Per-stream lanes (PL-conn) are on perf/chrome-parity as sequences, not threads: every connection's control
+sequence and every attach stream's sequence run on the daemon-wide sequenced pool (`mux-seq-*`, p05-ipc-073),
+and an attach stream's output drains on the pool's input workers (p05-ipc-079); their rows are above. A view
+attached with a client-minted `stream` adds no thread; a legacy per-view connection still costs its reader and
+writer.
 
-## Why the daemon keeps thread-per-connection
+## Daemon connection threads: today and the p05-ipc target
 
-The daemon keeps one reader thread per connection and one writer per output stream; it does not move to one
-reactor (epoll or kqueue) thread:
+Today (perf/chrome-parity 52f69cc3023) each connection keeps one reader (`mux-conn`) and one writer
+(`mux-line-out`); requests no longer run on either. The reader routes each line to the connection's sequence on the
+sequenced pool (`Mux::post_connection_request`, p05-ipc-073), so the daemon already has Chrome's route-then-post
+split. The reasons it kept a thread per connection were:
 
-- The reader is the echo path of the app's UI connection. A thread of its own gets the QoS of its client (task
-  224): the person's connection reads at user-interactive and an agent's at utility. In one reactor, every
-  client shares one thread and one QoS, and a burst of automation would wait in front of a key.
-- cmux differs from Chrome here on purpose. Chrome's browser process runs every renderer's Mojo channel on one
-  IO thread (`BrowserThread::IO`, content/browser/browser_thread_impl.cc), a single message pump
-  (base/message_loop/message_pump_kqueue.cc, message_pump_epoll.cc) that only reads and routes messages, and
-  input passes through it too; the work runs on task runners by priority. That reactor works for Chrome because
-  its IO thread runs no handler: it only routes, so no message waits behind another message's work. The daemon
-  runs a request on the thread that read it (or on its scheduler's request thread), and the person's UI
-  connection and an agent's CLI share one process. A thread per connection gives each client its own QoS
-  without a second hop; a reactor would need Chrome's route-then-post split first.
-- A blocking call on a reader stalls only that client, and the detector (`disallow_blocking`) names it. In a
-  reactor, one blocking call stalls every client.
+- The reader is the echo path of the app's UI connection, and a thread of its own gets its client's QoS (task 224).
+  With route-then-post the class that matters is the sequence's (`mux-seq-input` for the person's input), not the
+  reader's, so this reason now holds only until the reactor routes input as fast as a dedicated reader.
+- A blocking call on a reader stalls only that client. Since no handler runs on the reader, the reader has no
+  blocking call left to make (`disallow_blocking` after its peer-identity setup); remote-relay lines are the
+  one exception and still run on `mux-remote-conn`.
 - The count is bounded: at most 64 connections (over: `server.busy`), and threads sleep in `read` (0 idle wakes).
+
+Target (p05-ipc-155, 156, not landed): one IO reactor thread (kqueue on macOS, epoll on Linux) reads, frames and
+flushes every accepted connection, as Chrome's IO thread does (`BrowserThread::IO`,
+content/browser/browser_thread_impl.cc over base/message_loop/message_pump_kqueue.cc and message_pump_epoll.cc):
+it only routes, and work runs on the pool by priority. `mux-conn` and `mux-line-out` are deleted then; done check
+IPC-10 is daemon threads with 50 attached views and 20 extra CLI connections minus with 0 <= 2
+(`bench-daemon-latency.py --streams 50`; row in app-daemon-connection-DESIGN.md section 9). The reactor runs at
+user-interactive only through a closed-list row with the reason "IO thread every key passes", reviewed by PL-qos,
+like the pool's input workers. Until 155 lands, a connection costs these threads:
+
+| Connection | Threads | Names |
+|---|---|---|
+| App control connection (streams on) | 2, for any number of views | `mux-conn`, `mux-line-out`; its views are sequences on the pool |
+| Legacy per-view attach connection (streams off) | 4 per view | `mux-conn`, `mux-line-out`, `mux-attach-out` (or `mux-render-attach-out`, `mux-snapshot-attach-out`), `mux-attach-notifications` |
+| CLI, MCP, hook or agent connection | 2 | `mux-conn`, `mux-line-out` |
+| Page-relay connection (page streams, 103) | 2, for any number of pages | `mux-conn`, `mux-line-out` |
+| WebSocket connection | 2 | `mux-ws-conn`, `mux-ws-out` |
+| After 155 and 156 | 0 per connection | one reactor thread for every connection (155 names it) |
 
 Per-terminal threads must not grow. Today a terminal costs at most these threads:
 

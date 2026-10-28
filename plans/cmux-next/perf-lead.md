@@ -590,3 +590,42 @@ the head (`input-queues.py <sha> --list <queue>` prints the file:line of each hi
 | MQ-cursor-rects | CmuxNextBrowser 6, CmuxNextFloating 2, CmuxNextHomeEngine 2, CmuxNextLayout 2, one each in CmuxNextApp, CmuxNextChiefPetWiring, CmuxNextDesign, CmuxNextRemoteBrowser, CmuxNextSidebar, CmuxNextTerminal | 090 (not started; it needs p03-109). The base had 17; one was added since |
 | MQ-global-input-state | `CmuxNextApp/UIInspectorController.swift:194`, `CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:414`, `CmuxNextTabs/Demo/DemoDragSession.swift:153`, `CmuxNextTabs/TabClosingModeWatch.swift:106` | 095 closed its batch-1 files; one generated task each for CmuxNextApp, CmuxNextSidebar and CmuxNextTabs |
 | MQ-input-latency-rows, MQ-input-turn-hops, MQ-input-hotspots | none yet | they come from the first GUI run above |
+
+### IPC done checks (p05-ipc-193)
+
+The before/after table for the done checks IPC-1 to IPC-17 of [chrome-parity/p05-ipc.md](chrome-parity/p05-ipc.md)
+(section 5). Base: `772cdfc45ac`, the sha the p05 spec was written against. Head: `52f69cc3023` (perf/chrome-parity
+on 2026-10-28). Status: the static checks are counted; no runtime check is measured.
+
+Static rows read git objects only (host cmux-orchestrator-1, Linux), so macOS, refresh and session do not apply.
+Both columns come from the head's `scripts/cmux-next/ipc-census.py` (`--repo` at each sha, the head's allowlist):
+`python3 scripts/cmux-next/ipc-census.py --repo CHECKOUT_AT_SHA --targets plans/cmux-next/ipc-targets.json`.
+`--check` passes at the head; its counts are recorded in `plans/cmux-next/ipc-targets.json`.
+
+| Check | Queue | Target | Base `772cdfc45ac` | Head `52f69cc3023` | Result |
+|---|---|---|---|---|---|
+| IPC-1 | Q4 side connections outside the allowlist | 0 | 13 | 7 | open: TerminalAttachment's per-view path (095, until 094 flips the default and slice 4 deletes it), SessionJournalRead (100), AgentSessionAttachClient (102), PageRelayChannel and PageRelayDedicatedStreams (104), AgentPaneGitLink (105), and `LineTransport.open` counted at the helper |
+| IPC-3 | Q1 hand-written Swift commands | 0 | 235 | 242 | open, grew: 7 new request types (trace-start, trace-status, trace-stop, energy.set, memory.limit, cancel-stream, oracle-state) (`identify` only moved to DaemonCommandName.swift) |
+| IPC-3 | Q5 Swift wire names not in the schema | 0 | 27 | 3 | open |
+| IPC-3 | Q14 Rust CLI hand-built `"cmd"` | 0 | 190 | 186 | open; energy.rs added 2 |
+| IPC-3 | Q15 hand-written daemon Command variants | 0 | 285 | 238 | open |
+| IPC-4 | Q2 `fn try_handle` in core:server | 0 | 16 | 4 | open |
+| IPC-10 (static) | Q8 threads without QoS | 0 | 81 | 2 | open: `mux-session-journal-writer` (journal_ingress.rs) and one name the census cannot follow (cmux-panic-log supervise.rs) |
+| IPC-13 | Q6 schema attributes missing | 0 | 372 | 0 | pass |
+| (F10) | Q3 receipt waits | 0 | 34 | 34 | open (120-126, 134) |
+| (zero copy) | Q7 base64 bulk paths | 0 | 43 | 46 | open; grew only in test files (30 to 38 test hits), non-test sites fell from 13 to 8 |
+| (one parse) | Q10 JSON and base64 in the app connection layer | 0 | 16 | 13 | open |
+| (generated) | Q11 hand-built v2 envelopes | 0 | 100 | 72 | open |
+| (generated) | Q12 schema events the app does not decode | 0 | 29 | 37 | open, grew: input-failed, loopback-closed, -credit, -data, -eof, script-log, server-diagnostic-site, stream-end |
+| (F10) | Q13 request-side SQLite transactions | 0 | 137 | 137 | open (135) |
+| (QoS) | Q17 ranked lock definitions | listed | 15 | 17 | listed (138) |
+
+The census was corrected for this table (p05-ipc-193, tests in `tests/test_ipc_census.py`): Q4 counts each caller
+of `UnixSocketAddress.connect` instead of the helper, Q8 accepts a body whose every `match` arm registers its
+thread (cmux-threads `start_following`), and Q12 reads the decoder's name table of p05-ipc-044. Without those
+fixes the head read Q8 64 and Q12 95, which were census misses, not code.
+
+Runtime rows (IPC-2, 5, 7, 8, 9, 10, 11, 12, 14, 16, the syscall row and build timing) are in
+[app-daemon-connection-DESIGN.md](app-daemon-connection-DESIGN.md) section 9, each with its command, batch and
+the host, sha, macOS and Hz fields it must fill. None is measured at `52f69cc3023`: batch B0 has not run on the
+fleet, and the soak (192) and build-timing (194) scripts have not landed.

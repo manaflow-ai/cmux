@@ -3,8 +3,8 @@
   "allowlist": [
     {
       "queue": "Q4",
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/LineTransport.swift",
-      "key": "LineTransport.connect: connect(",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/LineTransport+State.swift",
+      "key": "LineTransport.connect: UnixSocketAddress.connect",
       "reason": "The transport's own socket: every LineTransport is already a Q4 site at its constructor."
     },
     {
@@ -51,6 +51,12 @@
       "queue": "Q4",
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift",
       "reason": "Not a cmux-tui daemon socket: the Tasks owner (cmux task serve)."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift",
+      "key": "SessionTransferService.answers: UnixSocketAddress.connect",
+      "reason": "Not a cmux-tui daemon socket: probes the source build's acpmux socket before a chat transfer, then closes at once."
     },
     {
       "queue": "Q4",
@@ -135,20 +141,21 @@
     "workspace.ensure_home"
   ],
   "base": {
-    "sha": "c69e443c3dceed29a1d3d63336e3751de6976d69",
+    "sha": "52f69cc30236c1a25e2766af9e907d6d706c9498",
     "queues": {
       "Q1": {
         "title": "hand-written Swift commands",
-        "count": 237,
-        "found": 237,
+        "count": 242,
+        "found": 242,
         "raw": "git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
-        "raw_count": 237,
+        "raw_count": 242,
         "groups": {
           "CmuxNextApp/Handlers": 1,
           "CmuxNextBrowserTabs": 1,
+          "CmuxNextControl/Diagnostics": 3,
           "CmuxNextDaemon/Chief": 1,
           "CmuxNextDaemon/CloudConversations": 20,
-          "CmuxNextDaemon/Connection": 8,
+          "CmuxNextDaemon/Connection": 9,
           "CmuxNextDaemon/Conversations": 21,
           "CmuxNextDaemon/Loopback": 4,
           "CmuxNextDaemon/Requests": 1,
@@ -166,20 +173,19 @@
           "CmuxNextDaemon/Requests/TabGroups": 16,
           "CmuxNextDaemon/Requests/TabMove": 8,
           "CmuxNextDaemon/Requests/Tabs": 24,
-          "CmuxNextDaemon/Requests/TerminalIO": 17,
+          "CmuxNextDaemon/Requests/TerminalIO": 18,
           "CmuxNextDaemon/Requests/Terminals": 1,
           "CmuxNextDaemon/Requests/Workspace": 7,
           "CmuxNextDaemon/Tree": 1,
-          "CmuxNextTasks/Views": 1
-        },
-        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
+          "CmuxNextDaemonService": 1
+        }
       },
       "Q2": {
         "title": "daemon sniffers",
-        "count": 16,
-        "found": 16,
+        "count": 4,
+        "found": 4,
         "raw": "git grep -n -E 'fn try_handle' -- 'cmux-tui/crates/cmux-tui-core/src/server' | wc -l",
-        "raw_count": 16
+        "raw_count": 4
       },
       "Q3": {
         "title": "F10 receipt waits",
@@ -201,53 +207,67 @@
       },
       "Q4": {
         "title": "side connections",
-        "count": 19,
-        "found": 29,
+        "count": 7,
+        "found": 25,
         "raw": "git grep -n -E 'LineTransport\\(path:|DaemonConnection\\(([a-z][A-Za-z]*:|$)|NWConnection\\(to: \\.unix|connect\\([a-z][A-Za-z]*, \\$0,|[bB]ridge\\??\\.open\\(\\)' -- 'Packages/macOS/CmuxNext/Sources/*.swift' | wc -l",
-        "raw_count": 29
+        "raw_count": 21,
+        "breakdown": {
+          "dropped": {
+            "the shared UnixSocketAddress.connect: Q4 counts its callers": 1
+          },
+          "added": {
+            "a caller of the shared UnixSocketAddress.connect": 5
+          },
+          "same_line": 0
+        }
       },
       "Q5": {
         "title": "schema gaps (Swift wire names not in sdk-schema)",
-        "count": 4,
-        "found": 4,
+        "count": 3,
+        "found": 3,
         "groups": {
           "CmuxNextBrowserTabs": 1,
-          "CmuxNextDaemon/Requests/Agents": 3
-        },
-        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
+          "CmuxNextDaemon/Connection": 1,
+          "CmuxNextDaemonService": 1
+        }
       },
       "Q6": {
         "title": "schema attributes missing",
-        "count": 372,
-        "found": 372
+        "count": 0,
+        "found": 0
       },
       "Q7": {
         "title": "base64 bulk paths",
-        "count": 43,
-        "found": 43,
+        "count": 46,
+        "found": 46,
         "raw": "git grep -n -E 'write_base64_json_(string|parts)\\(|general_purpose::STANDARD\\.(encode|decode)' -- 'cmux-tui/crates/cmux-tui-core/src' | wc -l",
-        "raw_count": 43,
+        "raw_count": 46,
         "groups": {
           "cmux-tui/crates/cmux-tui-core/src/fs_ops/ops.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/journal_checkpoint.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/journal_kernel.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/mux/tests/kitty_budget.rs": 1,
+          "cmux-tui/crates/cmux-tui-core/src/mux/tests/kitty_budget_share.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/resource_router/auxiliary.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs": 2,
           "cmux-tui/crates/cmux-tui-core/src/server/agent_session_attach.rs": 1,
+          "cmux-tui/crates/cmux-tui-core/src/server/attach_frames_tests.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/bookmark_tests.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/cloud_attachments.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/cloud_selfhost_tests.rs": 1,
-          "cmux-tui/crates/cmux-tui-core/src/server/cmd_terminal_io.rs": 2,
+          "cmux-tui/crates/cmux-tui-core/src/server/cmd_terminal_io.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/conversation_attachment_tests.rs": 2,
           "cmux-tui/crates/cmux-tui-core/src/server/conversation_attachments.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/creating_input.rs": 2,
           "cmux-tui/crates/cmux-tui-core/src/server/image_paste_tests.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs": 2,
           "cmux-tui/crates/cmux-tui-core/src/server/loopback_forward_tests.rs": 2,
+          "cmux-tui/crates/cmux-tui-core/src/server/pty_input_order_tests.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/render_messages.rs": 1,
-          "cmux-tui/crates/cmux-tui-core/src/server/render_service.rs": 8,
+          "cmux-tui/crates/cmux-tui-core/src/server/render_service.rs": 7,
           "cmux-tui/crates/cmux-tui-core/src/server/session_icon_tests.rs": 1,
+          "cmux-tui/crates/cmux-tui-core/src/server/snapshot_frames.rs": 1,
+          "cmux-tui/crates/cmux-tui-core/src/server/snapshot_frames_tests.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/terminal_snapshot.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/terminal_snapshot_socket_tests.rs": 1,
           "cmux-tui/crates/cmux-tui-core/src/server/tests.rs": 1,
@@ -284,39 +304,32 @@
       },
       "Q10": {
         "title": "JSON and base64 in the app connection layer",
-        "count": 16,
-        "found": 16,
+        "count": 13,
+        "found": 13,
         "raw": "git grep -n -E 'JSONDecoder\\(\\)|JSONSerialization\\.|WireCoding\\.decoder\\(\\)|base64' -- 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection' 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Terminal' 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events' 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Loopback' | wc -l",
-        "raw_count": 16,
+        "raw_count": 13,
         "groups": {
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonBridge.swift": 1,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/IconAssetClient.swift": 2,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/LineTransport.swift": 1,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/PageRelayHandshake.swift": 1,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/PaletteUsageLegacyHistory.swift": 1,
+          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/WireDecoder.swift": 1,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/AgentInventoryProviderDemand.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/AgentInventoryWatchEvent.swift": 2,
+          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/AgentInventoryWatchEvent.swift": 1,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Loopback/LoopbackForwardEvent.swift": 4,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Terminal/TerminalAttachment+Decoding.swift": 2
+          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Loopback/LoopbackForwardEvent.swift": 4
         }
       },
       "Q11": {
         "title": "hand-built v2 envelopes",
-        "count": 103,
-        "found": 103,
+        "count": 72,
+        "found": 77,
         "raw": "git grep -n -E 'resourceRequest\\(|ResourceRequestEnvelope\\(|operation: \"|transport\\.request\\(cmd: \"[a-z_]+\\.' -- 'Packages/macOS/CmuxNext/Sources/*.swift' | wc -l",
-        "raw_count": 103,
+        "raw_count": 77,
         "groups": {
-          "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/DaemonHistoryClient.swift": 9,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/DaemonTrailLocation.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeService+ChiefDelete.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageRelayChannel.swift": 1,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Chief/ChiefControlClient.swift": 10,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/AgentCLIJobCarrier.swift": 2,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/AgentReplyClient.swift": 4,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/AgentStartClient.swift": 2,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/BrowserDevicesStateClient.swift": 2,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+ColumnUpdate.swift": 4,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+Notifications.swift": 2,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+SessionEvents.swift": 2,
@@ -328,24 +341,16 @@
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/OwnerIdleProbe.swift": 2,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/PaletteUsageStateClient.swift": 10,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ProjectStateClient.swift": 8,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceRelay.swift": 3,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ScreenGroupStateClient.swift": 2,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/SidebarDocClient.swift": 4,
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/SidebarLayoutStateClient.swift": 4,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/StateResourceClient+Stash.swift": 2,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/StateResourceClient.swift": 4,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/WorkspaceOpenURLClient.swift": 2,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Resource/SessionJournalRead.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefProfilePageRelay.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefDirectMessages.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefHarnesses.swift": 1,
-          "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteRankerBridge.swift": 2
+          "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/WorkspaceOpenURLClient.swift": 2
         }
       },
       "Q12": {
         "title": "events not decoded natively",
-        "count": 29,
-        "found": 29
+        "count": 37,
+        "found": 37
       },
       "Q13": {
         "title": "request-side SQLite transactions",
@@ -404,11 +409,10 @@
       },
       "Q14": {
         "title": "Rust CLI hand-built \"cmd\" requests",
-        "count": 183,
-        "found": 183,
+        "count": 186,
+        "found": 186,
         "raw": "git grep -n -E '\"cmd\"' -- 'cmux-tui/crates/cmux-tui/src' | wc -l",
-        "raw_count": 183,
-        "note": "p05-ipc-028 re-recorded only Q14: the pilot files cli/lifecycle.rs and cli/wire.rs build their requests with cmux_ipc::client (0 sites). Each remaining file group is one migration to the generated client types; --check refuses growth.",
+        "raw_count": 186,
         "groups": {
           "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs": 4,
           "cmux-tui/crates/cmux-tui/src/app/feed_dismissal.rs": 1,
@@ -418,7 +422,9 @@
           "cmux-tui/crates/cmux-tui/src/cli/command.rs": 5,
           "cmux-tui/crates/cmux-tui/src/cli/command/browser.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/command/state/tests.rs": 1,
+          "cmux-tui/crates/cmux-tui/src/cli/energy.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/launch_credential.rs": 1,
+          "cmux-tui/crates/cmux-tui/src/cli/mcp/tests/energy.rs": 2,
           "cmux-tui/crates/cmux-tui/src/cli/mcp/tests/machine_catalog.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/raw.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/script.rs": 6,
@@ -456,13 +462,8 @@
       },
       "Q15": {
         "title": "daemon Command variants",
-        "count": 236,
-        "found": 236,
-        "note": "p05-ipc-029 re-recorded only Q15, grouped by schema family (spec/sdk-schema.json families; the method id's high byte). terminal-io (026) and tabs (029) are generated by cmux-ipc build.rs from crates/cmux-ipc/server-families.json, so server.rs writes none of their variants. Each remaining family is one migration task: add it to server-families.json, delete its hand-written variants and check it against the frozen enum on its fixture and 1,000 proptest lines (server_generated_<family>_tests.rs). --check refuses growth.",
-        "generated": [
-          "terminal-io",
-          "tabs"
-        ],
+        "count": 238,
+        "found": 238,
         "groups": {
           "agents": 7,
           "assets": 2,
@@ -471,7 +472,7 @@
           "clients": 5,
           "cloud": 29,
           "conversations": 25,
-          "daemon": 18,
+          "daemon": 20,
           "layout": 21,
           "personal": 18,
           "screens": 19,
@@ -489,16 +490,17 @@
       },
       "Q17": {
         "title": "ranked lock definitions",
-        "count": 15,
-        "found": 15,
+        "count": 17,
+        "found": 17,
         "raw": "git grep -n -E 'LockRank::[A-Z]' -- 'cmux-tui/crates/cmux-tui-core/src' | wc -l",
-        "raw_count": 50,
+        "raw_count": 63,
         "breakdown": {
           "dropped": {
-            "a check of a held rank, not a definition": 4,
-            "a lock counted at an earlier line": 20,
-            "lock_rank.rs defines the ranks, not locks": 1,
-            "test": 10
+            "a check of a held rank, not a definition": 1,
+            "a lock counted at an earlier line": 19,
+            "comment or string": 2,
+            "lock_rank.rs defines the ranks, not locks": 4,
+            "test": 20
           },
           "added": {},
           "same_line": 0

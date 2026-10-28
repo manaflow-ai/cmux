@@ -10,6 +10,12 @@ G3/G5/G8 (the agreed binary attach frame), [terminal-host-model-DESIGN.md](termi
 Code read at feat-cmux-next fbbf611f7b4. `app:` = `Packages/macOS/CmuxNext/Sources/`, `core:` =
 `cmux-tui/crates/cmux-tui-core/src/`.
 
+Updated 2026-10-28 at perf/chrome-parity 52f69cc3023 by chrome-parity p05-ipc-193 (the p05-ipc program,
+`plans/cmux-next/chrome-parity/p05-ipc.md`, implements this design). The program changes four things here,
+for PL-conn to confirm: one shared page-relay connection (2.2), the reason cmux keeps a Unix socket where
+Chrome uses Mach (2.3), the reply/event order rule (3.6) and the ring consumer cursor (4.4). Section 1 is
+the state before the program; the other sections say what landed and what is still to come.
+
 ## 1. Today
 
 - Every terminal view opens its own daemon connection: `TerminalAttachment.attach` makes a new `LineTransport`
@@ -70,15 +76,52 @@ site. Done check IPC-1: 0 Q4 sites outside the allowlist.
 
 Sites that move onto the control or page-relay connection, so they are not allowlisted:
 `TerminalAttachment.attach` (p05-ipc-095), `SessionJournalRead.read` (100), `LoopbackForwardClient.connect`
-(101), `AgentSessionAttachClient.connect` (102), `PageRelayChannel` (104), `AgentPaneGitLink.open` (105),
-`ChiefProfilePageRelay` (108). Its task removes each one from Q4.
+(101), `AgentSessionAttachClient.connect` (102), `PageRelayChannel` and `PageRelayDedicatedStreams.openStream`
+(104), `AgentPaneGitLink.open` (105), `ChiefProfilePageRelay` (108, landed). Its task removes each one from Q4.
 
-The rows for `DaemonConnection.connectOnce`, the bridge open, `DaemonConnection.shutdownDaemon`,
-`SessionEnding.closeEveryWorkspace` and `SessionTransferService.answers` have no allowlist entry now: those
-sites open through the shared `LineTransport.open` (`DaemonBridge.swift`) and `UnixSocketAddress.connect`,
-and the census counts the socket at that shared helper, not at each caller. An entry keyed to one caller
-would match no site, and an entry on the helper would also hide `TerminalAttachment` and
-`LoopbackForwardClient`. They get their entries back when Q4 counts each caller of those helpers.
+Every raw `connect(2)` of the app goes through `UnixSocketAddress.connect`, and Q4 counts each caller of it
+(`ADDRESS.connect(fd)` on a `UnixSocketAddress(path:)` the file binds), not the helper. So
+`LineTransport.connect` (under `DaemonConnection.connectOnce`) and `SessionTransferService.answers` have
+their allowlist entries. `DaemonConnection.shutdownDaemon` and `SessionEnding.closeEveryWorkspace` still have
+none: they open through the shared `LineTransport.open` (`DaemonBridge.swift`), which the census counts at the
+helper, and an entry on the helper would also hide `TerminalAttachment` and `LoopbackForwardClient`. They get
+entries when Q4 counts each caller of `LineTransport.open`.
+
+### 2.2 The page-relay connection (p05-ipc-103, 104, 108)
+
+Change to the target above: per daemon the app has one control connection and at most one page-relay
+connection, not one control connection only. Pages (Home channels, the History page, Markdown and the other
+React pages) are streams on that one connection, never on the control connection.
+
+- Why a second connection: the daemon derives a request's origin from the connection's role
+  (`request-origin.md`). The control connection derives `user` or `agent`; a `page_relay` connection derives
+  `page` for every request, whatever the request says. A page stream on the control connection would make the
+  fail-safe default depend on a per-request tag, so one app bug in the tag could run page JavaScript as `user`.
+  Chrome keeps the same split: a renderer's messages are judged by the process they came from, never by a
+  field inside the message (`content/browser/child_process_security_policy_impl.cc`).
+- Wire: `client-hello {role: "page_relay", streams: true}`, capability `page-streams-v1`. Stream 0 only
+  opens and closes page streams (`open-stream {stream, page}`, `close-stream {stream}`); every
+  `cmux.protocol/2` request names its stream in its origin claim, and the stream's page is fixed for its
+  life. Mojo's associated interfaces are the model: many endpoints on one pipe, order kept per endpoint
+  (`mojo/public/cpp/bindings/README.md`). The full wire and the security analysis are in
+  `request-origin.md` "Page streams".
+- Status at 52f69cc3023: the daemon side (103) and Home channels (`ChiefProfilePageRelay`, 108) landed.
+  `PageRelayChannel` still opens one connection per page (`PageRelayDedicatedStreams`) until 104 lands; the
+  History page keeps a one-page relay until `subscribe {stream}` (148) gives a stream its page's events.
+
+### 2.3 Why a Unix socket, not Mach messages
+
+Chrome's channel on macOS is Mach messages (`mojo/core/channel_mac.cc`); cmux keeps a Unix-domain socket with
+SCM_RIGHTS for descriptors:
+
+- The daemon is a cross-platform Rust binary. The same wire runs on Linux (Cloud VMs), across the SSH bridge
+  (`cmux-remote`) and through `cmux link dial`; Mach ports exist only on macOS and do not cross a byte stream.
+- The ring and shared buffers need only descriptor passing, which SCM_RIGHTS gives on both platforms; the
+  holder already uses it (`cmux-holder/src/wire.rs`, now in `cmux-ipc` `fds.rs`, p05-ipc-051).
+- The cost is a number, not a guess: `bench-daemon-latency.py` section `syscalls` gives syscalls and context
+  switches per message for ping, send and list-workspaces (p05-ipc-002; macOS counters only, Linux rows are not
+  evidence). Its row is in section 9. Mach would be reconsidered only if that row shows the socket hop above the
+  IPC-9 hop budget (app.send to daemon.pty_write p99 <= 1 ms).
 
 ## 3. Wire
 
@@ -150,6 +193,16 @@ one byte that matters for the framing is `0xFF`. No code sends `\xFFCO` yet.
 | 7 | RING | JSON meta `{capacity, base, layout}`; one descriptor rides on this frame (SCM_RIGHTS) | ring end when sent |
 | 8 | RING_ADVANCE | empty | new ring end: bytes up to here are published |
 
+The p05-ipc program adds kinds in both directions (`cmux-tui/crates/cmux-ipc/src/frame.rs` `FrameKind`); the
+u64 at byte 8 is `aux`, an offset for kinds 1-8 and 11:
+
+| kind | name | direction | aux |
+|---|---|---|---|
+| 9 | INPUT | client to daemon (p05-ipc-078) | flow id |
+| 10 | SHARED_BUFFER | both (p05-ipc-115, only with a bench row that beats chunked frames) | size of the attached descriptor |
+| 11 | RING_ACK | client to daemon (p05-ipc-119) | the stream offset the client has parsed (4.4) |
+| 16-20 | REQUEST, REPLY, ERROR, TYPED_EVENT, CANCEL | both (p05-ipc-071) | u32 request id, u16 method id, u8 priority hint, u8 flags |
+
 - A colors sidecar (`OutputWithColors`) is an OUTPUT (or RING_ADVANCE) followed by an EVENT
   `colors-changed` at the same offset; the client applies colors after the bytes up to that offset. Order
   inside a stream is the wire order, as today.
@@ -174,7 +227,9 @@ Daemon to client, per stream:
 - At most two frames of one stream wait in the connection's outbound queue (existing backpressure,
   `bounded_outbound.rs` `push_regular_backpressured`). The queue is FIFO across streams, so it round-robins
   the busy streams frame by frame; control replies and events have their own reserve and go first
-  (`pop_locked`: initial, control, regular).
+  (`pop_locked`: initial, control, regular). Changed by p05-ipc-052 and 072: the writer takes lanes in the
+  order input streams, the control FIFO (replies and control events together, 3.6), bulk, background, with a
+  starvation bound of 8 items; bulk frames are cut at `bulk_frame_max` (32 KiB default) with the MORE flag.
 - With the ring, output bytes do not travel on the socket at all: a stream sends one 16-byte RING_ADVANCE per
   drained batch; the viewer queue merges advances (keeps the newest end), so one is in flight at a time.
 
@@ -194,10 +249,13 @@ Client to daemon (requests), per stream lane:
   the control lane (the existing dispatcher, unchanged order). Lanes are independent FIFOs, exactly the
   ordering domains that separate connections gave: requests of one view stay in order, views and the
   control plane do not wait for each other.
-- Lane workers: a per-connection pool of threads that park on a condvar when no lane is runnable (no timer,
-  no polling, D6). A lane runs on at most one worker at a time. A worker is spawned only when a lane becomes
-  runnable and every worker is busy, so the thread count is the high-water of concurrently busy lanes
-  (usually 1-2), never more than today's one dispatcher per view.
+- Lane workers (changed by p05-ipc-073): one daemon-wide sequenced pool, not a pool per connection
+  (`core:server/sequenced_pool.rs`). Every connection's control sequence and every stream sequence run on it,
+  with fixed workers per priority (`mux-seq-input`, `mux-seq-control`, `mux-seq-utility`,
+  `mux-seq-background`) that park on a condvar when no sequence is runnable (no timer, no polling, D6), plus
+  one temporary worker while a running task is inside a blocking scope. A sequence runs on at most one worker
+  at a time. This is Chrome's one ThreadPool with sequences (`docs/threading_and_tasks.md`, "prefer sequences
+  to threads"); thread rows in `threading-model.md`.
 - Per-lane queue bounds: the existing per-connection request byte and count caps apply per lane
   (`CONNECTION_SURFACE_QUEUE_CAPACITY`, `..._BYTE_CAPACITY`); a full lane refuses its request with
   `known-not-delivered`, as a full connection queue does today.
@@ -226,6 +284,27 @@ offset on continue it exactly.
 
 The client decides by endpoint (it knows which path it opened); the daemon never grants `attach-frames-v1`
 to the remote entry transport (`ClientTransport::Remote`) or a WebSocket.
+
+### 3.6 Reply and event order (p05-ipc-007, 052, 120)
+
+Change to 3.3: control replies do not have a reserve that goes before events. On one shared connection the
+app uses "the events read before this reply" as a barrier (`LineTransport.routedEventCount`, a reply's
+`eventBarrier`), so a reply that passes its own events breaks the store's read-your-writes. The rule, written
+in full in `cmux-tui/spec/transports.md` "Reply and event order":
+
+1. Stream 0 (the control sequence) is one FIFO: command replies, the events of the connection's `subscribe`
+   and the items of `session.events`. Priority never reorders inside it (p05-ipc-007, LaneWriter p05-ipc-052).
+2. A reply is enqueued after every event its request emitted. This needs events emitted at admit time, before
+   the reply (p05-ipc-120); until 120 lands the rule is not in force, and the two
+   `*_under_stream_flood_*` tests of `reply_event_order` are ignored and red.
+3. Every other stream (attach output, journal reads, loopback forwards, agent-session attaches) keeps its own
+   FIFO; priority may move it relative to other streams, never inside itself. `routedEventCount` counts stream
+   0 only, so a terminal flood never moves the barrier.
+4. A control-lane command whose surface has an open stream on the connection waits for that stream's queued
+   items (the stream barrier, p05-ipc-073), unless the schema marks it `crosses_stream_ok` with a reason.
+
+Mojo keeps the same promise per pipe ("reliable in-order delivery", `mojo/core/README.md`) and gives priority
+only through the receiving scheduler (`[SupportsUrgent]`), never by reordering the channel.
 
 ## 4. The output ring (`terminal-output-ring-v1`)
 
@@ -257,7 +336,8 @@ Writer, per chunk of n bytes at `e = end`: `reserve.store(e+n)`; release fence; 
 `memcpy` across the wrap); `end.store(e+n, Release)`. A chunk larger than the capacity keeps its last
 `capacity` bytes. Reader of `[s, t)`: read the bytes (Ghostty parses them in place), acquire fence, then
 `reserve.load()`: if `reserve > s + capacity` the writer may have overwritten part of `[s, t)` while it was
-read: a gap. This is the seqlock rule; the reader detects every overwrite, the writer never waits.
+read: a gap. This is the seqlock rule; the reader detects every overwrite, the writer never waits. With
+the consumer cursor (4.4, p05-ipc-119) the writer also never overwrites a span a reader has not acked.
 
 Capacity: 1 MiB, the holder's per-terminal ring size (resident only as it fills; one copy of the pages,
 shared by daemon and app). A reader 1 MiB behind resyncs by snapshot. Slice 3 measures resyncs per minute
@@ -300,6 +380,19 @@ the size is raised with that number as its reason.
   The check at cut time keeps a torn span from reaching the mirror's parser, grid lock and local-history
   digest whenever the lap had already begun; the second check covers a lap that starts during the parse,
   whose READY then replaces the terminal state.
+- Consumer cursor (change by p05-ipc-119, not landed at 52f69cc3023). The two checks above detect a lap but
+  cannot stop one: a writer that laps a span Ghostty is still parsing has already torn it. So the reader also
+  tells the writer how far it has parsed: the app sends RING_ACK with aux = the end of the last span its lane
+  released, coalesced to one per display frame. The daemon keeps each reader's acked offset and never writes
+  the ring past the lowest of them plus `capacity`. A chunk that would pass it is not written to the ring,
+  and every reader of the ring is marked gap-pending: its next RING_ADVANCE is a gap (3.4, resync by READY).
+  The ring is one per terminal, so a chunk skipped for the slowest reader is missing for the others too;
+  they are views of one app, which resync together. The PTY and the writer never wait: a slow reader loses
+  its place and resyncs, it never slows the terminal. The release-time check stays, as a
+  counter (`release_laps`, 0 when the cursor works). Chrome's data pipes have the same rule: the producer
+  cannot write past unread data and a two-phase read holds its span (`mojo/public/c/system/data_pipe.h`);
+  cmux differs only in that its producer skips instead of waiting, because the PTY must keep flowing for
+  every other viewer. PL-ghostty and PL-holder sign off on 119.
 - Each OUTPUT frame and each span is its own `.output` event in stream order. Spans merge only with the
   adjacent span of the same mapping, never across a GRID, SNAPSHOT, REPLAY or any other event (PL-ghostty
   review, required: a merge must not move bytes past a grid lock). Since G4, `.output` goes from the
@@ -384,6 +477,36 @@ touched: `CmuxNextTerminal` (TerminalSession, TerminalOutputLane, TerminalSurfac
 
 ## 9. Measurements
 
-| Date | Row | Host / sha / Hz | Light | STRESS | Note |
-|---|---|---|---|---|---|
-| | | | | | |
+These are the before/after rows of the p05-ipc done checks (IPC-17 in `chrome-parity/p05-ipc.md` section
+5). Each row names its command; a measured cell gives p50 / p95 / p99 / max (no mean alone), light and
+STRESS (`scripts/cmux-next/perf-stress-session.py`: 60 workspaces, 10 Chromium workspaces, 10 busy
+terminals), and the host, sha, macOS and display Hz it ran at. Every bench writes those fields in its JSON
+(`host`, `source.sha` or the daemon's `build_commit`; `bench_launch.py` adds the display's refresh). VM and
+Linux timing is not evidence: owned fleet Macs only (`cmux-ci run --class isolated --ref SHA --script ...`).
+Daemon-only rows have no display: their Hz cell is `-`.
+
+Batches (p05-ipc rule 12): B0 is the "before" of every row (perf/chrome-parity before the flag flips, with
+`CMUX_NEXT_TERMINAL_STREAMS` off); B1 after the streams default (094); B2 after app ring streams (113); B3
+after admit-then-reply (120-127). A row's "after" is the batch that closes its check.
+
+At 52f69cc3023 (2026-10-28) no row is measured: B0 has not run on the fleet, the soak (192) and build timing
+(194) scripts have not landed, and 094, 113 and 120 are open. A cell says `not measured` until a batch
+fills it with its numbers and fields; nothing here is an estimate.
+
+| Check | Row and target | Command (each through `cmux-ci run --class isolated --ref SHA --script '...'`) | Before (B0): host, sha, macOS, Hz, result | After: batch, host, sha, macOS, Hz, result |
+|---|---|---|---|---|
+| IPC-2 | Handshake round trips per new view == 0, requests per view == 1, app connections per view == 0; local and SSH (`ipc2` block) | `python3 scripts/cmux-next/split-latency-bench.py --tag ipc-b0 --streams` and the same with `--machine ssh --ssh-host HOST` | not measured | B1: not measured |
+| IPC-5 | Send-to-reply p95 < 2.0 ms for every `ipc5_ops` op (v12 and v2 creates, split, close, rename, select, move, browser tab, tab groups), small and scale; Q16 empty | `cd cmux-tui && cargo build --release -p cmux-tui && python3 scripts/bench-daemon-latency.py --bin target/release/cmux-tui --ops all --scenario small,scale --write-q16 --out artifacts/daemon-latency.json` | not measured | B3: not measured |
+| IPC-7 | After `cat` of 50 MB in a local terminal: `output_bytes_copied_app` == 0 (`debug.daemon.wire`), release laps == 0, STRESS flood ring resyncs/min == 0 | `python3 scripts/cmux-next/bench-typing.py --tag ipc-b2 --flood 10 --stress`, then `CMUX_TAG=ipc-b2 scripts/cmux-debug-cli.sh app call debug.daemon.wire` | not measured | B2: not measured |
+| IPC-8 | Ping p99 < 2.0 ms on the connection that carries a 256 MiB flood (`bulk-L-ping-same`, per frame cut 16, 32, 64 KiB) | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin cmux-tui/target/release/cmux-tui --scenario small --bulk-interference 16,32,64 --out artifacts/ipc8.json` | not measured | B1: not measured |
+| IPC-8 | Focused echo p95 <= single-terminal p95 + 0.5 ms beside 10 flooders at 10 MB/s | `python3 scripts/cmux-next/bench-typing.py --tag ipc-b1 --flood 10` and `--flood 10 --stress` | not measured | B1: not measured |
+| IPC-9 | Key to frame p50 <= 8.3 ms, p99 <= 16.7 ms at 120 Hz; hops app.send to daemon.pty_write and daemon.output to app.output_decoded p99 <= 1 ms | `python3 scripts/cmux-next/bench-typing.py --tag ipc-b1` and `--stress`; the two hops need the flow id of p05-ipc-180 (trace.py joins app, daemon and reply), not landed | not measured | B1: not measured |
+| IPC-10 | Daemon threads with 50 attached views and 20 CLI connections minus with 0: <= 2 | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin cmux-tui/target/release/cmux-tui --scenario small --streams 50 --out artifacts/ipc10.json` (`daemon_threads_before`, `daemon_threads_after`) | not measured | after 155 and 156: not measured |
+| IPC-11 | 10 terminals, 1 Chromium tab, 10 hidden printing terminals: connection layer 0 wakeups/s on both sides, daemon idle 0/s | `scripts/cmux-next/bench-idle.sh ipc-b0 --scenarios terminals,chromium-static,chromium-hidden --measure 60` | not measured | B1: not measured |
+| IPC-16 | Key echo p95 <= idle + 1 ms and split p95 < 2 ms with 8 automation clients, automation >= 50% of its idle throughput (`ipc16` block) | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin cmux-tui/target/release/cmux-tui --scenario small --automation-storm 8 --out artifacts/ipc16.json` | not measured | B3: not measured |
+| 2.3 | Syscalls and context switches per message for ping, send, list-workspaces (`syscalls` section; macOS counters only) | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin cmux-tui/target/release/cmux-tui --scenario small --ops base --out artifacts/syscalls.json` | not measured | B1 (frames): not measured |
+| IPC-17 | Incremental app build after a leaf edit < 30 s; after a one-field schema edit: seconds and targets rebuilt (p05-ipc-194, before and after 025 and 027) | `scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit` (lands with 194) | not measured | not measured |
+| IPC-12, 14 | 30-minute STRESS soak: 0 crashes, 0 `stream-end {overflow}` on visible terminals, daemon RSS within +-5%, `slow_requests` == 0 | `python3 scripts/cmux-next/ipc-soak.py --minutes 30 --flood 10 --stress` (lands with 192) | not measured | not measured |
+
+Counts of the static queues are not measurements: `python3 scripts/cmux-next/ipc-census.py` prints them,
+`--check` holds each at or below its recorded count in `plans/cmux-next/ipc-targets.json`.

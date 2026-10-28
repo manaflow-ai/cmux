@@ -155,6 +155,33 @@ class SideConnectionTests(Fixture):
             ("Transport.swift", 8, "Transport.attach: LineTransport(path:"),
         ])
 
+    def test_a_caller_of_the_shared_unix_address_connect_counts_and_the_helper_does_not(self):
+        # Every raw connect(2) of the app goes through UnixSocketAddress.connect (p05-ipc-193):
+        # the census counts each caller, not the one helper, so each keeps its own allowlist entry.
+        self.write(f"{APP}/CmuxNextDaemon/Connection/UnixSocketAddress.swift", """
+            package struct UnixSocketAddress {
+                package func connect(_ descriptor: Int32) -> Int32 {
+                    unsafe withSockaddr { unsafe Darwin.connect(descriptor, $0, $1) }
+                }
+            }
+        """)
+        self.write(f"{APP}/CmuxNextApp/Probe.swift", """
+            enum Probe {
+                static func answers(_ path: String) -> Bool {
+                    guard let address = UnixSocketAddress(path: path) else { return false }
+                    // address.connect(descriptor) in a comment is no connection
+                    return address.connect(descriptor) == 0
+                }
+                static func other(_ endpoint: Endpoint) -> Bool {
+                    endpoint.connect(descriptor) == 0
+                }
+            }
+        """)
+        self.assertEqual(self.sites("Q4"), [("Probe.swift", 5, "Probe.answers: UnixSocketAddress.connect")])
+        explained = self.census().breakdown("Q4")
+        self.assertEqual(explained["dropped"], {"the shared UnixSocketAddress.connect: Q4 counts its callers": 1})
+        self.assertEqual(explained["added"], {"a caller of the shared UnixSocketAddress.connect": 1})
+
     def test_allowlist_hides_a_site_by_file_or_by_key(self):
         self.write(f"{APP}/CmuxNextTasks/Tasks.swift", """
             struct Tasks {
@@ -304,6 +331,40 @@ class ThreadQosTests(Fixture):
             }
         """)
         self.assertEqual(self.sites("Q8"), [("idle_close.rs", 10, "mux-no-qos")])
+
+    def test_a_body_that_registers_in_every_match_arm_sets_the_qos(self):
+        # cmux-threads' start_following registers with or without a desired class: a `match`
+        # whose every arm begins with a registration is the QoS call (p05-ipc-193).
+        self.write("cmux-tui/crates/cmux-threads/src/spawn.rs", """
+            pub fn spawn(name: impl Into<String>, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>> {
+                start(Builder::new(), name.into(), qos, None, f)
+            }
+            fn start(builder: Builder, name: String, qos: ThreadQos, desired: Option<DesiredQos>, f: F) -> io::Result<JoinHandle<T>> {
+                builder.name(name.clone()).spawn(move || {
+                    match desired {
+                        Some(desired) => registry::register_current_following(name, qos, desired),
+                        None => registry::register_current(name, qos),
+                    };
+                    f()
+                })
+            }
+            pub fn spawn_partly(name: String, desired: Option<DesiredQos>, f: F) -> io::Result<JoinHandle<T>> {
+                Builder::new().name(name.clone()).spawn(move || {
+                    match desired {
+                        Some(desired) => registry::register_current_following(name, qos, desired),
+                        None => serve(),
+                    };
+                    f()
+                })
+            }
+        """)
+        self.write(f"{CORE}/mux/idle_close.rs", """
+            fn start() {
+                cmux_threads::spawn("mux-idle-close", qos, move || serve());
+                cmux_threads::spawn_partly("mux-partly".into(), None, move || serve());
+            }
+        """)
+        self.assertEqual(self.sites("Q8"), [("spawn.rs", 14, "mux-partly")])
 
 
     def test_names_through_a_variable_count_and_another_builders_spawn_is_not_read(self):
@@ -466,6 +527,25 @@ class SchemaQueueTests(Fixture):
         self.assertEqual(sorted(hit.key for hit in self.census().result("Q12").hits), [
             "<unread delegate MissingEvent.names>", "cloud-mux-wake",
         ])
+
+    def test_q12_reads_the_decoder_name_table(self):
+        # p05-ipc-044 replaced the switch with a name table: `table["name"] = ...` and a loop of
+        # literals over `table[v] = ...` both decode (p05-ipc-193).
+        schema = json.loads((self.root / "cmux-tui/spec/sdk-schema.json").read_text(encoding="utf-8"))
+        schema["events"].update({"client-attached": {}, "client-detached": {}, "bell": {}})
+        self.write("cmux-tui/spec/sdk-schema.json", json.dumps(schema, indent=1))
+        self.write(f"{APP}/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift", """
+            private static let wireDecodings: [String: WireDecoding] = {
+                var table: [String: WireDecoding] = [:]
+                table["tab-added"] = typed(TabDelta.self) { .tabAdded($0) }
+                // table["bell"] = typed(Bell.self) { .bell($0) } is not decoded yet
+                for client in ["client-attached", "client-detached"] {
+                    table[client] = WireDecoding { name, line, decoder in .client(name) }
+                }
+                return table
+            }()
+        """)
+        self.assertEqual(sorted(hit.key for hit in self.census().result("Q12").hits), ["bell", "colors-changed"])
 
     def test_q6_q12_q15_read_the_schema(self):
         self.assertEqual([hit.key for hit in self.census().result("Q6").hits], [

@@ -20,20 +20,24 @@ Refinements over the raw queries (each is stated on its queue):
       definitions of its name that fit its form (method, `Type::`, free) and argument count; when
       they mix a wrapper and a function that wraps nothing, the site says `ambiguous wrapper`.
   Q4  `DaemonConnection(` counts with its first argument label on the same or the next line; raw
-      `connect(fd, $0, ...)` calls, `NWConnection(to: .unix` and `DaemonBridge.open` count too;
-      comments and strings never count. Sockets that are not a cmux-tui daemon (acpmux, the
+      `connect(fd, $0, ...)` calls, `NWConnection(to: .unix` and `DaemonBridge.open` count too, and
+      each `ADDRESS.connect(fd)` on a `UnixSocketAddress(path:)` the file binds (the shared helper's
+      own raw connect is dropped, so its callers are the sites); comments and strings never count. Sockets that are not a cmux-tui daemon (acpmux, the
       browser host, the control socket, Tasks) and LineTransport's own connect are allowlisted
       in ipc-targets.json with their reason, so the census still sees each one.
   Q8  thread name sites in cmux-tui/crates (tests dropped) whose spawned body does not begin with
       `cmux_tui_platform::qos::set_current` (or `cmux_threads::set_current`, `thread_qos::set`, or
       the `registry::register_current` of `cmux_threads::spawn`, which sets the declared QoS before
-      the closure runs), plus journal writers spawned by name. The body is the
+      the closure runs), or with a `match` every arm of which begins with one of them, plus journal
+      writers spawned by name. The body is the
       `.spawn(` of the name's own builder chain (or of the `let` that holds the builder). A
       `.name(var)` of a thread builder counts too: the variable resolves through its `let`, a
       `for` loop over literals, or the arguments callers pass for a parameter; a name the census
       cannot follow is `<unresolved>`, never dropped.
-  Q12 a decoder case that delegates to a name set (`case _ where T.eventNames.contains(name)`)
-      decodes that set's literals; a set the census cannot read is a site.
+  Q12 a name decodes through a `case "name":`, a key of the decoder's name table
+      (`table["name"] = ...`, or a `for v in [literals] { table[v] = ... }` loop), or a case that
+      delegates to a name set (`case _ where T.eventNames.contains(name)`), which decodes that set's
+      literals; a set the census cannot read is a site.
   Q17 one item per lock definition (rank and lock name), not per mention.
   Q18 `ipc5_ops` in ipc-targets.json names the IPC-5 ops; sites without `op=` stay, and an empty
       list keeps every sqlite site (`--check` refuses it once Q9 has data).
@@ -75,6 +79,8 @@ CLI = "cmux-tui/crates/cmux-tui/src"
 RUST_CRATES = "cmux-tui/crates/*.rs"
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
 EVENT_DECODER = f"{APP}/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift"
+# The one place the app hands a `sockaddr_un` to connect(2); Q4 counts each of its callers.
+UNIX_ADDRESS = f"{APP}/CmuxNextDaemon/Connection/UnixSocketAddress.swift"
 SERVER = f"{CORE}/server.rs"
 # Families whose Command variants cmux-ipc build.rs generates (p05-ipc-026); Q15 counts only
 # the hand-written ones.
@@ -800,6 +806,18 @@ class Census:
         ("connect(", re.compile(r"(?<![\w])(?:Darwin\.|Glibc\.)?connect\(\s*\w+\s*,\s*\$0\s*,")),
         ("DaemonBridge.open", re.compile(r"\b\w*[bB]ridge\??\.open\(\s*\)")),
     )
+    # `let address = UnixSocketAddress(path: ...)`, whose `address.connect(fd)` is a raw connect.
+    Q4_ADDRESS_BINDING = re.compile(r"\blet\s+([a-z]\w*)\s*=\s*UnixSocketAddress\(path:")
+
+    def q4_sites(self, blanked: str) -> list[tuple[str, re.Pattern]]:
+        """The site patterns of one file: Q4_SITES, plus `NAME.connect(` for each `UnixSocketAddress`
+        the file binds. Its raw connect(2) lives in that shared helper (UNIX_ADDRESS), so each caller
+        is the site, as each `$0` connect was before the helper."""
+        names = sorted(set(self.Q4_ADDRESS_BINDING.findall(blanked)))
+        if not names:
+            return list(self.Q4_SITES)
+        address = re.compile(r"(?<![\w.])(?:" + "|".join(names) + r")\s*\.\s*connect\(")
+        return [*self.Q4_SITES, ("UnixSocketAddress.connect", address)]
 
     def q4(self) -> Result:
         hits = []
@@ -809,14 +827,20 @@ class Census:
                 continue
             blanked = self.repo.blanked(path)
             lines = text.split("\n")
-            for token, regex in self.Q4_SITES:
+            for token, regex in self.q4_sites(blanked):
                 for found in regex.finditer(blanked):
                     start = found.start() + (found.group(0).find("connect(") if token == "connect(" else 0)
                     number = line_of(blanked, start)
+                    if token == "connect(" and path == UNIX_ADDRESS:
+                        self.drop("Q4", path, number, "the shared UnixSocketAddress.connect: Q4 counts its callers")
+                        continue
                     type_name, member = swift_enclosing(lines, number - 1)
                     where = ".".join(part for part in (type_name, member) if part) or "<file>"
                     hit = Hit(path, number, f"{where}: {token}")
-                    why = "argument label on the next line" if token == "DaemonConnection(" else "spacing or a module prefix the raw pattern misses"
+                    why = {
+                        "DaemonConnection(": "argument label on the next line",
+                        "UnixSocketAddress.connect": "a caller of the shared UnixSocketAddress.connect",
+                    }.get(token, "spacing or a module prefix the raw pattern misses")
                     hits.append(self.added("Q4", hit, why))
         return self.refined("Q4", "side connections", hits, self.Q4_RAW, self.Q4_PATHS)
 
@@ -901,11 +925,13 @@ class Census:
     Q8_PATHS = (RUST_CRATES, *RUST_NOT_TESTS)
     # The QoS call a thread body begins with: the spec's `qos::set_current`, cmux-threads'
     # `set_current`, `thread_qos::set`, or the registration `cmux_threads::spawn` makes before it
-    # runs the closure (registry.rs `register_current` sets the declared QoS).
+    # runs the closure (registry.rs `register_current` and `register_current_following` set the
+    # declared QoS).
     Q8_QOS = re.compile(
         r"\s*(?:(?:cmux_tui_platform::)?qos::set_current|cmux_threads::set_current|(?:crate::)?thread_qos::set"
-        r"|registry::register_current)\b"
+        r"|registry::register_current(?:_following)?)\b"
     )
+    Q8_MATCH = re.compile(r"\s*match\b[^{;]*\{")
     Q8_LITERAL_SITE = re.compile(r"\.name\(\s*(?:format!\(\s*)?" + Q8_NAME + r"|spawn_journal_writer\(\s*" + Q8_NAME)
     Q8_VARIABLE = r"&?\s*([a-z_][a-z0-9_]*)\s*(?:\.\s*(?:into|to_string|to_owned|clone)\s*\(\s*\)\s*)?"
     Q8_VARIABLE_SITE = re.compile(r"\.name\(\s*" + Q8_VARIABLE + r"\)")
@@ -934,23 +960,36 @@ class Census:
                 return later.end()
         return None
 
+    def q8_begins_with_qos(self, body: str) -> bool:
+        """Whether `body` (the text after a block's `{`) begins with the QoS call, directly or as a
+        `match` every arm of which begins with it (cmux-threads' `start_following` picks
+        `register_current` or `register_current_following` by its `desired` argument)."""
+        if self.Q8_QOS.match(body):
+            return True
+        match = self.Q8_MATCH.match(body)
+        if not match:
+            return False
+        arms = split_top_level(body, match.end(), match_brace(body, match.end() - 1))
+        heads = [body[a:b].split("=>", 1) for a, b in arms]
+        return bool(heads) and all(len(head) == 2 and self.Q8_QOS.match(head[1].lstrip("{")) for head in heads)
+
     def q8_body_sets_qos(self, blanked: str, k: int) -> bool:
         """Whether the thread body passed at offset `k` begins with the QoS call."""
         rest = blanked[k:k + 2000]
         closure = re.match(r"\s*(?:move\s*)?\|[^|]*\|\s*", rest)
         if closure:
             body = rest[closure.end():]
-            return body.startswith("{") and bool(self.Q8_QOS.match(body[1:]))
+            return body.startswith("{") and self.q8_begins_with_qos(body[1:])
         block = re.match(r"\s*\{", rest)
         if block:
             inner = re.search(r"(?:move\s*)?\|[^|]*\|\s*\{", rest)
-            return bool(inner) and bool(self.Q8_QOS.match(rest[inner.end():]))
+            return bool(inner) and self.q8_begins_with_qos(rest[inner.end():])
         ident = re.match(r"\s*([a-z_][a-z0-9_]*)\s*\)", rest)
         if ident:
             name = re.escape(ident.group(1))
             local = re.compile(r"\blet\s+" + name + r"\s*=\s*(?:move\s*)?\|[^|]*\|\s*\{|\bfn\s+" + name + r"\s*\([^)]*\)[^{]*\{")
             for definition in local.finditer(blanked):
-                if self.Q8_QOS.match(blanked[definition.end():]):
+                if self.q8_begins_with_qos(blanked[definition.end():]):
                     return True
         return False
 
@@ -1186,16 +1225,29 @@ class Census:
                 return set(re.findall(r'"((?:[^"\\\n]|\\.)*)"', text[found.end():close]))
         return None
 
+    # The decoder's name table (p05-ipc-044): `table["name"] = ...`, and a loop over literals that
+    # gives each the same decoding, `for v in ["a", "b"] { table[v] = ... }`.
+    Q12_TABLE_KEY = re.compile(r'\btable\[\s*"([^"\n]+)"\s*\]\s*=')
+    Q12_TABLE_LOOP = re.compile(r'\bfor\s+([a-z]\w*)\s+in\s+\[([^\]]*)\]\s*\{\s*table\[\s*\1\s*\]\s*=')
+
     def q12(self) -> Result:
-        """Schema events the app's DaemonEvent decoder has no case for. A case can delegate to a
-        name set (`case _ where CloudConversationsEvent.eventNames.contains(name):`); that set's
-        literals count as decoded. A delegate the census cannot read is a site of its own."""
+        """Schema events the app's DaemonEvent decoder has no entry for: a `case "name":` of a
+        switch, or a key of its name table (`table["name"] = ...`, or a loop of literals over
+        `table[v] = ...`). A case can delegate to a name set
+        (`case _ where CloudConversationsEvent.eventNames.contains(name):`); that set's literals
+        count as decoded. A delegate the census cannot read is a site of its own."""
         text = self.repo.text(EVENT_DECODER)
         blanked = self.repo.blanked(EVENT_DECODER)
         decoded: set[str] = set()
         for found in re.finditer(r'\bcase\s+("[^"\n]+"(?:\s*,\s*"[^"\n]+")*)\s*:', text):
             if blanked[found.start()] == text[found.start()]:
                 decoded.update(re.findall(r'"([^"]+)"', found.group(1)))
+        for found in self.Q12_TABLE_KEY.finditer(text):
+            if blanked[found.start()] == text[found.start()]:
+                decoded.add(found.group(1))
+        for found in self.Q12_TABLE_LOOP.finditer(text):
+            if blanked[found.start()] == text[found.start()]:
+                decoded.update(re.findall(r'"([^"\n]+)"', found.group(2)))
         hits = []
         for found in self.Q12_DELEGATE.finditer(blanked):
             names = self.swift_string_set(found.group(1), found.group(2))
