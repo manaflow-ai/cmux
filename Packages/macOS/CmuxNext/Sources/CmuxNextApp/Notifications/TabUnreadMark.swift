@@ -55,7 +55,7 @@ enum TabUnreadMark {
     /// Mark as Read on a tab an agent marked (tab-attention-v1) drops that mark too: the person
     /// saw what the agent asked. A daemon without the capability holds no mark to clear.
     static func clearAttention(tab: TabModel, daemon: DaemonService) {
-        guard daemon.supports(DaemonCapability.tabAttention.rawValue), daemon.store.servesStateResources,
+        guard daemon.supports(DaemonCapability.tabAttentionConditionalClear.rawValue), daemon.store.servesStateResources,
               let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
             try await $0.state.updateTabRecord(resource, clearsAttentionAtMs: request.atMs)

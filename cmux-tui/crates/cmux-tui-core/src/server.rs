@@ -470,6 +470,9 @@ pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
 /// tab's navigation to another page, or the tab's close clears it.
 pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
+/// Conditional attention clears identify the request they read, so a delayed
+/// clear cannot erase a newer request.
+pub const TAB_ATTENTION_CONDITIONAL_CLEAR_CAPABILITY: &str = "tab-attention-clear-revision-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";

@@ -268,10 +268,23 @@ pub(crate) fn update_tab_state(
                 )?;
             }
         } else {
+            let now_ms = crate::mux::now_ms();
+            let previous_at_ms: Option<i64> = transaction
+                .query_row(
+                    "SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = ?1",
+                    [tab_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            // Keep the request identity monotonic per tab even when the wall clock moves
+            // backwards or two requests arrive in one millisecond.
+            let at_ms = previous_at_ms
+                .and_then(|value| u64::try_from(value).ok())
+                .map_or(now_ms, |previous| now_ms.max(previous.saturating_add(1)));
             let stored = attention.as_deref().map(|reason| {
                 attention_value(
                     reason.trim(),
-                    crate::mux::now_ms(),
+                    at_ms,
                     update.attention_page.as_deref(),
                 )
                 .to_string()
@@ -644,7 +657,14 @@ mod attention_tests {
             .unwrap();
         let stored: Value = serde_json::from_str(&stored).unwrap();
         assert_eq!(stored["reason"], "Confirm GitHub access");
-        assert!(stored["at_ms"].as_u64().is_some());
+        let first_at = stored["at_ms"].as_u64().unwrap();
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(&transaction, "tab_a", &mark).unwrap();
+        transaction.commit().unwrap();
+        let second_at: u64 = connection
+            .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
+            .unwrap();
+        assert!(second_at > first_at, "repeated requests have a unique monotonic identity");
         let transaction = connection.transaction().unwrap();
         let clear = TabStateUpdate { attention: Some(None), ..Default::default() };
         update_tab_state(&transaction, "tab_a", &clear).unwrap();
