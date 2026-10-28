@@ -841,6 +841,7 @@ final class AppServices {
         browserStores.loadRememberedSignIns(on: work)
         vncSignIns.loadRememberedVNCSignIns(on: work)
         machines = MachineRegistry(local: daemon)
+        if self.features.isEnabled(.frontendVisibilityScope) { daemon.reportFrontendVisibility(on: mainWork) }  // before the cache's first tab node
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))

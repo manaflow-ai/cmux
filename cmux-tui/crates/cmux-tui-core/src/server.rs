@@ -313,6 +313,8 @@ mod chief_engine_mirror;
 pub(crate) mod energy_op;
 /// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
 pub(crate) mod energy_rule;
+/// `frontend.visibility.set`: the verified app's visible surfaces scope its subscriptions (p06-scheduler-227).
+pub(crate) mod frontend_visibility;
 /// `memory.limit`: the app's memory limit (p07-memory-109).
 pub(crate) mod memory_limit;
 pub(crate) use chief_engine_mirror::{
