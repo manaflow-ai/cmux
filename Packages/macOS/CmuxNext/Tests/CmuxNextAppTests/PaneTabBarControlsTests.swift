@@ -63,12 +63,13 @@ import Testing
 
         var intents: [TabStripIntent] = []
         strip.model.intentHandler = { intents.append($0) }
+        let paneTarget = ActionTargetRef(kind: .pane, id: pane.paneKey)
         var presentations = 0
         strip.presentNewTabMenu = { menu, _, _ in
             presentations += 1
             let actions = menu.items.compactMap { ActionRegistry.menuRun(of: $0) }
             #expect(Array(actions.prefix(3).map(\.id.rawValue)) == ["newSurface", "openBrowser.chromium", "palette.newAgentChat"])
-            #expect(actions.prefix(3).allSatisfy { $0.target == ActionTargetRef(kind: .pane, id: pane.paneKey) })
+            #expect(actions.prefix(3).allSatisfy { $0.target == paneTarget })
             if presentations <= 2 { #expect(chooser.isHighlighted, "the chooser stays lit while its menu tracks") }
         }
         let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown,
