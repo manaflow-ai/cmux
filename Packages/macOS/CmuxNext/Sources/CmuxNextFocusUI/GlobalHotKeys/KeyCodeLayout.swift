@@ -89,7 +89,10 @@ package struct KeyCodeLayout: Sendable {
         keyNames(typed: typedKeys(command: true))
     }
 
-    /// The table key names for a layout whose main-row keys type `typed`.
+    /// The table key names for a layout whose main-row keys type `typed`. The digit row keeps its
+    /// digits (Ghostty's `digit_1` is Cmd-1 on AZERTY too, which types & there): a key-down reads
+    /// the digit row's digit for a chord on every layout (`ActionRegistry.shortcuts(for:)`), so the
+    /// trigger and the key agree, and cmux's own Cmd-1 default beats Ghostty's goto_tab as on US.
     package static func keyNames(typed: [(code: UInt16, key: String)]) -> [UInt16: String] {
         var names: [UInt16: String] = [:]
         for (key, code) in ansi.codes where key != Shortcut.deleteKey { names[UInt16(code)] = key }
@@ -98,7 +101,9 @@ package struct KeyCodeLayout: Sendable {
         for (code, character) in navigation {
             if let scalar = UnicodeScalar(UInt32(character)) { names[UInt16(code)] = String(Character(scalar)) }
         }
-        for (code, key) in typed { names[code] = key }
+        let digitRow: Set<Int> = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8,
+                                  kVK_ANSI_9, kVK_ANSI_0]
+        for (code, key) in typed where !digitRow.contains(Int(code)) { names[code] = key }
         return names
     }
 

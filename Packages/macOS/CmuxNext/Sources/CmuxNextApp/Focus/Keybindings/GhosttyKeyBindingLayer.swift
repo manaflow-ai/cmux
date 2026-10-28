@@ -55,7 +55,8 @@ struct GhosttyKeyBindingLayer {
     /// The probe Ghostty's binding set matches for a table key: the physical
     /// key named `shortcut.key` and the codepoint it types (nil: no key).
     static func probe(for shortcut: Shortcut, keyNames: [UInt16: String], commandKeyNames: [UInt16: String]? = nil) -> GhosttyKeyProbe? {
-        guard let code = keyNames.filter({ $0.value == shortcut.key }).keys.min() else { return nil }
+        let names = Self.names(for: shortcut.modifiers, keyNames: keyNames, commandKeyNames: commandKeyNames)
+        guard let code = names.filter({ $0.value == shortcut.key }).keys.min() else { return nil }
         let scalars = shortcut.key.unicodeScalars
         // Function keys (arrows, Home) type nothing: Ghostty matches them by the physical key.
         let typed = scalars.count == 1 && !(0xF700...0xF8FF).contains(scalars.first?.value ?? 0) ? scalars.first?.value ?? 0 : 0
@@ -83,13 +84,20 @@ struct GhosttyKeyBindingLayer {
     }
 
     /// The table key of a trigger: its codepoint, or the physical key's name.
+    /// A Command trigger is named by the layout's Command key map: with Command held a key reads
+    /// only that map (`ActionRegistry.shortcuts(for:)`), QWERTY on Russian or Dvorak - QWERTY ⌘.
     func shortcut(for bind: GhosttyHostKeybind) -> Shortcut? {
         switch bind.key {
         case .unicode(let scalar):
             UnicodeScalar(scalar).map { Shortcut(String(Character($0)), modifiers: bind.modifiers) }
         case .keyCode(let code):
-            keyNames[code].map { Shortcut($0, modifiers: bind.modifiers) }
+            Self.names(for: bind.modifiers, keyNames: keyNames, commandKeyNames: commandKeyNames)[code].map { Shortcut($0, modifiers: bind.modifiers) }
         }
+    }
+
+    static func names(for modifiers: NSEvent.ModifierFlags, keyNames: [UInt16: String],
+                      commandKeyNames: [UInt16: String]?) -> [UInt16: String] {
+        modifiers.contains(.command) ? commandKeyNames ?? keyNames : keyNames
     }
 }
 
