@@ -548,7 +548,7 @@ export function Composer({
   const landingTarget = useCallback(() => composerBox.current, []);
   useLayoutEffect(() => {
     if (columnBox) return followComposerTrayColumns(columnBox);
-  }, [columnBox, look, quietRow]);
+  }, [columnBox, look, quietActions]);
   const {
     attachments,
     setAttachments,

@@ -194,15 +194,14 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   : {};
               });
               await page.evaluate(() => {
-                for (const selector of [
-                  '[data-alignment-surface="composer"]',
-                  '[data-alignment-surface="tray"]',
-                ]) {
+                for (const selector of ['[data-alignment-surface="composer"]', '[data-alignment-surface="tray"]']) {
                   const node = document.querySelector<HTMLElement>(selector);
                   if (node) node.style.translate = "-36px 0";
                 }
               });
-              await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+              await page.evaluate(
+                () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+              );
               const afterShift = await page.evaluate(() => {
                 const dock = document.querySelector<HTMLElement>(".acpmux-dock");
                 return dock

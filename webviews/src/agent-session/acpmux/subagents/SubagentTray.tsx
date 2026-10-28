@@ -284,7 +284,11 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open ? listId : undefined}
           onClick={() => setOpened(!open)}
         >
-          <span className="acpmux-lineage__icon" data-alignment-column="left-icon" data-state={runs ? "running" : "done"}>
+          <span
+            className="acpmux-lineage__icon"
+            data-alignment-column="left-icon"
+            data-state={runs ? "running" : "done"}
+          >
             {runs ? <Spinner size={14} loading /> : <Icon name="agent.session" size={14} />}
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
