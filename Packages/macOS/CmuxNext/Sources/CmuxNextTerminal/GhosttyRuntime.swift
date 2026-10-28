@@ -185,6 +185,9 @@ public final class GhosttyRuntime {
         }
         // SAFETY: `app` was just created and is never freed.
         unsafe ghostty_app_set_focus(app, NSApp?.isActive ?? false)
+        // The runtime (and its secure input) is made before the app is active, and the activation
+        // observers start only below: an activation in between is read here, on the same main turn.
+        secureInput.setAppActive(NSApp?.isActive ?? false)
         energySaver?.refresh()
         traceHook.refreshDemand()
         installObservers()
