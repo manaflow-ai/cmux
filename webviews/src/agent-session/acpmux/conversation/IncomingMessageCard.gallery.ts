@@ -357,6 +357,42 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    "sender-identity-remote": {
+      note: "Public fixture: the actual incoming remote-sender row, with the session headline, a secondary machine, and an explicit parent relationship.",
+      snapshot: chat(
+        [
+          user("Ask the review session for its result", 9),
+          assistant("The review session will report back here.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user("The review is ready. The regression passes.", 4, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "review-box/pr-row",
+                sessionId: "fixture-remote-review",
+                relation: "parent",
+                text: "[review-box/pr-row] The review is ready. The regression passes.",
+                raw: "[review-box/pr-row] The review is ready. The regression passes.",
+              },
+            },
+            untyped: true,
+          }),
+        ],
+        {
+          sessions: [
+            session({ sessionId: SESSION_ID, title: "Review the sender identity" }),
+            session({
+              sessionId: "fixture-remote-review",
+              name: "review-box/pr-row",
+              peer: "review-box",
+              host: "review-box",
+              hostKind: undefined,
+              harness: "codex",
+            }),
+          ],
+        },
+      ),
+    },
     "sender-hover": {
       note: 'A lane on another machine (studio-mac) messages this chat. Hovering its name: the accent ring over glass, and the tooltip "Open chief-ui (studio-mac)"; a click opens that chat beside this one, or focuses its tab when one shows it.',
       snapshot: chat(
