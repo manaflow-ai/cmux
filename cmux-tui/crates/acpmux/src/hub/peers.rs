@@ -99,7 +99,7 @@ impl Hub {
             self.load_peer_cache(&peer);
         }
         // Its first state now, and each change after it (`_acpmux/peer_state_changed`).
-        peer.report_states(self.harness_watch_sender());
+        peer.report_states(self.peer_states().clone());
         let generation = peer.generation;
         tokio::spawn(peer.run());
         (generation, settled)
@@ -247,12 +247,10 @@ impl Hub {
         Ok(())
     }
 
-    /// A peer left for good: watchers hear its last state, `offline` with error `removed`.
+    /// A peer left for good: watchers hear its last state, `offline` with error `removed`,
+    /// unless another instance took its name meanwhile (`peer_states.rs`).
     pub(super) fn note_peer_removed(&self, peer: &crate::peer::Peer) {
-        let offline = crate::protocol::peer_state::PeerLinkState::Offline;
-        let removed = Some("removed".to_owned());
-        let note = crate::peer::state_note(&peer.name, offline, peer.link().last_seen, removed);
-        self.send_harness_change(note);
+        self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
     }
 
     /// Drop every row of peer `name` and tell watching clients they left.

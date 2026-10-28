@@ -43,6 +43,8 @@ pub(crate) struct HarnessWatchState {
     changes: broadcast::Sender<Value>,
     /// The task that runs the reloads the watcher thread signals.
     reloader: StdMutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Peer state notes, which go out on `changes` too (`Hub::peer_states`).
+    peer_states: std::sync::OnceLock<Arc<crate::peer_states::PeerStates>>,
 }
 
 impl Default for HarnessWatchState {
@@ -51,6 +53,7 @@ impl Default for HarnessWatchState {
             watcher: StdMutex::new(None),
             changes: broadcast::channel(64).0,
             reloader: StdMutex::new(None),
+            peer_states: std::sync::OnceLock::new(),
         }
     }
 }
@@ -157,9 +160,11 @@ impl Hub {
         self.harness_watch.changes.subscribe()
     }
 
-    /// The watchers' feed itself, for a peer's state notes (`peer.rs` `report_states`).
-    pub(super) fn harness_watch_sender(&self) -> broadcast::Sender<Value> {
-        self.harness_watch.changes.clone()
+    /// The last peer state note of each name, sent on the watchers' feed (`peer_states.rs`).
+    pub fn peer_states(&self) -> &Arc<crate::peer_states::PeerStates> {
+        self.harness_watch.peer_states.get_or_init(|| {
+            Arc::new(crate::peer_states::PeerStates::new(self.harness_watch.changes.clone()))
+        })
     }
 
     /// Sends one `_acpmux/harnesses_changed` payload to the watchers.

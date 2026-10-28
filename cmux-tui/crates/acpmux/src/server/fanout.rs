@@ -21,7 +21,15 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                         Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
                             harness_admin::watch_note(&conn, note)
                         }
-                        // Lagged: a newer change follows with the full list.
+                        // Lagged: a newer harness change follows with the full list; a peer
+                        // state note carries one change, so each peer's last one comes again.
+                        Err(broadcast::error::RecvError::Lagged(_))
+                            if conn.watch_all.load(Ordering::SeqCst) =>
+                        {
+                            for note in hub.peer_states().snapshot() {
+                                harness_admin::watch_note(&conn, note);
+                            }
+                        }
                         Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => break,
                     }

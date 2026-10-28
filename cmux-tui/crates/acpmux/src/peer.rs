@@ -145,9 +145,8 @@ pub struct Peer {
     settled: tokio::sync::watch::Sender<u64>,
     /// Connected, degraded or reconnecting, and since when (`peer_link.rs`).
     link: StdMutex<Link>,
-    /// Where each change of `state()` goes once the hub runs the peer (`report_states`), and
-    /// the last state sent there; both under `link`'s lock, so the notes go out in order.
-    state_notes: StdMutex<StateNotes>,
+    /// Where each change of `state()` goes once the hub runs the peer (`report_states`).
+    states: StdMutex<Option<Arc<crate::peer_states::PeerStates>>>,
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
@@ -209,7 +208,7 @@ impl Peer {
             stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
-            state_notes: StdMutex::new(StateNotes::default()),
+            states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
             purge_tombstones: Default::default(),
@@ -232,30 +231,31 @@ impl Peer {
         out
     }
 
-    /// Sends `_acpmux/peer_state_changed` notes for this peer to `notes` (the watchers' feed,
-    /// `Hub::spawn_peer`) from now on, starting with its state now. A stopped peer sends none:
-    /// its replacement, or its removal, speaks for the name.
-    pub fn report_states(&self, notes: tokio::sync::broadcast::Sender<Value>) {
+    /// This instance speaks for its name in `states` (the hub's, `Hub::spawn_peer`) from now
+    /// on: its state now, then each change (`_acpmux/peer_state_changed`). Once it is replaced
+    /// or removed, `states` drops what it says.
+    pub fn report_states(&self, states: Arc<crate::peer_states::PeerStates>) {
         let link = self.link.lock().unwrap_or_else(|e| e.into_inner());
-        self.state_notes.lock_or_recover().to = Some(notes);
-        self.note_state(&link);
+        states.register(&self.name, self.generation, self.observed(&link));
+        *self.states.lock_or_recover() = Some(states);
     }
 
-    /// Called with `link` locked.
+    /// Called with `link` locked, so the notes go out in the order of the changes.
     fn note_state(&self, link: &Link) {
+        // A stopped instance's link going down is not news: its replacement or its removal
+        // speaks for the name next.
         if self.stop.load(Ordering::SeqCst) {
             return;
         }
-        let state = link.state();
-        let mut notes = self.state_notes.lock_or_recover();
-        if notes.to.is_none() || notes.sent == Some(state) {
-            return;
-        }
-        notes.sent = Some(state);
-        let error = self.last_error.lock_or_recover().clone();
-        let note = state_note(&self.name, state.wire(), link.last_seen, error);
-        if let Some(to) = notes.to.as_ref() {
-            let _ = to.send(note);
+        let Some(states) = self.states.lock_or_recover().clone() else { return };
+        states.changed(&self.name, self.generation, self.observed(link));
+    }
+
+    fn observed(&self, link: &Link) -> crate::peer_states::Observed {
+        crate::peer_states::Observed {
+            state: link.state().wire(),
+            last_seen: link.last_seen,
+            error: self.last_error.lock_or_recover().clone(),
         }
     }
 
@@ -1076,38 +1076,6 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
 /// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
-
-/// `Peer::state_notes`.
-#[derive(Default)]
-struct StateNotes {
-    to: Option<tokio::sync::broadcast::Sender<Value>>,
-    sent: Option<PeerState>,
-}
-
-/// The hub's feed marks a peer state note with this key (`server/harness_admin.rs`
-/// `watch_note` sends its value as `_acpmux/peer_state_changed`).
-pub const STATE_NOTE: &str = "peerStateChanged";
-
-/// The feature the daemon lists for `_acpmux/peer_state_changed`.
-pub const STATE_EVENTS_FEATURE: &str = "peerStateEvents";
-
-/// One `_acpmux/peer_state_changed {peer, state, lastSeen, error, at}`, marked for the
-/// watchers' feed.
-pub fn state_note(
-    peer: &str,
-    state: crate::protocol::peer_state::PeerLinkState,
-    last_seen: Option<u64>,
-    error: Option<String>,
-) -> Value {
-    let note = crate::protocol::peer_state::PeerStateChanged {
-        peer: peer.to_owned(),
-        state,
-        last_seen,
-        error,
-        at: crate::store::now_ms(),
-    };
-    json!({ (STATE_NOTE): note })
-}
 
 /// One frame queued for the link: the link epoch it was admitted on, and the pending key of
 /// the request it carries (None for a notification).
