@@ -260,21 +260,43 @@ pub(super) fn run(
         }
         Verb::Exec { command: line, timeout_ms } => {
             let answer = runtime.block_on(exec(&client, &session, line, *timeout_ms))?;
-            let text = |key: &str| answer.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
             if output == OutputMode::Json {
-                writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": exit_code(&answer), "stdout": text("stdout"), "stderr": text("stderr") })).map_err(io)?;
+                writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })).map_err(io)?;
             } else {
-                out.write_all(text("stdout").as_bytes()).map_err(io)?;
-                err.write_all(text("stderr").as_bytes()).map_err(io)?;
+                out.write_all(answer.stdout.as_bytes()).map_err(io)?;
+                err.write_all(answer.stderr.as_bytes()).map_err(io)?;
             }
-            Ok(exit_code(&answer))
+            Ok(answer.exit_code)
         }
     }
 }
 
-/// The command's exit status; a command the guest killed at its deadline has none (124, as `timeout` says).
-fn exit_code(answer: &Value) -> i32 {
-    answer.get("statusCode").and_then(Value::as_i64).map_or(124, |c| i32::try_from(c).unwrap_or(1))
+/// A checked `exec-await` answer (Freestyle's `ExecResponse`: every field optional and nullable).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ExecAnswer {
+    pub(super) exit_code: i32,
+    pub(super) stdout: String,
+    pub(super) stderr: String,
+}
+
+/// The answer, or an error when it is not an object or a field has the wrong type. A missing or
+/// null `statusCode` means the guest killed the command at its deadline: 124, as `timeout` says.
+pub(super) fn exec_answer(body: Option<Value>) -> Result<ExecAnswer, String> {
+    let unreadable = || "the machine's answer is not readable".to_owned();
+    let body = body.filter(Value::is_object).ok_or_else(unreadable)?;
+    let text = |key: &str| match body.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(text)) => Ok(text.clone()),
+        Some(_) => Err(unreadable()),
+    };
+    let exit_code = match body.get("statusCode") {
+        None | Some(Value::Null) => 124,
+        Some(code) => code
+            .as_i64()
+            .and_then(|c| i32::try_from(c).ok())
+            .ok_or("the machine's answer has no readable exit status")?,
+    };
+    Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
 async fn mint(
@@ -301,12 +323,12 @@ async fn mint(
         .await
         .map_err(|_| format!("the cmux API answered {status} with no readable body"))?;
     if !status.is_success() || body.get("ok") != Some(&Value::Bool(true)) {
-        // Only the error's code, and only when it is a plain code: an answer that echoed a
-        // credential (a proxy, a broken server) never reaches the terminal.
+        // Only a code this command knows, printed from its own table: nothing the answer
+        // carries (a credential a proxy or a broken server echoed) reaches the terminal.
         let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
         return Err(format!(
             "the cmux API refused the client session: {status} {}",
-            plain_code(code)
+            known_code(code)
         ));
     }
     let session: Session =
@@ -322,7 +344,7 @@ async fn exec(
     session: &Session,
     command: &str,
     timeout_ms: u64,
-) -> Result<Value, String> {
+) -> Result<ExecAnswer, String> {
     let url = format!(
         "{}/v5/vms/{}/exec-await",
         session.api_base_url.trim_end_matches('/'),
@@ -339,26 +361,32 @@ async fn exec(
     let status = response.status();
     let body: Option<Value> = response.json().await.ok();
     if !status.is_success() {
-        let code = body.as_ref().and_then(|b| b.get("code")).and_then(Value::as_str);
-        return Err(format!("the machine refused the command: {status} {}", plain_code(code)));
+        // The status only: the provider's error body is never printed.
+        return Err(format!("the machine refused the command: {status}"));
     }
-    // A readable answer is an object; a statusCode, when present, is a number (absent: killed at the deadline).
-    let body = body.filter(Value::is_object).ok_or("the machine's answer is not readable")?;
-    if body.get("statusCode").is_some_and(|c| !c.is_null() && !c.is_i64()) {
-        return Err("the machine's answer has no readable exit status".into());
-    }
-    Ok(body)
+    exec_answer(body)
 }
 
-/// `code` when it is a plain error code (`cloud.machine.not_found` or `NOT_FOUND`: one case, no
-/// digits, at most 64), else nothing, so a token or credential echoed in its place is never printed.
-fn plain_code(code: Option<&str>) -> &str {
-    let lower = |b: u8| b.is_ascii_lowercase() || b == b'.' || b == b'_';
-    let upper = |b: u8| b.is_ascii_uppercase() || b == b'_';
-    code.filter(|c| {
-        !c.is_empty() && c.len() <= 64 && (c.bytes().all(lower) || c.bytes().all(upper))
-    })
-    .unwrap_or("")
+/// The cmux API's client-session refusal codes. `known_code` prints only these, from this table.
+const KNOWN_CODES: [&str; 13] = [
+    "auth.unauthenticated",
+    "auth.forbidden",
+    "owner.unreachable",
+    "cloud.machine.not_found",
+    "cloud.machine.paused",
+    "cloud.machine.not_running",
+    "cloud.plan.required",
+    "cloud.rate_limited",
+    "cloud.provider.unsupported",
+    "cloud.provider.unavailable",
+    "validation.invalid",
+    "team.not_member",
+    "auth.sso_required",
+];
+
+/// The table's copy of `code` when the code is one this command knows, else nothing.
+pub(super) fn known_code(code: Option<&str>) -> &'static str {
+    code.and_then(|c| KNOWN_CODES.iter().copied().find(|known| *known == c)).unwrap_or("")
 }
 
 /// A new file only (an existing path is refused), mode 0600 from creation.

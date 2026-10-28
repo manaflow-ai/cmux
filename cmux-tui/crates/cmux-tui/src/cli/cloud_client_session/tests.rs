@@ -178,13 +178,33 @@ fn create_writes_the_token_to_a_new_private_file_and_prints_the_ssh_line() {
 }
 
 #[test]
-fn errors_print_only_plain_codes() {
-    assert_eq!(plain_code(Some("cloud.machine.not_found")), "cloud.machine.not_found");
-    assert_eq!(plain_code(Some("NOT_FOUND")), "NOT_FOUND");
-    for echoed in [TOKEN, "Bearer abc", "eyJhbGciOi.eyJzdWIi.sig", "aB", "a b", ""] {
-        assert_eq!(plain_code(Some(echoed)), "", "{echoed}");
+fn errors_print_only_known_codes() {
+    assert_eq!(known_code(Some("cloud.machine.not_found")), "cloud.machine.not_found");
+    assert_eq!(known_code(Some("cloud.plan.required")), "cloud.plan.required");
+    for echoed in [TOKEN, "secret", "SECRET", "Bearer abc", "eyJhbGciOi.eyJzdWIi.sig", "NOT_FOUND", ""] {
+        assert_eq!(known_code(Some(echoed)), "", "{echoed}");
     }
-    assert_eq!(plain_code(None), "");
+    assert_eq!(known_code(None), "");
+}
+
+#[test]
+fn exec_answers_are_checked_against_freestyles_schema() {
+    let ok = |exit_code, stdout: &str, stderr: &str| {
+        Ok(ExecAnswer { exit_code, stdout: stdout.into(), stderr: stderr.into() })
+    };
+    assert_eq!(exec_answer(Some(json!({ "statusCode": 2, "stdout": "o", "stderr": "e" }))), ok(2, "o", "e"));
+    // Every field is optional and nullable; no status means killed at the deadline.
+    assert_eq!(exec_answer(Some(json!({ "stdout": null, "statusCode": null }))), ok(124, "", ""));
+    assert_eq!(exec_answer(Some(json!({}))), ok(124, "", ""));
+    let unreadable = Err("the machine's answer is not readable".to_owned());
+    assert_eq!(exec_answer(Some(json!({ "statusCode": 0, "stdout": 5 }))), unreadable);
+    assert_eq!(exec_answer(Some(json!({ "statusCode": 0, "stderr": ["x"] }))), unreadable);
+    assert_eq!(exec_answer(Some(json!([1]))), unreadable);
+    assert_eq!(exec_answer(None), unreadable);
+    let no_status = Err("the machine's answer has no readable exit status".to_owned());
+    assert_eq!(exec_answer(Some(json!({ "statusCode": 4_294_967_296_i64 }))), no_status);
+    assert_eq!(exec_answer(Some(json!({ "statusCode": "0" }))), no_status);
+    assert_eq!(exec_answer(Some(json!({ "statusCode": 1.5 }))), no_status);
 }
 
 #[test]
