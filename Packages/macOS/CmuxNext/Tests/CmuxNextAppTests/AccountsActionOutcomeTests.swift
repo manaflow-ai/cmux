@@ -13,7 +13,7 @@ import Testing
     private func refreshed(_ services: MockAccountsServices) async -> AccountsModel {
         let model = AccountsModel(services: services)
         model.refresh()
-        for _ in 0..<200 where model.isRefreshing { await Task.yield() }
+        await model.settle()
         return model
     }
 
@@ -168,7 +168,8 @@ import Testing
         #expect(model.row(.codex).phase == .reauthenticating)
 
         releaseDetection?.resume()
-        for _ in 0..<200 where model.isRefreshing { await Task.yield() }
+        await model.settle()
+        #expect(!model.isRefreshing)
         #expect(model.row(.codex).phase == .reauthenticating)
     }
 
