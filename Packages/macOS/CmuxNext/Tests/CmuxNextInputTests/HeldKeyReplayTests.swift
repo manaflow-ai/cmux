@@ -136,3 +136,40 @@ struct HeldKeyReplaySlotTests {
         #expect(slot.dispatchStart - slot.generated >= 600_000_000, "the key's slot does not see its hold")
     }
 }
+
+/// A replayed key the router takes (a chord typed at launch runs its action; a bound Return) is still one key with a
+/// slot that sees its hold: the slot opens around the whole replay, as `sendEvent`'s does.
+@MainActor
+struct HeldKeyReplayTakenKeyTests {
+    @Test func aReplayedKeyTheRouterTakesStillHasItsSlot() throws {
+        let harness = InputLatencyTrackerTests.Harness()
+        let dispatch = InputLatencyDispatch(tracker: harness.tracker, classifier: InputTargetClassifier(rules: []),
+                                            frameInterval: { _ in 0.01 }, windowChanged: { _ in false })
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                                  timestamp: TimeInterval(harness.now - 1_000_000) / 1e9, windowNumber: 0,
+                                                  context: nil, characters: "t", charactersIgnoringModifiers: "t",
+                                                  isARepeat: false, keyCode: 17))
+        let first = try #require(dispatch.willDispatch(event, synthetic: false, keyWindow: nil))
+        dispatch.held(event, by: .launchPicture)
+        dispatch.didDispatch(first, layoutTookScroll: false)
+        harness.commit()
+        harness.advance(300_000_000)
+        // The router runs the chord's action on replay: nothing is sent on.
+        dispatch.heldKeys.replay(event, heldBy: .launchPicture, keyWindow: nil) { _ in }
+        harness.settle()
+        let keys = harness.emitted.filter { $0.kind == .keyPress }
+        #expect(keys.count == 1, "the replayed chord has \(keys.count) slots")
+        #expect((keys.first.map { $0.dispatchStart - $0.generated } ?? 0) >= 300_000_000)
+    }
+
+    /// A key that never passed `sendEvent` (the app's own `debug.key`, routed straight to the key router) and a hold
+    /// took is automation, never a person's key, in its replay's slot.
+    @Test func aHeldKeyThatNeverPassedSendEventIsAutomation() throws {
+        let ledger = KeyArrivalLedger()
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 40,
+                                                  windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a",
+                                                  isARepeat: false, keyCode: 0))
+        ledger.held(event, by: .newTab, at: 40_001_000_000)
+        #expect(ledger.isSynthetic(event))
+    }
+}
