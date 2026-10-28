@@ -3,7 +3,7 @@
 // and moving a node preserves its place among text. Settings can draw these same payloads in the
 // strip instead, without rewriting the draft or its sent order.
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   type ComposerAttachment,
   type DroppedKind,
@@ -177,7 +177,10 @@ export function useInlineAttachments(options: Options) {
       }
     },
     known,
-    onInlineViews: setViews,
+    /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
+    /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
+    /// shows in the paste's own frame, as the strip's does (composer-paste-instant.test.tsx).
+    onInlineViews: (next: ReadonlyMap<string, HTMLElement>) => flushSync(() => setViews(next)),
   }));
 
   useLayoutEffect(() => {
