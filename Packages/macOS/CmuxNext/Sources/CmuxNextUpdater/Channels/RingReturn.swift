@@ -23,7 +23,8 @@ nonisolated public enum RingReturn: Equatable, Sendable {
     ///   - kept: kept versions, newest first.
     ///   - rollout: this install's staged rollout; nil offers every item.
     public static func decide(installedBuild: String, offered: [AppcastItem], promoted: Set<String>,
-                              pulled: Set<String> = [], kept: [KeptVersion], rollout: StagedRollout? = nil) -> RingReturn {
+                              pulled: Set<String> = [], kept: [KeptVersion], rollout: StagedRollout? = nil,
+                              system: SystemVersion = .current) -> RingReturn {
         let onRing = Set(offered.map(\.version)).union(promoted).subtracting(pulled)
         if onRing.contains(installedBuild) { return .none }
         // The way forward is the ring's newest build, as Sparkle picks it; one this install's staged

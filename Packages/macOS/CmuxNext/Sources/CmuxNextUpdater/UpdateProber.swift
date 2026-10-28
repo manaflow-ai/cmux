@@ -47,6 +47,10 @@ nonisolated public struct UpdateProber: Sendable {
     /// `outcome`, except that an update this install's stage does not reach is no update: Sparkle
     /// picks the newest item first and holds it there (`shouldProceedWithUpdate`), never falling
     /// back to an older one, so the probe does not either.
+    func outcome(_ items: [AppcastItem], currentBuild: String, system: SystemVersion) -> UpdateProbeOutcome {
+        held(AppcastSelector.select(from: items, currentBuild: currentBuild, system: system))
+    }
+
     func held(_ outcome: UpdateProbeOutcome) -> UpdateProbeOutcome {
         let item: AppcastItem
         switch outcome {

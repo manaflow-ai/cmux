@@ -54,8 +54,8 @@ import Testing
         if case .updateAvailable(let item) = outcome { Issue.record("the probe offers \(item.version)") }
     }
 
-    /// An emptied element is a broken value: Sparkle holds it (StagedRollout.percent("") is nil).
-    @Test func anEmptyPercentageHoldsTheBuild() throws {
+    /// An emptied element is kept as written: a broken value, which Sparkle holds (StagedRollout.percent("") is nil).
+    @Test func theParserKeepsAnEmptiedPercentage() throws {
         let items = try AppcastParser.parse(Data(Self.feed(percent: "").utf8))
         #expect(items.first { $0.version == "500" }?.rolloutPercent == "")
     }
@@ -92,6 +92,46 @@ import Testing
         #expect(RingReturn.decide(installedBuild: "450", offered: offered, promoted: [], kept: [kept], rollout: rollout) == .goBack(kept))
         #expect(RingReturn.decide(installedBuild: "450", offered: offered, promoted: [], kept: [kept]) == .none)
         #expect(RingReturn.decide(installedBuild: "600", offered: offered, promoted: [], kept: [kept], rollout: rollout) == .none)
+    }
+
+    /// Sparkle picks the newest item this macOS runs, then holds it. On macOS 15: 500 open, 600 held
+    /// and macOS 99 only. Sparkle offers 500, so the ring has a way forward; a held 600 is not one.
+    @Test func theRingsWayForwardIsTheItemSparklePicksOnThisMacOS() throws {
+        let kept = KeptVersion(build: "300", shortVersion: "1.0.0", bundle: URL(fileURLWithPath: "/kept/300/cmux.app"),
+                               storeSchemas: [:], teamID: "TEAM")
+        let macOS15 = SystemVersion(major: 15), future = try #require(SystemVersion("99.0"))
+        let rollout = StagedRollout(seed: 1)
+        let openThenHeldFuture = [AppcastItem(version: "300"), AppcastItem(version: "500"),
+                                  AppcastItem(version: "600", minimumSystemVersion: future, rolloutPercent: "0")]
+        #expect(RingReturn.decide(installedBuild: "450", offered: openThenHeldFuture, promoted: [], kept: [kept],
+                                  rollout: rollout, system: macOS15) == .none)
+        // 600 open but macOS 99 only, 500 held: Sparkle offers nothing here, so the way back shows.
+        let heldThenOpenFuture = [AppcastItem(version: "300"), AppcastItem(version: "500", rolloutPercent: "0"),
+                                  AppcastItem(version: "600", minimumSystemVersion: future)]
+        #expect(RingReturn.decide(installedBuild: "450", offered: heldThenOpenFuture, promoted: [], kept: [kept],
+                                  rollout: rollout, system: macOS15) == .goBack(kept))
+    }
+
+    /// A kept build the ring holds (halted at 0 %, not pulled) is not a way back.
+    @Test func aHeldBuildIsNoWayBack() {
+        let halted = KeptVersion(build: "600", shortVersion: "1.0.0", bundle: URL(fileURLWithPath: "/kept/600/cmux.app"),
+                                 storeSchemas: [:], teamID: "TEAM")
+        let offered = [AppcastItem(version: "600", rolloutPercent: "0")]
+        #expect(RingReturn.decide(installedBuild: "700", offered: offered, promoted: [], kept: [halted],
+                                  rollout: StagedRollout(seed: 1)) == .waits)
+    }
+
+    /// The note "needs a newer macOS" names the newest build this install's stage reaches.
+    @Test func theNewerMacOSNoteNamesABuildTheStageReaches() throws {
+        let future = try #require(SystemVersion("99.0"))
+        var prober = UpdateProber(fetcher: Feed(xml: ""), architecture: .arm64)
+        prober.rollout = StagedRollout(seed: 1)
+        let items = [AppcastItem(version: "500", minimumSystemVersion: future),
+                     AppcastItem(version: "600", minimumSystemVersion: future, rolloutPercent: "0")]
+        guard case .requiresNewerSystem(let item, _) = prober.outcome(items, currentBuild: "300", system: SystemVersion(major: 15)) else {
+            Issue.record("the note for build 500 is gone"); return
+        }
+        #expect(item.version == "500")
     }
 
     struct Feed: AppcastFetching { let xml: String; func fetch(_ url: URL) async throws -> Data { Data(xml.utf8) } }
