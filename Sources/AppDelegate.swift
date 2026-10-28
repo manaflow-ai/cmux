@@ -6212,6 +6212,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func requestGoToFile(preferredWindow: NSWindow? = nil, source: String = "api.goToFile") {
+        postCommandPaletteRequest(
+            kind: .goToFile,
+            preferredWindow: preferredWindow,
+            source: source
+        )
+    }
+
     func requestAgentInbox(preferredWindow: NSWindow? = nil, source: String = "api.agentInbox") {
         guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
         postCommandPaletteRequest(
@@ -15454,6 +15462,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
+            if !hasFocusedAddressBarInShortcutContext,
+               matchConfiguredShortcut(event: event, action: .goToFile) {
+                let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+                requestGoToFile(preferredWindow: targetWindow, source: "shortcut.goToFile")
+                return true
+            }
+
             if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
                armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPalette]) {
                 return true
@@ -15461,7 +15476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
                !hasFocusedAddressBarInShortcutContext,
-               armConfiguredShortcutChordIfNeeded(event: event, actions: [.goToWorkspace]) {
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [.goToWorkspace, .goToFile]) {
                 return true
             }
         }
@@ -15718,6 +15733,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+            return true
+        }
+
+        if !hasFocusedAddressBarInShortcutContext,
+           matchConfiguredShortcut(event: event, action: .goToFile) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            requestGoToFile(preferredWindow: targetWindow, source: "shortcut.goToFile")
             return true
         }
 

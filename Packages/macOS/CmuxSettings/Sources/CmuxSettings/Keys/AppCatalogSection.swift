@@ -85,6 +85,28 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspacePresentationMode"
     )
 
+    /// The Search files field in the workspace title bar that opens Go to File.
+    public let showTitlebarFileSearch = DefaultsKey<Bool>(
+        id: "app.showTitlebarFileSearch",
+        defaultValue: true,
+        userDefaultsKey: "showTitlebarFileSearch",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.showTitlebarFileSearch",
+                defaultValue: "Show File Search in Title Bar"
+            ),
+            section: .app,
+            searchID: "titlebar-file-search",
+            searchKeywords: ["titlebar", "title", "bar", "file", "search", "go", "to", "quick", "open"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "showTitlebarFileSearch",
+                    keywords: ["titlebar", "file", "search", "go to file"]
+                )
+            ))
+        )
+    )
+
     /// Stored under the legacy `closeWorkspaceOnLastSurfaceShortcut` key
     /// whose value carries *close*-on-last-surface semantics (true =
     /// close the workspace), with legacy default `true`. The "Keep

@@ -225,6 +225,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.alwaysConfirmWorkspaceClose.userDefaultsKey
         ),
         .init(
+            jsonKey: "showTitlebarFileSearch",
+            defaultsKey: app.showTitlebarFileSearch.userDefaultsKey
+        ),
+        .init(
             jsonKey: "warnBeforeClosingWindow",
             defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
         ),
