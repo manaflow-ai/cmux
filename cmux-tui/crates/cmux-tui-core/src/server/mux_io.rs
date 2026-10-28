@@ -32,17 +32,31 @@
 //!   the read side then ends. A connection leaves the loop once both sides
 //!   are done, and its sink hears [`InboundSink::released`].
 //!
-//! - **The person first.** Each turn serves the ready sockets of the
-//!   person's connections ([`InboundSink::is_person`]) before automation's,
-//!   as Chrome's IO thread runs the browser's UI IPC ahead of background
-//!   work: an agent's burst never stands between a key and its echo.
+//! - **The person first.** The person's connections ([`InboundSink::is_person`])
+//!   have a loop of their own, `mux-io-input`, at the echo class: a
+//!   connection moves there from `mux-io` once it is classed the person's
+//!   (its socket, its reader and its write state go with it, and commands
+//!   sent to the old loop are passed on). So an agent's burst of reads and
+//!   writes never stands between a key and its echo: under 8 bursting
+//!   agents the shared loop put the echo's p95 at 1.3-2x the per-connection
+//!   threads it replaced (connection_qos_tests.rs
+//!   `echo_latency_under_an_agent_burst`). Chrome keeps the person's input
+//!   off the thread that serves background traffic the same way: input
+//!   events reach the renderer's compositor thread, not the main thread's
+//!   task queue (content/renderer/input/). There its lines are routed on
+//!   the loop itself ([`InboundSink::deliver_here`]), as its reader thread
+//!   routed them, with no hop to the pool first: under the burst every
+//!   hop through the pool waits on the pool's one lock. Within one turn a
+//!   loop still serves the person's sockets and commands first.
 //!
-//! The loop's thread starts with its first connection and runs at the echo
-//! class, blocking disallowed: the person's keys and echo pass through it,
-//! as they passed through their connection's own reader and writer threads.
-//! A thread that cannot start leaves nothing behind: the next connection
-//! tries again. Each turn after a wait is one hang scope; the wait is in
-//! none. Nothing wakes an idle loop.
+//! `mux-io` starts with its first connection and runs at user-initiated,
+//! as each connection's reader did before it is classed; `mux-io-input`
+//! starts with the first connection classed the person's and runs at the
+//! echo class. Both disallow blocking. A thread that cannot start leaves
+//! nothing behind: the next connection tries again, and a person's
+//! connection whose loop cannot start stays on `mux-io`, served first. Each
+//! turn after a wait is one hang scope; the wait is in none. Nothing wakes
+//! an idle loop.
 
 use std::collections::HashMap;
 use std::io;
@@ -55,6 +69,8 @@ use std::time::{Duration, Instant};
 use cmux_ipc::FrameReader;
 use cmux_threads::ThreadQos;
 use cmux_threads::sync::Mutex;
+
+use crate::thread_qos::ThreadType;
 
 use super::line_connection::{ConnectionBadMessage, ConnectionEnd, Inbound, cut_message};
 use super::{BatchPoll, BoundedOutbound, MessageWriter, OutboundItem};
@@ -71,14 +87,46 @@ use poller::{Interest, Poller, Ready, WAKE_TOKEN};
 #[path = "mux_io_tests.rs"]
 mod tests;
 
-/// The loop thread's name (`server-threads`, threading-model.md).
+/// The shared loop's thread name (`server-threads`, threading-model.md).
 pub(super) const MUX_IO_THREAD: &str = "mux-io";
 
-/// The loop's QoS: the echo class, as the person's connection reader and
-/// writer threads ran before it (Chromium's browser IO thread is
-/// kDisplayCritical, content/browser/browser_thread_impl.cc). It runs no
-/// request: those run at their connection's class on the sequenced pool.
-pub(super) const MUX_IO_QOS: ThreadQos = crate::echo_thread::ECHO_PATH_QOS;
+/// The shared loop's QoS: user-initiated, as a connection's reader ran
+/// before its class was known (`CONNECTION_READER_QOS`). It serves
+/// automation and connections not classed yet; it runs no request.
+pub(super) const MUX_IO_QOS: ThreadQos = ThreadType::Interactive.qos();
+
+/// The person's loop's thread name.
+pub(super) const MUX_IO_INPUT_THREAD: &str = "mux-io-input";
+
+/// The person's loop's QoS: the echo class, as the person's connection
+/// reader and writer threads ran (Chromium's browser IO thread is
+/// kDisplayCritical, content/browser/browser_thread_impl.cc).
+pub(super) const MUX_IO_INPUT_QOS: ThreadQos = crate::echo_thread::ECHO_PATH_QOS;
+
+/// Which of the two loops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LoopKind {
+    /// `mux-io`: automation and connections not classed yet.
+    Shared,
+    /// `mux-io-input`: the person's connections.
+    Person,
+}
+
+impl LoopKind {
+    pub(super) const fn thread_name(self) -> &'static str {
+        match self {
+            LoopKind::Shared => MUX_IO_THREAD,
+            LoopKind::Person => MUX_IO_INPUT_THREAD,
+        }
+    }
+
+    pub(super) const fn qos(self) -> ThreadQos {
+        match self {
+            LoopKind::Shared => MUX_IO_QOS,
+            LoopKind::Person => MUX_IO_INPUT_QOS,
+        }
+    }
+}
 
 /// One turn of the loop (what it does after a wait) is one hang scope.
 const TURN_HANG_DEADLINE: Duration = Duration::from_millis(100);
@@ -95,8 +143,14 @@ pub(super) trait InboundSink: Send + Sync {
     fn deliver(&self, message: Inbound) -> bool;
     /// The socket is closed and out of the loop: both sides are done.
     fn released(&self);
-    /// The person's connection: its ready socket is served first.
+    /// The person's connection: it moves to the person's loop.
     fn is_person(&self) -> bool;
+    /// [`Self::deliver`] on the person's loop: the sink may handle the
+    /// message on this thread, as the person's connection reader did
+    /// (routing only: a request runs on its connection's request sequence).
+    fn deliver_here(&self, message: Inbound) -> bool {
+        self.deliver(message)
+    }
 }
 
 /// One connection to serve.
@@ -113,74 +167,154 @@ pub(super) struct IoRegistration {
     pub(super) inbound: Arc<dyn InboundSink>,
 }
 
+/// Where one connection's commands go: the loop it was registered on, or
+/// the person's loop once it moved there. Weak, so a queued doorbell never
+/// keeps a loop alive.
+struct Route {
+    token: u64,
+    home: std::sync::Weak<Shared>,
+    /// Set once the connection serves on the person's loop.
+    moved: OnceLock<std::sync::Weak<Shared>>,
+}
+
+impl Route {
+    /// Queues `op` on the loop that serves the connection now.
+    fn send(self: &Arc<Self>, op: Op) {
+        let target = self.moved.get().unwrap_or(&self.home);
+        if let Some(shared) = target.upgrade() {
+            let _ = shared.command(Command::Op(self.clone(), op));
+        }
+    }
+}
+
 /// A connection's way back to the loop.
 #[derive(Clone)]
 pub(super) struct IoHandle {
-    shared: Arc<Shared>,
-    token: u64,
+    route: Arc<Route>,
 }
 
 impl IoHandle {
     /// The sink drained: read the socket again.
     pub(super) fn resume_read(&self) {
-        let _ = self.shared.command(Command::ResumeRead(self.token));
+        self.route.send(Op::ResumeRead);
     }
 
     /// The connection needs no more input (a handler closed it): stop
     /// reading for good.
     pub(super) fn stop_read(&self) {
-        let _ = self.shared.command(Command::StopRead(self.token));
+        self.route.send(Op::StopRead);
     }
 }
 
-/// Starts the loop's thread with `body`, or says why it could not.
-type LoopSpawner = Arc<dyn Fn(LoopBody) -> io::Result<()> + Send + Sync>;
+/// Starts a loop's thread with `body`, or says why it could not.
+type LoopSpawner = Arc<dyn Fn(LoopKind, LoopBody) -> io::Result<()> + Send + Sync>;
 type LoopBody = Box<dyn FnOnce() + Send>;
 
-/// The daemon's connection loop: one per mux, its thread started with the
-/// first connection.
-pub(crate) struct MuxIo {
-    /// Set only once the loop's thread started.
-    shared: OnceLock<Arc<Shared>>,
+/// What both loops share: the connection tokens, and the person's loop,
+/// started by the shared loop when it first moves a connection there.
+struct Loops {
+    next_token: AtomicU64,
+    person: OnceLock<Arc<Shared>>,
     spawner: LoopSpawner,
+}
+
+impl Loops {
+    /// Starts a loop of `kind`. Its `Shared` is returned only once its
+    /// thread runs, so a spawn that failed (EAGAIN) leaves nothing behind.
+    fn start(self: &Arc<Self>, kind: LoopKind) -> io::Result<Arc<Shared>> {
+        let shared =
+            Arc::new(Shared { poller: Poller::new()?, commands: Mutex::new(Commands::default()) });
+        let looped = shared.clone();
+        let loops = self.clone();
+        (self.spawner)(
+            kind,
+            Box::new(move || {
+                let thread = std::thread::current();
+                let _hang_watch = cmux_hang_watch::register_thread(
+                    cmux_hang_watch::ThreadKind::Io,
+                    thread.name().unwrap_or(kind.thread_name()),
+                );
+                cmux_threads::disallow_blocking();
+                Loop::new(looped, loops, kind).run();
+            }),
+        )?;
+        Ok(shared)
+    }
+
+    /// The person's loop, started on first use; `None` when its thread
+    /// could not start. Only the shared loop's thread calls it.
+    fn person(self: &Arc<Self>) -> Option<Arc<Shared>> {
+        if let Some(person) = self.person.get() {
+            return Some(person.clone());
+        }
+        let person = match self.start(LoopKind::Person) {
+            Ok(person) => person,
+            Err(error) => {
+                eprintln!("cmux-tui: {MUX_IO_INPUT_THREAD} did not start: {error}");
+                return None;
+            }
+        };
+        if self.person.set(person.clone()).is_err() {
+            person.command(Command::Stop);
+        }
+        self.person.get().cloned()
+    }
+}
+
+/// The daemon's connection loops: one per mux, the shared loop's thread
+/// started with the first connection.
+pub(crate) struct MuxIo {
+    /// Set only once the shared loop's thread started.
+    shared: OnceLock<Arc<Shared>>,
+    loops: Arc<Loops>,
 }
 
 impl Default for MuxIo {
     fn default() -> Self {
-        Self::with_spawner(Arc::new(|body: LoopBody| {
-            cmux_threads::spawn(MUX_IO_THREAD, MUX_IO_QOS, body).map(drop)
+        Self::with_spawner(Arc::new(|kind: LoopKind, body: LoopBody| {
+            cmux_threads::spawn(kind.thread_name(), kind.qos(), body).map(drop)
         }))
     }
 }
 
 impl std::fmt::Debug for MuxIo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MuxIo").field("started", &self.shared.get().is_some()).finish()
+        f.debug_struct("MuxIo")
+            .field("started", &self.shared.get().is_some())
+            .field("person", &self.loops.person.get().is_some())
+            .finish()
     }
 }
 
 impl Drop for MuxIo {
     fn drop(&mut self) {
-        // The loop ends at its next turn and closes what it still serves.
-        // Not joined: the last owner of the mux may be a task the loop's
-        // own close released.
+        // Each loop ends at its next turn and closes what it still serves.
+        // Not joined: the last owner of the mux may be a task a loop's own
+        // close released. A connection the shared loop moves while it stops
+        // finds the person's loop stopped and closes on the shared loop.
         if let Some(shared) = self.shared.get() {
             let _ = shared.command(Command::Stop);
+        }
+        if let Some(person) = self.loops.person.get() {
+            let _ = person.command(Command::Stop);
         }
     }
 }
 
 impl MuxIo {
     fn with_spawner(spawner: LoopSpawner) -> Self {
-        Self { shared: OnceLock::new(), spawner }
+        let loops =
+            Arc::new(Loops { next_token: AtomicU64::new(1), person: OnceLock::new(), spawner });
+        Self { shared: OnceLock::new(), loops }
     }
 
     /// A handle for a connection about to be registered: its sink may need
     /// it before [`Self::register`] returns.
     pub(super) fn handle(&self) -> io::Result<IoHandle> {
         let shared = self.started()?;
-        let token = shared.next_token.fetch_add(1, Ordering::Relaxed);
-        Ok(IoHandle { shared: shared.clone(), token })
+        let token = self.loops.next_token.fetch_add(1, Ordering::Relaxed);
+        let route = Arc::new(Route { token, home: Arc::downgrade(shared), moved: OnceLock::new() });
+        Ok(IoHandle { route })
     }
 
     /// Serves `registration` on the loop under `handle`. Fails, serving
@@ -199,16 +333,13 @@ impl MuxIo {
         let IoRegistration { stream, reader, outbound, writer, ipc, inbound } = registration;
         let write_signal = Arc::new(AtomicBool::new(false));
         let doorbell = {
-            let shared = Arc::downgrade(&handle.shared);
+            let route = handle.route.clone();
             let signal = write_signal.clone();
-            let token = handle.token;
             move || {
                 if signal.swap(true, Ordering::AcqRel) {
                     return;
                 }
-                if let Some(shared) = shared.upgrade() {
-                    let _ = shared.command(Command::Writable(token));
-                }
+                route.send(Op::Writable);
             }
         };
         if !outbound.on_ready(doorbell) {
@@ -216,7 +347,10 @@ impl MuxIo {
             return Err(RegisterError::Taken);
         }
         let connection = Connection {
-            token: handle.token,
+            token: handle.route.token,
+            route: handle.route.clone(),
+            stays: false,
+            here: false,
             fd,
             stream,
             reader,
@@ -236,35 +370,24 @@ impl MuxIo {
             ipc,
             inbound,
         };
-        if handle.shared.command(Command::Add(Box::new(connection))) {
+        let Some(home) = handle.route.home.upgrade() else {
+            return Err(RegisterError::Stopped);
+        };
+        if home.command(Command::Add(Box::new(connection))) {
             Ok(())
         } else {
             Err(RegisterError::Stopped)
         }
     }
 
-    /// The running loop, its thread started first. The loop is published
-    /// only once its thread runs, so a spawn that failed (EAGAIN) leaves
-    /// nothing behind and the next connection tries again.
+    /// The running shared loop, its thread started first. The loop is
+    /// published only once its thread runs, so a spawn that failed (EAGAIN)
+    /// leaves nothing behind and the next connection tries again.
     fn started(&self) -> io::Result<&Arc<Shared>> {
         if let Some(shared) = self.shared.get() {
             return Ok(shared);
         }
-        let shared = Arc::new(Shared {
-            poller: Poller::new()?,
-            commands: Mutex::new(Commands::default()),
-            next_token: AtomicU64::new(1),
-        });
-        let looped = shared.clone();
-        (self.spawner)(Box::new(move || {
-            let thread = std::thread::current();
-            let _hang_watch = cmux_hang_watch::register_thread(
-                cmux_hang_watch::ThreadKind::Io,
-                thread.name().unwrap_or(MUX_IO_THREAD),
-            );
-            cmux_threads::disallow_blocking();
-            Loop::new(looped).run();
-        }))?;
+        let shared = self.loops.start(LoopKind::Shared)?;
         if self.shared.set(shared.clone()).is_err() {
             // Another connection's loop started first: this one ends unused.
             shared.command(Command::Stop);
@@ -309,15 +432,22 @@ fn set_nonblocking(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-/// What other threads ask of the loop.
+/// What other threads ask of a loop.
 enum Command {
     Add(Box<Connection>),
-    /// The connection's queue rang its doorbell.
-    Writable(u64),
-    ResumeRead(u64),
-    StopRead(u64),
+    /// One connection's request.
+    Op(Arc<Route>, Op),
     /// The mux is gone.
     Stop,
+}
+
+/// What a connection asks of the loop that serves it.
+#[derive(Clone, Copy)]
+enum Op {
+    /// The connection's queue rang its doorbell.
+    Writable,
+    ResumeRead,
+    StopRead,
 }
 
 #[derive(Default)]
@@ -332,16 +462,20 @@ struct Shared {
     poller: Poller,
     /// Taken by the loop once per turn; a sender holds it for one push.
     commands: Mutex<Commands>,
-    next_token: AtomicU64,
 }
 
 impl Shared {
     /// Queues `command` for the loop; false once the loop stopped (the
     /// command is dropped).
     fn command(&self, command: Command) -> bool {
+        self.try_command(command).is_ok()
+    }
+
+    /// [`Self::command`] that hands a refused command back.
+    fn try_command(&self, command: Command) -> Result<(), Command> {
         let mut commands = self.commands.lock().recover_poison();
         if commands.stopped {
-            return false;
+            return Err(command);
         }
         commands.queue.push(command);
         let wake = !std::mem::replace(&mut commands.woken, true);
@@ -349,13 +483,19 @@ impl Shared {
         if wake && let Err(error) = self.poller.wake() {
             eprintln!("cmux-tui: mux-io wake failed: {error}");
         }
-        true
+        Ok(())
     }
 }
 
 /// A connection the loop serves; only the loop's thread touches it.
 struct Connection {
     token: u64,
+    /// Where its commands go; moved with it.
+    route: Arc<Route>,
+    /// The person's loop could not take it: it stays on the shared loop.
+    stays: bool,
+    /// It serves on the person's loop: its messages are handled here.
+    here: bool,
     fd: RawFd,
     stream: Box<dyn transport::Stream>,
     reader: FrameReader,
@@ -415,7 +555,12 @@ impl Connection {
         if matches!(inbound, Inbound::End(_)) {
             self.end_read();
         }
-        if !self.inbound.deliver(inbound) {
+        let room = if self.here {
+            self.inbound.deliver_here(inbound)
+        } else {
+            self.inbound.deliver(inbound)
+        };
+        if !room {
             self.paused = true;
         }
     }
@@ -550,6 +695,8 @@ fn is_descriptor_refusal(error: &io::Error) -> bool {
 
 struct Loop {
     shared: Arc<Shared>,
+    loops: Arc<Loops>,
+    kind: LoopKind,
     connections: HashMap<u64, Connection>,
     /// Connections with a write waiting for room.
     blocked: usize,
@@ -559,8 +706,8 @@ struct Loop {
 }
 
 impl Loop {
-    fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, connections: HashMap::new(), blocked: 0, later: Vec::new() }
+    fn new(shared: Arc<Shared>, loops: Arc<Loops>, kind: LoopKind) -> Self {
+        Self { shared, loops, kind, connections: HashMap::new(), blocked: 0, later: Vec::new() }
     }
 
     fn run(mut self) {
@@ -614,20 +761,18 @@ impl Loop {
     }
 
     fn is_persons(&self, command: &Command) -> bool {
-        let token = match command {
-            Command::Writable(token) | Command::ResumeRead(token) | Command::StopRead(token) => {
-                token
-            }
-            Command::Add(_) | Command::Stop => return false,
-        };
-        self.connections.get(token).is_some_and(|connection| connection.inbound.is_person())
+        let Command::Op(route, _) = command else { return false };
+        self.connections.get(&route.token).is_some_and(|connection| connection.inbound.is_person())
     }
 
     /// Runs one command; false once the loop must stop.
     fn run_command(&mut self, command: Command, now: Instant) -> bool {
         match command {
-            Command::Add(connection) => {
+            Command::Add(mut connection) => {
                 let token = connection.token;
+                connection.here = self.kind == LoopKind::Person;
+                // A connection moved here may wait for room already.
+                self.blocked += usize::from(connection.blocked_since.is_some());
                 self.connections.insert(token, *connection);
                 // Input that came before the loop watched the socket, the
                 // prefix included, and the first queued replies.
@@ -637,16 +782,25 @@ impl Loop {
                     connection.write(now);
                 });
             }
-            Command::Writable(token) => self.update(token, |connection| {
+            Command::Op(route, op) if !self.connections.contains_key(&route.token) => {
+                // Sent here before the connection moved to the person's
+                // loop: it follows the connection, behind its `Add`.
+                if let Some(moved) = route.moved.get().and_then(std::sync::Weak::upgrade)
+                    && !Arc::ptr_eq(&moved, &self.shared)
+                {
+                    let _ = moved.command(Command::Op(route, op));
+                }
+            }
+            Command::Op(route, Op::Writable) => self.update(route.token, |connection| {
                 if connection.blocked_since.is_none() {
                     connection.write(now);
                 }
             }),
-            Command::ResumeRead(token) => self.update(token, |connection| {
+            Command::Op(route, Op::ResumeRead) => self.update(route.token, |connection| {
                 connection.paused = false;
                 connection.cut();
             }),
-            Command::StopRead(token) => self.update(token, |connection| {
+            Command::Op(route, Op::StopRead) => self.update(route.token, |connection| {
                 if connection.reading {
                     connection.end_read();
                 }
@@ -659,8 +813,9 @@ impl Loop {
         true
     }
 
-    /// Serves this turn's ready sockets, the person's connections first;
-    /// the others keep their kernel order behind them.
+    /// Serves this turn's ready sockets, the person's connections first (on
+    /// the shared loop, those not moved yet); the others keep their kernel
+    /// order behind them.
     fn serve_ready(&mut self, ready: &mut Vec<Ready>, automation: &mut Vec<Ready>, now: Instant) {
         for event in ready.drain(..) {
             if event.token == WAKE_TOKEN {
@@ -738,10 +893,61 @@ impl Loop {
                 connection.interest = wants;
             }
         }
-        if connection.is_done()
-            && let Some(connection) = self.connections.remove(&token)
+        if connection.is_done() {
+            if let Some(connection) = self.connections.remove(&token) {
+                connection.inbound.released();
+            }
+            return;
+        }
+        let moves =
+            self.kind == LoopKind::Shared && !connection.stays && connection.inbound.is_person();
+        if moves {
+            self.move_to_person(token);
+        }
+    }
+
+    /// Moves connection `token`, now the person's, to the person's loop:
+    /// its socket leaves this poller, the connection (its reader, its
+    /// partial batch, its write deadline) goes to that loop behind every
+    /// command already queued there, and only then do its commands go
+    /// there too. A command that reached this loop meanwhile follows it
+    /// (`Command::Op` for a connection no longer here). When that loop
+    /// cannot take it, it stays here.
+    fn move_to_person(&mut self, token: u64) {
+        let Some(person) = self.loops.person() else {
+            if let Some(connection) = self.connections.get_mut(&token) {
+                connection.stays = true;
+            }
+            return;
+        };
+        let Some(mut connection) = self.connections.remove(&token) else { return };
+        if self
+            .shared
+            .poller
+            .update(connection.fd, token, connection.interest, Interest::NONE)
+            .is_err()
         {
-            connection.inbound.released();
+            // Still watched here: it is served here.
+            connection.stays = true;
+            self.connections.insert(token, connection);
+            return;
+        }
+        connection.interest = Interest::NONE;
+        let was_blocked = connection.blocked_since.is_some();
+        let route = connection.route.clone();
+        match person.try_command(Command::Add(Box::new(connection))) {
+            Ok(()) => {
+                self.blocked -= usize::from(was_blocked);
+                let _ = route.moved.set(Arc::downgrade(&person));
+            }
+            Err(Command::Add(mut connection)) => {
+                // The person's loop stopped (the mux is going): it closes
+                // here.
+                connection.stays = true;
+                self.connections.insert(token, *connection);
+                self.update(token, |_| {});
+            }
+            Err(_) => {}
         }
     }
 

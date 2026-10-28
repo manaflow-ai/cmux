@@ -2,8 +2,8 @@
 //! queued replies, pauses a connection's reads while its sink is full,
 //! counts a write stall when a peer's buffer is full, closes a connection
 //! whose peer stops reading once the write timeout passes, serves the
-//! person's connection first, and starts its thread again after a failed
-//! start.
+//! person's connection on its own loop while the shared loop is busy, and
+//! starts its thread again after a failed start.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -15,7 +15,10 @@ use std::time::{Duration, Instant};
 use cmux_ipc::{FrameReader, ReaderLimits};
 use serde_json::json;
 
-use super::{InboundSink, IoHandle, IoRegistration, LoopBody, MUX_IO_QOS, MUX_IO_THREAD, MuxIo};
+use super::{
+    InboundSink, IoHandle, IoRegistration, LoopBody, LoopKind, MUX_IO_INPUT_THREAD, MUX_IO_THREAD,
+    MuxIo,
+};
 use crate::diagnostics::IpcStats;
 use crate::server::line_connection::{ConnectionEnd, Inbound};
 use crate::server::{BoundedOutbound, MessageWriter, QueuedSink, RenderService, SinkControl};
@@ -223,29 +226,31 @@ fn a_full_peer_buffer_counts_one_write_stall_per_wait() {
     fill_until_stalls(&served, 2);
 }
 
-/// Delivers each message by reporting its sink's name. A sink with a hold
-/// reports `entered` at its first delivery, then waits for the hold.
+/// Delivers each message by reporting its sink's name and the thread that
+/// delivered it. A sink with a hold reports `entered` at its first
+/// delivery, then waits for the hold.
 struct Named {
     name: &'static str,
     person: bool,
-    order: Mutex<Sender<&'static str>>,
+    order: Mutex<Sender<(&'static str, String)>>,
     hold: Mutex<Option<Receiver<()>>>,
 }
 
 impl Named {
-    fn new(name: &'static str, person: bool, order: &Sender<&'static str>) -> Arc<Self> {
+    fn new(name: &'static str, person: bool, order: &Sender<(&'static str, String)>) -> Arc<Self> {
         Arc::new(Named { name, person, order: Mutex::new(order.clone()), hold: Mutex::new(None) })
     }
 }
 
 impl InboundSink for Named {
     fn deliver(&self, _message: Inbound) -> bool {
+        let thread = std::thread::current().name().unwrap_or_default().to_owned();
         let hold = self.hold.lock().unwrap().take();
         if let Some(hold) = hold {
-            let _ = self.order.lock().unwrap().send("entered");
+            let _ = self.order.lock().unwrap().send(("entered", thread.clone()));
             hold.recv_timeout(Duration::from_secs(10)).expect("the hold's signal");
         }
-        let _ = self.order.lock().unwrap().send(self.name);
+        let _ = self.order.lock().unwrap().send((self.name, thread));
         true
     }
 
@@ -266,10 +271,13 @@ fn round_trip(connected: &Connected) {
     assert_eq!(reply, "{\"ready\":true}\n");
 }
 
-/// Two sockets ready in one turn: the person's is read first, though
-/// automation's became ready first.
+/// The person's key is read while the shared loop is busy with
+/// automation: the person's connection serves on its own loop
+/// (`mux-io-input`), so an agent's burst never stands between a key and
+/// its echo. Red when one loop served both: the person's line waited
+/// behind the held delivery.
 #[test]
-fn the_persons_connection_is_served_first_in_a_turn() {
+fn the_persons_connection_is_read_while_the_shared_loop_is_busy() {
     let io = MuxIo::default();
     let (order, names) = channel();
     let blocker = Named::new("blocker", false, &order);
@@ -281,17 +289,38 @@ fn the_persons_connection_is_served_first_in_a_turn() {
     for connected in [&blocking, &automation, &person] {
         round_trip(connected);
     }
-    // The loop is held inside the blocker's delivery while both sockets
-    // become ready, automation's first.
-    blocking.peer.write_all(b"1\n").unwrap();
     let next = || names.recv_timeout(Duration::from_secs(10)).expect("a delivery");
-    assert_eq!(next(), "entered");
+    // The shared loop is held inside the blocker's delivery.
+    blocking.peer.write_all(b"1\n").unwrap();
+    assert_eq!(next(), ("entered", MUX_IO_THREAD.to_owned()));
     automation.peer.write_all(b"2\n").unwrap();
     person.peer.write_all(b"3\n").unwrap();
-    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(next(), ("person", MUX_IO_INPUT_THREAD.to_owned()), "the key waited for the burst");
+    // The person's reply goes out on its loop too.
+    round_trip(&person);
     release.send(()).unwrap();
-    assert_eq!(next(), "blocker");
-    assert_eq!([next(), next()], ["person", "automation"]);
+    assert_eq!(next().0, "blocker");
+    assert_eq!(next(), ("automation", MUX_IO_THREAD.to_owned()));
+}
+
+/// When the person's loop cannot start, the person's connection stays on
+/// the shared loop and is served there.
+#[test]
+fn a_persons_connection_stays_on_the_shared_loop_when_its_loop_cannot_start() {
+    let spawner = Arc::new(|kind: LoopKind, body: LoopBody| {
+        if kind == LoopKind::Person {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
+        cmux_threads::spawn(kind.thread_name(), kind.qos(), body).map(drop)
+    });
+    let io = MuxIo::with_spawner(spawner);
+    let (order, names) = channel();
+    let mut person = connect(&io, Named::new("person", true, &order));
+    round_trip(&person);
+    person.peer.write_all(b"1\n").unwrap();
+    let delivered = names.recv_timeout(Duration::from_secs(10)).expect("a delivery");
+    assert_eq!(delivered, ("person", MUX_IO_THREAD.to_owned()));
+    round_trip(&person);
 }
 
 /// A loop thread that could not start (EAGAIN) leaves nothing behind: the
@@ -301,11 +330,11 @@ fn a_loop_thread_that_failed_to_start_is_started_by_the_next_connection() {
     let attempts = Arc::new(AtomicUsize::new(0));
     let spawner = {
         let attempts = attempts.clone();
-        Arc::new(move |body: LoopBody| {
+        Arc::new(move |kind: LoopKind, body: LoopBody| {
             if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
                 return Err(io::Error::from(io::ErrorKind::WouldBlock));
             }
-            cmux_threads::spawn(MUX_IO_THREAD, MUX_IO_QOS, body).map(drop)
+            cmux_threads::spawn(kind.thread_name(), kind.qos(), body).map(drop)
         })
     };
     let io = MuxIo::with_spawner(spawner);

@@ -108,6 +108,35 @@ impl LineConnection {
         room
     }
 
+    /// [`Self::deliver`] on the person's IO loop (server/mux_io.rs): with no
+    /// drain posted or running, the loop handles the message itself, as the
+    /// person's reader thread routed its lines. A line's handler only routes
+    /// (admission, hello, `handle_connection_frame_at` queues its request on
+    /// the connection's request sequence) and never blocks, so the loop does
+    /// not wait on it; a drain already queued keeps the order, and what one
+    /// turn leaves goes to the input workers.
+    pub(super) fn deliver_here(&self, message: Inbound) -> bool {
+        let mut inbox = self.inbox.lock().recover_poison();
+        inbox.bytes += message.bytes();
+        inbox.messages.push_back(message);
+        let room = inbox.bytes < INBOX_BYTES && inbox.messages.len() < INBOX_MESSAGES;
+        if !room {
+            inbox.paused = true;
+            self.reads.pause();
+        }
+        let run = !std::mem::replace(&mut inbox.scheduled, true);
+        drop(inbox);
+        if run {
+            // A handler's panic ends this connection (`EndOnUnwind`), not
+            // the loop that serves the person's other connections.
+            let drained = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.drain()));
+            if drained.is_err() {
+                eprintln!("cmux-tui: a connection's handler panicked on the person's IO loop");
+            }
+        }
+        room
+    }
+
     /// Runs the sequence even with nothing queued: the session opens.
     pub(super) fn schedule(&self) {
         let post = !std::mem::replace(&mut self.inbox.lock().recover_poison().scheduled, true);

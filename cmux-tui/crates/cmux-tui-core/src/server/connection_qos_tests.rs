@@ -507,8 +507,8 @@ fn the_apps_terminal_attachment_lines_run_at_the_echo_class() {
         "the echo class: {entered:?}"
     );
     assert!(
-        entered.iter().all(|(_, thread)| thread == "mux-seq-input"),
-        "the person's lines drain on the input workers: {entered:?}"
+        entered.iter().all(|(_, thread)| thread == crate::server::mux_io::MUX_IO_INPUT_THREAD),
+        "the person's lines are routed on the person's IO loop: {entered:?}"
     );
 
     client.shutdown(Shutdown::Both).unwrap();
@@ -550,6 +550,7 @@ fn echo_latency_under_an_agent_burst() {
 
     // Automation first: each a remote lane, so automation from this process.
     let stop = Arc::new(AtomicBool::new(false));
+    let answered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut agents = Vec::new();
     for _ in 0..agents_count {
         let (server, mut client) = UnixStream::pair().unwrap();
@@ -566,6 +567,7 @@ fn echo_latency_under_an_agent_burst() {
             .expect("the agent's client");
         mux.control_clients.mark_remote_device(id);
         let stop = stop.clone();
+        let answered = answered.clone();
         let burst = std::thread::spawn(move || {
             let mut line = String::new();
             let ping = format!("{}\n", json!({"id": 1, "cmd": "ping"}));
@@ -575,6 +577,7 @@ fn echo_latency_under_an_agent_burst() {
                     line.clear();
                     reader.read_line(&mut line).unwrap();
                 }
+                answered.fetch_add(IN_FLIGHT, Ordering::Relaxed);
             }
             client.shutdown(Shutdown::Both).unwrap();
         });
@@ -609,6 +612,7 @@ fn echo_latency_under_an_agent_burst() {
     // The attach's `vt-state` came with its reply (`exchange` skips events).
 
     let mut samples = Vec::with_capacity(KEYS);
+    let (burst_started, answered_before) = (Instant::now(), answered.load(Ordering::Relaxed));
     for key in 0..KEYS {
         let id = 100 + key;
         let send = json!({"id": id, "cmd": "send", "surface": surface.id, "text": "x"});
@@ -624,11 +628,16 @@ fn echo_latency_under_an_agent_burst() {
         // The reply may come after the echo; it is skipped above or here.
         std::thread::sleep(Duration::from_millis(2));
     }
+    let pings_per_second = (answered.load(Ordering::Relaxed) - answered_before) as f64
+        / burst_started.elapsed().as_secs_f64();
     stop.store(true, Ordering::Relaxed);
+    let person_loop = cmux_threads::snapshot()
+        .iter()
+        .any(|row| row.name == crate::server::mux_io::MUX_IO_INPUT_THREAD);
     samples.sort();
     let at = |q: f64| samples[((samples.len() as f64 * q) as usize).min(samples.len() - 1)];
     eprintln!(
-        "echo under agent burst: p50 {:?} p95 {:?} p99 {:?} max {:?} ({KEYS} keys, {agents_count} agents x {IN_FLIGHT} pings)",
+        "echo under agent burst: p50 {:?} p95 {:?} p99 {:?} max {:?} ({KEYS} keys, {agents_count} agents x {IN_FLIGHT} pings, {pings_per_second:.0} pings/s, person loop {person_loop})",
         at(0.50),
         at(0.95),
         at(0.99),

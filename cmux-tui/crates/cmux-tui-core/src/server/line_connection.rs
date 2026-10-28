@@ -470,6 +470,10 @@ mod reading {
         fn is_person(&self) -> bool {
             LineConnection::is_person(self)
         }
+
+        fn deliver_here(&self, message: Inbound) -> bool {
+            LineConnection::deliver_here(self, message)
+        }
     }
 }
 
