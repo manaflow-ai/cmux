@@ -898,9 +898,11 @@ impl Mux {
     }
 
     /// Waits, at most `bound`, until the adoption of `terminal_id` (a host id)
-    /// ended, and has it start at once instead of after the owner says ready.
-    /// Holds no other lock while it waits.
+    /// ended, and has it start at once instead of after the owner says ready,
+    /// ahead of every queued adoption (`Permits::promote`). Holds no other
+    /// lock while it waits.
     pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
+        self.terminal_replays.promote(terminal_id);
         let held = {
             let mut startup = self.startup_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
             startup.now.insert(terminal_id.to_owned());
@@ -925,6 +927,7 @@ impl Mux {
             .0;
         }
         drop(adoptions);
+        self.terminal_replays.demote(terminal_id);
         self.startup_adoptions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

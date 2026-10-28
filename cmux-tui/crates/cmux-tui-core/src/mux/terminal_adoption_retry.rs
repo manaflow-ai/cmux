@@ -25,7 +25,7 @@ impl Mux {
             first_delay,
             Priority::UserVisible,
             Lane::System,
-            &self.terminal_replays,
+            (&self.terminal_replays, Some(Arc::from(terminal_id.as_str()))),
             move |mux| {
                 let _end = &end;
                 // Test hook (debug builds): each try holds its permit this
