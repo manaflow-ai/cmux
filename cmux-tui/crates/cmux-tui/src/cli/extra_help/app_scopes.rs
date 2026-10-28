@@ -67,7 +67,7 @@ fn text(args: &[String]) -> Option<String> {
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
-    let scope = words[0];
+    let scope = words.first()?;
     Some(format!("{usage}\n{}", APP_FOOTER.replace("{scope}", scope)))
 }
 

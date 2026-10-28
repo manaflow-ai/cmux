@@ -485,10 +485,10 @@ impl App {
             return false;
         };
         let next = index as isize + delta;
-        let Some(next) = usize::try_from(next).ok().filter(|next| *next < order.len()) else {
+        let Some(&next) = usize::try_from(next).ok().and_then(|next| order.get(next)) else {
             return false;
         };
-        self.focus_rail(order[next]);
+        self.focus_rail(next);
         true
     }
 

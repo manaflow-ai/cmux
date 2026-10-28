@@ -281,9 +281,15 @@ impl OrderedSession {
                             && let Some(creation) =
                                 error.downcast_ref::<AmbiguousCreation>().cloned()
                         {
-                            ambiguous_creations.lock().unwrap().push_back(
-                                PendingAmbiguousCreation { creation, semantic_intent, kind, label },
-                            );
+                            ambiguous_creations
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .push_back(PendingAmbiguousCreation {
+                                    creation,
+                                    semantic_intent,
+                                    kind,
+                                    label,
+                                });
                             session.invalidate_remote_tree();
                             pending.defer(SessionMutationOutcome::CreationResponseAmbiguous(
                                 error.to_string(),
@@ -341,7 +347,8 @@ impl OrderedSession {
 
     pub(in crate::app) fn reconcile_ambiguous_creations(&self) -> usize {
         let retryable = {
-            let mut pending = self.ambiguous_creations.lock().unwrap();
+            let mut pending =
+                self.ambiguous_creations.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             pending.drain(..).collect::<Vec<_>>()
         };
         let count = retryable.len();

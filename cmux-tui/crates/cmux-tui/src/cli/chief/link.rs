@@ -14,6 +14,7 @@ use cmux_tui_core::platform::transport::Stream;
 use serde_json::{Value, json};
 
 use super::adapter::AGENT_MUX;
+use crate::cli::json_fields::JsonFields;
 
 /// The largest response line read.
 const LINE_LIMIT: usize = 16 << 20;
@@ -51,7 +52,9 @@ pub(super) struct Link {
 /// CLI never writes through it.
 pub(super) fn is_brain_socket(path: &Path) -> bool {
     let parts: Vec<_> = path.components().map(|c| c.as_os_str().to_owned()).collect();
-    parts.windows(2).any(|pair| pair[0] == ".cmux" && pair[1] == "brains")
+    parts
+        .windows(2)
+        .any(|pair| matches!(pair, [cmux, brains] if cmux == ".cmux" && brains == "brains"))
 }
 
 /// The request line of `operation` on the current session.
@@ -67,10 +70,10 @@ pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&st
         // A request-origin claim may only narrow the daemon-derived origin;
         // it gives history a durable agent/person distinction without
         // granting an agent any additional rights.
-        line["origin"] = json!({"claim": "agent"});
+        line.insert("origin", json!({"claim": "agent"}));
     }
     if let Some(key) = key {
-        line["idempotency_key"] = json!(key);
+        line.insert("idempotency_key", json!(key));
     }
     line
 }

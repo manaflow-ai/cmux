@@ -343,8 +343,8 @@ impl RenderedPointerFrame {
         }
         if let Some(pane) = self.panes.iter().find(|pane| pane.rect.contains(x, y)) {
             let region = if pane.content.contains(x, y) {
-                match pane.kind {
-                    Some(SurfaceKind::Browser) => PanePointerRegion::BrowserCell {
+                match (pane.kind, pane.terminal_input.filter(|rect| rect.contains(x, y))) {
+                    (Some(SurfaceKind::Browser), _) => PanePointerRegion::BrowserCell {
                         column: pane
                             .content_source_x
                             .saturating_add(x.saturating_sub(pane.content.x)),
@@ -357,10 +357,7 @@ impl RenderedPointerFrame {
                                 PaneContentGeneration::Terminal(_) => None,
                             }),
                     },
-                    Some(SurfaceKind::Pty)
-                        if pane.terminal_input.is_some_and(|rect| rect.contains(x, y)) =>
-                    {
-                        let input = pane.terminal_input.unwrap();
+                    (Some(SurfaceKind::Pty), Some(input)) => {
                         let semantics = self.terminal_pointer_semantics.get(&pane.surface).copied();
                         PanePointerRegion::TerminalCell {
                             column: pane.content_source_x.saturating_add(x.saturating_sub(input.x)),
@@ -377,7 +374,7 @@ impl RenderedPointerFrame {
                                 }),
                         }
                     }
-                    Some(SurfaceKind::Pty) | None => PanePointerRegion::ContentPadding,
+                    (Some(SurfaceKind::Pty) | None, _) => PanePointerRegion::ContentPadding,
                 }
             } else {
                 PanePointerRegion::Chrome

@@ -158,7 +158,10 @@ impl OrderedSession {
                 drop(claim);
                 match result {
                     Ok(_) => {
-                        failures.lock().unwrap().remove(&surface_id);
+                        failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&surface_id);
                         committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         Ok(())
@@ -166,7 +169,8 @@ impl OrderedSession {
                     Err(error) => {
                         let transient =
                             is_remote_timeout(&error) || is_remote_transport_failure(&error);
-                        let mut failures = failures.lock().unwrap();
+                        let mut failures =
+                            failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         let previous = failures.get(&surface_id).map(|failure| failure.state);
                         let state = next_surface_sync_failure(previous, transient, false);
                         failures.insert(
@@ -187,7 +191,8 @@ impl OrderedSession {
         );
         if enqueue_result != PtyInputEnqueueResult::Accepted {
             let transient = enqueue_result != PtyInputEnqueueResult::Failed;
-            let mut failures = enqueue_failures.lock().unwrap();
+            let mut failures =
+                enqueue_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let previous = failures.get(&surface_id).map(|failure| failure.state);
             let state = next_surface_sync_failure(previous, transient, false);
             failures.insert(surface_id, SurfaceResizeFailure { desired: (cols, rows), state });
@@ -201,7 +206,8 @@ impl OrderedSession {
         size: (u16, u16),
         reservation_id: Option<u64>,
     ) {
-        let mut ownership = self.surface_resize_ownership.lock().unwrap();
+        let mut ownership =
+            self.surface_resize_ownership.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if ownership.get(&surface).is_some_and(|ownership| {
             ownership.desired == size
                 && reservation_id.is_none_or(|id| ownership.reservation_id == Some(id))
@@ -209,7 +215,8 @@ impl OrderedSession {
             ownership.remove(&surface);
         }
         drop(ownership);
-        let mut failures = self.surface_resize_failures.lock().unwrap();
+        let mut failures =
+            self.surface_resize_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if failures.get(&surface).is_some_and(|failure| failure.desired == size) {
             failures.remove(&surface);
         }
@@ -222,13 +229,20 @@ impl OrderedSession {
         retry_after_ms: Option<u64>,
         reservation_id: Option<u64>,
     ) -> bool {
-        if self.surface_resize_ownership.lock().unwrap().get(&surface).is_none_or(|ownership| {
-            ownership.desired != desired
-                || reservation_id.is_some_and(|id| ownership.reservation_id != Some(id))
-        }) {
+        if self
+            .surface_resize_ownership
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&surface)
+            .is_none_or(|ownership| {
+                ownership.desired != desired
+                    || reservation_id.is_some_and(|id| ownership.reservation_id != Some(id))
+            })
+        {
             return false;
         }
-        let mut failures = self.surface_resize_failures.lock().unwrap();
+        let mut failures =
+            self.surface_resize_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let previous = failures
             .get(&surface)
             .filter(|failure| failure.desired == desired)
@@ -244,10 +258,14 @@ impl OrderedSession {
 
     pub(in crate::app) fn surface_resize_retry_due(&self) -> bool {
         let now = Instant::now();
-        self.surface_resize_failures.lock().unwrap().values().any(|failure| {
-            !failure.state.sticky_until_reconnect
-                && failure.state.retry_after.is_some_and(|retry_after| now >= retry_after)
-        })
+        self.surface_resize_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .any(|failure| {
+                !failure.state.sticky_until_reconnect
+                    && failure.state.retry_after.is_some_and(|retry_after| now >= retry_after)
+            })
     }
 
     pub(in crate::app) fn surface_resize_decision(
@@ -279,7 +297,8 @@ impl OrderedSession {
         surface_needs_resize: bool,
         supersede_existing_claim: bool,
     ) -> SurfaceResizeDecision {
-        let mut failures = self.surface_resize_failures.lock().unwrap();
+        let mut failures =
+            self.surface_resize_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(failure) = failures.get(&surface_id).copied()
             && failure.desired == desired
             && surface_sync_failure_blocks(failure.state)
@@ -290,7 +309,8 @@ impl OrderedSession {
             failures.remove(&surface_id);
         }
         drop(failures);
-        let mut claims = self.surface_resize_claims.lock().unwrap();
+        let mut claims =
+            self.surface_resize_claims.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !supersede_existing_claim
             && claims.get(&surface_id).is_some_and(|claim| claim.desired == desired)
         {

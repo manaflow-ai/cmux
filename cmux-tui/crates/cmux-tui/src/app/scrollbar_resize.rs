@@ -268,15 +268,15 @@ impl App {
                     && pane_rect.x >= column.rect.x
                     && pane_right <= column.rect.x.saturating_add(column.rect.width)
             })?;
-            let current = layout.columns[index];
+            let current = *layout.columns.get(index)?;
             let target = match edge {
                 PaneEdge::Right
                     if pane_right == current.rect.x.saturating_add(current.rect.width) =>
                 {
                     Some(current)
                 }
-                PaneEdge::Left if pane_rect.x == current.rect.x && index > 0 => {
-                    Some(layout.columns[index - 1])
+                PaneEdge::Left if pane_rect.x == current.rect.x => {
+                    index.checked_sub(1).and_then(|previous| layout.columns.get(previous)).copied()
                 }
                 _ => None,
             };
