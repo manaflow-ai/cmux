@@ -341,6 +341,10 @@ button.acpmux-chat-inspector-port:hover,
   border-radius: var(--acpmux-inspector-row-radius);
   text-align: left;
 }
+.acpmux-chat-inspector-section :is(.ui-disclosure-trigger, .acpmux-chat-inspector-section__head):has(> .acpmux-chat-inspector-section__icon) {
+  /* Context and Connectors share the Environment rows' icon and text columns. */
+  gap: var(--ds-space-2);
+}
 .acpmux-chat-inspector-section .ui-disclosure-trigger {
   margin: 0;
   border: 0;
