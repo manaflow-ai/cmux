@@ -358,6 +358,11 @@ class NextApp:
             pass
         first = next((r for r in replies if r.get("id") == 0), {})
         reply = first.get("result") if first.get("ok") else first
+        by_id = {r.get("id"): r for r in replies}
+        for k in range(len(typed)):
+            got = by_id.get(k + 1) or {}
+            res = got.get("result") if got.get("ok") else got.get("error", got)
+            sent[k]["reply"] = json.dumps(res)[:240] if k < 3 or not got.get("ok") else None
         return sent, reply, open_ns
 
     def close(self, scenario):
@@ -702,7 +707,8 @@ def run_round(app, scenario, index, sampled):
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
                      "dispatch_start_ms": col("dispatch_start_ms"),
                      "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None,
-                     "send_late_ms": sent[k].get("send_late_ms") if k < len(sent) else None})
+                     "send_late_ms": sent[k].get("send_late_ms") if k < len(sent) else None,
+                     "reply": sent[k].get("reply") if k < len(sent) else None})
     frames = app.photon.frames(open_ns - int(0.2e9), end_ns) if app.photon and not app.photon.error else []
     big = (app.photon_area or 10 ** 12) * 0.25
     for k, key in enumerate(keys):
