@@ -40,10 +40,17 @@ public struct ControlPeerClient {
     }
 
     /// Sends one v2 control request to `path` and returns its result. The
-    /// server must run as `expectedUID` (this user; tests pass another),
-    /// read on the connection before the request is written.
+    /// server must run as this user, read on the connection before the
+    /// request is written.
     public static func request(path: String, method: String, params: [String: JSONValue] = [:],
-                               timeout: Duration = .seconds(2), expectedUID: uid_t = getuid()) async throws -> JSONValue {
+                               timeout: Duration = .seconds(2)) async throws -> JSONValue {
+        try await request(path: path, method: method, params: params, timeout: timeout, expectedUID: getuid())
+    }
+
+    /// ``request(path:method:params:timeout:)`` with the user the server must
+    /// run as (tests pass another).
+    static func request(path: String, method: String, params: [String: JSONValue] = [:],
+                        timeout: Duration = .seconds(2), expectedUID: uid_t) async throws -> JSONValue {
         let seconds = max(1, timeout.wholeMilliseconds)
         return try await Task.detached(priority: .utility) {
             try exchange(path: path, method: method, params: params, timeoutMilliseconds: seconds, expectedUID: expectedUID)
