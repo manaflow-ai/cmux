@@ -23,7 +23,7 @@ change this page.
 
 | Case | First limit | What happens | Where |
 | --- | --- | --- | --- |
-| Scrollback per terminal | 10 MB default (`SCROLLBACK_BYTES_PER_TERMINAL`); `scrollback-limit-bytes` has no upper clamp | 1 GB is accepted; total scrollback RAM is still capped by `scrollback_total` (64 MiB to 1 GiB from installed RAM), so cold terminals are trimmed first | cmux-memory `budget.rs:16,38` |
+| Scrollback per terminal | 10 MB default (`SCROLLBACK_BYTES_PER_TERMINAL`); `scrollback-limit-bytes` has no upper clamp | 1 GB is accepted; total scrollback RAM is still capped by `scrollback_total` (64 MiB to 1 GiB from installed RAM), (how the total is enforced across terminals was not traced) | cmux-memory `budget.rs:16,38` |
 | Copy scrollback as text | daemon control queue 32 MiB per connection, 128 MiB total | A larger reply fails (`outbound byte budget overflowed`); the whole history is formatted under the terminal lock first, so output of that terminal waits | cmux-tui-core `server/cmd_terminal_io.rs:517` |
 | History after a respawn (full persistence) | newest 64 MiB raw output, rebuilt into a 10 MB scrollback | Older history is not restored, also with a 1 GB setting | cmux-tui-core `output_store/segments.rs:254-256` |
 | One stored output frame | 64 MiB raw (`MAX_FRAME_RAW_BYTES`) | A larger frame is written but not read back: that frame and the later frames of the file are lost on rebuild | `output_store/segments.rs:44,193` |
@@ -38,7 +38,7 @@ change this page.
 
 | Case | First limit | What happens | Where |
 | --- | --- | --- | --- |
-| Terminals open at once | macOS `kern.tty.ptmx_max` (511 by default) PTYs for the whole Mac | `openpty` fails and the new terminal shows a spawn error | cmux-holder-v3 `pty.rs:52` |
+| Terminals open at once | macOS `kern.tty.ptmx_max` (511 by default) PTYs for the whole Mac | `openpty` fails and the daemon refuses the new terminal with the OS error (what the app shows was not traced) | cmux-holder-v3 `pty.rs:52` |
 | Holder output memory | 1 MiB ring per terminal (512 KiB below 16 GB RAM) | About 511 MiB at the PTY limit | cmux-memory `budget.rs:18` |
 | Open files in the daemon | soft limit raised to min(hard, 65,536) | Not reached before the PTY limit | cmux-pty `open_files.rs:25` |
 | Event subscribers | 4,096 pending events per subscriber; coalesced surface output takes one slot per surface | A subscriber that falls behind is closed and resyncs | cmux-tui-core `event_bus.rs:19,620,650` |
