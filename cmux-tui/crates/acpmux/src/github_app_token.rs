@@ -35,7 +35,7 @@ fn cmux_api(origin: &str) -> Result<String, RpcError> {
 }
 
 // Read by the mint, which comes on top of this.
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 #[derive(Clone)]
 struct Lent {
     origin: String,
@@ -72,8 +72,17 @@ impl AppLease {
         if seq > crate::store::now_ms() + SEQ_AHEAD_MAX_MS {
             return Err(RpcError::invalid_params("seq is too far ahead"));
         }
+        let now = crate::store::now_ms();
         let take = |held: &mut Held, lent: Option<Lent>| {
-            if seq < held.seq {
+            // At the newest `seq`, only a clear or a renewal of the sign-in held now (unexpired,
+            // the same API and team) is taken: a token minted under that `seq` stays the sign-in's
+            // it was minted with, and a cleared or expired one never comes back under it.
+            let renews = |l: &Lent| {
+                held.lent.as_ref().is_some_and(|h| {
+                    h.expires_at_ms > now && h.origin == l.origin && h.team == l.team
+                })
+            };
+            if seq < held.seq || (seq == held.seq && lent.as_ref().is_some_and(|l| !renews(l))) {
                 // The newest `seq` (a time, no secret): the app goes on from past it.
                 return json!({"lent": held.lent.is_some(), "stale": true, "seq": held.seq});
             }
@@ -108,20 +117,28 @@ impl AppLease {
         Ok(take(&mut self.lock(), Some(lent)))
     }
 
-    /// The sign-in held now and its `seq`; one that expired is dropped from memory.
-    #[cfg_attr(not(test), allow(dead_code))]
-    fn current(&self, now_ms: u64) -> Option<(u64, Lent)> {
+    /// The lease, with a sign-in that expired by `now_ms` dropped from memory.
+    fn live(&self, now_ms: u64) -> std::sync::MutexGuard<'_, Held> {
         let mut held = self.lock();
         if held.lent.as_ref().is_some_and(|l| l.expires_at_ms <= now_ms) {
             held.lent = None;
         }
+        held
+    }
+
+    /// The sign-in held now and its `seq`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn current(&self, now_ms: u64) -> Option<(u64, Lent)> {
+        let held = self.live(now_ms);
         held.lent.clone().map(|l| (held.seq, l))
     }
 
-    /// Whether the sign-in of `seq` is still the one held and unexpired.
+    /// The lease while the sign-in of `seq` is still the one held and unexpired: no lend or
+    /// clear lands until the guard is dropped.
     #[cfg_attr(not(test), allow(dead_code))]
-    fn still(&self, seq: u64, now_ms: u64) -> bool {
-        self.current(now_ms).is_some_and(|(held, _)| held == seq)
+    fn still(&self, seq: u64, now_ms: u64) -> Option<std::sync::MutexGuard<'_, Held>> {
+        let held = self.live(now_ms);
+        (held.seq == seq && held.lent.is_some()).then_some(held)
     }
 }
 
@@ -165,7 +182,7 @@ mod tests {
         let lease = AppLease::default();
         let lend = |seq: u64| {
             json!({"seq": seq, "origin": "https://cloud-api.cmux.dev", "bearer": format!("b{seq}"),
-                "team": "team_0", "expiresAtMs": 100})
+                "team": "team_0", "expiresAtMs": u64::MAX})
         };
         // Signed in (1), signed out (2): the lend for 1 arrives last.
         lease.set(&json!({"seq": 2, "clear": true})).unwrap();
@@ -177,6 +194,28 @@ mod tests {
         assert_eq!(lease.current(0).unwrap().1.bearer, "b3", "the newer sign-in holds");
         // A renewal of the same sign-in is taken.
         assert_eq!(lease.set(&lend(3)).unwrap(), json!({"lent": true}));
+    }
+
+    /// Review of the App token at e318f53: a lend at the newest `seq` replaced the sign-in, so a
+    /// token minted under that `seq` stayed usable for another team, and a cleared or expired
+    /// sign-in came back under its `seq`.
+    #[test]
+    fn a_lend_at_the_newest_seq_only_renews_the_sign_in_held_now() {
+        let lease = AppLease::default();
+        let lend = |seq: u64, team: &str, expires: u64| {
+            json!({"seq": seq, "origin": "https://cloud-api.cmux.dev", "bearer": format!("b{seq}{team}"),
+                "team": team, "expiresAtMs": expires})
+        };
+        lease.set(&lend(3, "team_a", u64::MAX)).unwrap();
+        assert_eq!(lease.set(&lend(3, "team_b", u64::MAX)).unwrap()["stale"], true);
+        assert_eq!(lease.current(0).unwrap().1.team, "team_a", "another team needs a newer seq");
+        assert_eq!(lease.set(&lend(4, "team_a", u64::MAX)).unwrap(), json!({"lent": true}));
+        assert_eq!(lease.set(&json!({"seq": 4, "clear": true})).unwrap(), json!({"lent": false}));
+        assert_eq!(lease.set(&lend(4, "team_a", u64::MAX)).unwrap()["stale"], true);
+        assert!(lease.current(0).is_none(), "a cleared sign-in stays cleared at its seq");
+        lease.set(&lend(5, "team_a", 1)).unwrap();
+        assert_eq!(lease.set(&lend(5, "team_a", u64::MAX)).unwrap()["stale"], true);
+        assert!(lease.current(2).is_none(), "an expired one does not come back at its seq");
     }
 
     /// Review of the App token at 15a905b: an expired sign-in stayed in memory.
@@ -192,12 +231,13 @@ mod tests {
         assert!(lease.lock().lent.is_none(), "an expired sign-in is dropped from memory");
 
         lease.set(&lend(2, u64::MAX)).unwrap();
-        assert!(lease.still(2, 0));
+        assert!(lease.still(2, 0).is_some());
         lease.set(&lend(3, u64::MAX)).unwrap();
-        assert!(!lease.still(2, 0), "a team switch replaces the sign-in");
+        assert!(lease.still(2, 0).is_none(), "a team switch replaces the sign-in");
         lease.set(&json!({"seq": 4, "clear": true})).unwrap();
-        assert!(!lease.still(3, 0), "a sign-out ends it");
+        assert!(lease.still(3, 0).is_none(), "a sign-out ends it");
         lease.set(&lend(5, 50)).unwrap();
-        assert!(lease.still(5, 49) && !lease.still(5, 50), "an expired one is not still lent");
+        assert!(lease.still(5, 49).is_some());
+        assert!(lease.still(5, 50).is_none(), "an expired one is not still lent");
     }
 }
