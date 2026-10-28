@@ -85,7 +85,7 @@ struct RenderNodeView: View {
         case .label:
             Label(node.text ?? "", systemImage: node.systemName ?? "circle")
         case .image:
-            styledImage(Image(systemName: node.systemName ?? "questionmark.square.dashed"))
+            styledImage(DSLBundledImage.image(node.systemName))
         case .button:
             if node.children.isEmpty {
                 Button(node.text ?? "") {

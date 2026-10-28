@@ -120,7 +120,20 @@ private struct SceneNodeContent: View {
                 Text(node.string("text") ?? "")
             }
         case "image":
-            Image(systemName: node.string("systemName") ?? "questionmark.square.dashed")
+            if let asset = DSLBundledImage.assetName(node.string("asset") ?? node.string("systemName")) {
+                // A bundled raster mark draws at its 14 pt native size;
+                // `.size(n)` scales it to an n-point square.
+                if let size = node.double("size") {
+                    Image(asset, bundle: .main)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: CGFloat(size), height: CGFloat(size))
+                } else {
+                    Image(asset, bundle: .main)
+                }
+            } else {
+                Image(systemName: node.string("systemName") ?? "questionmark.square.dashed")
+            }
         case "button":
             if node.children.isEmpty {
                 Button(node.string("text") ?? "", role: node.bool("destructive") ? .destructive : nil) {

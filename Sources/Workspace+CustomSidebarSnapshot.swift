@@ -89,6 +89,7 @@ extension Workspace {
             }
         }
         let workspaceIdString = id.uuidString
+        let iconResolver = TerminalTabAgentIconResolver()
         var agents: [CustomSidebarAgentSnapshot] = []
         for record in records {
             let panelId = record.surfaceID.flatMap(UUID.init(uuidString:))
@@ -135,7 +136,8 @@ extension Workspace {
                             startedAt: child.startedAt,
                             endedAt: child.endedAt
                         )
-                    }
+                    },
+                    iconAssetName: iconResolver.assetName(forStatusKey: record.agentKind.sourceName)
                 )
             )
             if agents.count >= Self.customSidebarAgentLimit { break }
@@ -168,7 +170,10 @@ extension Workspace {
                         listeningPorts: surfaceListeningPorts[panelId] ?? [],
                         latestSubmittedMessage: prompt?.message,
                         latestSubmittedAt: prompt?.submittedAt,
-                        hasUnreadNotification: hasUnreadNotification(panelId: panelId)
+                        hasUnreadNotification: hasUnreadNotification(panelId: panelId),
+                        // Only agent marks: other tab assets (Chief's avatar)
+                        // are not in the namespace `Image(...)` resolves.
+                        agentIconAssetName: tab.iconAsset.flatMap { $0.hasPrefix("AgentIcons/") ? $0 : nil }
                     )
                 )
             }

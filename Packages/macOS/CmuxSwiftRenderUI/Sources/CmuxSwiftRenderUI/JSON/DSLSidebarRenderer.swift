@@ -36,7 +36,7 @@ struct DSLSidebarRenderer: View {
             }
             .reportTapTarget(node.action?.buttonAction)
         case .image:
-            Image(systemName: node.systemName ?? "questionmark.square.dashed")
+            DSLBundledImage.image(node.systemName)
                 .modifier(OptionalDSLFont(spec: resolvedFontSpec))
         case .spacer:
             Spacer(minLength: node.size.map { CGFloat($0) })
