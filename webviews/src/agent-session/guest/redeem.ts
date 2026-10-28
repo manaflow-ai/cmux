@@ -33,7 +33,7 @@ const KNOWN: ReadonlySet<string> = new Set([
   "share.host_offline",
 ]);
 
-const key = (shareId: string, what: "secret" | "attempt" | "joined") => `cmux.guest.${shareId}.${what}`;
+const key = (shareId: string, what: "secret" | "attempt" | "joined" | "name") => `cmux.guest.${shareId}.${what}`;
 
 /**
  * Reads the share id from `/g/<id>` and the secret from the fragment, removes the fragment from
@@ -69,10 +69,14 @@ export function attemptId(
 export const joinedAs = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "joined")) ?? undefined;
 
 /** The redeem worked: the secret and the attempt are spent, and the tab remembers it joined. */
-export function rememberJoined(shareId: string, guestId: string, storage: Storage): void {
+/** The name this tab joined the share with. */
+export const joinedName = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "name")) ?? undefined;
+
+export function rememberJoined(shareId: string, guestId: string, storage: Storage, name?: string): void {
   storage.removeItem(key(shareId, "secret"));
   storage.removeItem(key(shareId, "attempt"));
   storage.setItem(key(shareId, "joined"), guestId);
+  if (name) storage.setItem(key(shareId, "name"), name);
 }
 
 /** A typed name as the guest may join with it: one line, 1 to 64 visible characters; else undefined. */

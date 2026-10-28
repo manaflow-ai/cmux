@@ -22,3 +22,14 @@
 .guest-live__ask{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--agent-border);color:var(--agent-text)}
 .guest-live__ask-title{color:var(--agent-muted);font-family:var(--font-mono);overflow-wrap:anywhere}
 .guest-live__transcript{flex:1;min-height:0;display:flex;flex-direction:column}
+/* The dock under the chat: the guest's own messages, then its composer (GuestComposer.tsx). */
+.guest-live__dock{flex:none;display:flex;flex-direction:column;gap:8px;padding:8px var(--guest-inset) 12px;border-top:1px solid var(--agent-border)}
+[data-borders="none"] .guest-live__dock{border-top:0}
+.guest-mine{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow-y:auto}
+.guest-mine__held{gap:4px}
+.guest-mine__label,.guest-mine__decided,.guest-composer__note{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-mine__decided{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guest-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.guest-composer__field{flex:1;min-width:0;min-height:32px;max-height:160px;box-sizing:border-box;padding:4px 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;resize:none;field-sizing:content}
+.guest-composer__field:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.guest-composer__note{flex-basis:100%}
