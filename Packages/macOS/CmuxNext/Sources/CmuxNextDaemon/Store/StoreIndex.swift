@@ -21,7 +21,9 @@ import Foundation
 /// leaves is reported to ``unread`` (UnreadLedger.swift) and to ``workspaceListDigest``: the unread
 /// sum and the workspace-list check cost the workspaces a change names, never the list. Each tab
 /// record keyed or dropped is reported to ``tabKeys`` (StoreTabKeys.swift): the index of tabs across
-/// machines (`MachineTabIndex`) follows the keys a change names, never the stores.
+/// machines (`MachineTabIndex`) follows the keys a change names, never the stores. Each tab record
+/// keyed or dropped is filed under its roles in ``tabRoles`` (StoreTabRoles.swift): the agent chat and
+/// browser tabs are read without a walk of the tree.
 @MainActor struct StoreIndex {
     /// The keyed waits this index's changes resume; kept across ``rebuild(_:)``.
     let waiters: StoreWaiters
@@ -31,12 +33,16 @@ import Foundation
     let tabKeys: StoreTabKeys
     /// The store's deadlines, handed to each tab it indexes (a young command's recheck); kept across ``rebuild(_:)``.
     let tabDeadlines: StoreDeadlines
+    /// The agent chat and browser tabs this store lists (StoreTabRoles.swift); kept across ``rebuild(_:)``.
+    let tabRoles: StoreTabRoles
 
-    init(waiters: StoreWaiters, unread: UnreadLedger, tabKeys: StoreTabKeys = StoreTabKeys(), tabDeadlines: StoreDeadlines) {
+    init(waiters: StoreWaiters, unread: UnreadLedger, tabKeys: StoreTabKeys = StoreTabKeys(), tabDeadlines: StoreDeadlines,
+         tabRoles: StoreTabRoles = StoreTabRoles()) {
         self.waiters = waiters
         self.unread = unread
         self.tabKeys = tabKeys
         self.tabDeadlines = tabDeadlines
+        self.tabRoles = tabRoles
     }
 
     private(set) var tabsBySurface: [SurfaceID: TabModel] = [:]
@@ -147,9 +153,12 @@ import Foundation
         let counted = indexedRecords, orderChanges = tabOrderChanges
         for entry in entries.values {
             if case .workspace = entry.keys, let workspace = entry.record as? WorkspaceModel { unread.leave(workspace) }
+            // A record the new tree drops must not file itself again when a later write changes it.
+            if let tab = entry.record as? TabModel, tab.roles === tabRoles { tab.roles = nil }
         }
         tabKeys.noteRebuildStarted()
-        self = StoreIndex(waiters: waiters, unread: unread, tabKeys: tabKeys, tabDeadlines: tabDeadlines)
+        tabRoles.noteRebuildStarted()
+        self = StoreIndex(waiters: waiters, unread: unread, tabKeys: tabKeys, tabDeadlines: tabDeadlines, tabRoles: tabRoles)
         (indexedRecords, tabOrderChanges) = (counted, orderChanges)
         waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
@@ -278,6 +287,8 @@ import Foundation
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
             tabKeys.noteKeyed(id: id, resource: resource)
+            tab.roles = tabRoles
+            tabRoles.note(tab)
             waiters.noteTabKeyed(id: id, surface: surface, resource: resource)
         }
     }
@@ -321,6 +332,10 @@ import Foundation
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
             tabKeys.noteUnkeyed(id: id, resource: resource)
+            if let tab = record as? TabModel {
+                if tab.roles === tabRoles { tab.roles = nil }
+                tabRoles.drop(tab)
+            }
             waiters.noteTabUnkeyed(id: id, surface: surface)
         }
     }

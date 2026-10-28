@@ -19,7 +19,7 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalIncarnation: TerminalIncarnation?
     /// Public terminal id (`term_…`) used by `attach-identity-v1`.
     public internal(set) var terminalResourceID: ResourceID?
-    public internal(set) var kind: TabKind { didSet { refreshUnread() } }
+    public internal(set) var kind: TabKind { didSet { refreshUnread(); roles?.note(self) } }
     public internal(set) var name: String?
     /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
     /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
@@ -39,7 +39,7 @@ public final class TabModel: Identifiable {
     /// Quit's End Sessions, Keep Layout and this launch restarts it.
     public internal(set) var relaunch: TabRelaunch?
     public internal(set) var notification: TabNotification? { didSet { refreshUnread() } }
-    public internal(set) var url: String?
+    public internal(set) var url: String? { didSet { roles?.note(self) } }
     public internal(set) var pinned: Bool
     /// The page a pinned browser tab was pinned on (Back to Pinned Page).
     public internal(set) var pinnedURL: String?
@@ -52,7 +52,7 @@ public final class TabModel: Identifiable {
     public internal(set) var browserEngine: String?
     /// A frontend browser tab's browser profile (`frontend-browser-tab-profile-v1` moves it in place).
     public internal(set) var browserProfileID: String?
-    public internal(set) var faviconURL: String?
+    public internal(set) var faviconURL: String? { didSet { roles?.note(self) } }
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
@@ -125,6 +125,9 @@ public final class TabModel: Identifiable {
     @ObservationIgnored private var commandTimer: MainDeadline?
     /// The store's deadlines, set when its index lists this record (``StoreIndex``); nil for a record no store lists.
     @ObservationIgnored var deadlines: StoreDeadlines?
+    /// The store's agent chat and browser tabs (``StoreTabRoles``) while its index lists this record: a change of
+    /// `kind`, `conversation`, `url` or `faviconURL` files the record again there, so no reader walks the tree.
+    @ObservationIgnored weak var roles: StoreTabRoles?
     /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil while
     /// a command runs and for a shell without integration.
     public internal(set) var promptSinceMs: UInt64?
@@ -138,7 +141,7 @@ public final class TabModel: Identifiable {
     public internal(set) var remote: RemoteTerminalRef?
     /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
     /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
-    public internal(set) var conversation: ConversationTabRef? { didSet { refreshUnread() } }
+    public internal(set) var conversation: ConversationTabRef? { didSet { refreshUnread(); roles?.note(self) } }
     /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
     public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should

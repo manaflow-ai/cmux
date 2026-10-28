@@ -293,6 +293,11 @@
       "trace": [
         "key.flow"
       ]
+    },
+    "store-tab-roles": {
+      "what": "one tab record keyed, dropped or changed in a role field (StoreTabRoles.note, drop) and each publish, and each reader of the roles (RestoredNewTabPages.ids in every sidebar rows pass, SidebarPriorityMachine.lanes, the open tabs' site favicons): O(records named), never a walk of the tree",
+      "bench": "swift test --filter StoreTabRolesTests and the hot-path cost suites RestoredNewTabPagesCostTests, SidebarPriorityMachineCostTests, SiteFaviconCostTests (each prints BENCH lines at 10, 100 and 1000 workspaces), on the fleet (cmux-ci run package-test-lane.sh suite)",
+      "owner": "PL-hotpath"
     }
   }
 }

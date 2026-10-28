@@ -29,6 +29,8 @@ extension DaemonStore {
         if index.takeTabListChange() { causes.with(cause) { tabListRevision &+= 1 } }
         // The tab keys this publish added or dropped, net of the re-keys in between (StoreTabKeys).
         index.tabKeys.publish()
+        // The agent chat and browser tabs this publish changed, net of the re-keys in between (StoreTabRoles).
+        index.tabRoles.publish()
         waiters.settleTouched(in: self)
     }
 

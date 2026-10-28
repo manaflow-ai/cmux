@@ -130,6 +130,8 @@ public final class DaemonStore: StateResourceQueries {
     /// The tab ids and tab resource ids this store lists, with the hook the index of tabs across
     /// machines keeps itself by (StoreTabKeys.swift, `MachineTabIndex`).
     public var tabKeys: StoreTabKeys { index.tabKeys }
+    /// The agent chat tabs and browser tabs this store lists (StoreTabRoles.swift), read without a walk of the tree.
+    public var tabRoles: StoreTabRoles { index.tabRoles }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
