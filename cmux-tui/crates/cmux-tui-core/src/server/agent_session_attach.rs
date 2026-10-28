@@ -148,6 +148,11 @@ impl AgentSessions {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
     }
 
+    /// The link shares (`agent-session-share-*`).
+    pub(super) fn link_shares(&self) -> &proxy::shares::LinkShares {
+        &self.link_shares
+    }
+
     pub(super) fn past_first_line(&self, client: u64) -> bool {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }
@@ -475,6 +480,10 @@ pub(crate) enum Refusal {
     ModeConflict,
     /// A proxied teammate's frame for a surface that shows another chat than the shared one.
     NotShared,
+    /// A link guest's frame for anything but the shared chat's guest verbs.
+    ScopeNotGranted,
+    /// A link guest whose share expired or was revoked, or who was removed.
+    ShareEnded,
 }
 
 impl Refusal {
@@ -501,6 +510,8 @@ impl Refusal {
             Self::ReadOnly => "agent_session.read_only",
             Self::ModeConflict => "agent_session.mode_conflict",
             Self::NotShared => "agent_session.not_shared",
+            Self::ScopeNotGranted => "agent_session.scope_not_granted",
+            Self::ShareEnded => "agent_session.share_ended",
         }
     }
 
@@ -537,6 +548,8 @@ impl Refusal {
                 "this connection already has the same surface attached in another mode"
             }
             Self::NotShared => "the surface does not show the chat that was shared",
+            Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
+            Self::ShareEnded => "the share ended, or the owner removed this guest",
         }
     }
 
@@ -713,7 +726,7 @@ pub(super) fn handle_bound(
     try_handle(mux, client, message, writer).unwrap_or_else(|| {
         let id =
             serde_json::from_str::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
-        refuse(writer, id, Refusal::NotTrusted)
+        refuse(writer, id, proxy::scope_refusal(mux, client))
     })
 }
 
@@ -887,8 +900,11 @@ impl ReaderSlot {
     }
 }
 
+#[path = "agent_session_media.rs"]
+mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
+use media::media;
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
@@ -923,8 +939,11 @@ fn run_on_worker(
     }
     // A teammate (a bound proxy author) never answers the host's asks: an allow
     // would run a tool on the owner's machine (design section 7). Nor does it say it types or
-    // views yet: acpmux would count that as the owner's own presence.
+    // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
+    // view carry its author.
+    let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     if attachment.author.is_some()
+        && (!guest || matches!(&command, AgentSessionCommand::Permission(_)))
         && matches!(
             &command,
             AgentSessionCommand::Permission(_)
@@ -1085,90 +1104,26 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
         // so again with its next keystroke.
-        AgentSessionCommand::Typing(TypingParams { on, .. }) => attachment
-            .link
-            .call("_acpmux/typing", json!({"sessionId": session, "on": on}), CALL_TIMEOUT)
-            .map_err(|error| match &error {
-                LinkError::Rpc(_, data)
-                    if data.get("reason").and_then(Value::as_str)
-                        == Some("typing.rate_limited") =>
-                {
-                    Refusal::Limit
+        AgentSessionCommand::Typing(TypingParams { on, .. }) => {
+            let params = attachment.stamp(json!({"sessionId": session, "on": on}));
+            attachment.link.call("_acpmux/typing", params, CALL_TIMEOUT).map_err(|error| {
+                match &error {
+                    LinkError::Rpc(_, data)
+                        if data.get("reason").and_then(Value::as_str)
+                            == Some("typing.rate_limited") =>
+                    {
+                        Refusal::Limit
+                    }
+                    _ => Refusal::of(error),
                 }
-                _ => Refusal::of(error),
-            }),
-        AgentSessionCommand::View(ViewParams { visible, .. }) => attachment
-            .link
-            .call("_acpmux/view", json!({"sessionId": session, "visible": visible}), CALL_TIMEOUT)
-            .map_err(Refusal::of),
+            })
+        }
+        AgentSessionCommand::View(ViewParams { visible, .. }) => {
+            let params = attachment.stamp(json!({"sessionId": session, "visible": visible}));
+            attachment.link.call("_acpmux/view", params, CALL_TIMEOUT).map_err(Refusal::of)
+        }
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
-}
-
-/// Reads one image from the attached chat's host acpmux. The attachment daemon keeps the path
-/// scoped to the bound session; this command only relays the already checked media reader bytes.
-fn media(attachment: &Attachment, path: String) -> Result<Value, Refusal> {
-    use base64::Engine;
-    let image_extension = std::path::Path::new(&path)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "gif" | "webp"
-            )
-        });
-    if !image_extension {
-        return Err(Refusal::BadRequest);
-    }
-    if path.is_empty() || path.len() > 4096 {
-        return Err(Refusal::BadRequest);
-    }
-    let opened = attachment
-        .link
-        .call(
-            "_acpmux/media_open",
-            json!({"sessionId": attachment.session, "path": path}),
-            CALL_TIMEOUT,
-        )
-        .map_err(Refusal::of)?;
-    let handle = opened.get("handle").and_then(Value::as_str).ok_or(Refusal::BadRequest)?;
-    let size = opened.get("size").and_then(Value::as_u64).ok_or(Refusal::BadRequest)?;
-    const MAX_BYTES: u64 = 10 << 20;
-    const MAX_RANGE: u64 = 6 << 20;
-    if size == 0 || size > MAX_BYTES {
-        return Err(Refusal::BadRequest);
-    }
-    let mut bytes = Vec::with_capacity(usize::try_from(size).map_err(|_| Refusal::BadRequest)?);
-    let mut offset = 0u64;
-    while offset < size {
-        let length = (size - offset).min(MAX_RANGE);
-        let range = attachment
-            .link
-            .call(
-                "_acpmux/media_range",
-                json!({"sessionId": attachment.session, "handle": handle, "offset": offset, "length": length}),
-                CALL_TIMEOUT,
-            )
-            .map_err(Refusal::of)?;
-        let actual = range.get("offset").and_then(Value::as_u64).ok_or(Refusal::BadRequest)?;
-        if actual != offset {
-            return Err(Refusal::BadRequest);
-        }
-        let encoded = range.get("data").and_then(Value::as_str).ok_or(Refusal::BadRequest)?;
-        let chunk = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|_| Refusal::BadRequest)?;
-        if chunk.is_empty() || chunk.len() as u64 > length {
-            return Err(Refusal::BadRequest);
-        }
-        offset = offset.saturating_add(chunk.len() as u64);
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(json!({
-        "mimeType": opened.get("mimeType").cloned().unwrap_or(Value::Null),
-        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
-    }))
 }
 
 /// Sends one text prompt and answers once acpmux recorded it. The turn's
