@@ -1,6 +1,10 @@
 /** The daemon capability required for the inline /btw reply shape. */
 export const BTW_INLINE = "btw-inline-v1";
 
+function isUnsupportedNativeAction(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "native.invalid_request";
+}
+
 export function supportsBtwInline(capabilities: ReadonlySet<string> | undefined): boolean {
   return capabilities?.has(BTW_INLINE) === true;
 }
@@ -27,7 +31,16 @@ export async function askBtwQuestion(
   const selection = client.selectionToken;
   const current = () => client.selectedSession === sessionId && client.selectionToken === selection;
   if (!current()) throw new Error(actions.staleMessage());
-  if (supportsBtwInline(client.capabilities)) return actions.inline(question, sessionId);
+  if (supportsBtwInline(client.capabilities)) {
+    try {
+      return await actions.inline(question, sessionId);
+    } catch (error) {
+      // A newer daemon can be paired with an older app host that does not know
+      // the native operation yet. Keep the request useful across that version
+      // skew by using the legacy side-session shape in that one case.
+      if (!isUnsupportedNativeAction(error)) throw error;
+    }
+  }
   // Older daemons ignore `inline`: use only the legacy request shape.
   const side = await client.btw(question, sessionId);
   if (!current()) throw new Error(actions.staleMessage());

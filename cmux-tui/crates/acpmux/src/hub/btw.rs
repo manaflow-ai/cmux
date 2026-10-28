@@ -143,7 +143,20 @@ impl Hub {
         if inline {
             let (is_claude, _) =
                 with_inline_deadline(inline_deadline, self.harness_env(&meta)).await?;
-            if is_claude {
+            // Claude's native side-question callback only exists during an
+            // active turn. An idle process (or a Claude release without that
+            // callback) must use the normal one-shot, read-only emulation
+            // below instead of receiving an unsupported control request.
+            let callback_active = if is_claude {
+                let child = session.child.lock().await.clone();
+                child
+                    .as_ref()
+                    .and_then(|child| child.translator.as_ref())
+                    .is_some_and(|translator| translator.in_turn())
+            } else {
+                false
+            };
+            if callback_active {
                 return self.btw_inline_claude(session, question).await;
             }
         }

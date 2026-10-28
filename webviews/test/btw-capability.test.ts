@@ -46,6 +46,20 @@ test("the composer routes an advertised inline question without creating a legac
   expect(f.opened).toEqual([]);
 });
 
+test("an older app host falls back when the advertised native action is unknown", async () => {
+  const f = fixture(new Set([BTW_INLINE]));
+  f.actions.inline = async () => {
+    throw { code: "native.invalid_request" };
+  };
+  const answer = askBtwQuestion(f.client, "why?", "main", f.actions);
+  await Promise.resolve();
+  f.reply("side");
+  expect(await answer).toBe("opened");
+  expect(f.inline).toEqual([]);
+  expect(f.legacy).toEqual([["why?", "main"]]);
+  expect(f.opened).toEqual(["side"]);
+});
+
 test("a daemon without the id gets a legacy question and its side session opens", async () => {
   const f = fixture();
   const answer = askBtwQuestion(f.client, "why?", "main", f.actions);

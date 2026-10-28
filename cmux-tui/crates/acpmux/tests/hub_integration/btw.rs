@@ -236,6 +236,27 @@ async fn inline_btw_emulation_answers_once_and_discards_its_read_only_session() 
 }
 
 #[tokio::test]
+async fn idle_claude_inline_btw_uses_the_one_shot_fallback() {
+    let root = std::env::temp_dir().join(format!("acpmux-btw-idle-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let id = new_chat(&mut c).await;
+
+    // The Claude process is alive, but no turn callback is installed while
+    // the chat is idle. Inline must therefore emulate the answer in a
+    // temporary read-only side session instead of sending side_question.
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "idle question", "inline": true}))
+        .await
+        .unwrap();
+    assert!(inline["text"].as_str().is_some_and(|text| !text.is_empty()), "{inline}");
+    assert_eq!(hub.sessions().len(), 1, "the one-shot side session is discarded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn a_side_session_takes_the_asked_model_then_the_configured_one_then_the_harness_default() {
     let calls = std::env::temp_dir().join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
     let calls_path = calls.to_string_lossy().into_owned();
