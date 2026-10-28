@@ -2718,7 +2718,7 @@ RULES += MAIN_CLASS_RULES
 # escape comment. Added lines only, base debt per file as the other line rules (today's sites in owners' test
 # inits are debt that S3 and S4 remove). Local only, never CI.
 # The block owns its lines from here to `RULES += MAIN_WAKEUP_OWNER_RULES`.
-MAIN_WAKEUP_OWNER = re.compile(r"\b(?:MainWakeUpQueue|MainDeadlineScheduler|MainWorkScheduler)\(")
+MAIN_WAKEUP_OWNER = re.compile(r"\b(?:MainWakeUpQueue|MainDeadlineScheduler|MainWorkScheduler)\(|\bMainWorkScheduler\.testing\b")
 MAIN_WAKEUP_OWNER_FILES = (SOURCES + "CmuxNextApp/CmuxNextApp.swift", SOURCES + "CmuxNextApp/AppServices.swift",
                            SOURCES + "CmuxNextLaunch/LaunchOrder.swift")
 

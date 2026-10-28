@@ -36,9 +36,9 @@ public struct IdleDeadline {
 public protocol IdleNextDeadlineSource: AnyObject {
     /// `CLOCK_UPTIME_RAW` nanoseconds of the earliest pending deadline; nil when none is pending.
     var nextFireNanos: UInt64? { get }
-    /// Called after ``nextFireNanos`` changes: a deadline was added or cancelled, or one fired. The
-    /// ``IdleScheduler`` sets it: while a deadline is due it starts no long period and arms no
-    /// timer, and this call (not a re-check on a timer) lets the next period start, as Chrome's
+    /// Called after the due next fire has passed (``watchDueFire()``), or, for a source that tracks every change,
+    /// after ``nextFireNanos`` changes. The ``IdleScheduler`` sets it: while a deadline is due it starts no long
+    /// period and arms no timer, and this call (not a re-check on a timer) lets the next period start, as Chrome's
     /// `IdleHelper` hears of the delayed task it waits for.
     var onNextFireChange: (@MainActor () -> Void)? { get set }
     /// The next fire is due, so the ``IdleScheduler`` waits: call ``onNextFireChange`` once after that fire, or after
@@ -56,6 +56,8 @@ extension IdleNextDeadlineSource {
 /// pump's delayed work and every other entry, with no wiring in the composition root.
 @MainActor
 final class WakeUpQueueNextFire: IdleNextDeadlineSource {
+    /// The `WakeupLedger` owner of the due-fire watch.
+    static let owner = "IdleScheduler.dueFire"
     private let wakeups: AlignedWakeups
     private var watching = false
     var onNextFireChange: (@MainActor () -> Void)?
@@ -66,12 +68,13 @@ final class WakeUpQueueNextFire: IdleNextDeadlineSource {
 
     var nextFireNanos: UInt64? { wakeups.nextFireDate }
 
-    /// One precise entry at the due fire, which runs in that fire (or alone, if the due entry was cancelled) and
-    /// then reports the change: no timer of its own and no re-poll. It records a wake only when it was alone.
+    /// One flexible entry at the due fire, which rides that fire (or fires alone, within its leeway, if the due
+    /// entry was cancelled) and then reports the change: no timer of its own and no re-poll. Flexible, so it never
+    /// narrows the due entry's tolerance; it records a wake only when it was alone.
     func watchDueFire() {
         guard !watching, let date = wakeups.nextFireDate else { return }
         watching = true
-        wakeups.schedule(owner: "IdleScheduler.dueFire", at: date, placement: .precise,
+        wakeups.schedule(owner: Self.owner, at: date, placement: .flexible,
                          ledgerReason: .deadlineWhenAlone) { [weak self] in
             self?.watching = false
             self?.onNextFireChange?()

@@ -46,6 +46,7 @@ class MainWakeUpOwnerTests(unittest.TestCase):
                               "init(deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: work)) {}"), [1])
         self.assertEqual(hits(SRC + "CmuxNextPalette/P.swift",
                               "init(mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {}"), [1])
+        self.assertEqual(hits(SRC + "CmuxNextPalette/P.swift", "let work = MainWorkScheduler.testing { _ in Link() }"), [1])
 
     def test_no_escape_comment_lets_one_through(self):
         line = "    let queue = MainWakeUpQueue(energy: energy) // main-wakeup-owner-allow: tests only"

@@ -62,6 +62,7 @@ public final class IdleScheduler {
     /// The next main-thread deadline a long period must end before (the `MainDeadline` registry).
     public weak var deadlines: (any IdleNextDeadlineSource)? {
         didSet {
+            if oldValue !== deadlines { oldValue?.onNextFireChange = nil }
             deadlines?.onNextFireChange = { [weak self] in self?.deadlinesChanged() }
             deadlinesChanged()
         }

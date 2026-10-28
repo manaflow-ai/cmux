@@ -226,19 +226,20 @@ public final class MainWorkScheduler {
     ///   - idleTimer: The idle period timer (tests: a fake fired by hand).
     ///   - otherLinks: The other schedulers' display links (hold long idle periods; their frames
     ///     open short ones). The default has none.
+    ///   - wakeUps: The deadline queue (a test's on a hand-fired timer and its idle clock); nil: one of its own.
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                performTurn: TurnPerformer? = nil, budgetTurns: TurnPerformer? = nil,
                                idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
-                               otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(),
+                               otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(), wakeUps: MainWakeUpQueue? = nil,
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         let work = MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
                                                                                     mediaTime: mediaTime, budget: budget,
                                                                                     makeLink: makeLink),
                                      startup: startup, idleTimer: idleTimer, ledger: ledger, otherLinks: otherLinks,
-                                     measuresRenderPasses: false, wakeUps: MainWakeUpQueue(energy: EnergyPolicySource()))
+                                     measuresRenderPasses: false, wakeUps: wakeUps ?? MainWakeUpQueue(energy: EnergyPolicySource()))
         if let performTurn { work.posting.performTurn = performTurn }
         work.budgetTurns = budgetTurns
         return work

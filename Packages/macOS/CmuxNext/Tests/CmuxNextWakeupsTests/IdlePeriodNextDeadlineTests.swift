@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+@testable import CmuxNextWakeups
 import Testing
 
 /// A long idle period ends before the next main-thread deadline in the app's wiring (sequence-manager-DESIGN.md F1,
@@ -36,6 +36,89 @@ import Testing
         let ran = try #require(remaining, "no long idle period ran after 50 ms of quiet")
         #expect(ran > .zero && ran <= left + .milliseconds(1),
                 "the long period ran \(ran), past the MainDeadline that fires \(left) after its start")
+    }
+
+    /// A wake due in under 1 ms holds the long period, with no idle timer re-poll; the wake's fire (the queue's, not
+    /// the idle timer's) lets the period start, and the watch that hears it rides that fire unrecorded.
+    @Test func aDueWakeHoldsTheLongPeriodUntilItFires() {
+        let rig = DueRig()
+        rig.queue.insert(owner: "test.due", after: .microseconds(50_500), policy: .precise) {}
+        var ran = 0
+        rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
+
+        rig.idle.run(ms: 50.2)
+        #expect(ran == 0, "a long period ran with a wake due in 0.3 ms")
+        #expect(rig.idle.fireAt == nil, "the idle timer re-polls a due wake")
+
+        rig.wakes.fire()
+        rig.idle.run(ms: 1)
+        #expect(ran == 1, "the due wake's fire did not let the long period start")
+        #expect(rig.wakes.deadlines(of: WakeUpQueueNextFire.owner) == 0, "the watch that rode a fire recorded a wake")
+    }
+
+    /// The due wake's entry is cancelled: the watch fires on its own wake and lets the period start.
+    @Test func aCancelledDueWakeStillEndsTheHold() {
+        let rig = DueRig()
+        let token = rig.queue.insert(owner: "test.due", after: .microseconds(50_500), policy: .precise) {}
+        var ran = 0
+        rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
+        rig.idle.run(ms: 50.2)
+        #expect(ran == 0)
+
+        rig.queue.cancel(token)
+        rig.wakes.fire()
+        rig.idle.run(ms: 1)
+        #expect(ran == 1, "the hold outlived the cancelled wake")
+        #expect(rig.wakes.deadlines(of: WakeUpQueueNextFire.owner) == 1)
+    }
+}
+
+/// A scheduler whose deadline queue and idle timer share one fake uptime, both fired by hand.
+@MainActor
+private struct DueRig {
+    let wakes: WakeUpQueueRig
+    let idle: UptimeIdleTimer
+    let work: MainWorkScheduler
+    var queue: MainWakeUpQueue { wakes.queue }
+
+    init() {
+        let wakes = WakeUpQueueRig(start: 10_000_000_000), uptime = wakes.uptime
+        self.wakes = wakes
+        idle = UptimeIdleTimer(uptime: uptime)
+        work = MainWorkScheduler.testing(budget: MainFrameBudget(input: NoInputPending(), uptimeNanos: { uptime.now }),
+                                         ledger: WakeupLedger(), idleTimer: idle, otherLinks: NoOtherLinks(),
+                                         wakeUps: wakes.queue) { _ in PeriodLink() }
+    }
+}
+
+/// The idle period timer on the rig's uptime, fired by moving it.
+@MainActor
+private final class UptimeIdleTimer: IdlePeriodTimer {
+    private let uptime: FakeUptime
+    private var fire: (@MainActor () -> Void)?
+    private(set) var fireAt: UInt64?
+
+    init(uptime: FakeUptime) { self.uptime = uptime }
+
+    func arm(afterNanos delay: UInt64, _ fire: @escaping @MainActor () -> Void) {
+        fireAt = uptime.now + delay
+        self.fire = fire
+    }
+
+    func cancel() {
+        fireAt = nil
+        fire = nil
+    }
+
+    func run(ms: Double) {
+        let end = uptime.now + UInt64(ms * 1_000_000)
+        while let at = fireAt, at <= end, let pending = fire {
+            uptime.now = max(uptime.now, at)
+            fireAt = nil
+            fire = nil
+            pending()
+        }
+        uptime.now = max(uptime.now, end)
     }
 }
 
