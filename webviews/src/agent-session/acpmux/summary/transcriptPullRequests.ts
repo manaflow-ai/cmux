@@ -54,7 +54,7 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
 const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:(?:[\w./~-]*\/)?timeout(?:\s+-k\s+\S+)?\s+\d+(?:\.\d+)?\s+)?(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
+  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:(?:[\w./~-]*\/)?timeout\s+(?:(?:--\S+\s+|-k\s+\S+\s+)*\d+(?:\.\d+)?[smhd]?\s+))?(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -140,7 +140,14 @@ const callText = (command: string) =>
 /// Shell text after dropping unexecuted short-circuit and conditional branches. Changes and Sources
 /// must scan the same executed command text or they will disagree about URLs from skipped arms.
 const executedShellText = (command: string): string => {
-  let text = callText(command).replace(/\bif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else|fi)\b)([\s\S]*?)\bfi\b/g, (_, condition: string, thenBody: string, rest: string) => {
+  let text = callText(command);
+  text = text
+    .replace(/\bif\s+true\s*(?:;|\n)\s*then\s+([\s\S]*?)\s*\b(?:elif|else)\b[\s\S]*?\bfi\b/g, "$1")
+    .replace(/\bif\s+true\s*(?:;|\n)\s*then\s+([\s\S]*?)\s*\bfi\b/g, "$1")
+    .replace(/\bif\s+false\b[\s\S]*?\belif\s+((?!(?:true|false)\b)[\s\S]*?)\s*(?:;|\n)\s*then[\s\S]*?\bfi\b/g, "$1")
+    .replace(/\bif\s+false\b[\s\S]*?\belse\s+([\s\S]*?)\s*\bfi\b/g, "$1")
+    .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "");
+  text = text.replace(/\bif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else|fi)\b)([\s\S]*?)\bfi\b/g, (_, condition: string, thenBody: string, rest: string) => {
     if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
     const directElif = /^[;\n\s]*elif\s+(?!true\s*(?:;|\n)|false\s*(?:;|\n))/i.exec(rest);
     if (directElif) return rest.replace(/^[;\n\s]*elif\s+/, "");
@@ -152,7 +159,7 @@ const executedShellText = (command: string): string => {
   return text
     .replace(/!\s+true\b/g, "false")
     .replace(/!\s+false\b/g, "true")
-    .split(/[;\n]/)
+    .split(/;|\n|(?<!&)&(?!&)/)
     .flatMap((statement) => {
       const pieces: { text: string; op?: "&&" | "||" }[] = [];
       let last = 0;
@@ -170,6 +177,8 @@ const executedShellText = (command: string): string => {
         const run = index === 0 || status === undefined || (pieces[index - 1]!.op === "&&" ? status : !status);
         if (run && value) kept.push(value);
         if (run) status = value === "true" ? true : value === "false" ? false : undefined;
+        else if (pieces[index - 1]?.op === "&&") status = false;
+        else if (pieces[index - 1]?.op === "||") status = true;
       }
       return kept;
     })
