@@ -320,7 +320,7 @@ font-size = 13
 sidebar-font-size = 14
 surface-tab-bar-font-size = 11
 theme = One Dark
-scrollback-limit = 50000000
+scrollback-limit-bytes = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 

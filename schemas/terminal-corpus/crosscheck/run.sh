@@ -25,7 +25,7 @@ x="$work/GhosttyNextKit.xcframework"
 #    - no cursor-blink default (libghostty-vt's default cursor policy);
 #    - legacy grapheme width: the host terminal leaves mode 2027 off.
 cat > "$work/ghostty.conf" <<'CONF'
-scrollback-limit = 50000000
+scrollback-limit-bytes = 50000000
 foreground = ffffff
 background = 282c34
 cursor-style-blink = false
