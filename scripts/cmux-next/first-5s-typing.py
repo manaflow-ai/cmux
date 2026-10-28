@@ -68,6 +68,9 @@ parser.add_argument("--gap", type=float, default=3.0, help="seconds between roun
 parser.add_argument("--hang-ms", type=int, default=8)
 parser.add_argument("--no-photon", action="store_true")
 parser.add_argument("--no-shell", action="store_true", help="the host's own shell config (no oh-my-zsh)")
+parser.add_argument("--slow-create-ms", type=int, default=0,
+                    help="cmux-next DEBUG/bench builds: every pane or terminal create's reply comes this much later "
+                         "(CMUX_NEXT_DEBUG_SLOW_CREATE_MS): keys typed meanwhile must still reach the PTY in order")
 parser.add_argument("--still", action="store_true", help="a JPEG of the window at the end of each round in the report")
 opts, _unknown = parser.parse_known_args()
 
@@ -77,7 +80,15 @@ SCENARIOS = [s for s in opts.scenarios.split(",") if s]
 # cmux-next: Ctrl-` is New Terminal Tab, Cmd-T the New Tab page, Cmd-D a split, Cmd-Shift-L a browser tab
 # (DebugInstantCreateBench's keys). Classic: Cmd-T is a new terminal tab.
 OPEN_KEYS = {"terminal": ("`", ["control"]), "newtab": ("t", ["command"]), "split": ("d", ["command"]),
-             "browser": ("l", ["command", "shift"])}
+             "browser": ("l", ["command", "shift"]),
+             # first-keys-proof.md item 2: every entrypoint that opens a terminal the person types into at once.
+             "splitdown": ("d", ["command", "shift"]), "column": ("d", ["control", "command"]),
+             "row": ("d", ["control", "shift", "command"]), "workspace": ("n", ["command"]),
+             "window": ("n", ["command", "shift"]),
+             # Ctrl-2 onto the pane's second tab, made just before by a script without focus (its surface is not built).
+             "coldtab": ("2", ["control"])}
+# How each scenario's round ends: what it opened goes (a workspace, a window), else the focused tab closes.
+CLOSE_ACTIONS = {"workspace": "closeWorkspace", "window": "closeWindow"}
 CLASSIC_OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
 KEY_CODES = dict(hid_input.KEYCODES, **{"`": 50})
 MODIFIER_CODES = {"command": 55, "shift": 56, "control": 59, "option": 58}
@@ -264,6 +275,7 @@ class NextApp:
         self.app, self.out = app, out
         self.probe = os.path.join(out, "typing-probe.csv")
         env = {"CMUX_NEXT_TYPING_PROBE": self.probe, "CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms),
+               **({"CMUX_NEXT_DEBUG_SLOW_CREATE_MS": str(opts.slow_create_ms)} if opts.slow_create_ms else {}),
                **shipping_env(draw=False), **shell_env(zdot)}
         if self.enable_features:
             env["CMUX_ENABLE_FEATURES"] = self.enable_features
@@ -348,7 +360,13 @@ class NextApp:
         return sent, reply, open_ns
 
     def close(self, scenario):
-        self.control.action("closeTab")
+        self.control.action(CLOSE_ACTIONS.get(scenario, "closeTab"))
+
+    def prepare(self, scenario):
+        """Before the open key: the cold tab Ctrl-2 selects (a terminal tab a script made without focus)."""
+        if scenario == "coldtab":
+            self.control.action("newSurface", focus=False)
+            time.sleep(0.5)
 
     def clear_line(self):
         self.key("u", ["control"])
@@ -402,6 +420,17 @@ class NextApp:
     def probe_rows(self):
         return hid_input.probe_rows(self.probe)
 
+    def input_rows(self, action, start_ns, end_ns):
+        """`debug.input {action}` rows (late_keys, slots) whose key time is in [start_ns, end_ns]; [] on an app without it."""
+        try:
+            got = self.control.rpc("debug.input", {"action": action, "since_launch": True}, timeout=30) or {}
+        except Exception as error:  # an app without the action
+            return [{"error": repr(error)[:200]}]
+        if not isinstance(got, dict) or got.get("error"):
+            return [{"error": json.dumps(got)[:200]}]
+        rows = got.get("keys") if action == "late_keys" else got.get("slots")
+        return [r for r in rows or [] if start_ns - 100e6 <= (r.get("generated_ns") or 0) <= end_ns]
+
     def line(self):
         found = []
 
@@ -415,7 +444,8 @@ class NextApp:
                 for value in node:
                     walk(value)
         walk(self.control.rpc("debug.surfaces", {"text": True}, timeout=20))
-        lines = [l for l in (found[-1] if found else "").splitlines() if l.strip()]
+        self.last_text = found[-1] if found else ""
+        lines = [l for l in self.last_text.splitlines() if l.strip()]
         return lines[-1] if lines else ""
 
     def stop(self):
@@ -634,6 +664,18 @@ def run_round(app, scenario, index, sampled):
     if sampler:
         time.sleep(0.6)  # sample attaches before the open key
     typed = "".join(hid_input.LETTERS[i % 26] for i in range(nkeys))
+    if hasattr(app, "prepare"):
+        app.prepare(scenario)
+    # The tracker's ring keeps 256 closed slots, fewer than a round's (each key's press, release and a held key's second
+    # dispatch): read it mid-round too.
+    mid_slots = []
+    if app.family == "next":
+        mid_at = NOW_NS() + int(opts.seconds * 0.45 * 1e9)
+        def read_mid():
+            time.sleep(max(0, (mid_at - NOW_NS()) / 1e9))
+            mid_slots.extend(app.input_rows("slots", 0, 2 ** 63))
+        mid = threading.Thread(target=read_mid, daemon=True)
+        mid.start()
     sent, open_reply, open_ns = app.play(name, modifiers, typed)
     open_reply_ms = round((NOW_NS() - open_ns) / 1e6, 1)
     schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
@@ -644,6 +686,13 @@ def run_round(app, scenario, index, sampled):
     end_ns = NOW_NS()
     line = app.line()
     hangs = app.hangs(open_ns, end_ns)
+    late_rows = app.input_rows("late_keys", open_ns, end_ns) if app.family == "next" else []
+    slot_rows = app.input_rows("slots", open_ns, end_ns) if app.family == "next" else []
+    if app.family == "next":
+        mid.join(30)
+        seen = {(r.get("generated_ns"), r.get("kind"), json.dumps(r.get("stages_ms"), sort_keys=True)) for r in slot_rows}
+        slot_rows += [r for r in mid_slots if open_ns - 100e6 <= (r.get("generated_ns") or 0) <= end_ns
+                      and (r.get("generated_ns"), r.get("kind"), json.dumps(r.get("stages_ms"), sort_keys=True)) not in seen]
     try:
         journal = app.journal_since(marker)
     except Exception as error:
@@ -673,6 +722,21 @@ def run_round(app, scenario, index, sampled):
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
                      "dispatch_start_ms": col("dispatch_start_ms"),
                      "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None})
+    # The tracker's split per key (first-keys-held instrumentation): the dispatch that ran the key is its latest slot.
+    def near(rows, when):
+        return [r for r in rows if isinstance(r, dict) and abs((r.get("generated_ns") or 0) - when) < 1e6]
+    for k, key in enumerate(keys):
+        slots = [r for r in near(slot_rows, schedule[k]) if r.get("kind") == "keyPress"]
+        starts = [(r.get("stages_ms") or {}).get("dispatchStart") for r in slots]
+        starts = [v for v in starts if v is not None]
+        key["slot_count"] = len(slots)
+        key["tracker_dispatch_start_ms"] = round(max(starts), 2) if starts else None
+        last = max(slots, key=lambda r: (r.get("stages_ms") or {}).get("dispatchStart") or 0) if slots else None
+        key["tracker_arrived_main_ms"] = (last.get("stages_ms") or {}).get("arrivedMain") if last else None
+        key["tracker_total_ms"] = last.get("total_ms") if last else None
+        key["tracker_target"] = last.get("target") if last else None
+        late = near(late_rows, schedule[k])
+        key["late"] = late[-1] if late else None
     frames = app.photon.frames(open_ns - int(0.2e9), end_ns) if app.photon and not app.photon.error else []
     big = (app.photon_area or 10 ** 12) * 0.25
     for k, key in enumerate(keys):
@@ -681,12 +745,17 @@ def run_round(app, scenario, index, sampled):
     first_big = next(((ns - open_ns) / 1e6 for ns, _c, _x, _y, w, h in frames if ns > open_ns and w * h >= big), None)
     first_any = next(((ns - open_ns) / 1e6 for ns, *_ in frames if ns > open_ns), None)
     ok = line.rstrip().endswith(typed[-12:])
+    # Every key reached the terminal, in order, none lost or doubled: the whole typed run is in its text (soft wraps
+    # removed). Only for the terminal scenarios (a page field shows no surface text).
+    text = "".join(getattr(app, "last_text", "").split("\n"))
+    in_order = typed in text if scenario not in ("newtab", "browser") and text else None
     rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
-           "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok,
+           "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok, "typed_in_order": in_order,
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal}
+           "frames": frames, "journal": journal, "late_keys": late_rows,
+           "slot_errors": [r for r in slot_rows if "error" in r][:3]}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
         tree = (rec["sample"] or {}).get("tree") or []
@@ -743,6 +812,44 @@ def held(rounds, limit_ms=100):
     return out
 
 
+def split(rounds):
+    """Per bucket, from the app tracker (debug.input slots and late_keys): keys whose dispatch that ran them started more
+    than 100 ms / 50 ms after the key, and for the late ones the split: key -> arrived_main (the main thread did not
+    take it) vs arrived_main -> dispatch_start (a cmux path held it), with the path that held them."""
+    width = opts.bucket_ms
+    edges = int(opts.seconds * 1000 // width) + 1
+    out = []
+    for b in range(edges):
+        ks = [k for r in rounds if not r["sampled"] for k in r["keys"] if b * width <= k["t_ms"] < (b + 1) * width]
+        starts = [k["tracker_dispatch_start_ms"] for k in ks if k.get("tracker_dispatch_start_ms") is not None]
+        late = [k["late"] for k in ks if k.get("late")]
+        to_main = [l.get("to_arrived_main_ms") for l in late if l.get("to_arrived_main_ms") is not None]
+        held_ms = [l.get("arrived_to_dispatch_ms") for l in late if l.get("arrived_to_dispatch_ms") is not None]
+        by = {}
+        for l in late:
+            by[l.get("held_by")] = by.get(l.get("held_by"), 0) + 1
+        totals = [k["tracker_total_ms"] for k in ks if k.get("tracker_total_ms") is not None]
+        med = lambda v: round(statistics.median(v), 1) if v else None  # noqa: E731
+        out.append({"from_ms": int(b * width), "keys": len(ks), "tracked": len(starts),
+                    "over_100ms": sum(v > 100 for v in starts), "over_50ms": sum(v > 50 for v in starts),
+                    "late_logged": len(late), "to_arrived_main_ms_p50": med(to_main),
+                    "to_arrived_main_ms_max": round(max(to_main), 1) if to_main else None,
+                    "held_ms_p50": med(held_ms), "held_ms_max": round(max(held_ms), 1) if held_ms else None,
+                    "held_by": by, "total_ms_p50": med(totals), "total_n": len(totals)})
+    return out
+
+
+def print_split(name, scenario, data):
+    rounds = [r for r in data["rounds"] if not r["sampled"]]
+    note(f"FIRST5S-ORDER {name} {scenario}: typed run whole and in order in {sum(r.get('typed_in_order') is True for r in rounds)}"
+         f" of {len(rounds)} rounds (not checked: {sum(r.get('typed_in_order') is None for r in rounds)})")
+    note(f"FIRST5S-SPLIT {name} {scenario}: per bucket: dispatchStart>100ms / >50ms of tracked keys; late keys' OS->arrivedMain p50/max vs arrivedMain->dispatchStart p50/max; held_by; total p50")
+    for row in data["split"]:
+        note(f"   {row['from_ms']:5d} {row['over_100ms']:3d} / {row['over_50ms']:3d} of {row['tracked']:3d}  "
+             f"toMain {row['to_arrived_main_ms_p50']}/{row['to_arrived_main_ms_max']}  held {row['held_ms_p50']}/{row['held_ms_max']}  "
+             f"{row['held_by']}  total p50 {row['total_ms_p50']} (n {row['total_n']})")
+
+
 def hops(rounds):
     width = opts.bucket_ms
     edges = int(opts.seconds * 1000 // width) + 1
@@ -791,8 +898,10 @@ def measure(app_path, zdot, result, family, features=""):
                                             "delay_buckets": buckets(rounds, "delay_ms"),
                                             "held": held(rounds),
                                             "dispatch_buckets": buckets(rounds, "dispatch_end_ms"),
-                                            "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds)}
+                                            "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds),
+                                            "split": split(rounds)}
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
+            print_split(entry["app"], scenario, entry["scenarios"][scenario])
             print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
             save(result)
     finally:
