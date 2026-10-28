@@ -50,7 +50,7 @@ pub(super) fn request(
         {
             break;
         }
-        cmux_threads::checked::sync::sleep(wait);
+        cmux_blocking::thread::sleep(wait);
         let Ok(fresh) = super::connect_command(global) else { break };
         *stream = fresh;
         response = request_with_retry(stream, method, params, timeout);
@@ -168,7 +168,7 @@ impl Progress {
                 let mut next = FIRST_NOTE_AFTER;
                 while next < total {
                     let left = next.saturating_sub(started.elapsed());
-                    match stopped.recv_timeout(left) {
+                    match crate::blocking::sync::recv_timeout(&stopped, left) {
                         Err(RecvTimeoutError::Timeout) => {}
                         Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
                     }
@@ -199,7 +199,7 @@ impl Progress {
     fn stop_notes(&mut self) {
         drop(self.stop.take());
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

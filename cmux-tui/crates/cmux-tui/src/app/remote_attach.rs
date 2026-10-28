@@ -4,8 +4,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::AssertUnwindSafe;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::SurfaceId;
 
 #[cfg(test)]

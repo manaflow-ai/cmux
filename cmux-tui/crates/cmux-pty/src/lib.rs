@@ -37,8 +37,7 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(any(windows, test))]
 mod console_ctrl_c;
-#[cfg(target_vendor = "apple")]
-mod input_queue;
+pub mod input_queue;
 #[cfg(unix)]
 mod macos;
 #[cfg(unix)]

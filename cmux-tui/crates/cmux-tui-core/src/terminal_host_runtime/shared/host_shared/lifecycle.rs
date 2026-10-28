@@ -15,6 +15,7 @@ impl HostShared {
         if exited.is_some() {
             return true;
         }
+        // wakeup-allow: deadline the caller's one bound on the child's exit; the exit ends the wait first
         let (exited, _) = self
             .child_exit
             .1
@@ -28,6 +29,7 @@ impl HostShared {
             return true;
         }
         let state = self.child_exit.0.lock().recover_poison();
+        // wakeup-allow: deadline the caller's one bound on the child becoming waitable; that ends the wait first
         let (_state, _) = self
             .child_exit
             .1
@@ -44,6 +46,7 @@ impl HostShared {
         // reader notifies the same condition variable after publishing
         // its final bytes and setting pty_drained.
         let state = self.child_exit.0.lock().recover_poison();
+        // wakeup-allow: deadline the caller's one bound on the PTY drain; the reader's last bytes end the wait first
         let (_state, _) = self
             .child_exit
             .1

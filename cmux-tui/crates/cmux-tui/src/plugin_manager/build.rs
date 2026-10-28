@@ -83,7 +83,7 @@ pub(super) fn run_plugin_build_command(
             let _ = child.wait();
             anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
         }
-        cmux_threads::checked::sync::sleep(Duration::from_millis(100));
+        cmux_blocking::thread::sleep(Duration::from_millis(100));
     }
 }
 

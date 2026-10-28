@@ -250,6 +250,7 @@ impl HostShared {
                 );
             }
             let observed = *generation;
+            // wakeup-allow: deadline the snapshot's one boundary deadline; parser progress ends each wait first
             let (next, wait) = self
                 .parser_progress
                 .1

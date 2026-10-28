@@ -229,7 +229,7 @@ impl SessionEventWorker {
             stop.close();
         }
         if let Some(mux) = self.mux.take() {
-            let _ = mux.join();
+            let _ = crate::blocking::thread::join(mux);
         }
     }
 }
@@ -283,7 +283,7 @@ impl OwnerReloadWorker {
             stop.close();
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

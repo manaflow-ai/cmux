@@ -103,7 +103,7 @@ pub(super) fn spawn(global: GlobalArgs, changed: impl Fn() + Send + 'static) {
                     delay = FIRST_RETRY;
                 }
                 // Backoff after a failure or a closed stream.
-                cmux_threads::checked::sync::sleep(delay);
+                cmux_blocking::thread::sleep(delay);
                 delay = (delay * 2).min(MAX_RETRY);
             }
         });

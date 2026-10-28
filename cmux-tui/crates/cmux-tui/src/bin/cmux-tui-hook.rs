@@ -302,7 +302,12 @@ fn settle_detached_child(
             // `is_finished` keeps the provider-facing path non-blocking even
             // if a platform leaves the pipe reader briefly behind the child.
             if let Some(reader) = reader.filter(std::thread::JoinHandle::is_finished) {
-                let _ = reader.join();
+                #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+                let _ = cmux_blocking::scoped_blocking_call(
+                    "thread::join",
+                    cmux_blocking::BlockingKind::Join,
+                    || reader.join(),
+                );
             }
         }
         Ok(None) => {
@@ -605,13 +610,19 @@ fn connect_before(
             let _ = sender.send(transport::connect(&socket));
         })
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    let result = match receiver.recv_timeout(remaining) {
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let received = cmux_blocking::scoped_blocking_call(
+        "sync::recv_timeout",
+        cmux_blocking::BlockingKind::Recv,
+        || receiver.recv_timeout(remaining),
+    );
+    let result = match received {
         Ok(result) => {
-            let _ = connector.join();
+            join_connector(connector);
             result
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            let _ = connector.join();
+            join_connector(connector);
             return Err(AppendAttemptError::Retryable(anyhow!(
                 "journal socket connector stopped without a result"
             )));
@@ -638,6 +649,16 @@ fn connect_before(
             AppendAttemptError::Fatal(error)
         }
     })
+}
+
+/// Waits for the connector thread, which has sent its result or ended.
+#[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+fn join_connector(connector: std::thread::JoinHandle<()>) {
+    let _ = cmux_blocking::scoped_blocking_call(
+        "thread::join",
+        cmux_blocking::BlockingKind::Join,
+        || connector.join(),
+    );
 }
 
 fn write_before(
@@ -776,7 +797,13 @@ mod detach {
                 let _ = sender.send(outcome);
             },
         );
-        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let outcome = cmux_blocking::scoped_blocking_call(
+            "sync::recv_timeout",
+            cmux_blocking::BlockingKind::Recv,
+            || receiver.recv_timeout(handoff_wait),
+        )
+        .unwrap_or(Handoff::TimedOut);
         // A reader that did not start dropped its sender: the wait above
         // ended at once as a timeout.
         super::settle_detached_child(child, reader.ok());

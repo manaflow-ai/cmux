@@ -122,6 +122,9 @@ pub(crate) struct HolderService {
     /// The standalone holder failed to start once: this daemon starts the
     /// holder built into its host executable from then on.
     standalone_failed: AtomicBool,
+    /// The `pty-writer` that writes every terminal's input on its custody
+    /// master (`crate::pty_write`), started with the first terminal.
+    pty_writer: OnceLock<crate::pty_write::PtyWriter>,
 }
 
 impl HolderService {
@@ -147,9 +150,28 @@ impl HolderService {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
+            pty_writer: OnceLock::new(),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
+    }
+
+    /// A queue on the service's `pty-writer` for the custody master
+    /// `master` (a dup the writer owns): input to the terminal never waits
+    /// for its program. The writer starts on first use; a start that loses a
+    /// race ends with its handle, as no queue is on it.
+    pub(super) fn input_queue(
+        &self,
+        master: OwnedFd,
+    ) -> io::Result<crate::pty_write::PtyInputQueue> {
+        let writer = match self.pty_writer.get() {
+            Some(writer) => writer,
+            None => {
+                let started = crate::pty_write::PtyWriter::start()?;
+                self.pty_writer.get_or_init(|| started)
+            }
+        };
+        writer.register(master)
     }
 
     /// Reap every holder this service starts from now on with `reaper` (the
@@ -436,6 +458,7 @@ impl HolderService {
             sink,
             service: self.clone(),
             replay: Mutex::new(None),
+            input: OnceLock::new(),
         });
         {
             let mut live = self.live.lock().recover_poison();
@@ -867,6 +890,7 @@ pub(crate) mod tests {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
+            pty_writer: OnceLock::new(),
         })
     }
 
