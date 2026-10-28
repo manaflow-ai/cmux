@@ -49,13 +49,15 @@
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
 //!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
-//! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
+//! - A wait in progress is restored from its scheduled record at the original deadline
+//!   (`restore.rs`); its stable prompt id still admits that attempt only once.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
 
 // A turn a daemon restart cut off is continued from the restored queue.
 #[path = "restart_resume.rs"]
 mod restart_resume;
+mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -192,11 +194,15 @@ enum Mark {
 
 /// Each chat's [`Mark`].
 #[derive(Default)]
-pub(crate) struct Pending(Mutex<HashMap<String, Mark>>);
+pub(crate) struct Pending {
+    marks: Mutex<HashMap<String, Mark>>,
+    /// A startup/import pass may ask to resume a session more than once.
+    restored: Mutex<HashSet<String>>,
+}
 
 impl Pending {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Mark>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -379,8 +385,7 @@ impl Hub {
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg["delayMs"] = json!(delay);
-            if hub.set_retry(&session, &turn_id, retry) {
-                hub.append(&session, "mux", "auto_resume_scheduled", msg);
+            if hub.set_retry(&session, &turn_id, retry, msg) {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -510,10 +515,13 @@ impl Hub {
 
     /// Sets the wait of the chat's continuation of `cut_turn`, when it still waits: what the
     /// session row's `retry` shows.
-    fn set_retry(&self, session: &Session, cut_turn: &str, wait: RetrySummary) -> bool {
+    fn set_retry(&self, session: &Session, cut_turn: &str, wait: RetrySummary, msg: Value) -> bool {
         match self.auto_resumes.lock().get_mut(&session.id) {
             Some(Mark::Waiting { turn, retry, .. }) if turn == cut_turn => {
                 *retry = Some(wait);
+                // Before Stop can clear the mark and record its terminal decision: recovery
+                // must never find the schedule after the cancellation it superseded.
+                self.append(session, "mux", "auto_resume_scheduled", msg);
                 true
             }
             _ => false,

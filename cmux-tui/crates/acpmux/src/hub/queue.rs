@@ -997,6 +997,7 @@ impl Hub {
     /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
         for session in sessions {
+            self.restore_auto_resume(session);
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
