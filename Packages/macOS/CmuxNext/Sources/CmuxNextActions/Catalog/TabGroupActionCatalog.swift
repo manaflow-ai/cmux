@@ -50,10 +50,11 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "tabGroup.toggleCollapsed",
-                title: String(localized: "action.tabGroup.toggleCollapsed", defaultValue: "Collapse/Expand Tab Group", bundle: .module),
+                title: String(localized: "action.tabGroup.toggleCollapsed", defaultValue: "Collapse Tab Group", bundle: .module),
                 keywords: ["group", "fold"], category: .tab, symbol: "chevron.up.chevron.down", surfaces: [.palette],
                 targets: [.tabGroup], cliName: "tab-group toggle-collapse"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.tabGroup.toggleCollapsed.on", defaultValue: "Expand Tab Group", bundle: .module)),
             ActionDescriptor(
                 id: "tabGroup.collapse",
                 title: String(localized: "action.tabGroup.collapse", defaultValue: "Collapse Tab Group", bundle: .module),

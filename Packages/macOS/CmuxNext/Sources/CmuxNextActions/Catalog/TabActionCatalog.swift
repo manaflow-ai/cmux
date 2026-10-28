@@ -332,11 +332,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // Opt-Cmd-P, the Codex app's Toggle pin (cx-ncc.72); an agent chat's header menu shows it.
             ActionDescriptor(
                 id: "palette.toggleTabPin",
-                title: String(localized: "action.palette.toggleTabPin", defaultValue: "Pin/Unpin Tab", bundle: .module),
+                title: String(localized: "action.palette.toggleTabPin", defaultValue: "Pin Tab", bundle: .module),
                 keywords: ["tab", "pin", "chat"], defaultShortcut: Shortcut("p", modifiers: [.option, .command]),
                 category: .tab, symbol: "pin", surfaces: [.palette, .contextMenu, .keyboard],
                 targets: [.tab], cliName: "tab pin-unpin"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.toggleTabPin.on", defaultValue: "Unpin Tab", bundle: .module), symbolWhenOff: "pin", symbolWhenOn: "pin.slash"),
             ActionDescriptor(
                 id: "palette.toggleTabUnread",
                 title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab Unread", bundle: .module),
@@ -345,10 +346,11 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleFullWidthTab",
-                title: String(localized: "action.palette.toggleFullWidthTab", defaultValue: "Toggle Full Width Tab", bundle: .module),
+                title: String(localized: "action.palette.toggleFullWidthTab", defaultValue: "Make Tab Full Width", bundle: .module),
                 keywords: ["tab", "width"], category: .tab, symbol: "arrow.left.and.right",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-full-width"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.toggleFullWidthTab.on", defaultValue: "Exit Full Width Tab", bundle: .module)),
             ActionDescriptor(
                 id: "duplicateTab",
                 title: String(localized: "action.duplicateTab", defaultValue: "Duplicate Tab", bundle: .module),
@@ -363,10 +365,11 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleTabAudioMute",
-                title: String(localized: "action.toggleTabAudioMute", defaultValue: "Mute/Unmute Tab", bundle: .module),
+                title: String(localized: "action.toggleTabAudioMute", defaultValue: "Mute Tab", bundle: .module),
                 keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.slash", surfaces: [.contextMenu],
                 targets: [.tab], cliName: "tab mute-unmute"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleTabAudioMute.on", defaultValue: "Unmute Tab", bundle: .module), symbolWhenOff: "speaker.slash", symbolWhenOn: "speaker.wave.2"),
             ActionDescriptor(
                 id: "tab.muteAudio",
                 title: String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module),

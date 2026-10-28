@@ -243,5 +243,9 @@ enum PaneHandlers {
             let handle = pane.handle
             ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
         })
+        // Zoom Pane or Exit Pane Zoom for the target pane (the focused one without a target), as the toolbar reads it.
+        ActionTargetTitles.setState("toggleSplitZoom", in: registry) { invocation in
+            ctx.paneController(invocation).map { pane in pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false }
+        }
     }
 }

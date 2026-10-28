@@ -289,10 +289,9 @@ enum TabHandlers {
             guard invocation.target?.kind == .tab, let id = invocation.target?.id else { return false }
             return id.hasPrefix(LocalBrowserTab.prefix) || id.hasPrefix(LocalPageTab.prefix)
         }
-        // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
-        ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
-            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
-            return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
+        // Every surface reads Pin Tab or Unpin Tab for the target (the focused tab without one).
+        ActionTargetTitles.setState("palette.toggleTabPin", in: registry) { invocation in
+            ctx.daemonTab(invocation)?.tab.pinned
         }
         PinnedPage.bind(registry, ctx: ctx)
     }

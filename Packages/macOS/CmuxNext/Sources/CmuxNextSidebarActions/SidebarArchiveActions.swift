@@ -56,17 +56,16 @@ public final class SidebarArchiveActions {
                 return (target.id, [target.id])
             }
         })
-        ActionTargetTitles.set("workspace.toggleArchive", in: registry) { [self] invocation in
-            let item = (try? self.host.archiveWorkspace(invocation)).flatMap { self.host.archiveItem(workspace: $0) }
-            return self.title(item, ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace)
+        // Every surface reads Archive or Unarchive for the target (ActionToggleTitles).
+        ActionTargetTitles.setState("workspace.toggleArchive", in: registry) { [self] invocation in
+            self.isArchived((try? self.host.archiveWorkspace(invocation)).flatMap { self.host.archiveItem(workspace: $0) })
         }
-        ActionTargetTitles.set("workspaceGroup.toggleArchive", in: registry) { [self] invocation in
-            let id = try? self.host.archiveGroupID(invocation)
-            return self.title(id.map { self.groupItem($0) }, ArchiveStrings.archiveGroup, ArchiveStrings.unarchiveGroup)
+        ActionTargetTitles.setState("workspaceGroup.toggleArchive", in: registry) { [self] invocation in
+            self.isArchived((try? self.host.archiveGroupID(invocation)).map { self.groupItem($0) })
         }
-        ActionTargetTitles.set("sidebar.item.toggleArchive", in: registry) { [self] invocation in
+        ActionTargetTitles.setState("sidebar.item.toggleArchive", in: registry) { [self] invocation in
             guard let target = invocation.target, target.kind == .sidebarItem else { return nil }
-            return self.title(target.id, ArchiveStrings.archiveItem, ArchiveStrings.unarchiveItem)
+            return self.isArchived(target.id)
         }
     }
 
@@ -88,10 +87,10 @@ public final class SidebarArchiveActions {
         }
     }
 
-    /// The menu title for document item `item`: Unarchive while it is archived; nil without the document.
-    private func title(_ item: String?, _ archive: String, _ unarchive: String) -> String? {
+    /// Whether document item `item` is archived; nil without the document or the item.
+    private func isArchived(_ item: String?) -> Bool? {
         guard let store = activeStore(), let item, store.records.items[item] != nil else { return nil }
-        return store.records.isArchived(item: item) ? unarchive : archive
+        return store.records.isArchived(item: item)
     }
 
     /// The document item that places workspace `id`; a workspace not placed yet (an adopt in flight) cannot be archived.

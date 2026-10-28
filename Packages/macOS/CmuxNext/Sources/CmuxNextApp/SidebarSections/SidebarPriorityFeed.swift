@@ -38,6 +38,7 @@ extension SidebarPriorityFeed {
             try AppearanceHandlers.requireUnmanaged(SidebarPriorityViewSetting.shownPath, context)
             context.writeSetting("toggle priority view", SidebarPriorityViewSetting.shownPath, .bool(!preferences().priorityViewShown))
         }
+        ActionTargetTitles.setState(toggleAction, in: registry) { _ in preferences().priorityViewShown }
         let machines = context.services.machines
         AgentPriorityChats.app.machines = .init(remote: { [weak machines] in machines?.priorityMachines ?? [] },
                                                 peer: { [weak machines] in machines?.machineName(peer: $0) },

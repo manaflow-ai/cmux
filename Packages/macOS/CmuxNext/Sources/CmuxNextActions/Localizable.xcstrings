@@ -12060,127 +12060,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Event Inspector"
+            "value": "Show or Hide Event Inspector"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "イベントインスペクタを切り替え"
+            "value": "イベントインスペクタを表示または非表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل فاحص الأحداث"
+            "value": "إظهار أو إخفاء مفتش الأحداث"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi inspektor događaja"
+            "value": "Prikaži ili sakrij inspektor događaja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skift hændelsesinspektør"
+            "value": "Vis eller skjul hændelsesinspektør"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ereignisinspektor umschalten"
+            "value": "Ereignisinspektor ein- oder ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alternar inspector de eventos"
+            "value": "Mostrar u ocultar inspector de eventos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Basculer l’inspecteur d’événements"
+            "value": "Afficher ou masquer l’inspecteur d’événements"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva ispettore eventi"
+            "value": "Mostra o nascondi ispettore eventi"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកកម្មវិធីត្រួតពិនិត្យព្រឹត្តិការណ៍"
+            "value": "បង្ហាញ ឬលាក់កម្មវិធីត្រួតពិនិត្យព្រឹត្តិការណ៍"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이벤트 검사기 토글"
+            "value": "이벤트 인스펙터 표시 또는 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veksle hendelsesinspektør"
+            "value": "Vis eller skjul hendelsesinspektør"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz inspektora zdarzeń"
+            "value": "Pokaż lub ukryj inspektor zdarzeń"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alternar inspetor de eventos"
+            "value": "Mostrar ou ocultar inspetor de eventos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переключить инспектор событий"
+            "value": "Показать или скрыть инспектор событий"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับตัวตรวจสอบเหตุการณ์"
+            "value": "แสดงหรือซ่อนตัวตรวจสอบเหตุการณ์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Olay Denetçisini Aç/Kapat"
+            "value": "Olay Denetçisini Göster veya Gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перемкнути інспектор подій"
+            "value": "Показати або сховати інспектор подій"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt trình kiểm tra sự kiện"
+            "value": "Hiện hoặc ẩn trình kiểm tra sự kiện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换事件检查器"
+            "value": "显示或隐藏事件检查器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換事件檢查器"
+            "value": "顯示或隱藏事件檢查器"
           }
         }
       }
@@ -20176,137 +20176,6 @@
         }
       }
     },
-    "menu.group.toggleCollapsed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collapse/Expand Group"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طي/توسيع المجموعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sažmi/proširi grupu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul/udvid gruppe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gruppe ein-/ausklappen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contraer/expandir grupo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Replier/déplier le groupe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Comprimi/espandi gruppo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを折りたたむ/展開"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្រួម/ពង្រីកក្រុម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "그룹 접기/펼치기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slå sammen / utvid gruppe"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zwiń/rozwiń grupę"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Recolher/Expandir Grupo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Свернуть/развернуть группу"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยุบ/ขยายกลุ่ม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grubu Daralt/Genişlet"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Згорнути/розгорнути групу"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thu gọn/Mở rộng nhóm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "折叠/展开组"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收合／展開群組"
-          }
-        }
-      }
-    },
     "menu.group.ungroup": {
       "extractionState": "manual",
       "localizations": {
@@ -20565,792 +20434,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉群組"
-          }
-        }
-      }
-    },
-    "menu.screen.togglePin": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pin/Unpin Screen"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تثبيت/إلغاء تثبيت الشاشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikvači/otkvači ekran"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fastgør/frigør skærm"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildschirm anheften/lösen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fijar/soltar pantalla"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Épingler/détacher l’écran"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fissa/sblocca schermata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スクリーンを固定/固定解除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ខ្ទាស់/ដោះខ្ទាស់អេក្រង់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스크린 고정/고정 해제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fest/løsne skjerm"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przypnij/odepnij ekran"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fixar/Desafixar Tela"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрепить/открепить экран"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปักหมุด/เลิกปักหมุดหน้าจอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekranı Sabitle/Kaldır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закріпити/відкріпити екран"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ghim/Bỏ ghim màn hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "固定/取消固定屏幕"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "固定／取消固定畫面"
-          }
-        }
-      }
-    },
-    "menu.workspace.toggleNotificationMute": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mute/Unmute Notifications"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "كتم/إلغاء كتم الإشعارات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utišaj/uključi obavještenja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slå notifikationer fra/til"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mitteilungen stumm/laut"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Silenciar/activar notificaciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couper/rétablir les notifications"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Silenzia/riattiva notifiche"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知をミュート/解除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទ/បើកសំឡេងការជូនដំណឹង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알림 음소거/해제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Demp/slå på varsler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wycisz/włącz powiadomienia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Silenciar/Reativar Notificações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выкл./вкл. уведомления"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิด/เปิดเสียงการแจ้งเตือน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildirimleri Sustur/Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вимкнути/увімкнути сповіщення"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tắt/bật thông báo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "静音/取消静音通知"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靜音／取消靜音通知"
-          }
-        }
-      }
-    },
-    "menu.tab.toggleChatNotificationMute": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mute/Unmute Chat Notifications"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "كتم/إلغاء كتم إشعارات الدردشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utišaj/uključi obavještenja chata"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slå chatnotifikationer fra/til"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chat-Mitteilungen stumm/laut"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Silenciar/activar notificaciones del chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couper/rétablir les notifications du chat"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Silenzia/riattiva notifiche della chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットの通知をミュート/解除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទ/បើកសំឡេងការជូនដំណឹងការជជែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "채팅 알림 음소거/해제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Demp/slå på chatvarsler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wycisz/włącz powiadomienia czatu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Silenciar/Reativar Notificações do Chat"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выкл./вкл. уведомления чата"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิด/เปิดเสียงการแจ้งเตือนแชต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbet Bildirimlerini Sustur/Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вимкнути/увімкнути сповіщення чату"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tắt/bật thông báo trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "静音/取消静音聊天通知"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靜音／取消靜音聊天通知"
-          }
-        }
-      }
-    },
-    "menu.sidebar.toggleSectionCollapsed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collapse/Expand Section"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طي/توسيع القسم"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skupi/proširi odjeljak"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul/udvid sektion"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abschnitt ein-/ausklappen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contraer/expandir sección"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réduire/développer la section"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Comprimi/espandi sezione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セクションを折りたたむ/展開"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្រួម/ពង្រីកផ្នែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "섹션 접기/펼치기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul/utvid seksjon"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zwiń/rozwiń sekcję"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Recolher/Expandir Seção"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Свернуть/развернуть раздел"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยุบ/ขยายส่วน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bölümü Daralt/Genişlet"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Згорнути/розгорнути розділ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thu gọn/Mở rộng mục"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "折叠/展开分区"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收合／展開區段"
-          }
-        }
-      }
-    },
-    "menu.sidebar.toggleSectionTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show/Hide Section Title"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار/إخفاء عنوان القسم"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži/sakrij naslov odjeljka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis/skjul sektionens titel"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abschnittstitel ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar el título de la sección"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer le titre de la section"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra/nascondi il titolo della sezione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セクションのタイトルを表示/非表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញ/លាក់ចំណងជើងផ្នែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "섹션 제목 표시/숨기기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis/skjul seksjonstittel"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż/ukryj tytuł sekcji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar/Ocultar Título da Seção"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать/скрыть название раздела"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดง/ซ่อนชื่อส่วน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bölüm Başlığını Göster/Gizle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати/сховати назву розділу"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện/ẩn tiêu đề mục"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示/隐藏分区标题"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示／隱藏區段標題"
-          }
-        }
-      }
-    },
-    "menu.sidebar.toggleItemLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show/Hide Label"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار/إخفاء التسمية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži/sakrij oznaku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis/skjul etiket"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beschriftung ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar etiqueta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer le libellé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra/nascondi etichetta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ラベルを表示/非表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញ/លាក់ស្លាក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "레이블 표시/숨기기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis/skjul etikett"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż/ukryj etykietę"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar/Ocultar Rótulo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать/скрыть подпись"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดง/ซ่อนป้าย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Etiketi Göster/Gizle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати/сховати підпис"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện/ẩn nhãn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示/隐藏标签"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示／隱藏標籤"
           }
         }
       }
@@ -27780,127 +26863,389 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Session Info"
+            "value": "Show or Hide Session Info"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション情報を切り替え"
+            "value": "セッション情報を表示または非表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل معلومات الجلسة"
+            "value": "إظهار أو إخفاء معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi informacije o sesiji"
+            "value": "Prikaži ili sakrij informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skift sessionsinfo"
+            "value": "Vis eller skjul sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sitzungsinfo umschalten"
+            "value": "Sitzungsinfo ein- oder ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alternar información de la sesión"
+            "value": "Mostrar u ocultar información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Basculer les infos de la session"
+            "value": "Afficher ou masquer les infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva info sessione"
+            "value": "Mostra o nascondi info sessione"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកព័ត៌មានវគ្គ"
+            "value": "បង្ហាញ ឬលាក់ព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세션 정보 토글"
+            "value": "세션 정보 표시 또는 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veksle sessionsinfo"
+            "value": "Vis eller skjul sesjonsinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz informacje o sesji"
+            "value": "Pokaż lub ukryj informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alternar informações da sessão"
+            "value": "Mostrar ou ocultar informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переключить информацию о сеансе"
+            "value": "Показать или скрыть информацию о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับข้อมูลเซสชัน"
+            "value": "แสดงหรือซ่อนข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oturum Bilgilerini Aç/Kapat"
+            "value": "Oturum Bilgilerini Göster veya Gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перемкнути відомості про сеанс"
+            "value": "Показати або сховати відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt thông tin phiên"
+            "value": "Hiện hoặc ẩn thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换会话信息"
+            "value": "显示或隐藏会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換工作階段資訊"
+            "value": "顯示或隱藏工作階段資訊"
+          }
+        }
+      }
+    },
+    "action.agentPane.toggleMinimap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or Hide Thread Minimap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スレッドのミニマップを表示または非表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أو إخفاء الخريطة المصغرة للسلسلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ili sakrij mini mapu niti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis eller skjul trådens minikort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thread-Minikarte ein- oder ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar u ocultar minimapa del hilo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher ou masquer la minicarte du fil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o nascondi minimappa del thread"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ ឬលាក់ផែនទីតូចនៃខ្សែសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스레드 미니맵 표시 또는 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis eller skjul trådens minikart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż lub ukryj minimapę wątku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar ou ocultar minimapa da conversa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать или скрыть мини-карту ветки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงหรือซ่อนแผนที่ย่อของเธรด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konu Mini Haritasını Göster veya Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати або сховати мінікарту гілки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện hoặc ẩn bản đồ thu nhỏ của chuỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏对话串小地图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示或隱藏對話串小地圖"
+          }
+        }
+      }
+    },
+    "action.agentPane.toggleDisplaySettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or Hide Text & Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストと幅を表示または非表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أو إخفاء النص والعرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ili sakrij tekst i širinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis eller skjul tekst og bredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text und Breite ein- oder ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar u ocultar texto y ancho"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher ou masquer le texte et la largeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o nascondi testo e larghezza"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ ឬលាក់អត្ថបទ និងទទឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트 및 너비 표시 또는 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis eller skjul tekst og bredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż lub ukryj tekst i szerokość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar ou ocultar texto e largura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать или скрыть текст и ширину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงหรือซ่อนข้อความและความกว้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin ve Genişliği Göster veya Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати або сховати текст і ширину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện hoặc ẩn văn bản và độ rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏文本和宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示或隱藏文字和寬度"
           }
         }
       }

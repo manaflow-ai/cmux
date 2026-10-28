@@ -97,13 +97,10 @@ extension AppActions {
             source.setPinned(pinned, id)
             shownPage(services)?.listPinsChanged()
         })
-        ActionTargetTitles.set("home.togglePin", in: registry) { invocation in
+        // Every surface reads Pin Conversation or Unpin Conversation (ActionToggleTitles), so no check mark.
+        ActionTargetTitles.setState("home.togglePin", in: registry) { invocation in
             let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownPage(services)?.shown else { return nil }
-            return pinSource(services).isPinned(id) ? PinStrings.unpinConversation : PinStrings.pinConversation
-        }
-        ActionTargetTitles.setPaletteState("home.togglePin", in: registry) {
-            guard let id = shownPage(services)?.shown else { return false }
             return pinSource(services).isPinned(id)
         }
         registry.bind("home.sendMessage", invoke: { invocation in

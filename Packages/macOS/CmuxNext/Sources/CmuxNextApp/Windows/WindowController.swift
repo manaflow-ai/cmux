@@ -85,8 +85,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
         let registry = services.registry
-        root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
-                                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
+        // The button names its change for this window: Show Left Sidebar or Hide Left Sidebar.
+        root.toolbarBand.followToggleDescription(title: { [weak model = sidebar.model] in
+            guard let descriptor = registry.descriptor(for: "toggleSidebar") else { return "" }
+            return model.flatMap { descriptor.toggleTitles?.title(isOn: $0.isFullyShown) } ?? descriptor.title
+        }, shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

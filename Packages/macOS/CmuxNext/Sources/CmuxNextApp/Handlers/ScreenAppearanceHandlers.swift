@@ -63,6 +63,7 @@ enum ScreenAppearanceHandlers {
             guard let ref = metadataTarget(invocation, ctx) else { return .done }
             return ScreenCommands.setPinned(ref.screen, !ref.screen.pinned, daemon: ref.daemon)
         })
+        ActionTargetTitles.setState("screen.togglePin", in: registry) { invocation in ctx.screen(invocation)?.screen.pinned }
     }
 
     /// Sets (nil removes) a screen's icon; a user's change offers an undo toast.

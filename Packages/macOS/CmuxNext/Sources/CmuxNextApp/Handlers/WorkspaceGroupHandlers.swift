@@ -18,11 +18,11 @@ enum WorkspaceGroupHandlers {
         bindMembers(registry, context)
         WorkspaceGroupPlaces.bind(into: registry, context: context)
         // The header menu's toggles read as the change they make on the right-clicked group.
-        ActionTargetTitles.set("workspaceGroup.togglePin", in: registry) { invocation in
-            (try? context.group(invocation)).map { isPinned($0, context) ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
+        ActionTargetTitles.setState("workspaceGroup.togglePin", in: registry) { invocation in
+            (try? context.group(invocation)).map { isPinned($0, context) }
         }
-        ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
-            (try? context.group(invocation)).map { isCollapsed($0, context) ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+        ActionTargetTitles.setState("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
+            (try? context.group(invocation)).map { isCollapsed($0, context) }
         }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapability.profiles.rawValue, daemon: context.services.machines.local,
                       run: { _ in try selectGroup(context, offset: 1) })

@@ -60,13 +60,13 @@ struct PaletteSettingsScopeTests {
         // The palette row and the `,` prefix open the same page.
         palette.hide()
         palette.show(.commands)
-        palette.model.send(.setQuery("Toggle Setting"))
+        palette.model.send(.setQuery("Turn a Setting On or Off"))
         await palette.model.settle()
         let row = palette.model.rows.first { $0.item.actionID == "palette.toggleSetting" }
         #expect(row != nil)
         if let row { palette.model.run(row.item.primary, of: row.item) }
         await palette.model.settle()
-        Self.expectSettingsPage(palette, "the Toggle Setting row")
+        Self.expectSettingsPage(palette, "the Turn a Setting On or Off… row")
 
         palette.hide()
         palette.show(.commands)

@@ -662,127 +662,258 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تشغيل/إيقاف الوسائط مؤقتًا"
+            "value": "تشغيل الوسائط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reproduciraj/pauziraj medij"
+            "value": "Reproduciraj medij"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afspil/sæt medie på pause"
+            "value": "Afspil medie"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Medien wiedergeben/pausieren"
+            "value": "Medien wiedergeben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Play/Pause Media"
+            "value": "Play Media"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reproducir/pausar contenido"
+            "value": "Reproducir contenido multimedia"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lire/mettre en pause le média"
+            "value": "Lire le média"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Riproduci/metti in pausa"
+            "value": "Riproduci contenuti multimediali"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メディアを再生/一時停止"
+            "value": "メディアを再生"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាក់/ផ្អាកមេឌៀ"
+            "value": "ចាក់មេឌៀ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "미디어 재생/일시 정지"
+            "value": "미디어 재생"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spill av / sett medier på pause"
+            "value": "Spill av medier"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odtwórz/wstrzymaj multimedia"
+            "value": "Odtwórz multimedia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reproduzir/pausar mídia"
+            "value": "Reproduzir Mídia"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Воспроизвести/приостановить медиа"
+            "value": "Воспроизвести медиа"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เล่น/หยุดสื่อชั่วคราว"
+            "value": "เล่นสื่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Medyayı Oynat/Duraklat"
+            "value": "Medyayı Oynat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відтворити/призупинити медіа"
+            "value": "Відтворити медіа"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phát/tạm dừng phương tiện"
+            "value": "Phát phương tiện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "播放/暂停媒体"
+            "value": "播放媒体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "播放/暫停媒體"
+            "value": "播放媒體"
+          }
+        }
+      }
+    },
+    "action.nowPlaying.playPause.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف الوسائط مؤقتًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pauziraj medij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sæt medie på pause"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medien pausieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause Media"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar contenido multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre le média en pause"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metti in pausa i contenuti multimediali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアを一時停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្អាកមេឌៀ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "미디어 일시 정지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett medier på pause"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wstrzymaj multimedia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar Mídia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приостановить медиа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดสื่อชั่วคราว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medyayı Duraklat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Призупинити медіа"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạm dừng phương tiện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂停媒体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫停媒體"
           }
         }
       }
@@ -1307,137 +1438,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "隱藏直到重新啟動"
-          }
-        }
-      }
-    },
-    "menu.nowPlaying.playPause": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تشغيل/إيقاف مؤقت"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reproduciraj/pauziraj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afspil/pause"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wiedergabe/Pause"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Play/Pause"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reproducir/pausar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lecture/pause"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riproduci/pausa"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再生/一時停止"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ចាក់/ផ្អាក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "재생/일시 정지"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spill av/pause"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odtwórz/wstrzymaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reproduzir/pausar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Воспроизвести/пауза"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เล่น/หยุดชั่วคราว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oynat/Duraklat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відтворити/пауза"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Phát/tạm dừng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "播放/暂停"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "播放/暫停"
           }
         }
       }

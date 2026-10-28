@@ -7,127 +7,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive/Unarchive Item"
+            "value": "Archive Item"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرشفة العنصر/إلغاء أرشفته"
+            "value": "أرشفة العنصر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arhiviraj/Vrati iz arhive stavku"
+            "value": "Arhiviraj stavku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arkivér/Gendan element"
+            "value": "Arkivér element"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eintrag archivieren/wiederherstellen"
+            "value": "Eintrag archivieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archivar/Desarchivar elemento"
+            "value": "Archivar elemento"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiver/Désarchiver l’élément"
+            "value": "Archiver l’élément"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archivia/Ripristina elemento"
+            "value": "Archivia elemento"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "項目をアーカイブ/アーカイブ解除"
+            "value": "項目をアーカイブ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទុកក្នុងបណ្ណសារ/ដកចេញពីបណ្ណសារ ធាតុ"
+            "value": "ទុកធាតុក្នុងបណ្ណសារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "항목 보관/보관 해제"
+            "value": "항목 보관"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arkiver/Gjenopprett element"
+            "value": "Arkiver element"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiwizuj/Przywróć element"
+            "value": "Archiwizuj element"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arquivar/Desarquivar item"
+            "value": "Arquivar item"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архивировать/разархивировать элемент"
+            "value": "Архивировать элемент"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เก็บถาวร/เลิกเก็บถาวรรายการ"
+            "value": "เก็บถาวรรายการ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öğeyi arşivle/arşivden çıkar"
+            "value": "Öğeyi arşivle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архівувати/розархівувати елемент"
+            "value": "Архівувати елемент"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lưu trữ/Bỏ lưu trữ mục"
+            "value": "Lưu trữ mục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档/取消归档项目"
+            "value": "归档项目"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "封存/取消封存項目"
+            "value": "封存項目"
+          }
+        }
+      }
+    },
+    "action.sidebar.item.toggleArchive.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unarchive Item"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء أرشفة العنصر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati stavku iz arhive"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendan element"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eintrag wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desarchivar elemento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désarchiver l’élément"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina elemento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目のアーカイブを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដកធាតុចេញពីបណ្ណសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목 보관 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprett element"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć element"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desarquivar item"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разархивировать элемент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกเก็บถาวรรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğeyi arşivden çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розархівувати елемент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ lưu trữ mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消归档项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消封存項目"
           }
         }
       }
@@ -269,127 +400,258 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تثبيت/إلغاء تثبيت الدردشة في الأولوية…"
+            "value": "تثبيت الدردشة في الأولوية…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikači/otkači chat u prioritetu…"
+            "value": "Prikači chat u prioritetu…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgør/frigør chat i Prioritet…"
+            "value": "Fastgør chat i Prioritet…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat an Priorität anheften/lösen…"
+            "value": "Chat in „Priorität“ anheften…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin/Unpin Chat in Priority…"
+            "value": "Pin Chat in Priority…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fijar/dejar de fijar chat en Prioridad…"
+            "value": "Fijar chat en Prioridad…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Épingler/désépingler la discussion dans Priorité…"
+            "value": "Épingler la discussion dans Priorité…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fissa/rimuovi chat in Priorità…"
+            "value": "Fissa chat in Priorità…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットを優先に固定/固定解除…"
+            "value": "優先ビューでチャットをピン留め…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ខ្ទាស់/ឈប់ខ្ទាស់ការជជែកក្នុងអាទិភាព…"
+            "value": "ខ្ទាស់ការជជែកក្នុងអាទិភាព…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "우선순위에서 채팅 고정/고정 해제…"
+            "value": "우선순위에 채팅 고정…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fest/løsne chat i Prioritet…"
+            "value": "Fest chat i Prioritet…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przypnij/odepnij czat w priorytetach…"
+            "value": "Przypnij czat w Priorytetach…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fixar/desafixar conversa em Prioridade…"
+            "value": "Fixar Chat em Prioridade…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрепить/открепить чат в приоритете…"
+            "value": "Закрепить чат в «Приоритете»…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปักหมุด/เลิกปักหมุดแชทในลำดับความสำคัญ…"
+            "value": "ปักหมุดแชตในลำดับความสำคัญ…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbeti öncelikte sabitle/sabitlemeyi kaldır…"
+            "value": "Sohbeti Öncelikte Sabitle…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закріпити/відкріпити чат у пріоритеті…"
+            "value": "Закріпити чат у «Пріоритеті»…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghim/bỏ ghim cuộc trò chuyện trong Ưu tiên…"
+            "value": "Ghim cuộc trò chuyện trong Ưu tiên…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在优先中固定/取消固定聊天…"
+            "value": "在优先视图中固定聊天…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在優先中釘選/取消釘選聊天…"
+            "value": "在優先檢視中固定聊天…"
+          }
+        }
+      }
+    },
+    "action.sidebar.priority.togglePin.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تثبيت الدردشة في الأولوية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkači chat u prioritetu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør chat i Prioritet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat in „Priorität“ loslösen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin Chat in Priority…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fijar chat en Prioridad…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détacher la discussion de Priorité…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sblocca chat in Priorità…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューでチャットのピン留めを解除…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈប់ខ្ទាស់ការជជែកក្នុងអាទិភាព…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위에서 채팅 고정 해제…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Løsne chat i Prioritet…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odepnij czat w Priorytetach…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desafixar Chat em Prioridade…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открепить чат в «Приоритете»…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกปักหมุดแชตในลำดับความสำคัญ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Öncelikteki Sabitlemesini Kaldır…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкріпити чат у «Пріоритеті»…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ ghim cuộc trò chuyện trong Ưu tiên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在优先视图中取消固定聊天…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在優先檢視中取消固定聊天…"
           }
         }
       }
@@ -2890,127 +3152,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collapse/Expand Section"
+            "value": "Collapse Section"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セクションを折りたたむ/展開"
+            "value": "セクションを折りたたむ"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طي القسم أو توسيعه"
+            "value": "طي القسم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skupi ili proširi odjeljak"
+            "value": "Sažmi odjeljak"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skjul eller udvid sektion"
+            "value": "Fold sektion sammen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abschnitt ein- oder ausklappen"
+            "value": "Abschnitt einklappen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Contraer o expandir sección"
+            "value": "Contraer sección"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Réduire ou développer la section"
+            "value": "Réduire la section"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Comprimi o espandi sezione"
+            "value": "Comprimi sezione"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្រួម ឬពង្រីកផ្នែក"
+            "value": "បង្រួមផ្នែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "섹션 접기 또는 펼치기"
+            "value": "섹션 접기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skjul eller utvid seksjon"
+            "value": "Skjul innholdet i seksjonen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zwiń lub rozwiń sekcję"
+            "value": "Zwiń sekcję"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Recolher ou expandir seção"
+            "value": "Recolher seção"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Свернуть или развернуть раздел"
+            "value": "Свернуть раздел"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยุบหรือขยายส่วน"
+            "value": "ยุบส่วน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölümü daralt veya genişlet"
+            "value": "Bölümü Daralt"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Згорнути або розгорнути розділ"
+            "value": "Згорнути розділ"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thu gọn hoặc mở rộng mục"
+            "value": "Thu gọn mục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "折叠或展开分区"
+            "value": "折叠分区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "收合或展開區段"
+            "value": "收合區段"
+          }
+        }
+      }
+    },
+    "action.sidebar.section.toggleCollapsed.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand Section"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セクションを展開"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توسيع القسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proširi odjeljak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fold sektion ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abschnitt ausklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expandir sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Développer la section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espandi sezione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពង្រីកផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "섹션 펼치기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis innholdet i seksjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozwiń sekcję"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expandir seção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Развернуть раздел"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขยายส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölümü Genişlet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розгорнути розділ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở rộng mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "展开分区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "展開區段"
           }
         }
       }
@@ -5510,127 +5903,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show/Hide Section Title"
+            "value": "Show Section Title"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セクションのタイトルを表示/非表示"
+            "value": "セクションのタイトルを表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إظهار عنوان القسم أو إخفاؤه"
+            "value": "إظهار عنوان القسم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži ili sakrij naslov odjeljka"
+            "value": "Prikaži naslov odjeljka"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis eller skjul sektionens titel"
+            "value": "Vis sektionstitel"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abschnittstitel ein- oder ausblenden"
+            "value": "Abschnittstitel einblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar u ocultar el título de la sección"
+            "value": "Mostrar título de la sección"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher ou masquer le titre de la section"
+            "value": "Afficher le titre de la section"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra o nascondi il titolo della sezione"
+            "value": "Mostra titolo della sezione"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញ ឬលាក់ចំណងជើងផ្នែក"
+            "value": "បង្ហាញចំណងជើងផ្នែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "섹션 제목 표시 또는 숨기기"
+            "value": "섹션 제목 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis eller skjul seksjonstittel"
+            "value": "Vis seksjonstittel"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokaż lub ukryj tytuł sekcji"
+            "value": "Pokaż tytuł sekcji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar ou ocultar o título da seção"
+            "value": "Mostrar título da seção"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показать или скрыть название раздела"
+            "value": "Показать заголовок раздела"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงหรือซ่อนชื่อส่วน"
+            "value": "แสดงชื่อส่วน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölüm başlığını göster veya gizle"
+            "value": "Bölüm Başlığını Göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показати або сховати назву розділу"
+            "value": "Показати назву розділу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiện hoặc ẩn tiêu đề mục"
+            "value": "Hiện tiêu đề mục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "显示或隐藏分区标题"
+            "value": "显示分区标题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "顯示或隱藏區段標題"
+            "value": "顯示區段標題"
+          }
+        }
+      }
+    },
+    "action.sidebar.section.toggleTitle.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Section Title"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セクションのタイトルを非表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء عنوان القسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij naslov odjeljka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul sektionstitel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abschnittstitel ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar título de la sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer le titre de la section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi titolo della sezione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់ចំណងជើងផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "섹션 제목 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul seksjonstittel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj tytuł sekcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar título da seção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть заголовок раздела"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนชื่อส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölüm Başlığını Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сховати назву розділу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn tiêu đề mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏分区标题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏區段標題"
           }
         }
       }
@@ -6427,127 +6951,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show/Hide Label"
+            "value": "Show Label"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ラベルを表示/非表示"
+            "value": "ラベルを表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إظهار التسمية أو إخفاؤها"
+            "value": "إظهار التسمية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži ili sakrij oznaku"
+            "value": "Prikaži oznaku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis eller skjul etiket"
+            "value": "Vis etiket"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Beschriftung ein- oder ausblenden"
+            "value": "Beschriftung einblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar u ocultar etiqueta"
+            "value": "Mostrar etiqueta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher ou masquer le libellé"
+            "value": "Afficher le libellé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra o nascondi etichetta"
+            "value": "Mostra etichetta"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញ ឬលាក់ស្លាក"
+            "value": "បង្ហាញស្លាក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "레이블 표시 또는 숨기기"
+            "value": "레이블 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis eller skjul etikett"
+            "value": "Vis etikett"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokaż lub ukryj etykietę"
+            "value": "Pokaż etykietę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar ou ocultar rótulo"
+            "value": "Mostrar rótulo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показать или скрыть подпись"
+            "value": "Показать подпись"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงหรือซ่อนป้าย"
+            "value": "แสดงป้ายกำกับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Etiketi göster veya gizle"
+            "value": "Etiketi Göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показати або сховати підпис"
+            "value": "Показати підпис"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiện hoặc ẩn nhãn"
+            "value": "Hiện nhãn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "显示或隐藏标签"
+            "value": "显示标签"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "顯示或隱藏標籤"
+            "value": "顯示標籤"
+          }
+        }
+      }
+    },
+    "action.sidebar.item.toggleLabel.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Label"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ラベルを非表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء التسمية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij oznaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul etiket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beschriftung ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar etiqueta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer le libellé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi etichetta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់ស្លាក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이블 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul etikett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj etykietę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar rótulo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть подпись"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนป้ายกำกับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiketi Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сховати підпис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn nhãn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏標籤"
           }
         }
       }
@@ -10095,127 +10750,258 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل عرض الأولوية"
+            "value": "إظهار عرض الأولوية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi prikaz prioriteta"
+            "value": "Prikaži prikaz prioriteta"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå prioritetsvisning til/fra"
+            "value": "Vis prioritetsvisning"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prioritätsansicht ein-/ausblenden"
+            "value": "Prioritätsansicht anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Priority View"
+            "value": "Show Priority View"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alternar vista de prioridad"
+            "value": "Mostrar vista de prioridad"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher/masquer la vue Priorité"
+            "value": "Afficher la vue Priorité"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva vista Priorità"
+            "value": "Mostra vista Priorità"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先ビューの切り替え"
+            "value": "優先ビューを表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកទិដ្ឋភាពអាទិភាព"
+            "value": "បង្ហាញទិដ្ឋភាពអាទិភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "우선순위 보기 전환"
+            "value": "우선순위 보기 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå prioritetsvisning av/på"
+            "value": "Vis prioritetsvisning"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz widok priorytetów"
+            "value": "Pokaż widok priorytetów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alternar visualização de prioridade"
+            "value": "Mostrar visualização de prioridade"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показать/скрыть вид «Приоритет»"
+            "value": "Показывать вид «Приоритет»"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับมุมมองลำดับความสำคัญ"
+            "value": "แสดงมุมมองลำดับความสำคัญ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öncelik görünümünü aç/kapat"
+            "value": "Öncelik görünümünü göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перемкнути вигляд «Пріоритет»"
+            "value": "Показувати вигляд «Пріоритет»"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt chế độ xem ưu tiên"
+            "value": "Hiện chế độ xem ưu tiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换优先视图"
+            "value": "显示优先视图"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換優先檢視"
+            "value": "顯示優先檢視"
+          }
+        }
+      }
+    },
+    "action.sidebar.priorityView.toggle.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij prikaz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul prioritetsvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritätsansicht ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Priority View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar vista de prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer la vue Priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューを隠す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់ទិដ្ឋភាពអាទិភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul prioritetsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj widok priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть вид «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนมุมมองลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümünü gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати вигляд «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏优先视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏優先檢視"
           }
         }
       }
@@ -10359,127 +11145,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin/Unpin Chat"
+            "value": "Pin Chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットをピン留め/ピン留めを外す"
+            "value": "チャットをピン留め"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تثبيت/إلغاء تثبيت الدردشة"
+            "value": "تثبيت الدردشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zakači/otkači chat"
+            "value": "Prikači chat"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgør/frigør chat"
+            "value": "Fastgør chat"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat anheften/loslösen"
+            "value": "Chat anheften"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fijar/dejar de fijar chat"
+            "value": "Fijar chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Épingler/désépingler la discussion"
+            "value": "Épingler la discussion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fissa/rimuovi fissaggio chat"
+            "value": "Fissa chat"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ខ្ទាស់/ឈប់ខ្ទាស់ការជជែក"
+            "value": "ខ្ទាស់ការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 고정/고정 해제"
+            "value": "채팅 고정"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fest/løsne chat"
+            "value": "Fest chat"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przypnij/odepnij czat"
+            "value": "Przypnij czat"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fixar/desafixar chat"
+            "value": "Fixar Chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрепить/открепить чат"
+            "value": "Закрепить чат"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปักหมุด/เลิกปักหมุดแชท"
+            "value": "ปักหมุดแชต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbeti sabitle/sabitlemeyi kaldır"
+            "value": "Sohbeti Sabitle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закріпити/відкріпити чат"
+            "value": "Закріпити чат"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghim/bỏ ghim cuộc trò chuyện"
+            "value": "Ghim cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "置顶/取消置顶聊天"
+            "value": "固定聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "釘選/取消釘選聊天"
+            "value": "固定聊天"
+          }
+        }
+      }
+    },
+    "action.sidebar.chat.togglePin.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのピン留めを解除"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تثبيت الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkači chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat loslösen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fijar chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détacher la discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sblocca chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈប់ខ្ទាស់ការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 고정 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Løsne chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odepnij czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desafixar Chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открепить чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกปักหมุดแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Sabitlemesini Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкріпити чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ ghim cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消固定聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消固定聊天"
           }
         }
       }

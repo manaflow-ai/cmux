@@ -141,5 +141,6 @@ enum TerminalHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             if !entry.session.surfaceView.toggleCopyMode() { ctx.refuse(RefusalStrings.ghosttyRejected("keyboard_copy_cursor_set")) }
         })
+        ActionTargetTitles.setState("toggleTerminalCopyMode", in: registry) { ctx.terminal($0)?.session.surfaceView.isCopyModeActive }
     }
 }

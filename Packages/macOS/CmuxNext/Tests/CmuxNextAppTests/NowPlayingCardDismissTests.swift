@@ -162,9 +162,11 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         let titles = Self.titles(h.rightClickCard())
-        for title in ["Hide", "Hide Until Relaunch", "Never Show Media Card", "Play/Pause"] {
+        for title in ["Hide", "Hide Until Relaunch", "Never Show Media Card"] {
             #expect(titles.contains(title), "the card's menu \(titles) has no \(title)")
         }
+        // The media row names the change it makes (Play Media while paused, Pause Media while playing).
+        #expect(titles.contains("Play Media") || titles.contains("Pause Media"), "the card's menu \(titles) has no play or pause row")
         // Every row runs a bound action: the menu is generated from the actions, not a hand list.
         for id in ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .nowPlayingCard)) {
             #expect(h.services.registry.isBound(id), "\(id) is in the card's menu but runs nothing")
@@ -175,7 +177,7 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         let menu = try #require(h.rightClickCard())
-        let item = try #require(menu.items.first { $0.title == "Play/Pause" })
+        let item = try #require(menu.items.first { $0.title == "Play Media" || $0.title == "Pause Media" })
         menu.performActionForItem(at: menu.index(of: item))
         await h.until { h.source.commands == [.playPause] }
         #expect(h.source.commands == [.playPause], "Play/Pause sent \(h.source.commands)")

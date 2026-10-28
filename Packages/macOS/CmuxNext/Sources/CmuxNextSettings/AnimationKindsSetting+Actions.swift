@@ -15,6 +15,10 @@ extension AnimationKindsSetting {
                 }
                 if on { design.enabledAnimations.insert(kind) } else { design.enabledAnimations.remove(kind) }
             })
+            // The rows name the change they make: Turn Off … while the kind is on.
+            ActionTargetTitles.setState(ActionID(rawValue: "appearance.animations.\(kind.rawValue).toggle"), in: registry) { _ in
+                design.enabledAnimations.contains(kind)
+            }
         }
         SettingChoiceActions.bind(MotionBounce.allCases, into: registry, id: { "appearance.animations.bounce.\($0.rawValue)" }, path: bouncePath,
                                   fileValue: { $0 == bounceFallback ? nil : .string($0.rawValue) }, save: save) { design.animationBounce = $0 }

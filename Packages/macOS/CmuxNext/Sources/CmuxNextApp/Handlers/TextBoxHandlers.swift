@@ -12,6 +12,10 @@ enum TextBoxHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             textBox(of: entry, ctx).toggle(focus: invocation.allowsViewChange)
         })
+        // Reads the box without making it: a terminal that never showed one has it hidden.
+        ActionTargetTitles.setState("palette.terminalToggleTextBoxInput", in: registry) { invocation in
+            ctx.terminal(invocation).map { $0.textBox?.model.isVisible ?? false }
+        }
         registry.bind("focusTextBoxInput", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
             let box = textBox(of: entry, ctx)

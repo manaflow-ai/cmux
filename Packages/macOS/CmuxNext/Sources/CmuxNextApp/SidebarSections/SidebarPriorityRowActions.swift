@@ -80,6 +80,9 @@ struct SidebarPriorityRowActions {
         ActionTargetTitles.set(Self.togglePin, in: registry) { invocation in
             Self.chat(invocation).flatMap { chats.entry($0) }?.pinTitle
         }
+        ActionTargetTitles.setState(Self.togglePin, in: registry) { invocation in
+            Self.chat(invocation).flatMap { chats.entry($0) }?.pinned
+        }
     }
 
     /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux)

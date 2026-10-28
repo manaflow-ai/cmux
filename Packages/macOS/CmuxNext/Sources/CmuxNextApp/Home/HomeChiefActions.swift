@@ -14,6 +14,8 @@ import CmuxNextHomeEngine
 enum HomeChiefActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("home.toggleChiefSettings", run: { _ in toggleSettings(context) })
+        // Show Chief Settings or Hide Chief Settings, from the front window's Chief Home.
+        ActionTargetTitles.setState("home.toggleChiefSettings", in: registry) { _ in frontHome()?.showsChiefSettings ?? false }
         registry.bind(HomeChiefControl.stopAction, run: { _ in stop(context) })
         registry.bind(HomeChiefControl.stopAllAction, unavailable: { stopAllTarget() == nil ? HomeStopAllStrings.unavailable : nil },
                       run: { _ in stopAllTarget()?.stopAllAgents() })

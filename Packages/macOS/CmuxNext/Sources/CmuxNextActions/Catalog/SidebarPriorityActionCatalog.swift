@@ -9,12 +9,12 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
         return [
             // The Priority view's bell (`sidebar.priorityView.shown`), while the view is installed.
             ActionDescriptor(
-                id: "sidebar.priorityView.toggle", title: t("action.sidebar.priorityView.toggle", "Toggle Priority View"),
+                id: "sidebar.priorityView.toggle", title: t("action.sidebar.priorityView.toggle", "Show Priority View"),
                 keywords: ["sidebar", "priority", "activity", "attention", "agents", "chats", "needs you", "bell"],
                 defaultShortcut: Shortcut("k", modifiers: [.option, .command]), category: .sidebar, symbol: "bell",
                 surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
+            ).toggling(whenOn: t("action.sidebar.priorityView.toggle.on", "Hide Priority View")),
             // A row's actions: from the palette they ask which chat (the Priority view's rows), so their
             // titles end in "…"; the row's menu names its chat and drops the "…" and the noun.
             ActionDescriptor(
@@ -25,11 +25,12 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
                 surfacePlan: rowPlan(.identity, 0, label: t("menu.sidebar.priority.markRead", "Mark as Read"))
             ),
             ActionDescriptor(
-                id: "sidebar.priority.togglePin", title: t("action.sidebar.priority.togglePin", "Pin/Unpin Chat in Priority…"),
+                id: "sidebar.priority.togglePin", title: t("action.sidebar.priority.togglePin", "Pin Chat in Priority…"),
                 keywords: ["sidebar", "priority", "chat", "agent", "pin", "unpin", "keep", "top"],
                 category: .sidebar, symbol: "pin", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [chatArgument], targets: chat, surfacePlan: rowPlan(.identity, 10)
-            ),
+            )
+            .toggling(whenOn: t("action.sidebar.priority.togglePin.on", "Unpin Chat in Priority…"), symbolWhenOff: "pin", symbolWhenOn: "pin.slash"),
             ActionDescriptor(
                 id: "sidebar.priority.snooze", title: t("action.sidebar.priority.snooze", "Snooze Chat for 1 Hour…"),
                 keywords: ["sidebar", "priority", "chat", "agent", "snooze", "later", "hide", "mute"],

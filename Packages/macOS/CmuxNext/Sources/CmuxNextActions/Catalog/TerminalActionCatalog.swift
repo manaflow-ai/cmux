@@ -5,11 +5,12 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "toggleTerminalCopyMode",
-                title: String(localized: "action.toggleTerminalCopyMode", defaultValue: "Toggle Copy Mode", bundle: .module),
+                title: String(localized: "action.toggleTerminalCopyMode", defaultValue: "Enter Copy Mode", bundle: .module),
                 keywords: ["vi", "select", "scrollback"], defaultShortcut: Shortcut("m", modifiers: [.command, .shift]),
                 category: .terminal, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard],
                 requires: [.terminalFocused], targets: [.pane], cliName: "terminal toggle-copy-mode"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleTerminalCopyMode.on", defaultValue: "Exit Copy Mode", bundle: .module)),
             ActionDescriptor(
                 id: "focusTextBoxInput",
                 title: String(localized: "action.focusTextBoxInput", defaultValue: "Focus TextBox", bundle: .module),
@@ -19,10 +20,11 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.terminalToggleTextBoxInput",
-                title: String(localized: "action.palette.terminalToggleTextBoxInput", defaultValue: "Toggle TextBox", bundle: .module),
+                title: String(localized: "action.palette.terminalToggleTextBoxInput", defaultValue: "Show TextBox", bundle: .module),
                 keywords: ["input", "compose"], category: .terminal, symbol: "rectangle.and.pencil.and.ellipsis",
                 surfaces: [.palette], requires: [.terminalFocused], targets: [.pane], cliName: "terminal toggle-textbox"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.terminalToggleTextBoxInput.on", defaultValue: "Hide TextBox", bundle: .module)),
             ActionDescriptor(
                 id: "cycleTextBoxSubmitAction",
                 title: String(localized: "action.cycleTextBoxSubmitAction", defaultValue: "Cycle TextBox Submit Action", bundle: .module),

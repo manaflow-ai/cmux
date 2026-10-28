@@ -18,6 +18,7 @@ enum BrowserHandlers {
         BrowserEnabledToggle.bind(into: registry, context: context)
         BrowsingDataClear.bindClearHistory(registry, context: context)
         registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
+        ActionTargetTitles.setState("palette.browserToggleOmnibar", in: registry) { (try? context.page($0)).map { !$0.chrome.isOmnibarHidden } }
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -41,6 +42,11 @@ enum BrowserHandlers {
             // address bar or find bar, focus mode would wait for a click otherwise.
             if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
+        ActionTargetTitles.setState("toggleBrowserFocusMode", in: registry) { invocation in
+            guard let entry = try? context.page(invocation), let pane = context.scope(invocation).pane,
+                  let window = context.services.windowController(showing: pane) else { return nil }
+            return window.focus.state.browserFocusMode.contains(entry.tab.id.rawValue)
+        }
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
             let target = try DevToolsHandlers.target(invocation, context)
@@ -48,6 +54,11 @@ enum BrowserHandlers {
             // WebKit's inspector visibility is not observable; Chromium's is.
             if case .browser = target { (try? context.page(invocation))?.chrome.toolbarButtons.refresh() }
         })
+        // A browser tab's tools, as its toolbar button reads them; a plain web view's inspector is not observable.
+        ActionTargetTitles.setState("toggleBrowserDeveloperTools", in: registry) { invocation in
+            guard case .browser(let tab)? = try? DevToolsHandlers.target(invocation, context) else { return nil }
+            return (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? (tab as? WebKitTab)?.isInspectorVisible
+        }
         registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
             WebInspector.showConsole(try DevToolsHandlers.target($0, context))
         })
@@ -68,6 +79,7 @@ enum BrowserHandlers {
             guard let key = context.services.cache.key(of: entry.tab) else { return }
             context.services.designMode.toggle(entry, key: key)
         })
+        ActionTargetTitles.setState("toggleBrowserDesignMode", in: registry) { (try? context.page($0))?.chrome.toolbarButtons.modes.designMode }
         // React Grab (classic parity): the first toggle on a document loads the pinned library into
         // the page world, later toggles flip it. A load failure says so on the page.
         registry.bind("toggleReactGrab", run: { invocation in

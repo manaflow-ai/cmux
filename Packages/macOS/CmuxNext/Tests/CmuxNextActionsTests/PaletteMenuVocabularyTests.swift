@@ -4,19 +4,18 @@ import Foundation
 import Testing
 
 /// The palette and the context menus share one vocabulary (ContextMenuShapeTests holds the menu
-/// side): a toggle reads "Pin/Unpin", and taking off an icon or color reads "Remove", so a row
+/// side): a toggle reads as the change it makes on its target ("Pin Tab" or "Unpin Tab",
+/// ``ActionToggleTitles``; Lawrence 2026-10-27), never "Pin/Unpin", and taking off an icon or color reads "Remove", so a row
 /// the menu shows as "Remove Icon" is "Remove Space Icon" in the palette, not "Clear Space Icon".
 struct PaletteMenuVocabularyTests {
     @Test func paletteTitlesUseTheMenusWords() throws {
-        let orToggle = try NSRegularExpression(pattern: #"(?:^|: )\w+ or \w+ "#)
         let clear = try NSRegularExpression(pattern: #"^Clear .*\b(Icon|Color)$"#)
         func matches(_ regex: NSRegularExpression, _ title: String) -> Bool {
             regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) != nil
         }
         for descriptor in ActionCatalog.all where descriptor.isPaletteVisible {
             let title = descriptor.title
-            #expect(!matches(orToggle, title), "\(descriptor.id) \(title): a toggle reads X/Y")
-            #expect(!title.hasPrefix("Toggle Group"), "\(descriptor.id) \(title): a toggle reads X/Y")
+            #expect(!Self.namesBothSides(descriptor), "\(descriptor.id) \(title): a toggle names the change it makes")
             #expect(!matches(clear, title), "\(descriptor.id) \(title): an icon or color is removed, as in the menus")
             #expect(title != "Hide", "\(descriptor.id): the palette names what Hide hides")
         }
@@ -24,15 +23,24 @@ struct PaletteMenuVocabularyTests {
 
     /// The toggle style holds for every action, not only the palette's: a keyboard-only action's
     /// title shows in Keyboard Shortcuts settings ("Pin or Unpin Chat" drifted there unseen), and a
-    /// prefixed title holds it after its prefix ("Palette: Show/Hide Actions").
-    @Test func everyActionTitleUsesOneToggleStyle() throws {
-        let orToggle = try NSRegularExpression(pattern: #"(?:^|: )\w+ or \w+ "#)
+    /// prefixed title holds it after its prefix ("Palette: Show Actions").
+    @Test func everyActionTitleUsesOneToggleStyle() {
         for descriptor in ActionCatalog.all {
-            let title = descriptor.title
-            #expect(orToggle.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) == nil,
-                    "\(descriptor.id) \(title): a toggle reads X/Y")
-            #expect(!title.hasPrefix("Toggle Group"), "\(descriptor.id) \(title): a toggle reads X/Y")
+            #expect(!Self.namesBothSides(descriptor), "\(descriptor.id) \(descriptor.title): a toggle names the change it makes")
+            if let titles = descriptor.toggleTitles {
+                #expect(!Self.namesBothSides(titles.whenOn), "\(descriptor.id) \(titles.whenOn): a toggle names the change it makes")
+            }
         }
+    }
+
+    /// "Pin/Unpin Tab", "Toggle Pane Zoom" or "Pin or Unpin Chat" outside the listed toggles whose
+    /// state cannot be read (``ActionToggleTitleLintTests/statelessToggles``).
+    static func namesBothSides(_ descriptor: ActionDescriptor) -> Bool {
+        namesBothSides(descriptor.title) && !ActionToggleTitleLintTests.statelessToggles.contains(descriptor.id)
+    }
+
+    static func namesBothSides(_ title: String) -> Bool {
+        ActionToggleTitleLintTests.isAmbiguousToggle(title) || ActionToggleTitleLintTests.namesBothSidesInWords(title)
     }
 
     /// Palette titles are menu titles, so they follow the macOS title style: the ellipsis is one

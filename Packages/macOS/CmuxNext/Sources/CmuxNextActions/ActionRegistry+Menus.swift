@@ -88,8 +88,8 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
         // A main menu toggle reads as the change it makes for the focused target (Pin
         // Workspace or Unpin Workspace, PINNED-ITEMS-END-TO-END); no target title, the
         // catalog's. Context menu items (an ActionMenuPayload) are decorated when built.
-        if menuItem.representedObject is String, let targetTitle = registry.action(for: payload.id)?.targetTitle,
-           let title = targetTitle(invocation) ?? registry.title(for: payload.id), menuItem.title != title {
+        if menuItem.representedObject is String, registry.hasDisplayTitle(payload.id),
+           let title = registry.displayTitle(for: payload.id, invocation: invocation), menuItem.title != title {
             menuItem.title = title
         }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }

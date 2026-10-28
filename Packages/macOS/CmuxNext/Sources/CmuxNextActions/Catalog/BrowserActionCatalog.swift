@@ -108,12 +108,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleBrowserDeveloperTools",
-                title: String(localized: "action.toggleBrowserDeveloperTools", defaultValue: "Toggle Developer Tools", bundle: .module),
+                title: String(localized: "action.toggleBrowserDeveloperTools", defaultValue: "Show Developer Tools", bundle: .module),
                 keywords: ["browser", "devtools", "inspector", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("i", modifiers: [.option, .command]), category: .browser, symbol: "hammer",
                 surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser toggle-developer-tools", mainMenu: .view
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleBrowserDeveloperTools.on", defaultValue: "Hide Developer Tools", bundle: .module)),
             ActionDescriptor(
                 id: "showBrowserJavaScriptConsole",
                 title: String(localized: "action.showBrowserJavaScriptConsole", defaultValue: "Show JavaScript Console", bundle: .module),
@@ -132,20 +133,22 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleBrowserFocusMode",
-                title: String(localized: "action.toggleBrowserFocusMode", defaultValue: "Toggle Browser Focus Mode", bundle: .module),
+                title: String(localized: "action.toggleBrowserFocusMode", defaultValue: "Enter Browser Focus Mode", bundle: .module),
                 keywords: ["browser", "distraction"],
                 defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.option, .command]), category: .browser,
                 symbol: "eye", surfaces: [.palette, .keyboard, .menu, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-focus-mode", mainMenu: .view
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleBrowserFocusMode.on", defaultValue: "Exit Browser Focus Mode", bundle: .module)),
             {
                 var designMode = ActionDescriptor(
                     id: "toggleBrowserDesignMode",
-                    title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
+                    title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Enter Browser Design Mode", bundle: .module),
                     keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
                     category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
                     requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
                 )
+                .toggling(whenOn: String(localized: "action.toggleBrowserDesignMode.on", defaultValue: "Exit Browser Design Mode", bundle: .module))
                 // Design mode snapshots selected page pixels into a composer. Keep that raw capture
                 // on the in-app person path until it shares the browser host's secret masker.
                 designMode.isPersonOnly = true
@@ -153,7 +156,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             }(),
             ActionDescriptor(
                 id: "toggleReactGrab",
-                title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
+                title: String(localized: "action.toggleReactGrab", defaultValue: "Turn React Grab On or Off", bundle: .module),
                 // No default chord: Shift-Cmd-G is Find Previous in a browser (R88).
                 // The page's menu offers it next to Design Mode (Options).
                 keywords: ["browser", "react", "inspect"], category: .browser,
@@ -198,10 +201,11 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.browserToggleOmnibar",
-                title: String(localized: "action.palette.browserToggleOmnibar", defaultValue: "Toggle Omnibar", bundle: .module),
+                title: String(localized: "action.palette.browserToggleOmnibar", defaultValue: "Show Omnibar", bundle: .module),
                 keywords: ["browser", "address bar"], category: .browser, symbol: "rectangle.topthird.inset.filled",
                 surfaces: [.palette], requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-omnibar"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.browserToggleOmnibar.on", defaultValue: "Hide Omnibar", bundle: .module)),
             ActionDescriptor(
                 id: "palette.browserClearHistory",
                 title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History…", bundle: .module),
@@ -313,11 +317,12 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleFileEditorWordWrap",
-                title: String(localized: "action.toggleFileEditorWordWrap", defaultValue: "Toggle Word Wrap", bundle: .module),
+                title: String(localized: "action.toggleFileEditorWordWrap", defaultValue: "Turn On Word Wrap", bundle: .module),
                 keywords: ["file", "editor", "wrap"], defaultShortcut: Shortcut("z", modifiers: [.option]),
                 category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser toggle-word-wrap"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleFileEditorWordWrap.on", defaultValue: "Turn Off Word Wrap", bundle: .module)),
             ActionDescriptor(
                 id: "filePreviewOpenWith",
                 title: String(localized: "action.filePreviewOpenWith", defaultValue: "Open File With…", bundle: .module),

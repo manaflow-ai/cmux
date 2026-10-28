@@ -46,7 +46,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleSetting",
-                title: String(localized: "action.palette.toggleSetting", defaultValue: "Toggle Setting…", bundle: .module),
+                title: String(localized: "action.palette.toggleSetting", defaultValue: "Turn a Setting On or Off…", bundle: .module),
                 keywords: ["preferences", "enable", "disable"], category: .settings, symbol: "switch.2",
                 surfaces: [.palette], arguments: [CatalogArgument.settingString, CatalogArgument.onBool.optional],
                 cliName: "settings toggle-setting"
@@ -224,82 +224,95 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.animations.newTab.toggle",
-                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Toggle New Tab Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Turn On New Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "tab", "new tab", "appearance"], category: .settings,
                 symbol: "plus.rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-new-tab-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.newTab.toggle.on", defaultValue: "Turn Off New Tab Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.newWorkspace.toggle",
-                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Toggle New Workspace Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Turn On New Workspace Animations", bundle: .module),
                 keywords: ["animation", "motion", "workspace", "sidebar", "appearance"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.newWorkspace.toggle.on", defaultValue: "Turn Off New Workspace Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.toggle",
-                title: String(localized: "action.appearance.animations.toggle", defaultValue: "Toggle All Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.toggle", defaultValue: "Turn On All Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"], category: .settings,
                 symbol: "sparkles", surfaces: [.palette], cliName: "settings toggle-all-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.toggle.on", defaultValue: "Turn Off All Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.sidebar.toggle",
-                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Toggle Sidebar Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Turn On Sidebar Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-sidebar-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.sidebar.toggle.on", defaultValue: "Turn Off Sidebar Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.tabs.toggle",
-                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Toggle Tab Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Turn On Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "tab", "tab bar"], category: .settings,
                 symbol: "rectangle.split.3x1", surfaces: [.palette], cliName: "settings toggle-tab-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.tabs.toggle.on", defaultValue: "Turn Off Tab Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.panes.toggle",
-                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Toggle Pane and Window Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Turn On Pane and Window Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "pane", "split", "zoom", "window"], category: .settings,
                 symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-pane-and-window-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.panes.toggle.on", defaultValue: "Turn Off Pane and Window Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.overlays.toggle",
-                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Toggle Menu and Card Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Turn On Menu and Card Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"], category: .settings,
                 symbol: "menubar.rectangle", surfaces: [.palette], cliName: "settings toggle-menu-and-card-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.overlays.toggle.on", defaultValue: "Turn Off Menu and Card Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.hoverCards.toggle",
-                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Toggle Hover Card Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Turn On Hover Card Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "hover card", "tooltip"], category: .settings,
                 symbol: "rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-hover-card-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.hoverCards.toggle.on", defaultValue: "Turn Off Hover Card Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.home.toggle",
-                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Toggle Home and Chat Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Turn On Home and Chat Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "home", "chief", "chat", "bubble"], category: .settings,
                 symbol: "bubble.left.and.bubble.right", surfaces: [.palette], cliName: "settings toggle-home-and-chat-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.home.toggle.on", defaultValue: "Turn Off Home and Chat Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.cursor.toggle",
-                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Toggle Agent Cursor Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Turn On Agent Cursor Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "cursor", "agent", "ripple"], category: .settings,
                 symbol: "cursorarrow.motionlines", surfaces: [.palette], cliName: "settings toggle-agent-cursor-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.cursor.toggle.on", defaultValue: "Turn Off Agent Cursor Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.indicators.toggle",
-                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Toggle Spinner and Progress Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Turn On Spinner and Progress Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"], category: .settings,
                 symbol: "progress.indicator", surfaces: [.palette], cliName: "settings toggle-spinner-and-progress-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.indicators.toggle.on", defaultValue: "Turn Off Spinner and Progress Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.feedback.toggle",
-                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Toggle Highlight and Color Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Turn On Highlight and Color Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "hover", "highlight", "color", "theme"], category: .settings,
                 symbol: "hand.point.up.left", surfaces: [.palette], cliName: "settings toggle-highlight-and-color-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.feedback.toggle.on", defaultValue: "Turn Off Highlight and Color Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.web.toggle",
-                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Toggle Web Page Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Turn On Web Page Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "web", "page", "css"], category: .settings,
                 symbol: "globe", surfaces: [.palette], cliName: "settings toggle-web-page-animations"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.animations.web.toggle.on", defaultValue: "Turn Off Web Page Animations", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.animations.bounce.subtle",
                 title: String(localized: "action.appearance.animations.bounce.subtle", defaultValue: "Use Bouncy Animations", bundle: .module),
@@ -326,22 +339,25 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.paneBorder.toggle",
-                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Toggle Pane Borders", bundle: .module),
+                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Show Pane Borders", bundle: .module),
                 keywords: ["border", "outline", "hairline", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.dashed", surfaces: [.palette], cliName: "settings toggle-pane-border"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.paneBorder.toggle.on", defaultValue: "Hide Pane Borders", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.panePadding.toggle",
-                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Toggle Pane Padding", bundle: .module),
+                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Turn On Pane Padding", bundle: .module),
                 keywords: ["padding", "gap", "inset", "edge to edge", "pane", "appearance", "layout"], category: .settings,
                 symbol: "rectangle.inset.filled", surfaces: [.palette], cliName: "settings toggle-pane-padding"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.panePadding.toggle.on", defaultValue: "Turn Off Pane Padding", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.paneCorners.toggle",
-                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Toggle Rounded Pane Corners", bundle: .module),
+                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Turn On Rounded Pane Corners", bundle: .module),
                 keywords: ["corner", "radius", "rounded", "square", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.on.square", surfaces: [.palette], cliName: "settings toggle-pane-corners"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.paneCorners.toggle.on", defaultValue: "Turn Off Rounded Pane Corners", bundle: .module)),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.never",
                 title: String(localized: "action.layout.centerFocusedColumn.never", defaultValue: "Scroll Columns Minimally", bundle: .module),
@@ -410,10 +426,11 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "focusRing.toggle",
-                title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
+                title: String(localized: "action.focusRing.toggle", defaultValue: "Show Focus Ring", bundle: .module),
                 keywords: ["focus", "ring", "outline", "highlight", "pane", "appearance"], category: .settings,
                 symbol: "square.dashed.inset.filled", surfaces: [.palette], cliName: "settings toggle-focus-ring"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.focusRing.toggle.on", defaultValue: "Hide Focus Ring", bundle: .module)),
             ActionDescriptor(
                 id: "focusRing.style.ring",
                 title: String(localized: "action.focusRing.style.ring", defaultValue: "Use Ring Focus Style", bundle: .module),
@@ -428,16 +445,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "focusRing.singlePane.toggle",
-                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Toggle Focus Ring for a Single Pane", bundle: .module),
+                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Show Focus Ring for a Single Pane", bundle: .module),
                 keywords: ["focus", "ring", "single", "one", "pane", "appearance"], category: .settings,
                 symbol: "square.inset.filled", surfaces: [.palette], cliName: "settings toggle-single-pane-focus-ring"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.focusRing.singlePane.toggle.on", defaultValue: "Hide Focus Ring for a Single Pane", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.paneBorderWidth.toggle",
-                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Toggle Thick Pane Borders", bundle: .module),
+                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Use Thick Pane Borders", bundle: .module),
                 keywords: ["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"], category: .settings,
                 symbol: "lineweight", surfaces: [.palette], cliName: "settings toggle-thick-pane-borders"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.paneBorderWidth.toggle.on", defaultValue: "Use Thin Pane Borders", bundle: .module)),
             ActionDescriptor(
                 id: "appearance.paneBorderColor.reset",
                 title: String(localized: "action.appearance.paneBorderColor.reset", defaultValue: "Use Theme Color for Pane Borders", bundle: .module),
@@ -461,21 +480,23 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             // palette or the Debug menu (DEV and NIGHTLY).
             ActionDescriptor(
                 id: "appearance.glass.lens.toggle",
-                title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
+                title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Turn On Liquid Glass Lens", bundle: .module),
                 keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
                 category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.appearance.glass.lens.toggle.on", defaultValue: "Turn Off Liquid Glass Lens", bundle: .module)),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(
                 id: "debug.actionLatencyHUD",
-                title: String(localized: "action.debug.actionLatencyHUD", defaultValue: "Toggle Action Latency HUD", bundle: .module),
+                title: String(localized: "action.debug.actionLatencyHUD", defaultValue: "Show Action Latency HUD", bundle: .module),
                 keywords: ["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
                 category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette, .menu], mainMenu: .debug,
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.debug.actionLatencyHUD.on", defaultValue: "Hide Action Latency HUD", bundle: .module)),
             // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
             // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
             ActionDescriptor(

@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import enum CmuxNextLayout.ChatColumnPlacement
+import CmuxNextSidebar
 
 // Tab moves out of the pane (split, column, workspace, window), unread
 // state, per-kind tab verbs, and identifier copies (links: LinkHandlers).
@@ -110,21 +111,25 @@ extension TabHandlers {
             guard let (pane, id) = ctx.tab(invocation) else { return }
             pane.toggleFullWidthTab(showing: id)
         })
+        ActionTargetTitles.setState("palette.toggleFullWidthTab", in: registry) { invocation in
+            ctx.paneController(invocation).map { ctx.services.paneFullWidthTabs.contains($0.paneKey) }
+        }
         bindAudio(registry, ctx)
     }
 
     /// The mute actions (`BrowserTabAudio`): the strip's and the sidebar row's speakers run the toggles.
     private static func bindAudio(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind(BrowserTabAudio.toggleActionID, invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
-        ActionTargetTitles.set(BrowserTabAudio.toggleActionID, in: registry) { [weak registry] invocation in
-            registry.flatMap { BrowserTabAudio.targetTitle($0, ctx.services.cache, invocation) }
-        }
+        ActionTargetTitles.setState(BrowserTabAudio.toggleActionID, in: registry) { BrowserTabAudio.isMuted(ctx, $0) }
         registry.bind("tab.muteAudio", invoke: { BrowserTabAudio.setMuted(true, ctx, $0) })
         registry.bind("tab.unmuteAudio", invoke: { BrowserTabAudio.setMuted(false, ctx, $0) })
         registry.bind("tab.muteOtherAudio", invoke: { BrowserTabAudio.muteOthers(ctx, $0) })
         registry.bind(BrowserTabAudio.workspaceToggleActionID, run: { invocation in
             try BrowserTabAudio.toggleWorkspaces(WindowMembershipHandlers.rowTargets(invocation, ctx), cache: ctx.services.cache)
         })
+        ActionTargetTitles.setState(BrowserTabAudio.workspaceToggleActionID, in: registry) { invocation in
+            (try? ctx.workspace(invocation).model).flatMap { BrowserTabAudio.audio(of: [$0], cache: ctx.services.cache) }.map { $0 == .muted }
+        }
     }
 
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {

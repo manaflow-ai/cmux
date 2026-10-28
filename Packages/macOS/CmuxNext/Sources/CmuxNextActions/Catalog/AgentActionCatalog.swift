@@ -26,10 +26,11 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentChat.toggleNotificationMute",
-                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute/Unmute Chat Notifications", bundle: .module),
+                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute Chat Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.agentChat.toggleNotificationMute.on", defaultValue: "Unmute Chat Notifications", bundle: .module), symbolWhenOff: "bell.slash", symbolWhenOn: "bell"),
             // How many sub-sessions the chat runs at once (acpmux `_acpmux/subsession/limits`); a dialog,
             // so no CLI verb: `acpmux session limits` sets it from a shell.
             {
@@ -63,7 +64,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",
-                title: String(localized: "action.agentPane.toggleSessionInfo", defaultValue: "Toggle Session Info", bundle: .module),
+                title: String(localized: "action.agentPane.toggleSessionInfo", defaultValue: "Show or Hide Session Info", bundle: .module),
                 keywords: ["agent", "chat", "session", "session info", "context", "environment", "panel"],
                 category: .agents, symbol: "sidebar.right", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-session-info",
@@ -71,7 +72,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleInspector",
-                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Event Inspector", bundle: .module),
+                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show or Hide Event Inspector", bundle: .module),
                 keywords: ["agent", "chat", "event", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
@@ -150,13 +151,14 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
-                title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
+                title: String(localized: "action.palette.toggleDictation", defaultValue: "Start Dictation", bundle: .module),
                 keywords: ["dictation", "dictate", "voice", "speech", "microphone", "mic", "push to talk"],
                 // Ctrl-Cmd-V: no terminal, shell or system meaning. Hold it to talk.
                 defaultShortcut: Shortcut("v", modifiers: [.control, .command]),
                 category: .agents, symbol: "mic", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.toggleDictation.on", defaultValue: "Stop Dictation", bundle: .module)),
             ActionDescriptor(
                 id: "agentPane.continueIn",
                 title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
@@ -410,11 +412,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // The Home Chief's settings sidebar (the header's name pill does the same).
             ActionDescriptor(
                 id: "home.toggleChiefSettings",
-                title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
+                title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Show Chief Settings", bundle: .module),
                 keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
                 symbol: "sidebar.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.home.toggleChiefSettings.on", defaultValue: "Hide Chief Settings", bundle: .module)),
             // Stops the Home Chief's running turn (chief.stop); the compose bar's
             // stop button, Esc and Cmd-. in its field run this one action.
             ActionDescriptor(

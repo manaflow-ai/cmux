@@ -5,18 +5,20 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "toggleSidebar",
-                title: String(localized: "action.toggleSidebar", defaultValue: "Toggle Left Sidebar", bundle: .module),
+                title: String(localized: "action.toggleSidebar", defaultValue: "Show Left Sidebar", bundle: .module),
                 keywords: ["workspaces", "panel", "hide", "show"],
                 defaultShortcut: Shortcut("b", modifiers: [.command]), category: .sidebar, symbol: "sidebar.left",
                 surfaces: [.palette, .keyboard, .menu], cliName: "sidebar toggle-left", mainMenu: .view
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleSidebar.on", defaultValue: "Hide Left Sidebar", bundle: .module)),
             ActionDescriptor(
                 id: "toggleRightSidebar",
-                title: String(localized: "action.toggleRightSidebar", defaultValue: "Toggle Right Sidebar", bundle: .module),
+                title: String(localized: "action.toggleRightSidebar", defaultValue: "Show Right Sidebar", bundle: .module),
                 keywords: ["files", "explorer", "panel"],
                 defaultShortcut: Shortcut("b", modifiers: [.option, .command]), category: .sidebar,
                 symbol: "sidebar.right", surfaces: [.keyboard, .menu], cliName: "sidebar toggle-right", mainMenu: .view
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleRightSidebar.on", defaultValue: "Hide Right Sidebar", bundle: .module)),
             // The workspace list takes the keyboard (arrows, Return), the
             // sidebar shown first if hidden (cx-zjtn.2).
             ActionDescriptor(
@@ -226,10 +228,11 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleMatchTerminalBackground",
-                title: String(localized: "action.palette.toggleMatchTerminalBackground", defaultValue: "Toggle Match Terminal Background", bundle: .module),
+                title: String(localized: "action.palette.toggleMatchTerminalBackground", defaultValue: "Turn On Match Terminal Background", bundle: .module),
                 keywords: ["sidebar", "theme"], category: .sidebar, symbol: "paintbrush", surfaces: [.palette],
                 cliName: "sidebar toggle-match-terminal-background"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.toggleMatchTerminalBackground.on", defaultValue: "Turn Off Match Terminal Background", bundle: .module)),
             ActionDescriptor(
                 id: "palette.enableMinimalMode",
                 title: String(localized: "action.palette.enableMinimalMode", defaultValue: "Enable Minimal Mode", bundle: .module),

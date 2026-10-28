@@ -32,4 +32,13 @@ struct PaletteToggleTitleTests {
         #expect(words.contains { $0.contains("unpin workspace") })
         #expect(words.contains { $0.hasPrefix("pin workspace") })
     }
+
+    @Test func everyToggleTitleSideIsSearchable() {
+        let toggles = ActionCatalog.all.compactMap { descriptor in descriptor.toggleTitles.map { (descriptor, $0) } }
+        #expect(!toggles.isEmpty)
+        for (descriptor, titles) in toggles {
+            #expect(descriptor.title == titles.whenOff, "\(descriptor.id.rawValue)")
+            #expect(descriptor.keywords.contains(titles.whenOn), "\(descriptor.id.rawValue)")
+        }
+    }
 }

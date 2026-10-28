@@ -51,6 +51,12 @@ enum AppearanceHandlers {
         registry.bind("appearance.panePadding.toggle", run: { _ in try togglePanePadding(context) })
         registry.bind("appearance.paneCorners.toggle", run: { _ in try togglePaneCorners(context) })
         registry.bind("appearance.paneBorderWidth.toggle", run: { _ in try togglePaneBorderWidth(context) })
+        // Each toggle's row names the change it makes from the drawn state (Show or Hide Pane Borders).
+        let design = context.design
+        ActionTargetTitles.setState("appearance.paneBorder.toggle", in: registry) { _ in (design.paneChrome.border ?? .subtle) == .subtle }
+        ActionTargetTitles.setState("appearance.panePadding.toggle", in: registry) { _ in Metrics.panePadding > 0 }
+        ActionTargetTitles.setState("appearance.paneCorners.toggle", in: registry) { _ in Metrics.paneCornerRadius > 0 }
+        ActionTargetTitles.setState("appearance.paneBorderWidth.toggle", in: registry) { _ in Metrics.paneBorderWidth != nil }
         registry.bind("appearance.paneBorderColor.reset", run: { _ in
             try requireUnmanaged(["layout", "paneBorderColor"], context)
             let design = context.design
@@ -63,6 +69,7 @@ enum AppearanceHandlers {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value.lensToggled) })
+        ActionTargetTitles.setState("appearance.glass.lens.toggle", in: registry) { _ in GlassLensMode.tunable.value != .plain }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)

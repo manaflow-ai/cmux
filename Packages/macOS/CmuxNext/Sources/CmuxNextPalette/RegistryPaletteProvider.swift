@@ -83,13 +83,17 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let actionID = descriptor.id
             var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
-                // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
-                title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
+                // A toggle reads as the change it makes on the focused object (Pin Workspace or
+                // Unpin Workspace): its palette title, else its title for the focused target.
+                title: registry.action(for: actionID)?.paletteTitle?()
+                    ?? (registry.hasDisplayTitle(actionID) ? registry.displayTitle(for: actionID) : nil) ?? descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
                 subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
                 accessory: entry.isBound || override != nil ? nil : unbound,
-                // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
-                symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
+                // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on;
+                // one whose title names the change shows its symbol for that state instead.
+                symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill"
+                    : (registry.namesToggleState(actionID) ? registry.displaySymbol(for: actionID) : nil) ?? descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
                 section: section(descriptor.category),
                 keywords: descriptor.keywords,

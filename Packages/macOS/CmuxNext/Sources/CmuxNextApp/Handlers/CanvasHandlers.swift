@@ -12,6 +12,9 @@ enum CanvasHandlers {
             guard let (content, pane) = target(invocation, ctx) else { return }
             toggle(content, pane: pane, ctx)
         })
+        ActionTargetTitles.setState("toggleCanvasLayout", in: registry) { invocation in
+            ctx.paneController(invocation).flatMap { pane in pane.workspace.map { $0.layoutModel.canvasScreenID(containing: pane.layoutPaneID) != nil } }
+        }
         registry.bind("canvasZoomIn", invoke: { zoom($0, by: CanvasCamera.zoomStep, ctx) })
         registry.bind("canvasZoomOut", invoke: { zoom($0, by: 1 / CanvasCamera.zoomStep, ctx) })
         registry.bind("canvasZoomReset", invoke: { invocation in

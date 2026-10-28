@@ -1579,127 +1579,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin/Unpin Screen"
+            "value": "Pin Screen"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تثبيت الشاشة أو إلغاء تثبيتها"
+            "value": "تثبيت الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikvači ili otkvači ekran"
+            "value": "Prikači ekran"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fastgør eller frigør skærm"
+            "value": "Fastgør skærm"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bildschirm anheften oder lösen"
+            "value": "Bildschirm anheften"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fijar o soltar pantalla"
+            "value": "Fijar pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Épingler ou détacher l’écran"
+            "value": "Épingler l’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fissa o sblocca schermata"
+            "value": "Fissa schermata"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "スクリーンを固定/固定解除"
+            "value": "スクリーンをピン留め"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ខ្ទាស់ ឬដោះខ្ទាស់អេក្រង់"
+            "value": "ខ្ទាស់អេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "스크린 고정/고정 해제"
+            "value": "스크린 고정"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fest eller løsne skjerm"
+            "value": "Fest skjerm"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przypnij lub odepnij ekran"
+            "value": "Przypnij ekran"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fixar ou Desafixar Tela"
+            "value": "Fixar Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрепить или открепить экран"
+            "value": "Закрепить экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปักหมุดหรือเลิกปักหมุดหน้าจอ"
+            "value": "ปักหมุดหน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekranı Sabitle veya Kaldır"
+            "value": "Ekranı Sabitle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закріпити або відкріпити екран"
+            "value": "Закріпити екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ghim hoặc bỏ ghim màn hình"
+            "value": "Ghim màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定或取消固定屏幕"
+            "value": "固定屏幕"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定或取消固定畫面"
+            "value": "固定畫面"
+          }
+        }
+      }
+    },
+    "action.screen.togglePin.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin Screen"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلغاء تثبيت الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otkači ekran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frigør skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirm loslösen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No fijar pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détacher l’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sblocca schermata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンのピン留めを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈប់ខ្ទាស់អេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린 고정 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Løsne skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odepnij ekran"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desafixar Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открепить экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลิกปักหมุดหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekranın Sabitlemesini Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкріпити екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bỏ ghim màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消固定屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消固定畫面"
           }
         }
       }
@@ -3413,127 +3544,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collapse/Expand Screen Group"
+            "value": "Collapse Screen Group"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طي مجموعة الشاشات أو توسيعها"
+            "value": "طي مجموعة الشاشات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sažmi ili proširi grupu ekrana"
+            "value": "Sažmi grupu ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skjul eller udvid skærmgruppe"
+            "value": "Skjul skærmgruppe"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bildschirmgruppe ein- oder ausklappen"
+            "value": "Bildschirmgruppe einklappen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Contraer o expandir grupo de pantallas"
+            "value": "Contraer grupo de pantallas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Replier ou déplier le groupe d’écrans"
+            "value": "Replier le groupe d’écrans"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Comprimi o espandi gruppo di schermate"
+            "value": "Comprimi gruppo di schermate"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "スクリーングループを折りたたむ/展開"
+            "value": "スクリーングループを折りたたむ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្រួម ឬពង្រីកក្រុមអេក្រង់"
+            "value": "បង្រួមក្រុមអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "스크린 그룹 접기/펼치기"
+            "value": "스크린 그룹 접기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå sammen eller utvid skjermgruppe"
+            "value": "Slå sammen skjermgruppe"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zwiń lub rozwiń grupę ekranów"
+            "value": "Zwiń grupę ekranów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Recolher ou Expandir Grupo de Telas"
+            "value": "Recolher Grupo de Telas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Свернуть или развернуть группу экранов"
+            "value": "Свернуть группу экранов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยุบหรือขยายกลุ่มหน้าจอ"
+            "value": "ยุบกลุ่มหน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Grubunu Daralt veya Genişlet"
+            "value": "Ekran Grubunu Daralt"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Згорнути або розгорнути групу екранів"
+            "value": "Згорнути групу екранів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thu gọn hoặc mở rộng nhóm màn hình"
+            "value": "Thu gọn nhóm màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "折叠或展开屏幕组"
+            "value": "折叠屏幕组"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "收合或展開畫面群組"
+            "value": "收合畫面群組"
+          }
+        }
+      }
+    },
+    "action.screenGroup.toggleCollapsed.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand Screen Group"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توسيع مجموعة الشاشات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proširi grupu ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udvid skærmgruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmgruppe ausklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expandir grupo de pantallas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplier le groupe d’écrans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espandi gruppo di schermate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーングループを展開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពង្រីកក្រុមអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린 그룹 펼치기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utvid skjermgruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozwiń grupę ekranów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expandir Grupo de Telas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Развернуть группу экранов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขยายกลุ่มหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Grubunu Genişlet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розгорнути групу екранів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở rộng nhóm màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "展开屏幕组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "展開畫面群組"
           }
         }
       }

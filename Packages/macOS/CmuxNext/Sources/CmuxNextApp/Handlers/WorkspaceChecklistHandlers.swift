@@ -29,6 +29,11 @@ enum WorkspaceChecklistHandlers {
                 apply(try WorkspaceChecklistEdit.make(for: id, invocation: invocation, items: target.workspace.checklist), to: target)
             })
         }
+        // The item a run would change (its `item` argument, else the current one) names the change.
+        ActionTargetTitles.setState("toggleChecklistItemComplete", in: registry) { invocation in
+            guard let items = (try? context.workspace(invocation).model)?.checklist else { return nil }
+            return (try? WorkspaceChecklistEdit.target(invocation, items: items)).map { $0.state == .done }
+        }
         for id in pageIDs {
             registry.bind(id, requires: capability, daemon: services.activeDaemon, run: { invocation in
                 let workspace = try context.workspace(invocation).model

@@ -42,6 +42,10 @@ enum NowPlayingCardHandlers {
             }
             source.perform(.playPause)
         })
+        // Pause Media while the card's (else the sidebar's) media plays, else Play Media.
+        ActionTargetTitles.setState("nowPlaying.playPause", in: registry) { [weak services] _ in
+            (dismissal.source ?? services?.cache.pageRequests.sidebarSources)?.nowPlaying?.isPlaying
+        }
     }
 
     /// `sidebar.nowPlaying.enabled` through the one setting path (`palette.toggleSetting`).

@@ -1,8 +1,8 @@
 // Menu-only row titles in an object's own right-click menu (cmuxterm-hq#2015, the menu audit's
 // safe set): the object is clear there, so its rows drop the object's noun ("Move Left" in the tab
-// group's menu), the palette's prefixes ("Half Width", not "Column Width: Half") and read toggles
-// one way ("Pin/Unpin Screen"). The palette and the CLI keep the actions' own titles, which name
-// the object. A row whose live title names the target's change (Expand Section) still shows that.
+// group's menu) and the palette's prefixes ("Half Width", not "Column Width: Half"). The palette and
+// the CLI keep the actions' own titles, which name the object. A toggle has no label here: every
+// surface shows its title for the target's state (Pin Screen or Unpin Screen, ActionToggleTitles).
 // Strings live in Localizable.xcstrings.
 
 nonisolated enum ObjectMenuLabels {
@@ -31,7 +31,6 @@ nonisolated enum ObjectMenuLabels {
 
     // A group's own menu, in the group editor's words (SidebarGroupEditorControls).
     static var renameGroup: String { text("menu.group.rename", "Rename Group…") }
-    static var toggleGroupCollapsed: String { text("menu.group.toggleCollapsed", "Collapse/Expand Group") }
     static var ungroup: String { text("menu.group.ungroup", "Ungroup") }
     static var closeGroup: String { text("menu.group.close", "Close Group") }
     /// A workspace group's Close: its workspaces close (Leo 2026-10-20: "Close all in group").
@@ -41,18 +40,11 @@ nonisolated enum ObjectMenuLabels {
     static var sortByLastUsed: String { text("menu.group.sortByLastUsed", "Sort by Last Used") }
     static var sortByDirectory: String { text("menu.group.sortByDirectory", "Sort by Directory") }
 
-    // Toggles, one style.
-    static var togglePinScreen: String { text("menu.screen.togglePin", "Pin/Unpin Screen") }
-    static var toggleWorkspaceMute: String { text("menu.workspace.toggleNotificationMute", "Mute/Unmute Notifications") }
     static var notificationSound: String {
         String(localized: "menu.notificationSound", defaultValue: "Notification Sound", bundle: .module)
     }
-    static var toggleChatMute: String { text("menu.tab.toggleChatNotificationMute", "Mute/Unmute Chat Notifications") }
     /// A chat's Subagent Limit… (the palette says Chat Subagent Limit…).
     static var subagentLimit: String { text("menu.object.subagentLimit", "Subagent Limit…") }
-    static var toggleSectionCollapsed: String { text("menu.sidebar.toggleSectionCollapsed", "Collapse/Expand Section") }
-    static var toggleSectionTitle: String { text("menu.sidebar.toggleSectionTitle", "Show/Hide Section Title") }
-    static var toggleItemLabel: String { text("menu.sidebar.toggleItemLabel", "Show/Hide Label") }
     static var hideApp: String { text("menu.sidebar.hideApp", "Hide App") }
 
     // The pane's Layout submenu: an agent chat's zoom and the column widths, without prefixes. The zoom
