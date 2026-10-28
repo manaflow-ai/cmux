@@ -8,7 +8,7 @@ public enum ActionTrackedWork {
         registry: ActionRegistry,
         cancellationFailure: ActionWorkFailure,
         waiting: ActionWait = .network,
-        authorize: @escaping @MainActor () async -> ActionWorkFailure? = { nil },
+        authorize: (@MainActor () async -> ActionWorkFailure?)? = nil,
         cancelAuthorization: @escaping @MainActor () -> Void = {},
         start: @escaping @MainActor () -> ActionWorkFailure?
     ) -> ActionEffect {
@@ -25,7 +25,7 @@ public enum ActionTrackedWork {
         // action-wait-allow: the caller names its service wait; this adapter preserves helper work and result tracking.
         return .waiting(waiting) {
             let answer = await withTaskCancellationHandler {
-                if let failure = await authorize() { return Answer.failure(failure) }
+                if let failure = await authorize?() { return Answer.failure(failure) }
                 guard !Task.isCancelled else { return Answer.failure(cancellationFailure) }
                 return await run(registry: registry, scope: scope, cancellationFailure: cancellationFailure, start: start)
             } onCancel: {
