@@ -601,7 +601,7 @@ export class SubagentFold {
       // A page opened after a ToolSearch started has only its title-less result. Treat a result
       // with no renderable content as hidden too, matching direct transcript folding.
       const unknownHiddenResult =
-        update?.sessionUpdate === "tool_call_update" && !tools.has(call) && showsNothing(update);
+        update?.sessionUpdate === "tool_call_update" && !tools.has(call) && (!update.title || showsNothing(update));
       replySettled = !hidden && !unknownHiddenResult && this.pendingReplySummaries.delete(id);
       if (hidden || unknownHiddenResult) {
         this.bump(id);
