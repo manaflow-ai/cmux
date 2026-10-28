@@ -406,6 +406,8 @@ class SignatureTests(PublishCase):
         pem, public_key = openssl_key_pair(self.folder)
         original = pf.CONTENT_PUBLIC_KEY
         pf.CONTENT_PUBLIC_KEY = public_key
+        self.write_checkout({"version": 1, "default": {"Features": {"cefTimerSlack": "off"}, "FeaturesSerial": 40},
+                             "cohorts": {}})
         before = self.checkout.read_bytes()
         try:
             env = {"STABLE_R2_ENDPOINT": "https://r2.example", pf.KEY_PATH_ENV: str(pem)}
@@ -420,7 +422,8 @@ class SignatureTests(PublishCase):
         self.assertTrue(pf.nightly_assertion(json.loads(data)))
         self.assertTrue(all(put["key"].startswith("stable/") for put in uploader.puts))
         self.assertEqual(self.checkout.read_bytes(), before, "stable's document is not the nightly's checkout")
-        self.assertIn("published https://files.cmux.com/stable/notes/flags.json (serial 2)", self.output)
+        # Above the nightly's serial (a stable install that cached it refuses lower), without its features.
+        self.assertIn("published https://files.cmux.com/stable/notes/flags.json (serial 41)", self.output)
 
     def test_a_stable_publish_with_the_test_key_is_refused(self):
         with self.assertRaises(pf.PublishError):

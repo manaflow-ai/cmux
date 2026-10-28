@@ -29,7 +29,10 @@ plans/cmux-next/chrome-parity/p12-perf-process.md.
 - `--feed stable` publishes to the stable bucket (`https://files.cmux.com/stable/notes/`), where a
   Release install reads its flags (ReleaseNotesStore.stableNotesBase): a stable release on GitHub can
   hold no `notes/` folder. Nothing republishes stable's document, so it starts from an empty version 1
-  document and leaves the checkout alone. docs/cmux-next/release-rollout.md has the procedure.
+  document and leaves the checkout alone. Its serial still starts above the checkout's (the nightly
+  document's), because a stable install that cached the nightly document refuses a lower serial.
+  The app applies no remote document in production yet (pro-audit 19): this publishes the document
+  the stable app will read once its composition root wires the flags receiver.
 
 Environment: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (R2), plus NIGHTLY_NEXT_R2_ENDPOINT and
 CMUX_CONTENT_SIGNING_KEY_PATH for production (STABLE_R2_ENDPOINT instead of NIGHTLY_NEXT_R2_ENDPOINT with
@@ -456,11 +459,12 @@ def publish(args: argparse.Namespace, *, env: Mapping[str, str], fetch: Fetch, u
         raise PublishError("--test-key publishes to perf-lab-test; leave out --feed stable")
     dest = destination(args.test_key, env, args.feed)
 
-    checkout = (copy.deepcopy(EMPTY_DOCUMENT) if dest.name == STABLE
-                else json.loads(checkout_path.read_text(encoding="utf-8")))
+    checkout = json.loads(checkout_path.read_text(encoding="utf-8"))
     if not nightly_assertion(checkout):
         raise PublishError(f"{checkout_path} fails nightly.yml's flags.json assertion")
-    current = load_current(fetch, dest, checkout)
+    # Stable starts from an empty document, never the nightly's features, but above the nightly's serial.
+    base = copy.deepcopy(EMPTY_DOCUMENT) if dest.name == STABLE else checkout
+    current = load_current(fetch, dest, base)
     serial = free_serial(fetch, dest, max(serials(current.document) + serials(checkout)) + 1)
     document = apply_change(current.document, args.cohort, on, off, serial)
     unchanged = cohort_features(document, args.cohort) == cohort_features(current.document, args.cohort)
