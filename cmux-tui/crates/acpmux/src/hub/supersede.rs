@@ -62,15 +62,8 @@ pub(in crate::hub) fn take(
     sender: Option<&str>,
     by: &str,
 ) -> Vec<QueuedPrompt> {
-    let mut gone = Vec::new();
-    let mut i = 0;
-    while i < queue.len() {
-        if superseded(&queue[i], key, sender, by) {
-            gone.push(queue.remove(i));
-        } else {
-            i += 1;
-        }
-    }
+    let gone: Vec<QueuedPrompt> =
+        queue.extract_if(.., |q| superseded(q, key, sender, by)).collect();
     if !gone.is_empty() {
         session.queued.fetch_sub(gone.len() as u64, std::sync::atomic::Ordering::SeqCst);
     }

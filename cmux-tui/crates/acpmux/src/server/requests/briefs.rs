@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::hub::tasks;
+use crate::no_panic::JsonExt;
 
 pub(super) async fn steer(
     hub: &Arc<Hub>,
@@ -54,7 +55,7 @@ pub(super) async fn steer(
         .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
     let mut p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        p["_meta"]["acpmux"]["via"] = via;
+        p.set_path(&["_meta", "acpmux", "via"], via);
     }
     Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
     let row = hub
@@ -114,7 +115,7 @@ pub(super) async fn report(
         .and_then(Value::as_str);
     // A task's card not yet delivered is not replayed: the retry sends it again (below).
     if key.is_some_and(|key| row.get("lastReportKey").and_then(Value::as_str) == Some(key))
-        && row["result"].get("undelivered").is_none()
+        && row.field("result").get("undelivered").is_none()
     {
         return Ok(
             json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
@@ -250,7 +251,7 @@ pub(super) async fn task_new(
         .ok_or_else(|| RpcError::invalid_params("a task has a one-line title"))?;
     let idempotency = text("idempotencyKey");
     let id = loop {
-        let id = format!("t-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let id = format!("t-{:08x}", uuid::Uuid::new_v4().as_fields().0);
         if hub.briefs.get(&id).is_none() {
             break id;
         }
@@ -273,10 +274,10 @@ pub(super) async fn task_new(
         "harness": meta.harness, "model": meta.model_request,
     });
     if let Some(caller) = caller {
-        record["fromSession"] = json!(caller);
+        record.set("fromSession", json!(caller));
     }
     if let Some(key) = idempotency {
-        record["idempotencyKey"] = json!(key);
+        record.set("idempotencyKey", json!(key));
     }
     let row = hub.briefs.put(record);
     // The giver's message, as `acpmux send` from it would be (`requests.rs` session/prompt).
@@ -311,10 +312,10 @@ pub(super) async fn tasks(
 ) -> Result<Value, RpcError> {
     let from = match params.get("from").and_then(Value::as_str) {
         Some(key) => Some(hub.resolve(key)?.id.clone()),
-        None if params["all"] == true => None,
+        None if params.field("all") == true => None,
         None => conn.caller().map(str::to_owned),
     };
-    let open_only = params["open"] == true;
+    let open_only = params.field("open") == true;
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100).clamp(1, 500) as usize;
     let mut rows: Vec<Value> = hub
         .briefs

@@ -224,7 +224,8 @@ public final class TerminalLaunchFrames {
             let surface = session.surfaceView
             // visibility-walk-allow: the quit saves the frame each terminal shows on screen, the view state AppKit composites; read once per terminal at quit
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
+                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
         return frames

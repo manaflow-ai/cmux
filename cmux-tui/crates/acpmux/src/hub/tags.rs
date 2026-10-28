@@ -1,6 +1,7 @@
 //! Orchestrator tags on a chat, each with an optional expiry.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// Orchestrator tags with optional expiry.
@@ -12,7 +13,7 @@ impl Hub {
         ttl_seconds: Option<u64>,
     ) {
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
             if let Some(set) = set {
                 for (k, v) in set {

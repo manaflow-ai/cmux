@@ -5,6 +5,7 @@
 //! stays. Idle: now. A running turn: after it ends, or now after a cancel.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 use crate::{route_account, routes};
 
@@ -369,7 +370,7 @@ impl Hub {
         });
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
         if let Some(next) = next {
-            out["fallback"] = json!({"routeId": next.id, "name": next.name()});
+            out.set("fallback", json!({"routeId": next.id, "name": next.name()}));
             if route.file.auto_fallback
                 && routes::set_binding(&state, &format!("chat:{}", session.id), Some(&next.id))
                     .is_ok()
@@ -381,7 +382,7 @@ impl Hub {
                     json!({"from": id, "to": next.id, "when": "after-turn", "reason": "fallback"}),
                 );
                 session.route_switch.store(true, Ordering::SeqCst);
-                out["fallback"]["applied"] = json!(true);
+                out.set_path(&["fallback", "applied"], json!(true));
             }
         }
         Some(out)
