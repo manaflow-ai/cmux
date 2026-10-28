@@ -78,7 +78,7 @@ describe("cloud-vm-image-promote.yml trust boundary", () => {
     const promote = step("Promote (fresh-clone smoke on the channel's account)");
     for (const name of ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"]) expect(promote.env![name]).toBe(`\${{ inputs.channel == 'production' && secrets.${name} || '' }}`);
     expect(promote.env!.GH_TOKEN).toBe("${{ inputs.channel == 'production' && github.token || '' }}");
-    expect(promote.run).toContain("unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN");
+    expect(promote.run).toContain("unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN\n");
     expect(workflow.jobs.promote!.steps.find((s) => s.uses?.startsWith("actions/download-artifact@"))?.with?.name).toBe("cmux-vm-image-${{ inputs.channel == 'production' && 'prod-copy' || 'bake' }}-${{ inputs.bake_run }}");
   });
 

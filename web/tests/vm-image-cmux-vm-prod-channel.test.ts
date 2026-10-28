@@ -125,6 +125,7 @@ describe("prod-gate", () => {
     ["a missing environment", "missing", "branch:feat-cmux-next"],
     ["no branch policy", { deployment_branch_policy: null }, "branch:feat-cmux-next"],
     ["protected branches instead of a custom policy", { deployment_branch_policy: { custom_branch_policies: false, protected_branches: true } }, ""],
+    ["protected branches as well as a custom policy", { deployment_branch_policy: { custom_branch_policies: true, protected_branches: true } }, "branch:feat-cmux-next"],
     ["another branch allowed too", custom, "branch:feat-cmux-next,branch:main"],
     ["a tag policy", custom, "tag:feat-cmux-next"],
     ["no branch at all", custom, ""],
@@ -354,7 +355,7 @@ describe("promote step on production", () => {
     const record = path.join(dir, "bun.seen");
     writeFileSync(
       path.join(bin, "bun"),
-      `#!/usr/bin/env bash\n{ echo "argv $*"; env | grep -c 's3cr3t-key' || true; stat -c %a "$FREESTYLE_API_KEY_FILE" 2>/dev/null || stat -f %Lp "$FREESTYLE_API_KEY_FILE"; echo "email=$CMUX_UITEST_STACK_EMAIL"; } >> "${record}"\n`,
+      `#!/usr/bin/env bash\n{ echo "argv $*"; env | grep -c 's3cr3t-key' || true; stat -c %a "$FREESTYLE_API_KEY_FILE" 2>/dev/null || stat -f %Lp "$FREESTYLE_API_KEY_FILE"; echo "email=$CMUX_UITEST_STACK_EMAIL password=$CMUX_UITEST_STACK_PASSWORD token=$GH_TOKEN"; } >> "${record}"\n`,
     );
     chmodSync(path.join(bin, "bun"), 0o755);
     const run = async (channel: string, email: string) => {
@@ -365,18 +366,19 @@ describe("promote step on production", () => {
       expect(`${result.stdout}${result.stderr}`).not.toContain("s3cr3t-key");
       return readFileSync(record, "utf8").trim().split("\n");
     };
+    // account-check sees none of the test profile or the token; promote.ts (the compat gate) gets them.
     expect(await run("production", "agent@example.com")).toEqual([
       "argv scripts/cmux-vm-image/prod-copy.ts account-check",
       "0",
       "600",
-      "email=agent@example.com",
+      "email= password= token=",
       `argv ../images/cmux-vm/promote.ts --channel production --snapshot ${ID(300)} --var CLOUD_FREESTYLE_SNAPSHOT`,
       "0",
       "600",
-      "email=agent@example.com",
+      "email=agent@example.com password=pw token=t",
     ]);
     // dev: no account check, and nothing of production's reaches promote.ts.
-    expect(await run("dev", "leak@example.com")).toEqual([`argv ../images/cmux-vm/promote.ts --channel dev --snapshot ${ID(300)} --var CLOUD_FREESTYLE_SNAPSHOT`, "0", "600", "email="]);
+    expect(await run("dev", "leak@example.com")).toEqual([`argv ../images/cmux-vm/promote.ts --channel dev --snapshot ${ID(300)} --var CLOUD_FREESTYLE_SNAPSHOT`, "0", "600", "email= password= token="]);
   });
 
   test("the diff carries channels/production.json for production, as a new file the first time", async () => {
