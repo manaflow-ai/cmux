@@ -8,9 +8,8 @@
 //! session as `projects/<project>/<session>.jsonl` (`adopt::find_claude`) and its subagents
 //! under `projects/<project>/<session>/subagents`: a workflow agent's as
 //! `workflows/<runId>/agent-<agentId>.jsonl`, a background agent's as `agent-<agentId>.jsonl`.
-//! A run started before the chat's Claude session forked (an earlier session id) is under that
-//! session's folder, so a run not under the chat's own is looked for under its project's other
-//! sessions.
+//! Only this chat's own Claude session folder is read. A run stored under a different
+//! session (including a fork ancestor) is unavailable until that access can be authorized.
 //!
 //! The caller names plain ids, never a path, and nothing the harness says becomes one: the
 //! project folder comes from the store, and the file is opened below it one component at a time
@@ -206,29 +205,13 @@ fn read(
     let missing = || refused("transcript.missing", "no such transcript");
     let own = crate::adopt::find_claude(home, session).ok_or_else(missing)?;
     let project = own.parent().ok_or_else(missing)?;
-    let mut sessions = vec![session.to_owned()];
-    if run.is_some() {
-        let mut others: Vec<String> = std::fs::read_dir(project)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .filter(|name| name != session && plain_id(name))
-            .collect();
-        others.sort();
-        sessions.extend(others);
+    let mut parts: Vec<OsString> = vec![session.into(), "subagents".into()];
+    if let Some(run) = run {
+        parts.extend(["workflows".into(), run.into()]);
     }
-    for folder in sessions {
-        let mut parts: Vec<OsString> = vec![folder.into(), "subagents".into()];
-        if let Some(run) = run {
-            parts.extend(["workflows".into(), run.into()]);
-        }
-        parts.push(format!("agent-{agent}.jsonl").into());
-        if let Ok(file) = super::media_read::open_regular_below(project, &parts) {
-            return lines_of(file);
-        }
-    }
-    Err(missing())
+    parts.push(format!("agent-{agent}.jsonl").into());
+    let file = super::media_read::open_regular_below(project, &parts).map_err(|_| missing())?;
+    lines_of(file)
 }
 
 /// The opened transcript's lines, from its last `FILE_BYTES` when it is longer and its last
@@ -337,7 +320,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// A Claude store with chat session `s1` (forked from `s0`) in project `-work`.
+    /// A Claude store with chat session `s1` in project `-work`.
     fn store(name: &str) -> PathBuf {
         let home = std::env::temp_dir()
             .join(format!("acpmux-subagent-transcript-{}-{name}", std::process::id()));
@@ -364,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn a_workflow_agent_is_read_under_the_chats_session_or_one_it_forked_from() {
+    fn a_workflow_agent_is_read_only_under_the_chats_session() {
         let home = store("where");
         let project = home.join("projects/-work");
         write(&project.join("s1/subagents/workflows/wf_new"), "a01", 3);
@@ -372,7 +355,7 @@ mod tests {
         write(&project.join("s1/subagents"), "b01", 2);
         // Every line counts (the attachment too); only messages are replayed.
         assert_eq!(read(&home, "s1", Some("wf_new"), "a01").unwrap().0.lines.len(), 4);
-        assert_eq!(read(&home, "s1", Some("wf_old"), "a02").unwrap().0.lines.len(), 3);
+        assert!(read(&home, "s1", Some("wf_old"), "a02").is_err());
         assert_eq!(read(&home, "s1", None, "b01").unwrap().0.lines.len(), 3);
         // A background agent is the chat's own: never another session's.
         write(&project.join("s0/subagents"), "b02", 2);
