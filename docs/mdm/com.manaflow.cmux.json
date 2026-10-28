@@ -2457,6 +2457,18 @@
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
+    "labs.voiceRoom" : {
+      "default" : false,
+      "description" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.",
+      "title" : "Voice Room",
+      "type" : "boolean"
+    },
+    "labs.voiceRoomURL" : {
+      "default" : "",
+      "description" : "The room's web address. Empty uses the room server on this Mac.",
+      "title" : "Voice Room Address",
+      "type" : "string"
+    },
     "layout.centerFocusedColumn" : {
       "default" : "never",
       "description" : "layout.centerFocusedColumn",

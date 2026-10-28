@@ -933,7 +933,7 @@ export default agentPaneEntry({
       },
     },
     "file-not-attached": {
-      note: "A pasted file no content block takes, in a chat whose host saves nothing: no chip, and the note says why.",
+      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed attachment tile says why and offers Retry.",
       snapshot: chat(finished),
       // A host that saves nothing refuses both the staged upload and the older single call.
       native: {
@@ -949,7 +949,13 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector("output.acpmux-attachment-note"));
+        await ctx.waitFor(() => {
+          const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
+          return Boolean(
+            failed?.querySelector(".acpmux-attachment-failed-text")?.textContent?.includes("build-logs.zip") &&
+            failed.querySelector(".acpmux-attachment-retry"),
+          );
+        });
       },
     },
     "image-sent-as-path": {
@@ -1589,7 +1595,7 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
       },
     },
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
@@ -1616,7 +1622,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         // Back in the prompt, to type about the capture (the + menu does not take focus back).
         await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
@@ -1635,7 +1641,7 @@ export default agentPaneEntry({
       native: { "composer.capture": null },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="window"]' });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.window"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
           .cmuxGalleryLog;
         await ctx.waitFor(() =>
@@ -1665,7 +1671,7 @@ export default agentPaneEntry({
       native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() =>
           ctx.document
             .querySelector(".acpmux-attachment-note")
@@ -1859,6 +1865,12 @@ export default agentPaneEntry({
             row.textContent?.includes("README.md"),
           ),
         );
+        // The rows replace "Searching…" and the list grows up from the composer. waitFor answers
+        // that DOM change before it paints, so without these frames the growth was measured as
+        // Ctrl-J's layout shift. The list has opened at once with no entrance animation since #24980.
+        const frame = () => new Promise((resolve) => ctx.document.defaultView!.requestAnimationFrame(resolve));
+        await frame();
+        await frame();
         const before = ctx.find(prompt).getAttribute("aria-activedescendant");
         await ctx.press("Control+j");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") !== before);
@@ -2383,7 +2395,10 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
         // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
         const actions = ctx.find({ selector: ".acpmux-composer-actions" });
-        if (ctx.document.defaultView!.getComputedStyle(actions).marginLeft === "0px")
+        const bar = ctx.find({ selector: ".acpmux-composer-inner" });
+        const leftItems = [...bar.children].filter((child) => child !== actions);
+        const leftEnd = Math.max(...leftItems.map((child) => child.getBoundingClientRect().right));
+        if (!(actions.getBoundingClientRect().left > leftEnd))
           throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
