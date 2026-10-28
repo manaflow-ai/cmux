@@ -61,8 +61,9 @@ afterAll(() => {
 
 // A host that answers every chip question as the owner's machine would: the paths are in the
 // project, so a normal transcript draws them as buttons that open there.
+const hostCalls: string[] = [];
 setChipHost(async (method, params) =>
-  method === "link.inspect"
+  hostCalls.push(method) && method === "link.inspect"
     ? {
         paths: Object.fromEntries(
           ((params.paths as string[]) ?? []).map((path) => [path, { place: "root", folder: false }]),
@@ -158,6 +159,18 @@ const ROWS: AcpmuxRow[] = [
   }),
   // A turn's local page: Open in a cmux tab.
   row("preview-12", "preview", { text: "http://localhost:5173/" }),
+  // A task's result sent back as a prompt: opens the chat it came from.
+  row("user-13", "user", {
+    seq: 13,
+    text: "result",
+    received: { offerId: "o-1", childSessionId: "child-1", title: "Fake clock" },
+  }),
+  // A background shell that ended: Open in terminal.
+  row("bg-14", "backgroundTask", {
+    backgroundTask: { toolCallId: "call-bg", command: "bun run dev", state: "completed" },
+  }),
+  // A reply with a web image: Load image (a host fetch).
+  row("assistant-15", "assistant", { seq: 15, text: "![chart](https://example.com/chart.png)" }),
 ];
 
 /** Every turn action present, as the owner's pane provides them. */
@@ -185,11 +198,14 @@ const OWNER_CONTROLS = [
   translate("message.pin"),
   translate("switch.cancelPrompt"),
   translate("agentPair.resume"),
+  translate("shell.openInTerminal"),
+  translate("image.load"),
   "Allow once",
   "Reject",
 ];
 
 async function draw(readOnly: boolean) {
+  hostCalls.length = 0;
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
@@ -210,7 +226,11 @@ async function draw(readOnly: boolean) {
   await act(async () => {
     for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
   });
-  const controls = [...host.querySelectorAll("button, a[href], [role=link], [role=button], textarea, input")];
+  // A fold's toggle (aria-expanded) and a plain web link (it opens in the reader's own browser) are
+  // the reader's own; every other control is counted.
+  const controls = [...host.querySelectorAll("button, a[href], [role=link], [role=button], textarea, input")].filter(
+    (element) => !element.hasAttribute("aria-expanded") && !/^https?:/.test(element.getAttribute("href") ?? ""),
+  );
   const named = controls.map((element) =>
     [element.getAttribute("aria-label"), element.getAttribute("title"), element.textContent]
       .filter(Boolean)
@@ -220,7 +240,7 @@ async function draw(readOnly: boolean) {
   const pathButtons = host.querySelectorAll("button.cv-chip.is-path").length;
   await act(async () => root.unmount());
   host.remove();
-  return { named, pathButtons };
+  return { named, pathButtons, hostCalls: [...hostCalls] };
 }
 
 const owned = (named: string[]) =>
@@ -233,9 +253,11 @@ test("drawn normally, the rows carry the owner's controls (the fixtures reach th
 });
 
 test("read only, no row draws a control that acts on the owner's machine or daemon", async () => {
-  const { named, pathButtons } = await draw(true);
+  const { named, pathButtons, hostCalls: asked } = await draw(true);
   expect(owned(named)).toEqual([]);
   expect(pathButtons).toBe(0);
+  // Nor asks the owner's host anything (where files are, images to fetch).
+  expect(asked).toEqual([]);
   // Every control left is the reader's own (open or close a fold, copy): listed here by name, so a
   // new control in a row fails this test until someone decides it is safe for a guest.
   const local = [

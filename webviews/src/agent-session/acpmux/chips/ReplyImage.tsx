@@ -278,12 +278,14 @@ function RemoteImage({
   fallback: ReactNode;
   thumb: boolean;
 }) {
+  // Read only, an image the owner's machine would fetch stays its link (no host load).
+  const readOnly = useTranscriptReadOnly();
   const t = useT();
   const policy = useReplyPolicy();
   const clickFree = loadsWithoutClick(src, policy);
   const { state, load } = useImageLoad(src, policy.remoteImages === "always" || clickFree, clickFree);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
-  if (policy.remoteImages === "never") return <>{fallback}</>;
+  if (policy.remoteImages === "never" || readOnly) return <>{fallback}</>;
   const placeholder = (
     <span className="cv-image-placeholder">
       <ImageIcon size={16} className="cv-chip__icon" />

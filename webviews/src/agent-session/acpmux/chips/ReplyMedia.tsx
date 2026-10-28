@@ -24,6 +24,7 @@ import { isDeniedPath, linkPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { mediaKind } from "./mediaKind";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 export { mediaKind } from "./mediaKind";
 
@@ -122,13 +123,14 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
 export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
   const t = useT();
   const policy = useReplyPolicy();
+  const readOnly = useTranscriptReadOnly();
   const kind = mediaKind(webURL(url)?.pathname ?? "") ?? "video";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
+  const { src, state, load, fail } = useMediaLoad(url, !readOnly && near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
-  if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
+  if (readOnly || policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
