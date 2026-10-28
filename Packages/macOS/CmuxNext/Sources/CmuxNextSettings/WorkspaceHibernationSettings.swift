@@ -20,6 +20,10 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
-        Self() // red: lands in the next commit
+        guard var reader = ConfigFieldReader(root, at: ["workspaces", "hibernation"], diagnostics: &diagnostics) else { return Self() }
+        let enabled = reader.bool("enabled") ?? enabledDefault
+        let idleMinutes = reader.number("idleMinutes", range: idleMinutesRange) ?? idleMinutesDefault
+        diagnostics += reader.diagnostics
+        return Self(enabled: enabled, idleMinutes: idleMinutes)
     }
 }

@@ -145,7 +145,11 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     /// plans/cmux-next/workspace-hibernation-DESIGN.md), instead of when the LRU reaches it. A key a
     /// pane still presents, one outside the LRU, or one not warm is left alone (empty effects).
     public mutating func evictHidden(_ key: Key) -> Effects {
-        Effects() // red: lands in the next commit
+        var effects = Effects()
+        guard owners[key] == nil, !unretained.contains(key), retention.isRetained(key) else { return effects }
+        retention.remove(key)
+        evict(key, into: &effects)
+        return effects
     }
 
     /// The tab closed or its surface was replaced: forget it entirely.

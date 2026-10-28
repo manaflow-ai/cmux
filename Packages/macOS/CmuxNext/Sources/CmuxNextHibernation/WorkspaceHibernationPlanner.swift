@@ -100,11 +100,30 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
 
     /// Seconds a workspace must stay idle under `pressure`, or nil when nothing hibernates on its own.
     public func idleSeconds(_ policy: Policy, pressure: MemoryPressureLevel) -> TimeInterval? {
-        nil // red: the policy lands in the next commit
+        guard policy.enabled else { return nil }
+        let normal = max(policy.idleMinutes, 1) * 60
+        return switch pressure {
+        case .normal: normal
+        case .warning: min(normal, Self.warningIdle)
+        case .critical: min(normal, Self.criticalIdle)
+        }
     }
 
     /// The plan for `candidates` at `now`.
     public func plan(_ candidates: [Candidate], policy: Policy, pressure: MemoryPressureLevel, now: Date) -> Plan {
-        Plan() // red: the policy lands in the next commit
+        guard let idle = idleSeconds(policy, pressure: pressure) else { return Plan() }
+        var due: [(String, TimeInterval)] = []
+        var next: Date?
+        for candidate in candidates where !candidate.isKept {
+            guard let lastActive = candidate.lastActive else { continue }
+            let deadline = lastActive.addingTimeInterval(idle)
+            if deadline <= now {
+                due.append((candidate.workspace, now.timeIntervalSince(lastActive)))
+            } else if next.map({ deadline < $0 }) ?? true {
+                next = deadline
+            }
+        }
+        let floor = now.addingTimeInterval(Self.minimumRecheck)
+        return Plan(due: due.sorted { $0.1 > $1.1 }.map(\.0), nextCheck: next.map { max($0, floor) })
     }
 }
