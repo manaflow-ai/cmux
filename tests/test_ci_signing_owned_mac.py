@@ -38,6 +38,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -72,8 +73,24 @@ fi
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
 STEP_OUTPUT = re.compile(r"steps\.([\w-]+)\.outputs\.")
 KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
+# needs['a'].outputs['b'] and secrets['X'] are the same references as needs.a.outputs.b and secrets.X; the guard
+# reads them in dot form (dotted()), and a reference left with an index that is not a literal (secrets[format(...)],
+# needs[x]) fails an owned-routed job, since the guard cannot tell what it reads.
+LITERAL_INDEX = re.compile(r"\[\s*'([A-Za-z0-9_-]+)'\s*\]|\[\s*\"([A-Za-z0-9_-]+)\"\s*\]")
+DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 # Status functions that let a step run after an earlier step failed.
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+
+
+def dotted(value: Any) -> Any:
+    """value with every literal index (['x'] or [\"x\"]) in its expressions written as .x."""
+    if isinstance(value, str):
+        return LITERAL_INDEX.sub(lambda m: "." + (m.group(1) or m.group(2)), value)
+    if isinstance(value, dict):
+        return {dotted(key): dotted(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [dotted(item) for item in value]
+    return value
 
 
 def workflows() -> dict[str, dict]:
@@ -109,6 +126,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
     failures: list[str] = []
     owned_jobs = 0
     for workflow, document in documents.items():
+        document = dotted(document)
         jobs = document.get("jobs") or {}
         for name, job in jobs.items():
             if not isinstance(job, dict) or not signing_job(job):
@@ -124,8 +142,12 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     elif script != BLACKSMITH_PICKER:
                         failures.append(f"{label}: runs-on reads needs.{needed}.outputs.{output}, from {script}; a "
                                         f"signing job's runner comes from {OWNED_PICKER} or {BLACKSMITH_PICKER} only")
+            if not owned_reads and DYNAMIC_INDEX.search(runs_on):
+                failures.append(f"{label}: runs-on indexes needs or outputs with an expression the guard cannot read")
             if not owned_reads:
                 continue
+            if DYNAMIC_INDEX.search(json.dumps(job)) or DYNAMIC_INDEX.search(json.dumps(document.get("env") or {})):
+                failures.append(f"{label}: indexes secrets, needs or outputs with an expression the guard cannot read")
             owned_jobs += 1
             if (workflow, name) not in SIGNING_JOBS:
                 failures.append(f"{label}: routed to owned Macs but not in SIGNING_JOBS (add it here and to glaeda's "
@@ -223,6 +245,20 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"release.yml": {"env": {"K": "${{ secrets.K }}"},
                                              "jobs": {"pick": picker, "build-sign-notarize": good}}})
         self.assertTrue(any("workflow-level env names a secret" in failure for failure in failures), failures)
+        brackets = {**good, "runs-on": "${{ github.run_attempt == 1 && needs['pick'].outputs['owned'] && "
+                                       "fromJSON(needs[\"pick\"].outputs.owned) || 'blacksmith-6vcpu-macos-26' }}",
+                    "steps": [good["steps"][0], {"env": {"K": "${{ secrets['APPLE_CERTIFICATE_BASE64'] }}"},
+                                                 "run": "true"}, *good["steps"][1:]]}
+        failures, owned = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": brackets}}})
+        self.assertEqual(owned, 1, "bracket notation still reads as the owned pick")
+        self.assertTrue(any("names a secret before the claim" in failure for failure in failures), failures)
+        dynamic = {**good, "steps": [*good["steps"][:2], {"env": {"K": "${{ secrets[format('A{0}', 'X')] }}"},
+                                                           "run": "true"}, *good["steps"][2:]]}
+        failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": dynamic}}})
+        self.assertTrue(any("cannot read" in failure for failure in failures), failures)
+        failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": {
+            **good, "runs-on": "${{ fromJSON(needs[format('pi{0}', 'ck')].outputs.owned) }}"}}}})
+        self.assertTrue(any("cannot read" in failure for failure in failures), failures)
         other = {"outputs": {"owned": "${{ steps.pick.outputs.owned }}"},
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": {"pick": other, "build-sign-notarize": good}}})
@@ -239,6 +275,10 @@ class SigningOwnedMacTests(unittest.TestCase):
         ]
         labels, why = signing_runner.drained_runner(runners, [SIDE])
         self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"], why)
+        runners.append(runner("cmux13-glaeda-5", ["glaeda-gui-std-xcode-26.6"], status="offline"))
+        self.assertEqual(signing_runner.drained_runner(runners, [SIDE])[0], "",
+                         "an offline runner may still run a job: its mini is not offered")
+        runners.pop()
         runners[3]["busy"] = True  # the mini's dedicated builder is building: that mini is not drained either
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
             "", f"no mini with an idle `{SIDE}` runner is drained now"))
@@ -305,6 +345,45 @@ class ClaimScriptTests(unittest.TestCase):
             self.assertIn("holds the whole mini", claimed.stdout)
             self.assertIn("removed the signing keychain build.keychain", claimed.stdout)
             self.assertFalse((tmp / "keychains" / "build.keychain-db").exists())
+
+
+class SearchListTests(unittest.TestCase):
+    """delete puts back the user search list create replaced, and falls back to the login keychain when create could
+    not read it or nothing it saw is left, so an owned Mac never keeps the deleted signing keychain as its list."""
+
+    def delete(self, tmp: Path) -> list[str]:
+        security = tmp / "security"
+        security.write_text('#!/bin/sh\necho "$@" >> "$CALLS"\n')
+        security.chmod(0o755)
+        env = {"PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
+               "CMUX_SECURITY_TOOL": os.fspath(security), "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
+               "CMUX_SIGNING_KEYCHAIN_STATE_DIR": os.fspath(tmp / "state")}
+        done = subprocess.run(["bash", os.fspath(ROOT / "scripts/ci/signing-keychain.sh"), "delete"], env=env,
+                              capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        calls = (tmp / "calls").read_text().splitlines() if (tmp / "calls").exists() else []
+        (tmp / "calls").unlink(missing_ok=True)
+        return [call for call in calls if call.startswith("list-keychains")]
+
+    def test_search_list(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            (tmp / "keychains").mkdir()
+            state = tmp / "state"
+            state.mkdir()
+            login = tmp / "keychains" / "login.keychain-db"
+            login.write_text("")
+            other = tmp / "keychains" / "other.keychain-db"
+            other.write_text("")
+            (state / "search-list").write_text(f"{login}\n{other}\n{tmp}/gone.keychain-db\n")
+            self.assertEqual(self.delete(tmp), [f"list-keychains -d user -s {login} {other}"])
+            self.assertFalse((state / "search-list").exists())
+            (state / "search-list.failed").write_text("")
+            self.assertEqual(self.delete(tmp), [f"list-keychains -d user -s {login}"], "the capture failed")
+            self.assertFalse((state / "search-list.failed").exists())
+            (state / "search-list").write_text(f"{tmp}/gone.keychain-db\n")
+            self.assertEqual(self.delete(tmp), [f"list-keychains -d user -s {login}"], "nothing it saw is left")
+            self.assertEqual(self.delete(tmp), [], "no create in this job: the list is left alone")
 
 
 class ClaimGateTests(unittest.TestCase):

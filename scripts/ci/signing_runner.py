@@ -63,7 +63,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
 
     A candidate runner is online, idle, carries one of `labels` (an owned pool label) and its own
     `glaeda-runner-<name>` label. Its mini qualifies only when no online runner of that mini, whatever
-    its labels, is busy now. `seed` (the run ID) picks among the qualifying minis, so two signing jobs
+    its labels, is busy or offline now. `seed` (the run ID) picks among the qualifying minis, so two signing jobs
     picking at once tend to land on different minis.
     """
     wanted = [label for label in labels if label and pool.persistent(label)]
@@ -74,9 +74,12 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
     for runner in runners:
         name = str(runner.get("name") or "")
         mini = member(name)
-        if not mini or runner.get("status") != "online":
+        if not mini:
             continue
-        if runner.get("busy"):
+        if runner.get("busy") or runner.get("status") != "online":
+            # A busy runner of any status keeps its mini, and so does an offline one: it may still run a job whose
+            # end GitHub has not seen, or come back with one (glaeda's admission, which takes every unit, is the
+            # guarantee; this keeps the pick off minis it would refuse).
             busy.add(mini)
             continue
         names = pool.runner_labels(runner)

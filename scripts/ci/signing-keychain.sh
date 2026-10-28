@@ -84,23 +84,43 @@ search_list_file() {
 }
 
 save_search_list() {
+  # The user search list before create replaces it: written whole (a temporary file moved into place) and only
+  # after list-keychains succeeded. When the capture fails, a marker says so and delete falls back to the login
+  # keychain, so an owned Mac never keeps a deleted signing keychain as its only search-list entry.
   local file
   file="$(search_list_file)"
   [ -e "$file" ] && return 0
-  "$SECURITY_TOOL" list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$file" || true
+  if "$SECURITY_TOOL" list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$file.tmp" \
+      && [ -s "$file.tmp" ]; then
+    mv -f "$file.tmp" "$file"
+  else
+    rm -f "$file.tmp"
+    : > "$file.failed"
+  fi
 }
 
 restore_search_list() {
   local file entry list=()
   file="$(search_list_file)"
-  [ -n "$state_dir" ] && [ -s "$file" ] || return 0
-  while IFS= read -r entry; do
-    [ -n "$entry" ] && [ -e "$entry" ] && list+=("$entry")
-  done < "$file"
+  [ -n "$state_dir" ] || return 0
+  if [ -s "$file" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] && [ -e "$entry" ] && list+=("$entry")
+    done < "$file"
+  fi
+  if [ "${#list[@]}" -eq 0 ] && { [ -e "$file" ] || [ -e "$file.failed" ]; }; then
+    # create ran but nothing it saw is left (or it could not read the list): the login keychain, if there is one
+    for entry in "$KEYCHAIN_DIR/login.keychain-db" "$KEYCHAIN_DIR/login.keychain"; do
+      if [ -e "$entry" ]; then
+        list=("$entry")
+        break
+      fi
+    done
+  fi
   if [ "${#list[@]}" -gt 0 ]; then
     "$SECURITY_TOOL" list-keychains -d user -s "${list[@]}" || true
   fi
-  rm -f "$file"
+  rm -f "$file" "$file.tmp" "$file.failed"
 }
 
 create_keychain() {
