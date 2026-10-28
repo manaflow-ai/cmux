@@ -2624,7 +2624,8 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    render_state_message, styled_run_json, write_output_flow_json, write_pending_sequence_json,
+    render_state_message, styled_run_json, write_output_flow_json, write_output_key_stages_json,
+    write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};

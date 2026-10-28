@@ -198,7 +198,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
-                                   cursor: cursorLayer?.presenter)
+                                   keySlots: echoStages, cursor: cursorLayer?.presenter)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
