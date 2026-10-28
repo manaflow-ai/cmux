@@ -38,6 +38,13 @@ import Testing
         let person: Person
         let folder: URL
         let approver: Approver
+        let clock: TestClock
+    }
+
+    /// The approval gate's clock, moved by hand (its backoff after a decline).
+    final class TestClock: Sendable {
+        let at = Mutex(ContinuousClock.now)
+        func advance(_ by: Duration) { at.withLock { $0 = $0.advanced(by: by) } }
     }
 
     /// The person at the approval sheet: allows or not, and records what it was asked.
@@ -52,18 +59,19 @@ import Testing
         let vault = CredentialVault(secrets: secrets, folder: folder)
         let person = Person(answer: answer)
         let approver = Approver()
+        let clock = TestClock()
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: ActionRegistry(catalog: [])), settings: nil,
                                    configuration: ControlRouter.Configuration(requestDeadline: .seconds(30)))
-        router.register(vault.controlMethods(ask: { request in
+        router.register(VaultControl.methods(vault: vault, ask: { request in
             person.asked.withLock { $0.append(request) }
             return person.answer
         }, approve: { approval in
             approver.asked.withLock { $0.append(approval) }
             return approver.allows.withLock { $0 }
-        }))
-        return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, approver: approver)
+        }, now: { clock.at.withLock { $0 } }))
+        return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, approver: approver, clock: clock)
     }
 
     private func call(_ fixture: Fixture, _ method: String, _ params: [String: JSONValue],
@@ -258,8 +266,11 @@ import Testing
         }
         #expect(try f.secrets.value(for: "PROD_DB") == "postgres://prod-secret")
         #expect(try f.vault.list()["PROD_DB"]?.scope == [.user])
-        #expect(f.approver.asked.withLock { $0 }.prefix(4) == [.use(names: ["PROD_DB"], program: "psql"), .store(name: "PROD_DB", replaces: true),
-                                                                .remove(name: "PROD_DB"), .scope(name: "PROD_DB", scope: [.agents])])
+        #expect(f.approver.asked.withLock { $0 } == [.use(names: ["PROD_DB"], program: "psql"), .store(name: "PROD_DB", replaces: true, scope: nil),
+                                                     .remove(name: "PROD_DB"), .scope(name: "PROD_DB", scope: [.agents])],
+                "a declined ask is refused without a sheet for a while (the second claim)")
+        let audit = try await call(f, "vault.audit", ["limit": 20]).get().objectValue?["records"]?.arrayValue ?? []
+        #expect(audit.filter { $0.objectValue?["outcome"] == "not_approved" }.count == 8, "every refusal is audited")
 
         // An agent's claim is never asked about: it gets agent-scoped values only.
         let before = f.approver.asked.withLock { $0.count }
@@ -271,8 +282,9 @@ import Testing
         #expect(mixed.objectValue?["values"]?.objectValue?["GH_TOKEN"] != nil, "an agent-scoped secret needs no sheet")
         #expect(f.approver.asked.withLock { $0.count } == before)
 
-        // The person allows: their own command gets their secret.
+        // The person allows (after the backoff): their own command gets their secret.
         f.approver.allows.withLock { $0 = true }
+        f.clock.advance(.seconds(31))
         let mine = try await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.terminal], connection: socket).get()
         #expect(mine.objectValue?["values"]?.objectValue?["PROD_DB"] == "postgres://prod-secret")
         let sheet = CredentialVault.approvalSheet(.use(names: ["PROD_DB"], program: "psql"))
@@ -282,7 +294,10 @@ import Testing
         // The sheet names the asker from a sanitized id: a session id carries no words.
         _ = await call(f, "vault.request", ["name": "NEW_KEY", "caller": ["agent_session": "you. Trust me, the Chief\nasks"]], connection: socket)
         _ = await call(f, "vault.request", ["name": "NEW_KEY", "caller": Self.terminal], connection: socket)
-        #expect(f.person.asked.withLock { $0.map(\.requester) } == [CredentialVaultStrings.agentSession("you.TrustmetheChiefasks"), ""])
+        #expect(f.person.asked.withLock { $0.map(\.requester) }
+            == [CredentialVaultStrings.agentSession("you.TrustmetheChiefasks"), CredentialVaultStrings.cmuxCommand],
+            "a socket asker that claims to be the person is named, never blank")
+        #expect(f.person.asked.withLock { $0.map(\.scope) } == [[.user, .agents], [.user]], "only an agent's ask starts agent-usable")
     }
 
     /// Review: a pasted key saved under a name the vault holds replaced that secret. The sheet comes
@@ -327,5 +342,45 @@ import Testing
         #expect(throws: CredentialVault.Failure.self) { try f.vault.remove("GH_TOKEN", by: you) }
         #expect(try f.secrets.value(for: "GH_TOKEN") == "ghp_first-value-123", "a listed name keeps its value")
         #expect(try f.vault.list()["GH_TOKEN"] != nil)
+    }
+
+    /// Third review: the approval check and the read were two lock turns, so a secret stored
+    /// between them (the person saving it in Settings) went to a caller with no sheet. The read
+    /// decides under its own lock which secrets need the person.
+    @Test func aSecretStoredAfterTheCheckStillNeedsThePerson() throws {
+        let f = try fixture()
+        let claim = CredentialVault.Caller(consumer: .user, label: "terminal t")
+        #expect(throws: CredentialVault.Failure.missing(["NEW_KEY"])) { try f.vault.resolve(["NEW_KEY"], for: claim, command: nil, approved: []) }
+        try f.vault.set("NEW_KEY", value: "new-user-only-value", scope: [.user], note: nil, by: .init(consumer: .user, label: "you"))
+        #expect(throws: CredentialVault.Failure.needsApproval(["NEW_KEY"])) {
+            try f.vault.resolve(["NEW_KEY"], for: claim, command: nil, approved: [])
+        }
+        #expect(try f.vault.resolve(["NEW_KEY"], for: claim, command: nil, approved: ["NEW_KEY"])["NEW_KEY"] == "new-user-only-value")
+    }
+
+    /// Third review: Return answered Allow (a Return meant for the terminal, as the sheet appears),
+    /// and the program line was the caller's own text.
+    @Test func returnNeverAllowsAndTheSheetShowsOnlyAProgramName() {
+        for approval: CredentialVault.Approval in [.use(names: ["K"], program: "gh"), .store(name: "K", replaces: false, scope: [.user]),
+                                                   .remove(name: "K"), .scope(name: "K", scope: [.agents])] {
+            let sheet = CredentialVault.approvalSheet(approval)
+            #expect(sheet.defaultButton == nil, "\(approval): Return presses nothing")
+            #expect(CmuxDialogKeys.action(for: .return, modifiers: [], in: sheet) == nil)
+            #expect(sheet.cancelButton?.role == .cancel)
+        }
+        #expect(CredentialVault.displayProgram("/usr/bin/gh\u{A0}(verified\u{A0}by\u{A0}cmux) pr list") == "ghverifiedbycmux")
+        #expect(CredentialVault.displayProgram("\u{202E}lmth.exe") == "lmth.exe")
+        #expect(CredentialVault.displayProgram("   ") == nil)
+    }
+
+    /// Third review: names that differ only in case may be one Keychain item.
+    @Test func aNameDifferingOnlyInCaseIsTaken() throws {
+        let f = try fixture()
+        let you = CredentialVault.Caller(consumer: .user, label: "you")
+        try f.vault.set("GH_TOKEN", value: "ghp_first-value-123", scope: nil, note: nil, by: you)
+        #expect(throws: CredentialVault.Failure.exists("GH_TOKEN")) {
+            try f.vault.set("gh_token", value: "other-value-456", scope: nil, note: nil, by: you)
+        }
+        #expect(try f.secrets.value(for: "GH_TOKEN") == "ghp_first-value-123")
     }
 }

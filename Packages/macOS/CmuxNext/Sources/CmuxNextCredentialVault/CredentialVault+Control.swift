@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextControl
 public import CmuxNextSettings
+import CmuxNextCompat
 import Foundation
 
 /// The vault over the control socket (`cmux vault …`, cmux issue 26412). No method is in the
@@ -91,13 +92,13 @@ nonisolated extension CredentialVault {
     /// it there; the name, nil when they cancelled. A taken name brings the sheet back with their
     /// name and value and a line saying it is taken: nothing they typed is lost, nothing is replaced.
     @MainActor
-    func enterNew(_ request: EntryRequest, by person: Caller, event: String,
+    func enterNew(_ request: EntryRequest, by person: Caller, event: String, note: String? = nil,
                   ask: (EntryRequest) async -> EntryAnswer?) async throws -> String? {
         var request = request
         while let answer = await ask(request) {
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    try self.set(answer.name, value: answer.value, scope: answer.scope, note: nil, by: person, event: event, onlyNew: true)
+                    try self.set(answer.name, value: answer.value, scope: answer.scope, note: note, by: person, event: event, onlyNew: true)
                 }.value
                 return answer.name
             } catch Failure.exists(let name) {
@@ -128,10 +129,12 @@ nonisolated enum VaultControl {
     typealias Ask = CredentialVault.Ask
     typealias Approve = CredentialVault.Approve
 
-    static func methods(vault: CredentialVault, ask: @escaping Ask, approve: @escaping Approve) -> [ControlMethod] {
+    static func methods(vault: CredentialVault, ask: @escaping Ask, approve: @escaping Approve,
+                        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) -> [ControlMethod] {
         /// Who calls, as its params claim; a claim to be the person counts only once the person
-        /// allowed the call on their sheet (``allowed(_:_:approve:)``).
+        /// allowed the call on their sheet (``ApprovalGate``).
         let caller: @Sendable (ControlCall) throws -> CredentialVault.Caller = { call in try Self.caller(call.params) }
+        let gate = ApprovalGate(approve: approve, now: now)
         let deadline = ControlMethod.Deadline.fixed(CredentialVault.requestDeadline)
         return [
             .async("vault.list") { _ in
@@ -147,19 +150,22 @@ nonisolated enum VaultControl {
                 let scope = try scope(call.params)
                 let note = try optionalText(call.params, "note")
                 let by = try caller(call)
-                if by.consumer == .user, CredentialVault.isValidName(name) {
+                // The sheet says Save or Replace; the write holds to what it said (Save never replaces).
+                var onlyNew = false
+                if by.consumer == .user, CredentialVault.isValidName(name), call.connection != .inProcess {
                     let replaces = try run { try vault.list()[name] != nil }
-                    try await allowed(.store(name: name, replaces: replaces), call, approve: approve)
+                    try await gate.allowed(.store(name: name, replaces: replaces, scope: scope), call, vault: vault, by: by, event: "set")
+                    onlyNew = !replaces
                 }
-                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: by) }
+                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: by, onlyNew: onlyNew) }
                 return ["stored": .string(name), "replaced": .bool(replaced)]
             }.withDeadline(deadline),
             .async("vault.scope") { call in
                 let name = try text(call.params, "name")
                 guard let scope = try scope(call.params) else { throw missingParam("vault.scope", "scope") }
                 let by = try caller(call)
-                if by.consumer == .user, try run({ try vault.list()[name] }) != nil {
-                    try await allowed(.scope(name: name, scope: scope), call, approve: approve)
+                if by.consumer == .user, call.connection != .inProcess {
+                    try await gate.allowed(.scope(name: name, scope: scope), call, vault: vault, by: by, event: "scope")
                 }
                 try run { try vault.setScope(name, scope: scope, by: by) }
                 return ["name": .string(name), "scope": .array(scope.map { .string($0.rawValue) })]
@@ -167,8 +173,8 @@ nonisolated enum VaultControl {
             .async("vault.remove") { call in
                 let name = try text(call.params, "name")
                 let by = try caller(call)
-                if by.consumer == .user, try run({ try vault.list()[name] }) != nil {
-                    try await allowed(.remove(name: name), call, approve: approve)
+                if by.consumer == .user, call.connection != .inProcess {
+                    try await gate.allowed(.remove(name: name), call, vault: vault, by: by, event: "remove")
                 }
                 let existed = try run { try vault.remove(name, by: by) }
                 return ["removed": .string(name), "existed": .bool(existed)]
@@ -181,17 +187,22 @@ nonisolated enum VaultControl {
                 }
                 let command = try optionalText(call.params, "command")
                 let by = try caller(call)
-                // A secret kept for the person goes to a command the person allowed; an agent's
-                // claim gets agent-scoped values only (resolve refuses the rest, audited).
-                if by.consumer == .user {
-                    let index = try run { try vault.list() }
-                    let kept = names.filter { index[$0].map { !$0.scope.contains(.agents) } ?? false }
-                    if !kept.isEmpty {
-                        try await allowed(.use(names: kept, program: command.map(CredentialVault.commandSummary)), call, approve: approve)
+                // Which secrets need the person is decided under the vault's lock, with the read
+                // (resolve's `approved`): the person approves exactly those, then it reads again.
+                var approved: Set<String>? = call.connection == .inProcess ? nil : []
+                for _ in 0..<3 {
+                    do {
+                        let values = try vault.resolve(names, for: by, command: command, approved: approved)
+                        return ["values": .object(values.mapValues(JSONValue.string))]
+                    } catch CredentialVault.Failure.needsApproval(let kept) {
+                        let program = command.flatMap(CredentialVault.displayProgram)
+                        try await gate.allowed(.use(names: kept, program: program), call, vault: vault, by: by, event: "use", command: command)
+                        approved?.formUnion(kept)
+                    } catch let failure as CredentialVault.Failure {
+                        throw error(failure)
                     }
                 }
-                let values = try run { try vault.resolve(names, for: by, command: command) }
-                return ["values": .object(values.mapValues(JSONValue.string))]
+                throw ControlError(code: "vault.not_approved", message: CredentialVaultStrings.declinedApproval(names.joined(separator: ", ")))
             }.withDeadline(deadline),
             .async("vault.request") { call in
                 let name = try text(call.params, "name")
@@ -201,38 +212,103 @@ nonisolated enum VaultControl {
                 let asker = try caller(call)
                 let existing = try run { try store.list()[name] }
                 let replaces = existing != nil
-                // The person asking for themselves names no asker on the sheet.
-                let request = EntryRequest(name: name, reason: reason, requester: asker.consumer == .user ? "" : asker.label, replaces: replaces,
-                                           scope: existing?.scope ?? CredentialVault.Consumer.allCases)
-                guard let answer = await askUntilClosed(request, ask: ask, connection: call.connection) else {
-                    throw ControlError(code: "declined", message: CredentialVaultStrings.declined(name), data: ["name": .string(name)])
-                }
+                // A socket asker is always named: one that did not say it is an agent reads as "a cmux
+                // command", never as the person's own request. Only an agent's asks start agent-usable.
+                let label = asker.consumer == .agents ? asker.label : CredentialVaultStrings.cmuxCommand
+                let request = EntryRequest(name: name, reason: reason, requester: label, replaces: replaces,
+                                           scope: existing?.scope ?? (asker.consumer == .agents ? CredentialVault.Consumer.allCases : [.user]))
                 // The person typed it: the write is theirs, with the request's reason as the note.
-                let person = CredentialVault.Caller(consumer: .user, label: CredentialVaultStrings.personAskedBy(asker.label))
-                try run {
-                    try store.set(name, value: answer.value, scope: answer.scope, note: reason.flatMap { replaces ? nil : $0 },
-                                  by: person, event: "request", onlyNew: !replaces)
+                let person = CredentialVault.Caller(consumer: .user, label: CredentialVaultStrings.personAskedBy(label))
+                let connection = call.connection
+                let declined = ControlError(code: "declined", message: CredentialVaultStrings.declined(name), data: ["name": .string(name)])
+                guard replaces else {
+                    // A new name: a secret made under it while the sheet was open is never replaced;
+                    // the sheet comes back with what the person typed (``CredentialVault/enterNew``).
+                    let stored: String?
+                    do {
+                        stored = try await store.enterNew(request, by: person, event: "request", note: reason) { @MainActor request in
+                            await Self.askUntilClosed(request, ask: ask, connection: connection)
+                        }
+                    } catch let failure as CredentialVault.Failure {
+                        throw error(failure)
+                    }
+                    guard let stored else { throw declined }
+                    let scope = try run { try store.list()[stored]?.scope } ?? []
+                    return ["stored": .string(stored), "replaced": false, "scope": .array(scope.map { .string($0.rawValue) })]
                 }
-                return ["stored": .string(name), "replaced": .bool(replaces), "scope": .array(answer.scope.map { .string($0.rawValue) })]
+                guard let answer = await askUntilClosed(request, ask: ask, connection: connection) else { throw declined }
+                try run { try store.set(name, value: answer.value, scope: answer.scope, note: nil, by: person, event: "request") }
+                return ["stored": .string(name), "replaced": true, "scope": .array(answer.scope.map { .string($0.rawValue) })]
             }.withDeadline(deadline),
         ]
     }
 
-    /// Returns when the person allowed `approval` on their sheet; throws `vault.not_approved` when
-    /// they did not, or the request ended first (its deadline, Ctrl-C). The app's own in-process
-    /// calls need no sheet.
-    private static func allowed(_ approval: CredentialVault.Approval, _ call: ControlCall, approve: @escaping Approve) async throws {
-        guard call.connection != .inProcess else { return }
-        let sheet = Task { @MainActor in await approve(approval) }
-        let token = ControlConnectionClosures.shared.add(call.connection) { sheet.cancel() }
-        defer { ControlConnectionClosures.shared.remove(token) }
-        let yes = await withTaskCancellationHandler { await sheet.value } onCancel: { sheet.cancel() }
-        guard yes, !Task.isCancelled, !sheet.isCancelled else {
-            let name: String = switch approval {
-            case .use(let names, _): names.joined(separator: ", ")
-            case .store(let name, _), .remove(let name), .scope(let name, _): name
+    /// The person's approvals for one set of methods: one sheet open at a time, and after the
+    /// person declines (or does not answer) an approval, the same ask is refused without a sheet
+    /// for ``backoff``, so a caller cannot keep a sheet in front of them until a click lands. The
+    /// app's in-process calls never get here.
+    final class ApprovalGate: Sendable {
+        static let backoff: Duration = .seconds(30)
+        private struct State {
+            var open = false
+            var refusedUntil: [String: ContinuousClock.Instant] = [:]
+        }
+        private let state = Mutex(State())
+        private let approve: Approve
+        private let now: @Sendable () -> ContinuousClock.Instant
+
+        init(approve: @escaping Approve, now: @escaping @Sendable () -> ContinuousClock.Instant) {
+            self.approve = approve
+            self.now = now
+        }
+
+        /// Returns when the person allowed `approval`; otherwise throws `vault.not_approved` (and
+        /// audits it): they declined or closed it, the request ended first (its deadline, Ctrl-C),
+        /// another approval is open, or they declined the same ask within ``backoff``.
+        func allowed(_ approval: CredentialVault.Approval, _ call: ControlCall, vault: CredentialVault, by: CredentialVault.Caller,
+                     event: String, command: String? = nil) async throws {
+            let key = Self.key(approval)
+            let names = Self.names(approval)
+            let refusal = { (message: String) -> ControlError in
+                vault.auditRefusal(event: event, names: names, by: by, command: command)
+                return ControlError(code: "vault.not_approved", message: message, data: ["names": .array(names.map(JSONValue.string))])
             }
-            throw ControlError(code: "vault.not_approved", message: CredentialVaultStrings.declinedApproval(name), data: ["name": .string(name)])
+            let at = now()
+            let start: String? = state.withLock { state in
+                if state.open { return CredentialVaultStrings.approvalOpen }
+                if let until = state.refusedUntil[key], at < until { return CredentialVaultStrings.declinedApproval(names.joined(separator: ", ")) }
+                state.open = true
+                return nil
+            }
+            if let start { throw refusal(start) }
+            let sheet = Task { @MainActor [approve] in await approve(approval) }
+            let token = ControlConnectionClosures.shared.add(call.connection) { sheet.cancel() }
+            let yes = await withTaskCancellationHandler { await sheet.value } onCancel: { sheet.cancel() }
+            ControlConnectionClosures.shared.remove(token)
+            let allowed = yes && !Task.isCancelled && !sheet.isCancelled
+            let ended = now()
+            state.withLock { state in
+                state.open = false
+                state.refusedUntil = state.refusedUntil.filter { $0.value > ended }
+                if !allowed { state.refusedUntil[key] = ended.advanced(by: Self.backoff) }
+            }
+            guard allowed else { throw refusal(CredentialVaultStrings.declinedApproval(names.joined(separator: ", "))) }
+        }
+
+        static func names(_ approval: CredentialVault.Approval) -> [String] {
+            switch approval {
+            case .use(let names, _): names
+            case .store(let name, _, _), .remove(let name), .scope(let name, _): [name]
+            }
+        }
+
+        private static func key(_ approval: CredentialVault.Approval) -> String {
+            switch approval {
+            case .use(let names, _): "use:" + names.sorted().joined(separator: ",")
+            case .store(let name, _, _): "set:" + name
+            case .remove(let name): "remove:" + name
+            case .scope(let name, _): "scope:" + name
+            }
         }
     }
 
@@ -337,6 +413,9 @@ nonisolated enum VaultControl {
             ControlError(code: "vault.user_only", message: CredentialVaultStrings.agentsMayNotWrite)
         case .exists(let name):
             ControlError(code: "vault.exists", message: CredentialVaultStrings.alreadyThere(name), data: ["name": .string(name)])
+        case .needsApproval(let names):
+            ControlError(code: "vault.not_approved", message: CredentialVaultStrings.declinedApproval(names.joined(separator: ", ")),
+                         data: ["names": .array(names.map(JSONValue.string))])
         case .keychain(let status):
             ControlError(code: "vault.keychain", message: CredentialVaultStrings.keychain(status), data: ["status": JSONValue(Int(status))])
         case .index(let path):

@@ -66,8 +66,12 @@ public nonisolated final class CredentialVault: Sendable {
         case missing([String])
         case denied([String], Consumer)
         case agentsMayNotWrite
-        /// A new secret's name is taken (``set(_:value:scope:note:by:event:onlyNew:)``).
+        /// A new secret's name is taken, or another differs from it only in case
+        /// (``set(_:value:scope:note:by:event:onlyNew:)``).
         case exists(String)
+        /// ``resolve(_:for:command:approved:)``: these secrets are kept for the person and were not
+        /// approved for this use; nothing was released.
+        case needsApproval([String])
         case keychain(Int32)
         case index(String)
     }
@@ -156,6 +160,10 @@ public nonisolated final class CredentialVault: Sendable {
             let at = millis()
             let old = index[name]
             if onlyNew, old != nil { throw Failure.exists(name) }
+            // The Keychain may match account names without regard to case: one name per spelling.
+            if old == nil, let clash = index.keys.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+                throw Failure.exists(clash)
+            }
             let previous = old == nil ? nil : try secrets.value(for: name)
             try secrets.save(value, for: name)
             index[name] = Entry(scope: Self.ordered(scope ?? old?.scope ?? Consumer.allCases),
@@ -217,8 +225,12 @@ public nonisolated final class CredentialVault: Sendable {
     // MARK: Use
 
     /// The values of `names` for `caller`, all or none: every name must exist and allow the
-    /// caller's consumer. Each grant or refusal is one audit line naming `command`.
-    func resolve(_ names: [String], for caller: Caller, command: String?) throws -> [String: String] {
+    /// caller's consumer. Each grant or refusal is one audit line naming `command`. With
+    /// `approved`, a secret kept for the person (no `agents` in its scope) is released only when
+    /// it is in that set; others throw ``Failure/needsApproval(_:)``, decided under the same lock
+    /// as the release (a secret stored between an approval check and the read cannot slip out).
+    /// nil: the app's own call, no approval.
+    func resolve(_ names: [String], for caller: Caller, command: String?, approved: Set<String>? = nil) throws -> [String: String] {
         var seen = Set<String>()
         let names = names.filter { seen.insert($0).inserted }
         if let bad = names.first(where: { !Self.isValidName($0) }) { throw Failure.invalidName(bad) }
@@ -239,6 +251,10 @@ public nonisolated final class CredentialVault: Sendable {
             guard denied.isEmpty else {
                 record("denied")
                 throw Failure.denied(denied, caller.consumer)
+            }
+            if let approved {
+                let kept = names.filter { index[$0].map { !$0.scope.contains(.agents) } == true && !approved.contains($0) }
+                guard kept.isEmpty else { throw Failure.needsApproval(kept) }
             }
             var values: [String: String] = [:]
             for name in names {
@@ -263,6 +279,15 @@ public nonisolated final class CredentialVault: Sendable {
 
     private static func ordered(_ scope: [Consumer]) -> [Consumer] {
         Consumer.allCases.filter(scope.contains)
+    }
+
+    /// A refusal that happened before the vault was touched (the person did not approve it): one
+    /// audit line, so a declined or unanswered approval shows in `cmux vault log`.
+    func auditRefusal(event: String, names: [String], by caller: Caller, command: String?) {
+        lock.withLock { _ in
+            appendAudit(AuditRecord(atMs: millis(), event: event, names: names, by: caller.label, consumer: caller.consumer,
+                                    command: command.map(Self.commandSummary), outcome: "not_approved"))
+        }
     }
 
     /// The program a `vault exec` runs, for the audit log: its first word without a folder, at most

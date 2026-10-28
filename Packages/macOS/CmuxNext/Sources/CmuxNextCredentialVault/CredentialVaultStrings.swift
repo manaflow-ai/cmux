@@ -59,7 +59,9 @@ nonisolated enum CredentialVaultStrings {
     static func entryAsks(_ asker: String, _ name: String) -> String {
         String(format: text("credentialVault.entry.asks", "%1$@ asks for %2$@."), asker, name)
     }
-    static func entryReason(_ reason: String) -> String { String(format: text("credentialVault.entry.reason", "Reason: %@"), reason) }
+    static func entryReason(_ reason: String) -> String {
+        String(format: text("credentialVault.entry.reason", "Its reason, in its own words: “%@”"), reason)
+    }
     static var entryPrivacy: String {
         text("credentialVault.entry.privacy", "The value goes to your Keychain. Agents use it by name and never see it.")
     }
@@ -68,6 +70,11 @@ nonisolated enum CredentialVaultStrings {
     }
     static var entryPasteTitle: String { text("credentialVault.entry.pasteTitle", "Move a Key to the Credential Vault") }
     static var entryNameLabel: String { text("credentialVault.entry.nameLabel", "Name") }
+    /// A socket asker that did not say it is an agent: the sheet never reads as the person's own.
+    static var cmuxCommand: String { text("credentialVault.caller.cmuxCommand", "a cmux command on this Mac") }
+    static var approvalOpen: String {
+        text("credentialVault.error.approvalOpen", "Another Credential Vault approval is open in cmux; answer it first")
+    }
     static var homeChat: String { text("credentialVault.caller.homeChat", "you, from a chat message") }
     static var entryValueLabel: String { text("credentialVault.entry.valueLabel", "Value") }
     static var entryAgentsCheck: String { text("credentialVault.entry.agentsCheck", "Agents may use it") }
@@ -87,13 +94,16 @@ nonisolated enum CredentialVaultStrings {
         String(format: text("credentialVault.approve.useTitle", "Allow a command to use %@?"), names)
     }
     static func approveProgram(_ program: String) -> String {
-        String(format: text("credentialVault.approve.program", "Command: %@"), program)
+        String(format: text("credentialVault.approve.program", "It says it will run: %@"), program)
     }
     static var approveUseLine: String {
-        text("credentialVault.approve.useLine", "It is kept for you: agents may not use it. The command gets its value.")
+        text("credentialVault.approve.useLine", "It is kept for you: agents may not use it. The program that asks gets its value.")
     }
     static func approveStoreTitle(_ name: String) -> String {
         String(format: text("credentialVault.approve.storeTitle", "Save %@ to the Credential Vault?"), name)
+    }
+    static var approveStoreLine: String {
+        text("credentialVault.approve.storeLine", "The value comes from the program that asks, not from you.")
     }
     static func approveReplaceTitle(_ name: String) -> String {
         String(format: text("credentialVault.approve.replaceTitle", "Replace the value of %@ in the Credential Vault?"), name)

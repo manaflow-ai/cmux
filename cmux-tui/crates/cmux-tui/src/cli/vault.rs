@@ -429,7 +429,9 @@ fn pump(
 
 /// Replaces every occurrence of a secret value in a byte stream with `[vault:NAME]`, across read
 /// boundaries: bytes that may start a value wait for the next read (at most the longest value).
-/// Values shorter than 4 bytes are not masked (they would garble ordinary output).
+/// Values shorter than 4 bytes are not masked (they would garble ordinary output). Output that ends
+/// in what could start a value waits for the next read or the end, even a prompt: showing it at
+/// once would show the start of a value split across two writes.
 #[derive(Clone)]
 pub(super) struct Masker {
     secrets: Vec<(Vec<u8>, String)>,
