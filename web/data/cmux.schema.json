@@ -2810,7 +2810,7 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/shortcutFirstStroke"
+              "$ref": "#/$defs/shortcutChordFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
@@ -2838,7 +2838,7 @@
                     "maxItems": 2,
                     "prefixItems": [
                       {
-                        "$ref": "#/$defs/shortcutFirstStroke"
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
                       },
                       {
                         "$ref": "#/$defs/shortcutStroke"
@@ -2919,13 +2919,13 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+              "$ref": "#/$defs/shortcutChordFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
+          "description": "Chorded shortcut. This action takes a bare single stroke, but a chord still needs Cmd or Ctrl in its first stroke. Example: [\"ctrl+b\", \"g\"]."
         },
         {
           "type": "object",
@@ -2947,7 +2947,7 @@
                     "maxItems": 2,
                     "prefixItems": [
                       {
-                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
                       },
                       {
                         "$ref": "#/$defs/shortcutStroke"
@@ -2958,7 +2958,7 @@
               }
             }
           },
-          "description": "Several shortcuts for one action, each a single stroke or a chord. Bare first strokes are accepted for this action. Example: {\"any\": [\"j\", \"ctrl+n\"]}."
+          "description": "Several shortcuts for one action, each a single stroke or a chord. A bare single stroke is accepted for this action; a chord still needs Cmd or Ctrl in its first stroke. Example: {\"any\": [\"j\", \"ctrl+n\"]}."
         }
       ]
     },
@@ -2994,6 +2994,17 @@
         }
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
+    },
+    "shortcutChordFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌃)\\+"
+        }
+      ],
+      "description": "First stroke of a chord. Must include Cmd or Ctrl: only those start a chord, and the app drops a chord whose first stroke has neither, whether or not the action accepts a bare single stroke."
     },
     "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [

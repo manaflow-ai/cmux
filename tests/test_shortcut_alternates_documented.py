@@ -29,6 +29,9 @@ CONFIGURATION_DOC = ROOT / "docs" / "configuration.md"
 ALL_KEYS = ROOT / "skills" / "cmux-settings" / "references" / "all-keys.md"
 SHORTCUT_ACTIONS = ROOT / "skills" / "cmux-settings" / "references" / "shortcut-actions.md"
 SHORTCUTS_SKILL = ROOT / "skills" / "cmux-keyboard-shortcuts" / "SKILL.md"
+# The cmux-settings quick reference lists the binding values inline, separately
+# from references/all-keys.md.
+SETTINGS_SKILL = ROOT / "skills" / "cmux-settings" / "SKILL.md"
 
 # The rule the keyboard-shortcuts page renders for the alternates form.
 ANY_RULE_KEY = "chordsRuleAny"
@@ -168,9 +171,11 @@ class AlternatesValidateTests(unittest.TestCase):
         # additionalProperties: a key, and a chord among the keys.
         self.assertBinding("nextSurface", {"any": ["ctrl+tab", "cmd+]"]}, valid=True)
         self.assertBinding("nextSurface", {"any": ["cmd+]", ["ctrl+b", "n"]]}, valid=True)
-        # A bare-first-stroke action that also takes chords.
+        # A bare-first-stroke action that also takes chords. A chord item still
+        # needs Cmd or Ctrl first; see
+        # test_a_chord_needs_cmd_or_ctrl_in_its_first_stroke.
         self.assertBinding("diffViewerScrollDown", {"any": ["j", "ctrl+n"]}, valid=True)
-        self.assertBinding("diffViewerScrollDown", {"any": ["j", ["g", "g"]]}, valid=True)
+        self.assertBinding("diffViewerScrollDown", {"any": ["j", ["ctrl+b", "g"]]}, valid=True)
         # A bare-first-stroke action that takes a single stroke only.
         self.assertBinding("fileExplorerOpenSelection", {"any": ["return", "o"]}, valid=True)
         # An empty list unbinds (docs/configuration.md).
@@ -182,14 +187,49 @@ class AlternatesValidateTests(unittest.TestCase):
         self.assertBinding("nextSurface", "cmd+]", valid=True)
         self.assertBinding("nextSurface", None, valid=True)
         self.assertBinding("nextSurface", "none", valid=True)
-        self.assertBinding("diffViewerScrollDown", ["g", "g"], valid=True)
+        # A bare-stroke action keeps its bare *single* stroke and its chords.
+        # `["g", "g"]` is not among them: the app never accepted it (see
+        # test_a_chord_needs_cmd_or_ctrl_in_its_first_stroke).
+        self.assertBinding("diffViewerScrollDown", "j", valid=True)
+        self.assertBinding("diffViewerScrollDown", ["ctrl+b", "g"], valid=True)
 
     def test_malformed_alternates_are_rejected(self):
         self.assertBinding("nextSurface", {"any": ["cmd+]"], "first": {"key": "p"}}, valid=False)
         # An item of `any` is held to the same modifier rule as the binding itself.
         self.assertBinding("nextSurface", {"any": ["j"]}, valid=False)
-        self.assertBinding("fileExplorerOpenSelection", {"any": [["g", "g"]]}, valid=False)
         self.assertBinding("nextSurface", {"any": [["ctrl+b", "n", "x"]]}, valid=False)
+        # fileExplorerOpenSelection takes a single stroke only, so no chord item either.
+        self.assertBinding("fileExplorerOpenSelection", {"any": [["ctrl+b", "o"]]}, valid=False)
+
+    def test_a_chord_needs_cmd_or_ctrl_in_its_first_stroke(self):
+        """`SettingsApplier` drops any other chord, so the schema must too.
+
+        `SettingsApplier.swift` guards the `.chord` case with
+        `first.command || first.control` and appends an `.unsupportedChord`
+        diagnostic otherwise. That guard has no exception for the actions that
+        accept a bare *single* stroke, so the bare-stroke definitions may not
+        accept a bare-first chord either -- as a whole binding or as an `any`
+        item. Before this was fixed the schema accepted
+        `"diffViewerScrollDown": ["g", "g"]`, which the app silently drops.
+        """
+        for action in ("nextSurface", "diffViewerScrollDown"):
+            with self.subTest(action=action, form="whole binding"):
+                self.assertBinding(action, ["ctrl+b", "c"], valid=True)
+                self.assertBinding(action, ["cmd+j", "x"], valid=True)
+                self.assertBinding(action, ["ctrl+shift+b", "c"], valid=True)
+                # Modifiers the key router does not start a chord on.
+                self.assertBinding(action, ["shift+b", "n"], valid=False)
+                self.assertBinding(action, ["opt+b", "n"], valid=False)
+                self.assertBinding(action, ["space", "n"], valid=False)
+            with self.subTest(action=action, form="any item"):
+                self.assertBinding(action, {"any": ["cmd+]", ["ctrl+b", "n"]]}, valid=True)
+                self.assertBinding(action, {"any": ["cmd+]", ["shift+b", "n"]]}, valid=False)
+        # The bare-stroke exception is about a single stroke, and still holds.
+        self.assertBinding("diffViewerScrollDown", "j", valid=True)
+        self.assertBinding("diffViewerScrollDown", {"any": ["j", "ctrl+n"]}, valid=True)
+        self.assertBinding("diffViewerScrollDown", {"any": ["j", ["ctrl+b", "g"]]}, valid=True)
+        self.assertBinding("diffViewerScrollDown", ["g", "g"], valid=False)
+        self.assertBinding("diffViewerScrollDown", {"any": ["j", ["g", "g"]]}, valid=False)
 
 
 class AlternatesDocumentedTests(unittest.TestCase):
@@ -285,6 +325,24 @@ class AlternatesDocumentedTests(unittest.TestCase):
             names_the_any_form(SHORTCUTS_SKILL.read_text()),
             "skills/cmux-keyboard-shortcuts/SKILL.md lists the accepted binding values an "
             "agent may write and must name the alternates form",
+        )
+
+    def test_settings_skill_quick_reference_names_the_form(self):
+        """The inline quick reference, not just references/all-keys.md."""
+        lines = [
+            line for line in SETTINGS_SKILL.read_text().splitlines()
+            if "`shortcuts.bindings.<actionId>`" in line
+        ]
+        self.assertEqual(
+            len(lines), 1,
+            "expected one shortcuts.bindings quick-reference line in skills/cmux-settings/SKILL.md",
+        )
+        self.assertTrue(
+            names_the_any_form(lines[0]),
+            "the shortcuts.bindings line of skills/cmux-settings/SKILL.md enumerates the "
+            "accepted values an agent may write and must name the alternates form; an agent "
+            "following this skill would otherwise never learn the feature. Got: "
+            f"{lines[0]!r}",
         )
 
 
