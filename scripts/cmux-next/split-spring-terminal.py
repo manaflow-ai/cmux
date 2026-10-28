@@ -125,6 +125,15 @@ if "--suite=cef-pin-staging" in sys.argv:
     with open(os.path.join(named.get("--out", "."), "report.json"), "w") as report:
         json.dump({"suite": "cef-pin-staging", "parts": parts, "exit": code}, report)
     sys.exit(code)
+# SCRATCH (measure refs only, never lands): the split fade A/B in one step, and the split fade window tests.
+if "--suite=split-fade-ab" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-fade-ab.py")
+    os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
+if "--suite=split-fade-gui" in sys.argv:
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
+    env = dict(os.environ, CMUX_PANE_BENCH="1")
+    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+                             "SplitFadeWindowTests"], cwd=root, env=env).returncode)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
