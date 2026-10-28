@@ -29,7 +29,7 @@ extension CodeRouterClient {
         let teamID = account.teamID
         let scopeVersion = account.codeRouterScopeVersion
         let tokens: Tokens = { @MainActor in
-            func checkScope() throws {
+            @MainActor func checkScope() throws {
                 try Task.checkCancellation()
                 guard userID != nil else { throw CodeRouterError.notSignedIn }
                 guard account.codeRouterAccountID == userID,
