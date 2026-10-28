@@ -198,3 +198,79 @@ async fn a_held_prompt_survives_a_restart_at_its_revision() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An approval belongs to the queued prompt it answered, not to its client-chosen id: after the
+/// approved prompt ran and the daemon restarted twice, a new guest prompt reusing that id at
+/// revision 0 still waits for the owner (review of #26747).
+#[tokio::test]
+async fn an_approval_never_carries_over_to_a_prompt_reusing_its_id() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let first = c.queue(held(&session, "g-1", "first words")).await;
+    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    assert!(c.reply_to(first).await.get("error").is_none());
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // A new daemon's ledger has forgotten the id: the same id is a new prompt.
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    c.queue(held(&session, "g-1", "second words")).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
+    let listed = queue(&hub, &session);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0]["awaitingOwner"], true, "the old approval let it run: {listed:?}");
+    let ran = c.records(&session, "user_message").await;
+    let texts: Vec<&Value> =
+        ran.iter().filter(|m| m["promptId"] == "g-1").map(|m| &m["text"]).collect();
+    assert_eq!(texts, [&json!("first words")], "{ran:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The owner's approval and the guest's removal race: whichever wins, the log records them in the
+/// order the queue changed, so the last decision for the prompt is its removal and a late answer
+/// is told `removed` (review of #26747).
+#[tokio::test]
+async fn approve_and_remove_are_logged_in_the_order_they_happened() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let mut owner = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    for i in 0..20 {
+        let id = format!("g-race-{i}");
+        c.queue(held(&session, &id, "race")).await;
+        let remove = by(answer(&session, &id, None), Some(&guest()));
+        let approve = owner.send("_acpmux/queue_approve", answer(&session, &id, Some(0))).await;
+        let removed = c.reply("_acpmux/queue_remove", remove).await;
+        owner.reply_to(approve).await;
+        assert_eq!(removed["result"]["removed"], true, "{removed}");
+        let mut decisions = Vec::new();
+        for kind in ["queue_approved", "queue_removed"] {
+            let page =
+                c.call("_acpmux/events", json!({"sessionId": session, "kinds": [kind]})).await;
+            for e in page["events"].as_array().unwrap() {
+                if e["msg"]["promptId"] == id.as_str() {
+                    decisions.push((e["seq"].as_u64().unwrap(), kind));
+                }
+            }
+        }
+        decisions.sort();
+        assert_eq!(decisions.last().map(|d| d.1), Some("queue_removed"), "{id}: {decisions:?}");
+        let late = c.reply("_acpmux/queue_decline", answer(&session, &id, None)).await;
+        assert_eq!(late.pointer("/error/data/decided"), Some(&json!("removed")), "{id}: {late}");
+    }
+    c.cancel(&session).await;
+}
