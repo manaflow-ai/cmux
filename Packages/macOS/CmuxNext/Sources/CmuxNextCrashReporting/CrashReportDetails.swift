@@ -53,7 +53,31 @@ public nonisolated struct CrashReportDetails: Sendable {
     /// The bullet lines: exception, termination, crashed thread, uptime, open counts, focused pane,
     /// browser engine, memory and the report file.
     public func summary() -> [String] {
-        []
+        var lines: [String] = []
+        if let system {
+            var exception = system.exceptionType
+            if let signal = system.signal { exception += " (\(signal))" }
+            if let subtype = system.exceptionSubtype { exception += ", \(subtype)" }
+            if let codes = system.exceptionCodes { exception += ", codes \(codes)" }
+            lines.append("- Exception: \(scrub(exception))")
+            if let termination = system.termination { lines.append("- Termination: \(scrub(termination))") }
+            lines.append("- Crashed thread: \(system.faultingThread)\(system.faultingQueue.map { " (\(scrub($0)))" } ?? "")")
+        }
+        if let uptime = system?.uptime {
+            lines.append("- Uptime: \(Self.duration(uptime))")
+        } else if let context {
+            lines.append("- Uptime: at least \(Self.duration(context.updated.timeIntervalSince(launched)))")
+        }
+        if let context {
+            let tabs = context.terminalTabs + context.browserTabs + context.otherTabs
+            lines.append("- Open: \(context.windows) windows, \(context.workspaces) workspaces, \(tabs) tabs "
+                + "(\(context.terminalTabs) terminal, \(context.browserTabs) browser, \(context.otherTabs) other)")
+            lines.append("- Focused pane: \(context.focusedPane.map(scrub) ?? "none")")
+            lines.append("- Browser engine: \(context.browserEngine.map(scrub) ?? "not started"), \(context.browserFailures) helper failures this run")
+            lines.append("- Memory: \(context.footprintMegabytes) MB footprint\(age(of: context.updated))")
+        }
+        lines.append("- macOS crash report: \(systemReportName.map { "\($0) (Show Crash Log opens it)" } ?? "none found")")
+        return lines
     }
 
     /// The crashed thread's top `frames` frames and the newest `actions` actions, each a titled
@@ -63,7 +87,19 @@ public nonisolated struct CrashReportDetails: Sendable {
     ///   - frames: The most frames.
     ///   - actions: The most actions.
     public func blocks(frames frameLimit: Int, actions actionLimit: Int) -> [String] {
-        []
+        var lines: [String] = []
+        if let system, frameLimit > 0, !system.frames.isEmpty {
+            let shown = system.frames.prefix(frameLimit)
+            lines += ["", "Crashed thread \(system.faultingThread), top \(shown.count) of \(system.frames.count) frames:", "```"]
+            lines += shown.enumerated().map { index, frame in self.frame(index, frame, in: system) }
+            lines.append("```")
+            if let note = unresolvedNote(shown, in: system) { lines.append(note) }
+        }
+        if let context, actionLimit > 0, !context.actions.isEmpty {
+            lines += ["", "Last actions (newest first; the one running at the crash may be missing):"]
+            lines += context.actions.prefix(actionLimit).map { "- \(scrub($0.id)) (\(scrub($0.entrypoint)))\(age(of: $0.at))" }
+        }
+        return lines
     }
 
     /// `0.4 s`, `42 s`, `3 min 5 s`, `1 h 46 min`.
