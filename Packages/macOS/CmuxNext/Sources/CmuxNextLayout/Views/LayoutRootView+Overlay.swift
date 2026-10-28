@@ -139,7 +139,7 @@ extension LayoutRootView {
     /// only at rest (`WindowOverlayLayer`: divider catcher panels over pages, the pressed one keeps the drag), and
     /// hears the end once, after the landing frame's (or with no spring the release's) last sync (`setLayoutInMotion`).
     public var isInLayoutMotion: Bool {
-        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && ($0.hasMotion || $0.activeDrag != nil) }
+        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && $0.hasMotion }
     }
 
     func reportInteractiveRects() { // One report (lines, areas, motion, strip clips) asks the pages for one update at most.
