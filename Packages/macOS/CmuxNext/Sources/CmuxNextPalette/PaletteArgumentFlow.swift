@@ -151,7 +151,7 @@ struct PaletteArgumentFlow {
                 subtitle: option.subtitle,
                 symbol: option.symbol ?? descriptor.symbol,
                 section: section,
-                isEnabled: next != nil,
+                isEnabled: next != nil && option.isEnabled,
                 primary: PaletteCommand(
                     id: "choose",
                     title: PaletteStrings.choose,

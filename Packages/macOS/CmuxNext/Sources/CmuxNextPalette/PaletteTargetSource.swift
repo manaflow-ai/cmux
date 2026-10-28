@@ -9,13 +9,16 @@ public struct PaletteTargetOption: Identifiable, Sendable, Hashable {
     public var symbol: String?
     /// Real colors drawn in the icon place (a theme's strip, R98).
     public var swatches: [ThemeRGB]
+    /// False keeps an unavailable destination visible but prevents choosing it.
+    public var isEnabled: Bool
 
-    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = []) {
+    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = [], isEnabled: Bool = true) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.symbol = symbol
         self.swatches = swatches
+        self.isEnabled = isEnabled
     }
 }
 

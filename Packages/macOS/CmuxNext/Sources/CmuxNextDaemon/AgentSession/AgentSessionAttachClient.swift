@@ -76,6 +76,8 @@ public actor AgentSessionAttachClient {
         var keyedReason = false
         /// `agent-session-start-vm-kind-v1`.
         var vmKind = false
+        /// `agent-session-start-model-v1`.
+        var model = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -120,6 +122,9 @@ public actor AgentSessionAttachClient {
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
     ///
+    /// `model` is included only when the daemon advertises `agent-session-start-model-v1`; older
+    /// daemons receive the same cwd/harness start they have always received.
+    ///
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
@@ -129,7 +134,7 @@ public actor AgentSessionAttachClient {
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
     public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      ownerLink: OwnerLink? = nil) async throws -> String {
+                      ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -140,7 +145,8 @@ public actor AgentSessionAttachClient {
         }
         let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
-                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind)
+                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
+                                      model: model, servesModel: served.model)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -155,9 +161,11 @@ public actor AgentSessionAttachClient {
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
     static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
-                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool) -> [String: any Sendable] {
+                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
+                            model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let harness { params["harness"] = harness }
+        if servesModel, let model, !model.isEmpty { params["model"] = model }
         if homeConfirmed { params["home_confirmed"] = true }
         if let personKey, servesKeyedReason {
             params["require_person_key"] = true
@@ -362,6 +370,7 @@ public actor AgentSessionAttachClient {
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
+                            model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))

@@ -40,6 +40,50 @@ extension AgentHandlers {
         })
     }
 
+    /// Resolves an explicit host/machine argument to that machine's most recently focused pane.
+    /// The same seed is used for local, peer and Cloud starts, so CLI, MCP and palette agree.
+    static func openOnHost(_ invocation: ActionInvocation, context: AppActionContext) -> Bool {
+        guard let raw = invocation["host"] else { return false }
+        let wanted = raw.targetValue?.id ?? raw.stringValue
+        guard let wanted, !wanted.isEmpty else { return false }
+        let machines = context.services.machines
+        let daemon: DaemonService?
+        if wanted == MachineRegistry.localID {
+            daemon = machines.local
+        } else {
+            daemon = machines.remoteDaemons.first {
+                machines.machineName($0.machineID) == wanted || $0.machineID == wanted
+            }
+        }
+        guard let daemon else {
+            context.registry.refuse(WorkspaceVerbStrings.noMachine)
+            return true
+        }
+        guard daemon.connection != nil else {
+            context.registry.refuse(WorkspaceVerbStrings.machineNotConnected)
+            return true
+        }
+        let candidates = daemon.store.workspaces.flatMap { workspace in
+            workspace.screens.flatMap(\.panes).map { (workspace, $0) }
+        }
+        guard let (workspace, pane) = candidates.max(by: { $0.1.focusedAt < $1.1.focusedAt }) else {
+            context.registry.refuse(MiscHandlerStrings.noPane)
+            return true
+        }
+        let requested = seed(for: invocation)
+        let seed = AgentPaneSeed(cwd: AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon).cwd(requested.cwd),
+                                 harness: requested.harness, model: requested.model, host: wanted)
+        do {
+            context.registry.track(result: try AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
+                .openTab(seed: seed, selects: true, services: context.services))
+        } catch let failure as ActionFailure {
+            context.registry.refuse(failure.message)
+        } catch {
+            context.registry.refuse(RefusalStrings.agentTabCreateFailed)
+        }
+        return true
+    }
+
     /// New Agent Chat that a script or agent aims at a pane or a workspace (the CLI, MCP; #23016),
     /// shown or not. The chat tab opens on the workspace store in that pane (a workspace's most
     /// recently focused one) with no window, workspace, selection or focus change, starts in
@@ -65,7 +109,8 @@ extension AgentHandlers {
             openNewAgentChat(in: shown, invocation: invocation, context: context)
             return true
         }
-        let seed = AgentPaneSeed(cwd: place.cwd(invocation["cwd"]?.stringValue))
+        let requested = seed(for: invocation)
+        let seed = AgentPaneSeed(cwd: place.cwd(requested.cwd), harness: requested.harness, model: requested.model)
         do {
             services.registry.track(result: try place.openTab(seed: seed, selects: shown == nil, services: services))
         } catch let failure as ActionFailure {

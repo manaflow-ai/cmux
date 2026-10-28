@@ -109,6 +109,8 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** The model a new chat starts on before its first prompt. */
+  model?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
   /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
@@ -6024,7 +6026,7 @@ export class AcpmuxDirectClient {
     cwd?: string,
     peer?: string,
     noProject = false,
-    model?: string,
+    model: string | undefined = this.host.model,
   ): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(

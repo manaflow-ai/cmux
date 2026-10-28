@@ -70,4 +70,41 @@ struct AgentChatInUnshownPaneTests {
             #expect(controller.stripModel.selectedID == selected, "the person's selected tab changed")
         }
     }
+    /// The action's explicit folder reaches the created tab, rather than being dropped by the
+    /// untargeted/targeted open paths. This observes the store's created tab after the action.
+    @Test func aTargetedChatKeepsTheRequestedCwd() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016-cwd")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let window = try #require(services.windows.active)
+            let pane = try #require(window.focusedPane)
+            let before = Set(pane.pane.tabs.map(\.id))
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat", target: ControlTargetRef(kind: "pane", id: pane.paneKey),
+                                     arguments: ["cwd": .string("/tmp")], origin: ActionOrigin.cli.rawValue)
+            )
+            #expect(run.outcome == .ran, "\(run.outcome)")
+            try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
+                                                      report: { "tabs did not grow from \(before)" })
+            let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
+            #expect(created.cwd == "/tmp", "created chat cwd was \(String(describing: created.cwd))")
+        }
+    }
+
+    @Test func anUntargetedChatKeepsTheRequestedCwd() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016-cwd-untargeted")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let window = try #require(services.windows.active)
+            let pane = try #require(window.focusedPane)
+            let before = Set(pane.pane.tabs.map(\.id))
+            #expect(services.registry.perform("palette.newAgentChat", invocation: ActionInvocation(
+                arguments: ["cwd": .string("/tmp")], origin: .cli)))
+            try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
+                                                      report: { "tabs did not grow from \(before)" })
+            let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
+            #expect(created.cwd == "/tmp", "created chat cwd was \(String(describing: created.cwd))")
+        }
+    }
+
 }

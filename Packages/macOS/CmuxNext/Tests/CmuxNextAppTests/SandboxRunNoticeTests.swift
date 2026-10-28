@@ -330,6 +330,8 @@ struct SandboxRunNoticeTests {
 
     @Test func aRestoredPageShowsTheEndedSendAsItsOwn() async throws {
         #expect(AgentPaneSeedSource(AgentPaneSeed()).holdsOnlyFolder)
+        #expect(!AgentPaneSeedSource(AgentPaneSeed(model: "model-x")).holdsOnlyFolder)
+        #expect(!AgentPaneSeedSource(AgentPaneSeed(host: "peer-1")).holdsOnlyFolder)
         var value = AgentPaneSeed()
         value.sandboxResult = .init(task: "Fix it", key: "key-r1", card: SandboxRunFollower.card(Data(Self.succeeded.utf8)))
         // The seed a banner's click opens a workspace with (WorkspaceSpawn.firstChat) carries it to the page.

@@ -54,12 +54,25 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                // `cwd`: the folder a chat opened by a script starts in (#23016).
-                arguments: [ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
-                                           kind: .string, isRequired: false)],
+                // These optional values are one schema for Cmd-I extensions, the palette chooser,
+                // CLI and MCP. With none present the handler keeps Cmd-I's inherited seed.
+                arguments: [
+                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "harness", title: String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "model", title: String(localized: "argument.agent.model", defaultValue: "Model", bundle: .module), kind: .string, isRequired: false),
+                    CatalogArgument.agentHostMachine.optional,
+                ],
                 // A workspace target opens in its last focused pane; a pane or workspace that no
                 // window shows gets the tab without being shown (AgentChatPlacement, #23016).
                 targets: [.pane, .workspace], cliName: "agent new-chat", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "palette.newAgentChatOn",
+                title: String(localized: "action.palette.newAgentChatOn", defaultValue: "New Agent Chat on…", bundle: .module),
+                keywords: ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
+                category: .agents, symbol: "bubble.left.and.bubble.right", surfaces: [.palette],
+                arguments: [CatalogArgument.agentHostMachine], targets: [.pane, .workspace],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",

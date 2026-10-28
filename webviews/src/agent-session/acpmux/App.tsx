@@ -7139,6 +7139,7 @@ function AcpmuxPane() {
     let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
+    let pendingModel: string | undefined;
     /// The connected client as the harness switch sees it.
     let switchPort: SwitchPort | undefined;
     /// Sessions a switch started whose first summary has not arrived: it names the model a new
@@ -7198,6 +7199,7 @@ function AcpmuxPane() {
           cloudHandoffs?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
+          model?: unknown;
           sandboxState?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
@@ -7292,6 +7294,7 @@ function AcpmuxPane() {
         )
           pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
+        if (typeof host.model === "string" && host.model) pendingModel = host.model;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
@@ -8034,21 +8037,25 @@ function AcpmuxPane() {
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
         const harness = pendingHarness;
+        const model = pendingModel;
         const ticket = pendingTicket;
         pendingPrompt = undefined;
         pendingHarness = undefined;
+        pendingModel = undefined;
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
         if (prompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (harness && prompt) {
-          void harnessSwitch.switchTo(harness, host.cwd);
+          void harnessSwitch.switchTo(harness, host.cwd, { model });
           void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
         } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
-        // A new chat seeded with the harness of the chat the person used last (NEW-WORK-INHERITS-CONTEXT)
-        // draws it now and starts on it with the first Send; no session opens before that.
-        else if (harness && !client.adopted && client.startsOnSend) void harnessSwitch.switchTo(harness, host.cwd);
+        // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
+        // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
+        // it in its host config and ensureSession() carries it into session/new.
+        else if (harness && !client.adopted && client.startsOnSend)
+          void harnessSwitch.switchTo(harness, host.cwd, { model });
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });

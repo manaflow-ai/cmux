@@ -97,13 +97,20 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
+            if openOnHost(invocation, context: context) { return }
             if openTargetedChat(invocation, context: context) { return }
             if let pane = context.scope(invocation).pane,
                DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
-            withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
+            withAgentPane(invocation, context: context, seed: seed(for: invocation)) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
         }
+        registry.bind("palette.newAgentChatOn", run: { invocation in
+            guard invocation["host"]?.targetValue?.id != nil || invocation["host"]?.stringValue != nil else {
+                return context.refuse(WorkspaceVerbStrings.noMachine)
+            }
+            _ = openOnHost(invocation, context: context)
+        })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
@@ -297,7 +304,20 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
-        pane.newAgentTab()
+        // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
+        // arguments use the same seed consumed by the palette and the page handshake.
+        guard !invocation.arguments.isEmpty else {
+            pane.newAgentTab()
+            return
+        }
+        _ = pane.openAgentTab(seed: AgentPaneSeedSource(seed(for: invocation)))
+    }
+
+    static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {
+        AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
+                      harness: invocation["harness"]?.stringValue,
+                      model: invocation["model"]?.stringValue,
+                      host: invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue)
     }
 
     /// Fork Conversation's actions, in the palette step's order (the default destination first).

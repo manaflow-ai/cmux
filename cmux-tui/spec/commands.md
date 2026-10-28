@@ -9449,7 +9449,7 @@ own unbound same-user Unix connection may ask (otherwise
 
 ### agent-session-start
 
-`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}`
+`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}` (and, when `agent-session-start-model-v1` is advertised, optional `model`)
 starts a new chat for an agent tab of this store in this machine's own
 acpmux and binds it to the tab, then answers
 `{surface, session, conversation}` (the tab's record, as
@@ -9473,7 +9473,8 @@ Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
-peer, preset or MCP server param; an unknown param is
+peer, preset or MCP server param; `model` is only accepted with the additive
+`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,

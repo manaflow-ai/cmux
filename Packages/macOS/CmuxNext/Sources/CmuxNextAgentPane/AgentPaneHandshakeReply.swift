@@ -26,6 +26,7 @@ enum AgentPaneHandshakeReply {
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
                 }
                 handshake.harness = seed.harness
+                handshake.model = seed.model
                 if seed.showsHarnesses { handshake.harnesses = true }
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
