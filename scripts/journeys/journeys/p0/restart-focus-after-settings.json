@@ -132,13 +132,13 @@
   },
   {
    "do": "type",
-   "text": "example.com",
+   "text": "${fixture_url}",
    "enter": true,
    "mark": "loaded"
   },
   {
    "do": "expect",
-   "title": "before the quit: the browser pane shows example.com and has the keyboard",
+   "title": "before the quit: the browser pane shows the fixture page and has the keyboard",
    "since": "loaded",
    "timeout": 40,
    "all": [
@@ -170,7 +170,7 @@
      }
     },
     {
-     "frame_text": "Example Domain"
+     "frame_text": "${fixture_heading}"
     }
    ]
   },
@@ -337,7 +337,7 @@
      "daemon_line": "left-${nonce}-42"
     },
     {
-     "frame_text": "Example Domain"
+     "frame_text": "${fixture_heading}"
     }
    ]
   },

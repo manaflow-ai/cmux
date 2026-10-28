@@ -93,6 +93,39 @@ def now():
     return time.monotonic()
 
 
+# The page browser journeys load: served by this driver on the mini's loopback, so its text never changes
+# under a journey (example.com's page changed and its frame no longer read "Example Domain": v2.2.4-opt gate,
+# restart-focus-browser and restart-focus-browser-keys). `${fixture_url}` and `${fixture_heading}` in a step.
+FIXTURE_HEADING = "Journey Fixture Page"
+FIXTURE_HTML = (f"<!doctype html><html><head><meta charset=utf-8><title>{FIXTURE_HEADING}</title>"
+                "<style>body{font:32px -apple-system,sans-serif;margin:40px;background:#fff;color:#000}</style></head>"
+                f"<body><h1>{FIXTURE_HEADING}</h1><p>Served by the cmux journeys driver.</p></body></html>").encode()
+_fixture = {}
+
+
+def fixture_url():
+    """http://127.0.0.1:PORT/ of the driver's fixture page server (started once per driver process; it lives as
+    long as the driver, so a page restored after a relaunch loads again)."""
+    if "url" not in _fixture:
+        import http.server
+
+        class Page(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(FIXTURE_HTML)))
+                self.end_headers()
+                self.wfile.write(FIXTURE_HTML)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        _fixture["url"] = f"http://127.0.0.1:{server.server_address[1]}/"
+    return _fixture["url"]
+
+
 class StepError(Exception):
     pass
 
@@ -446,7 +479,7 @@ class Journey:
         self.frame_interval = frame_interval
         # Digits a text reader cannot confuse with letters: the run's own text, never a fixture's.
         self.nonce = "".join(random.choice("23456789") for _ in range(6))
-        self.vars = {"nonce": self.nonce, "prompt": PROMPT}
+        self.vars = {"nonce": self.nonce, "prompt": PROMPT, "fixture_heading": FIXTURE_HEADING}
         self.marks, self.binds = {}, {}
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
@@ -462,6 +495,8 @@ class Journey:
 
     def sub(self, value):
         if isinstance(value, str):
+            if "${fixture_url}" in value and "fixture_url" not in self.vars:
+                self.vars["fixture_url"] = fixture_url()
             return re.sub(r"\$\{(\w+)\}", lambda m: str(self.vars.get(m.group(1), m.group(0))), value)
         if isinstance(value, list):
             return [self.sub(v) for v in value]
@@ -505,6 +540,9 @@ class Journey:
                                         "action_reply": reply}
                         except StepError as error:
                             last = str(error)
+                            # A provisional id (see wait_screen): read the topology again next time.
+                            if "selector.not_found" in last:
+                                self.term = None
                         time.sleep(0.2)
                     raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-400:]}")
             time.sleep(0.2)
@@ -954,8 +992,19 @@ class Journey:
             self.host_pid = host_pid
         return {"terminal": self.term, "pane": self.pane, "host_pid": self.host_pid}
 
+    def selected_terminal(self, pane_id):
+        """The terminal id the topology gives the selected tab of pane `pane_id` now, or None."""
+        for _ws, pane, tab, term in self.places(self.topology()):
+            if pane.get("id") == pane_id and tab.get("id") == pane.get("selected_tab") and term:
+                return term
+        return None
+
     def wait_screen(self, end):
-        """Until the daemon's screen of the current terminal shows any text (the shell's first prompt)."""
+        """Until the daemon's screen of the current terminal shows any text (the shell's first prompt).
+        A tab the app makes at once (Cmd-D, Ctrl-`, a new window) can name the app's own provisional
+        terminal id in the topology until the daemon's terminal exists; the daemon answers selector.not_found
+        for it (v2.2.4-opt gate: mw-new-window-entrypoints, restart-restore). The id is read again from the
+        topology then, and the failure names the id the topology still gives."""
         last = "empty screen"
         while now() < end:
             try:
@@ -963,8 +1012,15 @@ class Journey:
                     return
             except StepError as error:
                 last = str(error)
+                if "selector.not_found" in last and self.pane:
+                    again = self.selected_terminal(self.pane)
+                    if again and again != self.term:
+                        self.term = again
+                        continue
             time.sleep(0.2)
-        raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-300:]}")
+        raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt "
+                        f"(the topology names {self.selected_terminal(self.pane) if self.pane else None} for pane "
+                        f"{self.pane}): {last[-300:]}")
 
     def step_focused_terminal(self, step):
         """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
@@ -1240,8 +1296,9 @@ class Journey:
             while not s["ok"]:
                 time.sleep(0.25)
                 tries += 1
+                seen = self.ensure_seen()
                 ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], {})
-                s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
+                s["detail"] = dict(detail, tries=tries, seen=seen) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
                 elif now() >= frame_until and tries >= 2:
@@ -1263,6 +1320,53 @@ class Journey:
         if failed:
             raise StepError("; ".join(failed))
         return result
+
+    def frame_window(self, panes):
+        """The main window id frame checks read: the one a step chose, else the window of the journey's pane,
+        else the window of the first visible pane (debug.window_snapshot's `kind: main`)."""
+        chosen = getattr(self.app, "snapshot_window", None)
+        if chosen:
+            return chosen
+        mine = next((p for p in panes if self.pane and p.get("pane") == self.pane), None)
+        first = mine or next((p for p in panes if p.get("visible")), None)
+        return ((first or {}).get("grid") or {}).get("window")
+
+    def ensure_seen(self):
+        """Frame checks judge what a person sees, so they read a window on screen. A capture mini's GUI login
+        is shared by its slots, and the app runs in the background: another slot's or app's window can cover
+        ours. AppKit then reports it occluded and an optimized build pauses its terminals by design (energy
+        saving; only Debug automation launches draw anyway, WindowDrawPolicy.isAutomationLaunch), so its
+        snapshot shows the panes empty though the text is live (v2.2.4-opt gate, 15 journeys,
+        handoff/v224-gate-triage.md). Before each frame read: debug.surfaces says whether the frame window's
+        visible panes are in an occluded window; if so, debug.window.focus brings that window to the front
+        (orderFrontRegardless, no app activation) and waits until AppKit reports it seen. A window still covered
+        after that is `not run` with the window server's order, never a pass or a fail. Returns what the
+        frame evidence keeps: the window, whether it was brought to the front, and each visible pane's
+        surface pause and drawing state at the read."""
+        report = self.app.rpc("debug.surfaces", {}) or {}
+        panes = [p for w in report.get("windows", []) for p in w.get("panes", []) if isinstance(p, dict)]
+        wid = self.frame_window(panes)
+        shown = lambda rows: [p for p in rows if p.get("visible") and (p.get("grid") or {}).get("window") == wid]
+        rows = shown(panes)
+        record = {"window": wid, "brought_front": False}
+        if wid and any(p.get("window_occluded") for p in rows):
+            self.app.rpc("debug.window.focus", {"window": wid})
+            record["brought_front"] = True
+            end = now() + 3
+            while True:
+                report = self.app.rpc("debug.surfaces", {}) or {}
+                rows = shown([p for w in report.get("windows", []) for p in w.get("panes", []) if isinstance(p, dict)])
+                if not any(p.get("window_occluded") for p in rows):
+                    break
+                if now() >= end:
+                    raise NotRun(f"window {wid} stays occluded on the shared capture host after debug.window.focus "
+                                 f"({sum(1 for p in rows if p.get('window_occluded'))} visible pane(s) paused): "
+                                 f"frame checks cannot judge it")
+                time.sleep(0.1)
+        record["panes"] = [{"pane": p.get("pane"), "occluded": p.get("window_occluded"),
+                            "paused": (p.get("surface") or {}).get("paused"),
+                            "drawing": (p.get("surface") or {}).get("drawing")} for p in rows]
+        return record
 
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""

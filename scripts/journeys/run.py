@@ -141,16 +141,21 @@ def select(specs, opts):
 
 def batches(specs):
     """Journeys in leases of at most JOURNEY_SECONDS each. A `first_in_app` journey (first launch) needs the
-    app capture-host just launched from empty state, so each one starts a lease of its own and goes first."""
+    app capture-host just launched from empty state, so each one starts a lease of its own and goes first.
+    A `last_in_lease` journey leaves app state the next journey cannot undo (a synthetic app activation, a
+    text input that keeps the person's keyboard, so a script's newTab no longer shows its workspace), so
+    nothing runs after it in its lease (v2.2.4-opt gate: arrows-history and bracketed-paste failed after
+    scripted-newtab-keeps-person-keys in one lease)."""
     out, current, used = [], [], 0
     firsts = [s for s in specs if s.get("first_in_app")]
     for first in firsts:
         out.append([first])
     rest = [s for s in specs if not s.get("first_in_app")]
-    # The rest fill the first-launch leases first, then new ones.
+    # The rest fill the first-launch leases first, then new ones; a lease ends after a last_in_lease journey.
     for batch in out:
         used = batch[0]["budget_seconds"]
-        while rest and used + rest[0]["budget_seconds"] <= JOURNEY_SECONDS:
+        while (rest and not batch[-1].get("last_in_lease")
+               and used + rest[0]["budget_seconds"] <= JOURNEY_SECONDS):
             used += rest[0]["budget_seconds"]
             batch.append(rest.pop(0))
     used = 0
@@ -160,6 +165,9 @@ def batches(specs):
             current, used = [], 0
         current.append(spec)
         used += spec["budget_seconds"]
+        if spec.get("last_in_lease"):
+            out.append(current)
+            current, used = [], 0
     return out + ([current] if current else [])
 
 
