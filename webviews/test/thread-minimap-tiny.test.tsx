@@ -54,12 +54,20 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 let viewport = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
-// Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
+// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
-/// The rail's list clamps its offset as a browser does: rows are 10 px, the list as tall as the rail.
+/// The rail's list clamps its offset as a browser does: rows are 10 px, a spacer for rows it does not
+/// draw as tall as its style says (tickWindow.ts), the list as tall as the rail.
 const listRoom = (node: HTMLElement) =>
-  Math.max(0, node.childElementCount * 10 - Number.parseFloat(node.parentElement?.style.height ?? "0"));
+  Math.max(
+    0,
+    [...node.children].reduce(
+      (sum, child) =>
+        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+      0,
+    ) - Number.parseFloat(node.parentElement?.style.height ?? "0"),
+  );
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
   get(this: object) {

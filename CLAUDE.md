@@ -254,7 +254,7 @@ with the fast checks. Keep the target at zero queue.
   `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
-- Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
+- Never hand-edit or hand-merge generated files (`settings-schema.json`,
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
   For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a

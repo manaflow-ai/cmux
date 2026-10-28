@@ -682,10 +682,35 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly vm: CloudVmRow;
     readonly isBase: boolean;
   } | null, VmDatabaseError>;
-  /** Provider allocations retained after an unconfirmed create rollback. */
+  /**
+   * Provider allocations retained after an unconfirmed create rollback. The
+   * background worker reads Freestyle rows; `owner` reads one user's rows for a
+   * provider whose deletes need that user's own short-lived credential.
+   */
   readonly pendingCreateCleanupCandidates?: (input: {
     readonly limit: number;
+    readonly owner?: { readonly userId: string; readonly provider: ProviderId };
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /**
+   * Names the provider id a create is about to allocate, before the provider
+   * call. False when the row is no longer an open create (the driver must not
+   * allocate).
+   */
+  readonly recordCreateCleanupIntent?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Turns creates that recorded a cleanup intent and then stopped (process
+   * gone, workflow interrupted) into retained cleanups. Returns the count.
+   */
+  readonly retainAbandonedCreateIntents?: (input: {
+    readonly before: Date;
+    readonly limit: number;
+    readonly now: Date;
+    /** Only this user's rows (a credentialed drain promotes its own). */
+    readonly userId?: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
   /** Claim one retained allocation before provider I/O. The claim is fenced by a lease. */
   readonly claimCreateCleanup?: (input: {
     readonly id: string;
@@ -1008,6 +1033,8 @@ export const CREATE_CLEANUP_ATTEMPT_KEY = "createCleanupAttempt";
 export const CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY = "createCleanupNextAttemptAtMs";
 export const CREATE_CLEANUP_LEASE_ID_KEY = "createCleanupLeaseId";
 export const CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY = "createCleanupLeaseExpiresAtMs";
+/** When a create named its allocation before sending it (see recordCreateCleanupIntent). */
+export const CREATE_CLEANUP_INTENT_AT_KEY = "createCleanupIntentAtMs";
 
 /** Treat malformed/oversized cleanup timestamps as immediately eligible without an unsafe cast. */
 function cleanupTimestampDueSql(raw: SQL<string | null>, nowMs: number) {
@@ -2778,9 +2805,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             // Provider metadata is additive. Keep the reservation written by
             // beginBaseOpen/reset even if a driver omits it or returns a stale
             // copy in its handle.
-            providerMetadata: sql`(
+            providerMetadata: sql`((
               coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(providerMetadata)}::jsonb
-            ) || case
+            ) - ${CREATE_CLEANUP_PROVIDER_VM_ID_KEY}::text) || case
               when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
               else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
             end`,
@@ -2861,6 +2888,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
                 || jsonb_build_object(
                   '${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}', ${cleanupProviderVmId}::text,
+                  -- Keep the intent time; a failure that beat the intent write stamps now.
+                  '${sql.raw(CREATE_CLEANUP_INTENT_AT_KEY)}', coalesce(${cloudVms.providerMetadata}->'${sql.raw(CREATE_CLEANUP_INTENT_AT_KEY)}', to_jsonb(${Date.now()}::bigint)),
                   '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}', 0,
                   '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', 0
                 )
@@ -3757,15 +3786,83 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(and(
           eq(cloudVms.status, "provisioning"),
           eq(cloudVms.failureCode, PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE),
-          // The current registry has one provider. Keep retired enum values
-          // out of the worker batch so they cannot starve live cleanup rows.
-          eq(cloudVms.provider, "freestyle"),
+          // The background worker only deletes Freestyle rows; keep retired
+          // enum values and credential-bound providers out of its batch. A
+          // credential-bound provider's rows are read per owner.
+          eq(cloudVms.provider, input.owner?.provider ?? "freestyle"),
+          ...(input.owner ? [eq(cloudVms.userId, input.owner.userId)] : []),
           sql`${cleanupProviderVmId} is not null and ${cleanupProviderVmId} <> ''`,
           cleanupTimestampDueSql(nextAttemptAtMs, nowMs),
           cleanupTimestampDueSql(leaseExpiresAtMs, nowMs),
         ))
         .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(limit);
+    }),
+
+  recordCreateCleanupIntent: (input) =>
+    dbEffect("recordCreateCleanupIntent", async () => {
+      const providerVmId = input.providerVmId.trim();
+      if (!providerVmId) return false;
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(
+              '${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}', ${providerVmId}::text,
+              '${sql.raw(CREATE_CLEANUP_INTENT_AT_KEY)}', ${Date.now()}::bigint
+            )
+          )`,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "provisioning"),
+          isNull(cloudVms.providerVmId),
+          isNull(cloudVms.failureCode),
+          // One allocation per create row: an intent is never overwritten.
+          sql`not coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${CREATE_CLEANUP_PROVIDER_VM_ID_KEY}`,
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
+
+  retainAbandonedCreateIntents: (input) =>
+    dbEffect("retainAbandonedCreateIntents", async () => {
+      const db = cloudDb();
+      const openIntent = and(
+        eq(cloudVms.status, "provisioning"),
+        isNull(cloudVms.providerVmId),
+        isNull(cloudVms.failureCode),
+        sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${CREATE_CLEANUP_PROVIDER_VM_ID_KEY}`,
+        lt(cloudVms.updatedAt, input.before),
+        ...(input.userId ? [eq(cloudVms.userId, input.userId)] : []),
+      );
+      const limit = Number.isFinite(input.limit) ? Math.max(0, Math.min(200, Math.trunc(input.limit))) : 200;
+      const due = db.select({ id: cloudVms.id }).from(cloudVms).where(openIntent)
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id)).limit(limit);
+      // The same transition markCreateFailed makes for an unconfirmed
+      // rollback: the row keeps its reservation and Base generation until the
+      // provider confirms the delete.
+      const rows = await db
+        .update(cloudVms)
+        .set({
+          failureCode: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
+          failureMessage: "Create stopped after naming its provider allocation; deletion is pending.",
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(
+              '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}', 0,
+              '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', 0
+            )
+          )
+          #- '{${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}}'
+          #- '{${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}}'`,
+          updatedAt: input.now,
+        })
+        .where(and(inArray(cloudVms.id, due), openIntent))
+        .returning({ id: cloudVms.id });
+      return rows.length;
     }),
 
   claimCreateCleanup: (input) =>
@@ -4059,9 +4156,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           imageVersion: input.imageVersion ?? null,
           // Keep the reservation from the transactional create claim. It is
           // the control-plane accounting record, not provider metadata.
-          providerMetadata: sql`(
+          // A finalized create owns its provider id; drop its cleanup intent.
+          providerMetadata: sql`((
             coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(providerMetadata)}::jsonb
-          ) || case
+          ) - ${CREATE_CLEANUP_PROVIDER_VM_ID_KEY}::text) || case
             when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
             else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
           end`,
@@ -4098,6 +4196,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
               || jsonb_build_object(
                 '${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}', ${cleanupProviderVmId}::text,
+                -- Keep the intent time; a failure that beat the intent write stamps now.
+                '${sql.raw(CREATE_CLEANUP_INTENT_AT_KEY)}', coalesce(${cloudVms.providerMetadata}->'${sql.raw(CREATE_CLEANUP_INTENT_AT_KEY)}', to_jsonb(${Date.now()}::bigint)),
                 '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}', 0,
                 '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', 0
               )

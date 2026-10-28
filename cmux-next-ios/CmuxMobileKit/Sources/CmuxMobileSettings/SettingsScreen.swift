@@ -122,8 +122,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
                     LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
-                    LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms")
-                    LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy")
+                    LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
+                    LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy-policy")
                     NavigationLink(value: SettingsRoute.acknowledgements) {
                         SettingsLabel("Acknowledgements", symbol: "info.circle")
                     }

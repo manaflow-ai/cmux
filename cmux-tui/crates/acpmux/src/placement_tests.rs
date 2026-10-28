@@ -78,16 +78,17 @@ fn builds_go_to_build_hosts_and_a_fallback_host_only_when_none_has_room() {
 }
 
 #[test]
-fn a_full_swap_or_an_over_budget_verdict_refuses_a_host() {
+fn a_full_swap_or_an_over_budget_verdict_passes_a_host_over_but_never_refuses_the_work() {
     let mut swapped = health(30.0, 15, 1.0, 300.0, 0);
     swapped["swap"] = json!({"usedBytes": (29.0 * GB) as u64, "totalBytes": (30.0 * GB) as u64});
     let mut over = health(30.0, 15, 1.0, 300.0, 0);
     over["pressure"] = json!({"ok": false, "over": ["memory pressure warn"], "cores": 15});
     let v = place(&[c("desk", swapped), c("small", over)], Some(&registry()), Work::Agent);
-    assert_eq!(v["pick"], Value::Null, "{v:#}");
+    assert!(["desk", "small"].contains(&v["pick"].as_str().unwrap_or_default()), "{v:#}");
+    assert_eq!(v["overloaded"], true, "{v:#}");
     assert!(host(&v, "desk")["refused"].as_str().unwrap().starts_with("swap 29/30 GB"), "{v:#}");
     assert!(host(&v, "small")["refused"].as_str().unwrap().contains("memory pressure"), "{v:#}");
-    assert!(v["why"].as_str().unwrap().starts_with("no host has room"), "{v:#}");
+    assert!(v["why"].as_str().unwrap().contains("load and lane caps only warn"), "{v:#}");
 
     // A host whose entry sets no swap limit is never refused for a full swap.
     let mut full = health(30.0, 15, 1.0, 300.0, 0);
@@ -97,15 +98,27 @@ fn a_full_swap_or_an_over_budget_verdict_refuses_a_host() {
 }
 
 #[test]
-fn a_host_at_its_lane_cap_or_out_of_ram_has_no_room() {
+fn a_host_at_its_lane_cap_or_out_of_ram_has_no_room_yet_the_work_still_goes_somewhere() {
+    let full =
+        [c("light", health(40.0, 12, 1.0, 300.0, 3)), c("laptop", health(12.5, 8, 1.0, 300.0, 0))];
+    let v = place(&full, Some(&registry()), Work::Agent);
+    assert_eq!(host(&v, "light")["refused"], "no room: lanes is the limit", "{v:#}");
+    assert_eq!(host(&v, "laptop")["refused"], "no room: RAM is the limit", "{v:#}");
+    // Both have no room: the registry's rank breaks the tie, and the verdict says it is past the room.
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(true)), "{v:#}");
+    let placed = placed(&v).unwrap();
+    assert!(placed.starts_with("placed on light: ") && placed.contains("only warn"), "{placed}");
+    // A host with room is still picked first, and that is no overload.
     let v = place(
-        &[c("light", health(40.0, 12, 1.0, 300.0, 3)), c("laptop", health(12.5, 8, 1.0, 300.0, 0))],
+        &[full[0].clone(), c("small", health(16.0, 8, 0.2, 200.0, 0))],
         Some(&registry()),
         Work::Agent,
     );
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("small"), &json!(false)), "{v:#}");
+    // A role still refuses: a full no-build host never takes a build, even with nothing else.
+    let v = place(&[full[1].clone()], Some(&registry()), Work::Build);
     assert_eq!(v["pick"], Value::Null, "{v:#}");
-    assert_eq!(host(&v, "light")["refused"], "no room: lanes is the limit", "{v:#}");
-    assert_eq!(host(&v, "laptop")["refused"], "no room: RAM is the limit", "{v:#}");
+    assert!(v["why"].as_str().unwrap().starts_with("no host has room"), "{v:#}");
 }
 
 #[test]

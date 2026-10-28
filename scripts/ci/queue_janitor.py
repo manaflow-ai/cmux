@@ -97,6 +97,9 @@ DEFAULT_MAX_CANCELS = 10
 MAX_RUN_PAGES = 3
 MAX_JOB_PAGES = 3
 GRAPHQL_BATCH = 25
+# Who starts the owned-pool rescue's re-runs: GITHUB_TOKEN's actor, or the cmux-bot App
+# (pr_runner_pool.RESCUE_ACTORS).
+RESCUE_ACTORS = frozenset({"github-actions[bot]", "cmux-bot[bot]"})
 
 # Statuses a run can hold runner demand in. `pending` is a run parked behind a
 # concurrency group, which is how a label-triggered CI rerun waits.
@@ -441,7 +444,7 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     iroh-release-gate.yml uploads the same marker), can: a full re-run picks
     again like attempt 1 and publishes its own marker, and a re-run of failed
     jobs publishes none, costing one listing.
-    A pull request run's re-run someone other than github-actions[bot]
+    A pull request run's re-run someone other than the rescue bot (RESCUE_ACTORS)
     started follows a code failure and picks like attempt 1
     (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
     bot's later attempts never hold one. Its other macOS jobs say nothing:
@@ -450,7 +453,7 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     """
     path = str(run.get("path") or "")
     code_retry = (run.get("event") == "pull_request" and path.endswith("/ci.yml")
-                  and str((run.get("triggering_actor") or {}).get("login") or "") != "github-actions[bot]")
+                  and str((run.get("triggering_actor") or {}).get("login") or "") not in RESCUE_ACTORS)
     if (run.get("run_attempt") or 1) > 2 and not code_retry:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):

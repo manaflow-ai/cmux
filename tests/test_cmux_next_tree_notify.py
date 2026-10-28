@@ -193,7 +193,7 @@ class Notify(unittest.TestCase):
         self.assertEqual(api.deleted, [100])
 
     def test_a_cancelled_run_without_a_completion_record_still_reports_red(self):
-        api = FakeApi([pr_marker()])
+        api = FakeApi([push_marker()])
         self.assertEqual(run(api, state="failed", completion=None), 1)
         [body] = api.dispatched
         self.assertEqual(body["inputs"]["same_tree_state"], "failed")
@@ -203,11 +203,25 @@ class Notify(unittest.TestCase):
         for bad in (completion_json(key="e" * 40), {"key": KEY}, {"key": KEY, "binaries": ["x"]},
                     ["not", "an", "object"]):
             with self.subTest(completion=bad):
-                api = FakeApi([pr_marker()])
+                api = FakeApi([push_marker()])
                 self.assertEqual(run(api, state="failed", completion=bad), 1)
                 [body] = api.dispatched
                 self.assertEqual(body["inputs"]["same_tree_state"], "failed")
                 self.assertEqual(api.deleted, [])
+
+    def test_failed_pr_publication_is_a_named_skip_and_keeps_marker_for_recovery(self):
+        api = FakeApi([pr_marker()])
+        messages = []
+        self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="failed", reason="HTTP 422",
+                                       log=messages.append, fetch_completion=lambda _key: None), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.deleted, [])
+        self.assertIn("same-tree cmux-tui skipped", " ".join(messages))
+        self.assertIn("no pin ref", " ".join(messages))
+        # A later trusted publication can still start the PR's actual tests.
+        self.assertEqual(run(api, state="ready"), 1)
+        self.assertEqual(api.dispatched[0]["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(api.deleted, [100])
 
     def test_a_ready_publish_does_not_read_the_completion_record(self):
         def unexpected(_key):

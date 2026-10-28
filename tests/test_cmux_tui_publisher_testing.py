@@ -23,9 +23,17 @@ spec = importlib.util.spec_from_file_location("publisher_testing", SCRIPT)
 publisher = importlib.util.module_from_spec(spec)
 sys.modules["publisher_testing"] = publisher
 spec.loader.exec_module(publisher)
+sys.path.insert(0, str(ROOT / "tests"))
+from runs_on_labels import disallowed_labels  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
 POOL = "glaeda-side-light-xcode-26.6"
+
+
+def gate_runs_on(workflow: str) -> str:
+    """The daemon-test gate job's runs-on line, as written."""
+    job = workflow[workflow.index("\n  cmux-next-daemon-tests:\n"):]
+    return job[job.index("\n    runs-on: ") + len("\n    runs-on: "):].split("\n", 1)[0]
 
 
 def job(status, conclusion=None, minutes_ago=1.0, labels=(POOL,), name=publisher.JOB_NAME):
@@ -78,7 +86,7 @@ class WiringTests(unittest.TestCase):
     def test_both_deferrals_ask_the_script(self):
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
-        self.assertEqual(self.WORKFLOW.count("DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL }}"), 2)
+        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate_runs_on(self.WORKFLOW)}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
@@ -88,13 +96,23 @@ class WiringTests(unittest.TestCase):
         # A renamed job reads as "not created yet", which defers forever.
         job = self.WORKFLOW[self.WORKFLOW.index("\n  cmux-next-daemon-tests:\n"):]
         job = job[:job.index("\n    runs-on:")]
-        self.assertIn(f"\n    name: {publisher.JOB_NAME}\n", job)
+        name = job[job.index("\n    name: ") + len("\n    name: "):].split("\n", 1)[0]
+        self.assertEqual(name, publisher.JOB_NAME)
+        self.assertTrue(publisher.is_daemon_job(name))
+
+    def test_older_runs_suffixed_jobs_still_count_and_the_shadow_does_not(self):
+        # Runs from before the runner suffix was dropped are still read.
+        for suffix in ("macOS", "Linux"):
+            self.assertTrue(publisher.is_daemon_job(f"cmux_next_ daemon tests ({suffix})"))
+        self.assertTrue(testing([job("completed", "success", name="cmux_next_ daemon tests (macOS)")]))
+        self.assertFalse(publisher.is_daemon_job("cmux_next_ macOS-only daemon tests (shadow)"))
+        self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
-        # The job's runs-on takes CI_NEXT_DAEMON_POOL first, then CI_NEXT_PROMOTE_POOL.
-        runs_on = next(line for line in self.WORKFLOW.splitlines() if "vars.CI_NEXT_DAEMON_POOL != ''" in line)
-        self.assertLess(runs_on.index("vars.CI_NEXT_DAEMON_POOL"), runs_on.index("vars.CI_NEXT_PROMOTE_POOL"))
-
+        # DAEMON_POOL names the gate job's own runs-on label.
+        # Which Blacksmith Linux size it picks is the workflow's call; it is never anything else.
+        runs_on = gate_runs_on(self.WORKFLOW)
+        self.assertEqual(disallowed_labels(runs_on), {}, runs_on)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

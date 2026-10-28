@@ -8,15 +8,20 @@
 # wall-clock timeout per file names a stuck file instead of hanging the job.
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120); a file may declare more
-# with a `// cmux-web-test-timeout: SECONDS` header line.
+# with a `// cmux-web-test-timeout: SECONDS` header line, up to CMUX_WEB_TEST_MAX_FILE_TIMEOUT
+# (default 900). A 3000s attachment stress-file allowance can outlive the entire 40-minute CI job;
+# longer runs must explicitly raise the ceiling outside the ordinary PR shard.
 # CMUX_WEB_TEST_TIMEOUT_MS: one test's default limit (bun's own default is 5000); a test or file
 # that sets its own (setDefaultTimeout, a per-test timeout) keeps it. 30000 by default: on a fleet
 # worker that also runs GitHub runner jobs, a render-heavy jsdom test that takes 0.5 s alone took
 # 5-23 s with six files beside it (cmuxs-Mac-mini-3, step 7a7920f90018502137c79111: 110 files over
 # 5 s), and each of those files passed alone on the same worker.
-# CMUX_WEB_TEST_RETRIES: files that fail or time out run once more, one at a time, after every
+# CMUX_WEB_TEST_RETRIES: files that fail run once more, one at a time, after every
 # file has run (default 60 files; 0 turns it off). A file that passes alone is reported as a retry
 # pass (a contention flake, listed so it stays visible); one that fails again fails the lane.
+# Timed-out files keep their named failure without another full timeout. Serial retries stop
+# after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120), including an in-flight retry;
+# unretried failures stay red.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
@@ -24,6 +29,8 @@
 # is an error, so a stale selection never passes by running nothing.
 # CMUX_WEB_TEST_RESULTS: optional file to write each file's and failed test's result into
 # (webviews_test_results.py), for webviews-tests-new-reds.sh.
+# CMUX_WEB_TEST_RAW_LOG_DIR: optional artifact directory for complete per-attempt logs. The public
+# step output is bounded, while this directory keeps the raw evidence for diagnosis and parsing.
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
@@ -80,16 +87,52 @@ run_with_timeout() {
 # file_limit FILE DEFAULT: the seconds FILE may run. A file whose own tests need more than the
 # default names its limit on a header line (first 20 lines), `// cmux-web-test-timeout: SECONDS`
 # (editor-page: 24 browser tests in two engines, about 115 s on the CI runner, were killed at
-# 120 s mid-WebKit). The longer of the two wins, so a declared limit never shortens the default.
+# 120 s mid-WebKit). The longer of the two wins, up to the runner hard ceiling.
 file_limit() {
-  local declared
+  local declared limit maximum="${CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-900}"
+  [[ "$maximum" =~ ^[1-9][0-9]*$ ]] || maximum=900
   declared="$(head -n 20 "$1" 2> /dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)"
-  if [ -n "$declared" ] && [ "$declared" -gt "$2" ]; then echo "$declared"; else echo "$2"; fi
+  limit="$2"
+  if [ -n "$declared" ] && [ "$declared" -gt "$limit" ]; then limit="$declared"; fi
+  if [ "$limit" -gt "$maximum" ]; then limit="$maximum"; fi
+  echo "$limit"
 }
 
 test_timeout_ms="${CMUX_WEB_TEST_TIMEOUT_MS:-30000}"
 [[ "$test_timeout_ms" =~ ^[1-9][0-9]*$ ]] || test_timeout_ms=30000
 export CMUX_WEB_TEST_TIMEOUT_MS="$test_timeout_ms"
+
+log_display_bytes="${CMUX_WEB_TEST_LOG_DISPLAY_BYTES:-200000}"
+[[ "$log_display_bytes" =~ ^[1-9][0-9]*$ ]] || log_display_bytes=200000
+
+# A browser can write one giant diagnostic line (for example a WPE inspector trace). Keep the
+# complete log on disk, but never copy it into the Actions console more than the configured byte
+# budget. The tail retains the final named assertion after a flood of diagnostics.
+print_bounded_log() {
+  python3 - "$1" "$log_display_bytes" <<'PY'
+import os
+import sys
+
+path, requested = sys.argv[1], int(sys.argv[2])
+with open(path, "rb") as stream:
+    size = os.fstat(stream.fileno()).st_size
+    if size <= requested:
+        sys.stdout.buffer.write(stream.read())
+        raise SystemExit
+    if os.environ.get("CMUX_WEB_TEST_RAW_LOG_DIR"):
+        note = b"complete log is in the configured webviews raw-log artifact"
+    else:
+        note = b"complete log remains in the runner's per-file log"
+    marker = b"\n... output truncated; " + note + b" ...\n"
+    available = max(0, requested - len(marker))
+    head_size = available // 2
+    tail_size = available - head_size
+    head = stream.read(head_size)
+    stream.seek(max(0, size - tail_size))
+    tail = stream.read(tail_size)
+    sys.stdout.buffer.write(head + marker + tail)
+PY
+}
 
 if [ "${1:-}" = --one-cached ]; then
   # xargs -n 3 appends FILE CACHE SEED after the fixed arguments.
@@ -101,6 +144,7 @@ if [ "${1:-}" = --one ]; then
   file="$2" results="$3" timeout_seconds="$(file_limit "$2" "$4")" cache="${5:-}" seed="${6:-}"
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
+  echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
     # must still leave this file's result in the summary, not stop the lane under set -e.
@@ -121,7 +165,8 @@ if [ "${1:-}" = --one ]; then
     *) result=FAIL ;;
   esac
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
-  echo "$result $file"
+  # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
+  echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
 fi
 
@@ -275,7 +320,7 @@ if [ -s "$results/dev-cold" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-cold"
 fi
 
-# Retry each failed or timed-out file once, alone, so a file that only lost a race for the CPU
+# Retry failed files once, alone, so a file that only lost a race for the CPU
 # with its neighbours gets a verdict of its own. Its first log is kept beside the retry's.
 retries="${CMUX_WEB_TEST_RETRIES:-60}"
 [[ "$retries" =~ ^[0-9]+$ ]] || retries=60
@@ -283,19 +328,43 @@ first="$results/first-summary"
 mv "$results/summary" "$first"
 : > "$results/summary"
 retried=0
+retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
+[[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
+retry_started=$SECONDS
 : > "$results/retry-passed"
 while read -r result file log; do
-  if [ "$result" = PASS ] || [ "$retried" -ge "$retries" ]; then
+  if [ "$result" = PASS ] || [ "$result" = TIMEOUT ] || [ "$retried" -ge "$retries" ]; then
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
+  normal_limit="$(file_limit "$file" "$timeout_seconds")"
+  remaining=$((retry_budget - (SECONDS - retry_started)))
+  if [ "$remaining" -le 0 ]; then
+    echo "retry budget exhausted: keeping $result $file"
+    printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    continue
+  fi
+  retry_limit="$normal_limit"
+  if [ "$remaining" -lt "$retry_limit" ]; then retry_limit="$remaining"; fi
+  echo "RETRY $file (remaining budget ${remaining}s, hard limit ${retry_limit}s)"
   retried=$((retried + 1))
   mv "$log" "$log.first"
   cache=""
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
-  bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" > /dev/null < /dev/null
+  CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
-  if grep -qxF "PASS $file $log" "$results/summary"; then
+  if [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
+    # An incomplete retry is not a full-file timeout: keep the first run's actual named
+    # failure. Otherwise an old base assertion would become a new file-level head red.
+    echo "retry budget exhausted during $file; retaining its first failure"
+    while read -r saved_result saved_file saved_log; do
+      if [ "$saved_file" = "$file" ]; then saved_result=FAIL; fi
+      printf '%s %s %s\n' "$saved_result" "$saved_file" "$saved_log"
+    done < "$results/summary" > "$results/adjusted-summary"
+    mv "$results/adjusted-summary" "$results/summary"
+    { echo "--- retry stopped at shared budget ---"; cat "$log"; echo "--- first failure retained ---"; cat "$log.first"; } > "$log.both"
+    mv "$log.both" "$log"
+  elif grep -qxF "PASS $file $log" "$results/summary"; then
     echo "$file (first run: $result)" >> "$results/retry-passed"
   else
     { echo "--- first run: $result ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
@@ -303,16 +372,32 @@ while read -r result file log; do
   fi
 done < "$first"
 
+# Keep complete attempts in the existing head-results artifact directory. This runs before the
+# parser and final display, so raw files remain available even when a named failure is enormous.
+if [ -n "${CMUX_WEB_TEST_RAW_LOG_DIR:-}" ]; then
+  mkdir -p "$CMUX_WEB_TEST_RAW_LOG_DIR"
+  for log in "$results"/*.log "$results"/*.log.first; do
+    [ -f "$log" ] || continue
+    cp "$log" "$CMUX_WEB_TEST_RAW_LOG_DIR/$(basename "$log")"
+  done
+  for summary in "$results"/summary "$results"/first-summary; do
+    [ -f "$summary" ] || continue
+    cp "$summary" "$CMUX_WEB_TEST_RAW_LOG_DIR/$(basename "$summary")"
+  done
+fi
+
 failed=0
 while read -r result file log; do
   # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
   if [ "$result" = PASS ]; then
-    grep -E '^::(warning|notice)( |::)' "$log" || true
+    annotations="$results/$(basename "$log").annotations"
+    grep -E '^::(warning|notice)( |::)' "$log" > "$annotations" || true
+    if [ -s "$annotations" ]; then print_bounded_log "$annotations"; fi
     continue
   fi
   failed=$((failed + 1))
   echo "::group::$result $file"
-  cat "$log"
+  print_bounded_log "$log"
   echo "::endgroup::"
 done < <(sort -k2 "$results/summary")
 

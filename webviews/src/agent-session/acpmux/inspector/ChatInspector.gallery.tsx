@@ -41,6 +41,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   header?: SubagentHeaderVariant;
   /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
   tones?: CSSProperties;
+  /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
+  ceiling?: string;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -95,10 +97,12 @@ function GalleryInspector({
   scope,
   header = "title",
   tones,
+  ceiling,
   ...props
 }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+      {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <InspectorPanel
         width={320}
@@ -264,12 +268,32 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
+  // At most 16 of the chats it started run at once (acpmux's default).
+  subsessionLimits: { maxRunning: 16, maxRunningSource: "default" as const },
   branch: "feat/next-inspector",
   mcpServers: [
     { name: "github", status: "connected" as const },
     { name: "linear", status: "failed" as const },
     { name: "sentry", status: "pending" as const },
   ],
+};
+
+// Icon-bearing section heads belong to the Environment rows' text column. The ordinary
+// section titles intentionally start at the icon column instead.
+const checkTopBlockAlignment: Play = async (ctx) => {
+  const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
+  const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
+  await ctx.waitFor(() => ctx.document.querySelector(environment));
+  const labelLeft = rect(environment).left;
+  for (const section of ["context", "connectors"]) {
+    const title = rect(`[data-section="${section}"] .acpmux-chat-inspector-section__title`);
+    if (Math.abs(title.left - labelLeft) > 0.5)
+      throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
+  }
+  const iconLeft = rect('[data-section="environment"] .acpmux-chat-inspector-row > svg').left;
+  const heading = rect('[data-section="changes"] .acpmux-chat-inspector-section__title');
+  if (Math.abs(heading.left - iconLeft) > 0.5)
+    throw new Error("The heading-only Changes section moved from the icon column");
 };
 
 const full: Props = {
@@ -293,6 +317,7 @@ const full: Props = {
   onOpenOutput: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
+  onSetRunningLimit: async () => undefined,
   onReconnectMcp: async () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
@@ -343,8 +368,10 @@ const openPhase =
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
   };
 
-/// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
+/// A chat in a lane checkout of cmux that worked across several folders: Environment lists only its
+/// project (chatFolders.ts).
 const PROJECTS = "/Users/you/Projects";
+const SCRATCHPAD = "/private/tmp/agent-501/-Users-you-Projects/7f3e/scratchpad";
 const touched = (path: string) =>
   tool(`Read ${path}`, "read", "completed", { locations: [{ path: `${PROJECTS}/${path}` }] });
 const projectRows = [
@@ -360,6 +387,14 @@ const projectRows = [
     6,
   ),
 ];
+
+const environmentProps = (): Props => ({
+  ...full,
+  summary: { ...summary, cwd: `${PROJECTS}/checkouts/cmux/next-env-folders`, branch: "you/next-env-folders" },
+  rows: projectRows,
+  onOpenFolder: () => undefined,
+  remoteControl: undefined,
+});
 
 /// What a chat produced, as Claude Code desktop's Outputs lists it: a ledger page it rendered and a
 /// Markdown plan its reply drew, each opening in the side panel.
@@ -487,6 +522,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/InspectorSection.tsx",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
+    "agent-session/acpmux/inspector/SubagentLimitStepper.tsx",
     "agent-session/acpmux/inspector/SubagentsSection.tsx",
     "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
     "agent-session/acpmux/inspector/subagentScope.ts",
@@ -512,6 +548,7 @@ export default componentEntry<Props>({
     full: {
       note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
+      play: checkTopBlockAlignment,
     },
     "workflow-running": {
       note: "Labs: a Claude workflow running, read from the subagent fold. Background tasks heads with it: its name, 13s and Stop; 1 running · 2 queued · 3 done · 185k tokens; what it does; Brainstorm 3 done and Critique 1 running · 2 queued, a dot per agent (done filled, running the accent, queued an outline). Critique has a running agent, so it is open: Model: Opus 5.5, punchy with a spinner, playful and descriptive Queued. Up next: Judge.",
@@ -554,13 +591,23 @@ export default componentEntry<Props>({
       props: { ...full, closable: true, chrome: "compact-close" },
     },
     "environment-folders": {
-      note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
+      note: "Shipped (Leo, 2026-10-27: \"why are these files being shown to me in the first place\"): a chat in a lane checkout of cmux that worked across six folders. Environment lists only its project, by its repository's name (cmux, not the checkout's folder name), the full path only on hover; then the repository and the branch, each a link to GitHub. No folder its tool calls touched. The project opens in Files as a tab right of the chat.",
+      props: environmentProps(),
+    },
+    "environment-branch-chip": {
+      note: "Alternative (not shipped): the branch as a quiet chip at the end of the project's row, with no branch row. One row shorter, but the branch is no longer a link to GitHub and a long branch name crowds the project's name.",
+      props: { ...environmentProps(), projectRowLook: "branch" },
+    },
+    "environment-parent": {
+      note: "Alternative (not shipped): the project's name with its parent folder after it, as the Environment drew every folder before. The path text is what Leo asked not to see; the tooltip carries it in the shipped row.",
+      props: { ...environmentProps(), projectRowLook: "parent" },
+    },
+    "environment-scratchpad": {
+      note: "Shipped: Leo's chat, run in a harness's scratchpad under /private/tmp, whose commands cd'd into a worktree. Before, Environment listed the scratchpad with its path and the worktree, and offered Save. Now only the machine: no folder row and no Save (a scratch folder is never a project).",
       props: {
-        ...full,
-        summary: { ...summary, cwd: `${PROJECTS}/cmux`, branch: "leo/next-backgrounds-batch" },
-        rows: projectRows,
-        onOpenFolder: () => undefined,
-        remoteControl: undefined,
+        ...environmentProps(),
+        summary: { ...summary, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
+        repository: undefined,
       },
     },
     "context-connectors-open": {
@@ -623,6 +670,36 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
       },
     },
+    "subagent-limit": {
+      note: 'Subagents with the chat\'s own running limit of 2: two of the chats it started run, a third waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it.',
+      props: {
+        ...full,
+        summary: { ...summary, subsessionLimits: { maxRunning: 2, maxRunningSource: "session" } },
+        sessions: [
+          ...sessions.slice(1),
+          { sessionId: "child-4", title: "Profile the sidebar", state: "running", createdAt: started - 300_000 },
+          {
+            sessionId: "child-5",
+            title: "Audit the strings",
+            state: "idle",
+            waitsForSlot: true,
+            createdAt: started - 200_000,
+          },
+        ],
+      },
+    },
+    "subagent-limit-hidden-default": {
+      note: "A chat that never started a subagent or a chat, at acpmux's default running limit: no Subagents card at all.",
+      props: { summary, machineName: "Studio", onSetRunningLimit: async () => undefined },
+    },
+    "subagent-limit-set-no-rows": {
+      note: "No subagents or chats yet, but the settings set the running limit to 4: Subagents shows only that limit, with − and +.",
+      props: {
+        summary: { ...summary, subsessionLimits: { maxRunning: 4, maxRunningSource: "settings" } },
+        machineName: "Studio",
+        onSetRunningLimit: async () => undefined,
+      },
+    },
     "subagents-busy": {
       note: "A busy coordinator: the first five of seventeen running subagents and chats, the one waiting on the person first, then Show 12 more and the 94 done · 1 failed row.",
       props: busy,
@@ -671,7 +748,7 @@ export default componentEntry<Props>({
       },
     },
     "fits-content": {
-      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the 560px ceiling is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the ceiling (the room under the header) is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
       props: {
         summary: { ...summary, mcpServers: [] },
         machineName: "Studio",
@@ -681,8 +758,21 @@ export default componentEntry<Props>({
       },
     },
     ceiling: {
-      note: "A busy coordinator over the same 900px pane: its sections run far past the ceiling, so the card stops at 560px (never more than 80% of the room under the header) and its body scrolls.",
+      note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
       props: { ...busy, closable: true },
+    },
+    "ceiling-capped": {
+      note: 'Before, for comparison: the old ceiling, the smallest of 560px and 80% of the room under the header, so a busy card stopped with room left and scrolled (Leo: "this constrained height for, like, no reason at all").',
+      props: {
+        ...busy,
+        closable: true,
+        ceiling:
+          "min(560px, calc((100% - var(--acpmux-inspector-top, 0px)) * 0.8), calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset)))",
+      },
+    },
+    "ceiling-most": {
+      note: "Alternative: 90% of the room under the header, leaving a band of the chat under the card.",
+      props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-inspector-top, 0px)) * 0.9)" },
     },
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",

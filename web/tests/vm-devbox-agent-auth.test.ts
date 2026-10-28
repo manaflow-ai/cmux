@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
@@ -45,10 +45,10 @@ type Machine = { root: string; home: string; bin: string; calls: string; auth: s
  * `curl` that answers the account check from $FAKE_ACCESS and the OpenCode
  * catalog (exit 7 when the answer is unset), logging every call.
  */
-function machine(): Machine {
+function machine(homeName = "home"): Machine {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-agent-auth-"));
   roots.push(root);
-  const home = path.join(root, "home");
+  const home = path.join(root, homeName);
   const bin = path.join(root, "bin");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
@@ -56,7 +56,9 @@ function machine(): Machine {
   const kind = path.join(root, "vm-kind");
   writeFileSync(kind, "owner\n");
   const auth = path.join(root, "agent-auth.sh");
-  writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
+  writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8")
+    .replaceAll("/etc/cmux/vm-kind", kind)
+    .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")));
   const modelPlane = path.join(root, "model-plane.env");
   writeFileSync(modelPlane, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\nexport ANTHROPIC_BASE_URL='${ORIGIN}'\nexport ANTHROPIC_API_KEY='${PLACEHOLDER}'\n`);
   const config = path.join(root, "agent-config.sh");
@@ -64,6 +66,7 @@ function machine(): Machine {
     config,
     readFileSync(path.join(templateDir, "agent-config.sh"), "utf8")
       .replaceAll("/etc/cmux/vm-kind", kind)
+      .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py"))
       .replaceAll("/etc/cmux/model-plane.env", modelPlane),
   );
   writeFileSync(
@@ -271,6 +274,38 @@ describe("Claude Code sign-in precedence", () => {
     });
     expect(parse(fresh.stdout).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(parse(fresh.stdout).ANTHROPIC_BASE_URL).toBe(ORIGIN);
+  });
+});
+
+describe("Claude Code 2.1.299 onboarding", () => {
+  // Verified against the pinned native package: CLAUDE_CONFIG_DIR changes
+  // the global .claude.json path, not just settings/credentials. The gate
+  // reads hasCompletedOnboarding from that document (see helper provenance).
+  test("root and cmux team launches read a complete seed in the selected config home", async () => {
+    expect(readFileSync(path.join(templateDir, "Dockerfile"), "utf8"))
+      .toContain("ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.299");
+    for (const user of ["root", "cmux"]) {
+      const m = machine(user);
+      writeFileSync(m.kind, "team\n");
+      const personal = JSON.stringify({ oauthAccount: { accountUuid: "personal" }, theme: "light" });
+      writeFileSync(path.join(m.home, ".claude.json"), personal);
+      const env = await launch(m, "claude", { FAKE_ACCESS: ALL });
+      const selected = path.join(env.CLAUDE_CONFIG_DIR, ".claude.json");
+      expect(JSON.parse(readFileSync(selected, "utf8"))).toEqual({
+        hasCompletedOnboarding: true,
+        bypassPermissionsModeAccepted: true,
+        theme: "dark",
+        projects: { "/": { hasTrustDialogAccepted: true } },
+        customApiKeyResponses: { approved: [PLACEHOLDER.slice(-20)], rejected: [] },
+      });
+      expect(statSync(selected).mode & 0o777).toBe(0o600);
+      expect(readFileSync(path.join(m.home, ".claude.json"), "utf8")).toBe(personal);
+      // A later launch preserves existing state and preferences.
+      const edited = { ...JSON.parse(readFileSync(selected, "utf8")), theme: "light", numStartups: 3 };
+      writeFileSync(selected, JSON.stringify(edited));
+      await launch(m, "claude", { FAKE_ACCESS: ALL });
+      expect(JSON.parse(readFileSync(selected, "utf8"))).toEqual(edited);
+    }
   });
 });
 

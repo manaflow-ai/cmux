@@ -42,7 +42,7 @@ async function loadKeys(api: string, projectId: string, now: number, force: bool
  * project is taken from the unverified `aud`, must be one of `allowed`, and
  * the token is then verified against that project's own JWKS and issuer.
  */
-export async function verifyStackAccessToken(token: string, allowed: string[], api: string, now: number): Promise<{ projectId: string; sub: string }> {
+export async function verifyStackAccessToken(token: string, allowed: string[], api: string, now: number): Promise<{ projectId: string; sub: string; exp: number }> {
   if (allowed.length === 0) throw badRequest("Stack Auth is not configured");
   let decoded;
   try {
@@ -70,5 +70,5 @@ export async function verifyStackAccessToken(token: string, allowed: string[], a
   if (typeof payload.exp !== "number" || payload.exp + CLOCK_SKEW_S <= now / 1000) throw unauthorized("access token expired");
   if (typeof payload.sub !== "string" || !payload.sub) throw unauthorized("access token has no subject");
   if (payload.is_anonymous === true) throw unauthorized("anonymous Stack users cannot sign in");
-  return { projectId, sub: payload.sub };
+  return { projectId, sub: payload.sub, exp: payload.exp };
 }
