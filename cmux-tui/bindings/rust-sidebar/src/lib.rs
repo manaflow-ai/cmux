@@ -333,6 +333,7 @@ fn spawn_stream_worker(view: &SidebarView, queue_capacity: usize) -> Result<Spaw
     let cancellation = stream.cancellation();
     let (sender, receiver) = mpsc::sync_channel(queue_capacity);
     let (lifecycle_sender, lifecycle) = mpsc::channel();
+    // supervise-allow: the view's stream worker; its JoinHandle goes to the caller, whose close joins it and reports a panic as "sidebar worker panicked".
     let worker = thread::Builder::new()
         .name("cmux-sidebar-stream".to_string())
         .spawn(move || stream_worker(stream, sender, lifecycle_sender))
