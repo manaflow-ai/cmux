@@ -202,7 +202,7 @@ export class SubagentFold {
       } else if (isTerminal(update.status)) {
         const identity = this.sessionStarts.get(call) ?? sessionStart;
         this.sessionStarts.delete(call);
-        if (update.status === "completed" && identity) this.retire(identity);
+        if (identity) this.retire(identity);
       }
     }
     const mux = event.msg?.params?._meta?.acpmux;
