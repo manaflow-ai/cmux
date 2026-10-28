@@ -1957,7 +1957,12 @@ jobs:
         id: capability-text
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
+
+      # Attachments take files of any size (Leo, 2026-10-26): no MAX_*BYTES cap in an
+      # attachment or upload path.
       - name: Attachment originals have no byte caps
+        id: attachment-caps
+        continue-on-error: true
         run: python3 -I scripts/cmux-next/check-attachment-caps.py
 
       # The pre-push gate again (scripts/cmux-next/prepush-gate.py, same pinned tools): on a push,
@@ -2061,6 +2066,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
+            ${{ steps.attachment-caps.outcome }}|Attachment originals have no byte caps
             ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
             ${{ steps.perf-source-guard.outcome }}|Perf source guard (no window capture or CATransaction.flush)
             ${{ steps.fixture-host-names.outcome }}|No fleet host names in gallery fixtures

@@ -12,7 +12,7 @@ import UniformTypeIdentifiers
 /// or `{cancelled: true}` when the person presses Esc.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
-    /// The page's cap on an attached image (attachments.ts `MAX_IMAGE_BYTES`).
+    /// The page's cap on an attached image (attachments.ts `IMAGE_PREVIEW_BYTES_LIMIT`).
     nonisolated static let maxBytes = 5 * 1024 * 1024
     /// A Retina capture over the cap is scaled to this longest side first, then sent as JPEG.
     nonisolated static let maxSide = 2560

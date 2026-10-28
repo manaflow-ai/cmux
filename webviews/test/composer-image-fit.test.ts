@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   IMAGE_BUDGET_BYTES,
-  MAX_IMAGE_BYTES,
+  IMAGE_PREVIEW_BYTES_LIMIT,
   MAX_IMAGE_SIDE,
   readAttachment,
 } from "../src/agent-session/acpmux/attachments";
@@ -43,7 +43,8 @@ afterEach(() => {
   delete g.OffscreenCanvas;
 });
 
-const big = (name: string, type = "image/png") => new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], name, { type });
+const big = (name: string, type = "image/png") =>
+  new File([new Uint8Array(IMAGE_PREVIEW_BYTES_LIMIT + 1)], name, { type });
 
 describe("an image over the per-image limit", () => {
   test("attaches scaled to the longest side as PNG when that fits", async () => {
@@ -62,12 +63,12 @@ describe("an image over the per-image limit", () => {
   });
 
   test("keeps the scaled image's base64 under the limit, not only its bytes", async () => {
-    const limit = Math.floor((MAX_IMAGE_BYTES * 3) / 4);
+    const limit = Math.floor((IMAGE_PREVIEW_BYTES_LIMIT * 3) / 4);
     installEngine(4000, 4000, (type) => (type === "image/png" ? limit + 1 : limit));
     const result = await readAttachment(big("image.png"), true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
     expect(result.mimeType).toBe("image/jpeg");
-    expect(result.data!.length).toBeLessThanOrEqual(MAX_IMAGE_BYTES);
+    expect(result.data!.length).toBeLessThanOrEqual(IMAGE_PREVIEW_BYTES_LIMIT);
   });
 
   test("encodes a JPEG source straight to JPEG, and names a re-encoded GIF .png", async () => {
@@ -82,7 +83,7 @@ describe("an image over the per-image limit", () => {
   });
 
   test("falls back to JPEG, renamed, when the scaled PNG is still too large", async () => {
-    installEngine(4000, 4000, (type) => (type === "image/png" ? MAX_IMAGE_BYTES + 1 : 2048));
+    installEngine(4000, 4000, (type) => (type === "image/png" ? IMAGE_PREVIEW_BYTES_LIMIT + 1 : 2048));
     const result = await readAttachment(big("Screen Shot.png"), true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
     expect(result).toMatchObject({ name: "Screen Shot.jpg", mimeType: "image/jpeg", size: 2048 });
@@ -90,7 +91,7 @@ describe("an image over the per-image limit", () => {
 
   // Leo, 2026-10-24: "we shouldn't have this limit". Past every step the smallest try goes.
   test("is never refused for its size: past every step its smallest try goes", async () => {
-    const drawn = installEngine(4000, 4000, () => MAX_IMAGE_BYTES + 1);
+    const drawn = installEngine(4000, 4000, () => IMAGE_PREVIEW_BYTES_LIMIT + 1);
     expect(await readAttachment(big("huge.png"), true)).toMatchObject({ name: "huge.jpg", mimeType: "image/jpeg" });
     expect(drawn.at(-1)).toEqual({ width: 512, height: 512, type: "image/jpeg" });
   });
