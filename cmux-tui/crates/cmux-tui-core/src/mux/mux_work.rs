@@ -162,14 +162,7 @@ impl Mux {
         attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
     ) -> Result<(), Refused> {
         let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
-        let retry = RetryItem {
-            mux,
-            priority,
-            lane,
-            permits: None,
-            permit: None,
-            attempt: Box::new(attempt),
-        };
+        let retry = RetryItem { mux, priority, lane, permits: None, attempt: Box::new(attempt) };
         retry.post(&self.work, first_delay)
     }
 
@@ -189,8 +182,7 @@ impl Mux {
         let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
         let (permits, key) = permits;
         let permits = Some(LimitedBy { permits: Arc::downgrade(permits), key });
-        let retry =
-            RetryItem { mux, priority, lane, permits, permit: None, attempt: Box::new(attempt) };
+        let retry = RetryItem { mux, priority, lane, permits, attempt: Box::new(attempt) };
         retry.post(&self.work, first_delay)
     }
 }
@@ -205,14 +197,8 @@ pub(super) fn post_mux_retry_from(
     attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
 ) -> Result<(), Refused> {
     let permits = None;
-    let retry = RetryItem {
-        mux: owner.clone(),
-        priority,
-        lane,
-        permits,
-        permit: None,
-        attempt: Box::new(attempt),
-    };
+    let retry =
+        RetryItem { mux: owner.clone(), priority, lane, permits, attempt: Box::new(attempt) };
     let owner = owner.upgrade().ok_or(Refused)?;
     retry.post(&owner.work, first_delay)
 }
@@ -233,8 +219,6 @@ struct RetryItem {
     priority: Priority,
     lane: Lane,
     permits: Option<LimitedBy>,
-    /// The permit this try took when it was posted, held until it ends.
-    permit: Option<Permit>,
     attempt: RetryAttempt,
 }
 
@@ -255,83 +239,9 @@ impl RetryItem {
         if promoted { Priority::UserBlocking } else { self.priority }
     }
 
-    /// Posts the next try after `delay`. A limited try takes its permit
-    /// first, when it is due, and parks in its permits while none is free:
-    /// a try that waits never waits in the lane's own queue, where
-    /// [`Permits::promote`] could not reach it.
     fn post(self, work: &Work, delay: Duration) -> Result<(), Refused> {
-        if delay.is_zero() || self.permits.is_none() {
-            return self.admit(work, delay);
-        }
-        // The hop only takes a permit (or parks) and posts the try, so it
-        // runs at once when due instead of queueing behind the tries it is
-        // meant to wait with in its permits.
-        work.post_delayed(
-            delay,
-            Priority::UserBlocking,
-            self.lane,
-            Shutdown::ContinueOnShutdown,
-            move || {
-                if let Some(owner) = self.mux.upgrade() {
-                    // Refused: shutdown began, and the retry ends with it.
-                    let _ = self.admit(&owner.work, Duration::ZERO);
-                }
-            },
-        )
-    }
-
-    /// Takes the try's permit (or parks it until one frees) and posts it.
-    fn admit(mut self, work: &Work, delay: Duration) -> Result<(), Refused> {
-        let (permits, key) = match self.permits.as_ref() {
-            Some(limit) => match limit.permits.upgrade() {
-                Some(permits) => (Some(permits), limit.key.clone()),
-                // The mux that owned them is gone.
-                None => return Ok(()),
-            },
-            None => (None, None),
-        };
-        if let Some(permits) = permits.as_ref()
-            && self.permit.is_none()
-        {
-            match permits.take(key.as_deref()) {
-                Ok(permit) => self.permit = Some(permit),
-                Err(parking) => {
-                    // Handed a permit and posted when one frees, or when a
-                    // caller promotes its key.
-                    parking.park(
-                        key,
-                        Box::new(move |permit| {
-                            self.permit = Some(permit);
-                            if let Some(owner) = self.mux.upgrade() {
-                                // Refused: shutdown began, and the retry ends with it.
-                                let _ = self.admit(&owner.work, Duration::ZERO);
-                            }
-                        }),
-                    );
-                    return Ok(());
-                }
-            }
-        }
         let (priority, lane) = (self.priority_now(), self.lane);
-        let (Some(permits), Some(key)) = (permits, key) else {
-            return work.post_delayed(
-                delay,
-                priority,
-                lane,
-                Shutdown::ContinueOnShutdown,
-                move || self.run(),
-            );
-        };
-        if priority == Priority::UserBlocking {
-            return work.post(priority, lane, Shutdown::ContinueOnShutdown, move || self.run());
-        }
-        // Queued below `UserBlocking`, it may wait behind the lane's other
-        // items: a later promote of `key` posts it again at `UserBlocking`,
-        // and whichever post runs first takes it.
-        let posted = Arc::new(PostedTry { item: Mutex::new(Some(self)) });
-        permits.note_posted(&key, &posted, lane);
-        let first = Arc::clone(&posted);
-        work.post(priority, lane, Shutdown::ContinueOnShutdown, move || first.run())
+        work.post_delayed(delay, priority, lane, Shutdown::ContinueOnShutdown, move || self.run())
     }
 
     fn run(mut self) {
@@ -339,65 +249,55 @@ impl RetryItem {
         if owner.shutting_down.load(Ordering::Acquire) {
             return;
         }
-        let permit = self.permit.take();
-        let next = (self.attempt)(&owner);
-        // The permit frees before the next try takes one.
-        drop(permit);
-        if let Retry::After(backoff) = next {
+        let permits = match self.permits.as_ref().map(|limit| limit.permits.upgrade()) {
+            None => None,
+            Some(Some(permits)) => Some(permits),
+            // The mux that owned them is gone.
+            Some(None) => return,
+        };
+        let key = self.permits.as_ref().and_then(|limit| limit.key.clone());
+        let _permit = match permits.as_ref().map(|permits| permits.take(key.as_deref())) {
+            None => None,
+            Some(Ok(permit)) => Some(permit),
+            Some(Err(parking)) => {
+                // Posted again with no delay when a permit frees.
+                parking.park(
+                    key,
+                    Box::new(move || {
+                        if let Some(owner) = self.mux.upgrade() {
+                            // Refused: shutdown began, and the retry ends with it.
+                            let _ = self.post(&owner.work, Duration::ZERO);
+                        }
+                    }),
+                );
+                return;
+            }
+        };
+        if let Retry::After(backoff) = (self.attempt)(&owner) {
             // Refused: shutdown began, and the retry ends with it.
             let _ = self.post(&owner.work, backoff);
         }
     }
 }
 
-/// A limited try posted below `UserBlocking`: its queued post and the one a
-/// promote adds both hold it; the first to run takes it.
-struct PostedTry {
-    // Lock carve-out: a leaf lock over one item, taken only to move it out;
-    // the item runs after it is released.
-    item: Mutex<Option<RetryItem>>,
-}
-
-impl PostedTry {
-    fn run(self: &Arc<Self>) {
-        let item = self.item.lock().unwrap_or_else(PoisonError::into_inner).take();
-        let Some(item) = item else { return };
-        if let Some(limit) = item.permits.as_ref()
-            && let (Some(permits), Some(key)) = (limit.permits.upgrade(), limit.key.as_deref())
-        {
-            permits.forget_posted(key, self);
-        }
-        item.run();
-    }
-}
-
-/// A queued [`PostedTry`] a promote of its key posts again.
-struct QueuedTry {
-    posted: Weak<PostedTry>,
-    lane: Lane,
-}
-
-type ParkedTry = Box<dyn FnOnce(Permit) + Send>;
+type ParkedTry = Box<dyn FnOnce() + Send>;
 
 /// A counted limit on how many items of one kind run at once, as Chrome's
 /// `PostJob` bounds a job's workers by its max concurrency
 /// (base/task/post_job.h) while the pool's own limits stay shared. An item
-/// takes its permit when it is posted; one that finds every permit taken
-/// parks, and a permit that frees goes to the longest-parked item, which is
-/// posted then. Nothing waits on a thread for a permit, and no item waits for
-/// one in a lane's queue.
+/// that finds every permit taken parks; a permit that frees posts the
+/// longest-parked item again. Nothing waits on a thread for a permit.
 ///
 /// An item whose key a caller waits on ([`Self::promote`], an attach to a
 /// terminal that still adopts) goes first: it leaves its place in the queue
-/// for the front, it may hold one of `width` more permits, and it is posted
-/// at `UserBlocking`, also when it already waits in its lane's queue, so the
+/// for the front, and it may hold one of `width` more permits, so the
 /// terminal a person looks at never waits behind the hidden ones, as
 /// Chrome's session restore loads the shown tab before the background tabs
 /// it throttles (chrome/browser/sessions/tab_loader.cc).
 pub(crate) struct Permits {
     width: usize,
-    // Lock carve-out: a leaf lock over a count and two queues; no item runs
-    // and no other lock is taken under it.
+    // Lock carve-out: a leaf lock over a count and a queue; no item runs and
+    // no other lock is taken under it.
     state: Mutex<PermitState>,
 }
 
@@ -407,8 +307,6 @@ struct PermitState {
     parked: VecDeque<Parked>,
     /// Keys callers wait on, with how many wait on each.
     urgent: HashMap<Arc<str>, usize>,
-    /// Tries queued in a lane below `UserBlocking`, by key.
-    queued: HashMap<Arc<str>, Vec<QueuedTry>>,
 }
 
 struct Parked {
@@ -427,14 +325,12 @@ impl PermitState {
     }
 
     /// The parked item a free permit goes to now, if any: the front one
-    /// (promoted ones are at the front), when it is under its limit. Its
-    /// permit is counted held here; the caller hands it over.
+    /// (promoted ones are at the front), when it is under its limit.
     fn next_parked(&mut self, width: usize) -> Option<ParkedTry> {
         let front = self.parked.front()?;
         if self.held >= self.limit(width, front.key.as_deref()) {
             return None;
         }
-        self.held += 1;
         self.parked.pop_front().map(|parked| parked.wake)
     }
 }
@@ -456,46 +352,24 @@ impl Permits {
     }
 
     /// A caller waits on the item of `key`: until [`Self::demote`], its
-    /// tries go before every parked one, may take a permit past the width
-    /// and run at `UserBlocking`. A parked try of it gets a permit and is
-    /// posted now (or moves to the front), and a try of it queued in its
-    /// lane below `UserBlocking` is posted again at `UserBlocking`.
-    pub(crate) fn promote(self: &Arc<Self>, key: &str) {
-        let (wake, queued) = {
+    /// tries go before every parked one and may take a permit past the
+    /// width. A parked try of it is posted now, or moves to the front.
+    pub(crate) fn promote(&self, key: &str) {
+        let wake = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             *state.urgent.entry(Arc::from(key)).or_default() += 1;
-            let wake =
-                match state.parked.iter().position(|parked| parked.key.as_deref() == Some(key)) {
-                    Some(index) => {
-                        let parked = state.parked.remove(index).expect("index in range");
-                        state.parked.push_front(parked);
-                        state.next_parked(self.width)
-                    }
-                    None => None,
-                };
-            (wake, state.queued.remove(key).unwrap_or_default())
-        };
-        // Outside the lock: each posts a work item.
-        if let Some(wake) = wake {
-            hand_over(wake, Permit { permits: Arc::clone(self) });
-        }
-        for queued in queued {
-            let Some(posted) = queued.posted.upgrade() else { continue };
-            let owner = posted
-                .item
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .as_ref()
-                .and_then(|item| item.mux.upgrade());
-            if let Some(owner) = owner {
-                // Refused: shutdown began; the queued post still holds it.
-                let _ = owner.work.post(
-                    Priority::UserBlocking,
-                    queued.lane,
-                    Shutdown::ContinueOnShutdown,
-                    move || posted.run(),
-                );
+            match state.parked.iter().position(|parked| parked.key.as_deref() == Some(key)) {
+                Some(index) => {
+                    let parked = state.parked.remove(index).expect("index in range");
+                    state.parked.push_front(parked);
+                    state.next_parked(self.width)
+                }
+                None => None,
             }
+        };
+        // Outside the lock: it posts a work item.
+        if let Some(wake) = wake {
+            wake();
         }
     }
 
@@ -511,28 +385,6 @@ impl Permits {
             *waiters -= 1;
             if *waiters == 0 {
                 state.urgent.remove(key);
-            }
-        }
-    }
-
-    /// `posted` waits in `lane`'s queue below `UserBlocking`.
-    fn note_posted(&self, key: &Arc<str>, posted: &Arc<PostedTry>, lane: Lane) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let queued = state.queued.entry(Arc::clone(key)).or_default();
-        queued.retain(|queued| queued.posted.strong_count() > 0);
-        queued.push(QueuedTry { posted: Arc::downgrade(posted), lane });
-    }
-
-    /// `posted` runs: a promote no longer needs to post it.
-    fn forget_posted(&self, key: &str, posted: &Arc<PostedTry>) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(queued) = state.queued.get_mut(key) {
-            queued.retain(|queued| {
-                queued.posted.strong_count() > 0
-                    && !Weak::ptr_eq(&queued.posted, &Arc::downgrade(posted))
-            });
-            if queued.is_empty() {
-                state.queued.remove(key);
             }
         }
     }
@@ -568,8 +420,7 @@ impl Parking<'_> {
     }
 }
 
-/// One of a [`Permits`]' width, held from a try's post to its end. Dropped,
-/// it goes to the next parked try, if one may take it, which is posted then.
+/// One of a [`Permits`]' width, held for the whole of one try.
 struct Permit {
     permits: Arc<Permits>,
 }
@@ -583,51 +434,8 @@ impl Drop for Permit {
         };
         // Outside the lock: it posts a work item.
         if let Some(next) = next {
-            hand_over(next, Permit { permits: Arc::clone(&self.permits) });
+            next();
         }
-    }
-}
-
-std::thread_local! {
-    /// Hand-overs a [`Permit`] drop queued while this thread already hands
-    /// one over.
-    static HANDING_OVER: std::cell::RefCell<Option<VecDeque<(ParkedTry, Permit)>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Gives `permit` to the parked try `next`, which posts it. A try that cannot
-/// be posted (shutdown began) drops its permit, which hands it to the next
-/// parked try: those hand-overs run in this loop, not nested in each other,
-/// so hundreds of parked tries never deepen the stack.
-fn hand_over(next: ParkedTry, permit: Permit) {
-    // `Some` when this thread already hands one over: queued for that loop.
-    let first = HANDING_OVER.with(|queue| {
-        let mut queue = queue.borrow_mut();
-        match queue.as_mut() {
-            Some(queue) => {
-                queue.push_back((next, permit));
-                None
-            }
-            None => {
-                *queue = Some(VecDeque::new());
-                Some((next, permit))
-            }
-        }
-    });
-    let Some((next, permit)) = first else { return };
-    // Runs `next`, then each hand-over it queued; the queue is gone after.
-    struct Draining;
-    impl Drop for Draining {
-        fn drop(&mut self) {
-            let _ = HANDING_OVER.try_with(|queue| queue.borrow_mut().take());
-        }
-    }
-    let _draining = Draining;
-    next(permit);
-    while let Some((next, permit)) =
-        HANDING_OVER.with(|queue| queue.borrow_mut().as_mut().and_then(VecDeque::pop_front))
-    {
-        next(permit);
     }
 }
 
