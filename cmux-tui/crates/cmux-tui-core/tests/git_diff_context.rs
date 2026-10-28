@@ -191,7 +191,7 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     let mut first_page_ms = 0.0;
     loop {
         let mut params = json!({"path": path, "scope": "uncommitted", "include_patch": true,
-            "paths": ["large.txt"], "patch_offset": offset});
+            "paths": ["large.txt"], "patch_offset": offset.to_string()});
         if let Some(revision) = &revision {
             params["patch_revision"] = json!(revision);
         }
@@ -200,7 +200,7 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
             first_page_ms = started.elapsed().as_secs_f64() * 1_000.0;
         }
         let page = &page["patch_page"];
-        assert_eq!(page["offset"].as_u64(), Some(offset));
+        assert_eq!(page["offset"].as_str().unwrap().parse::<u64>().unwrap(), offset);
         let next_revision = page["revision"].as_str().unwrap().to_owned();
         if let Some(revision) = &revision {
             assert_eq!(&next_revision, revision);
@@ -212,7 +212,7 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
         assert!(chunk.len() <= 512 * 1024);
         max_page_bytes = max_page_bytes.max(chunk.len());
         bytes.extend_from_slice(&chunk);
-        let next = page["next_offset"].as_u64().unwrap();
+        let next = page["next_offset"].as_str().unwrap().parse::<u64>().unwrap();
         assert!(next > offset);
         offset = next;
         page_count += 1;
@@ -226,7 +226,7 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     let missing_revision = client.request(
         "git.diff",
         json!({"path": path, "scope": "uncommitted", "include_patch": true,
-        "paths": ["large.txt"], "patch_offset": 1}),
+        "paths": ["large.txt"], "patch_offset": "1"}),
     );
     assert_eq!(missing_revision["ok"], false, "continuations require a source revision");
     assert!(missing_revision.to_string().contains("patch_revision"), "{missing_revision}");
@@ -239,7 +239,7 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     let changed = client.request(
         "git.diff",
         json!({"path": path, "scope": "uncommitted", "include_patch": true,
-        "paths": ["large.txt"], "patch_offset": 0, "patch_revision": revision}),
+        "paths": ["large.txt"], "patch_offset": "0", "patch_revision": revision}),
     );
     assert_eq!(changed["ok"], false, "pages from a changed file must never be joined");
     assert!(changed.to_string().contains("repository_changed"), "{changed}");

@@ -12,7 +12,7 @@ use cmux_git::run::GitOutput;
 use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
-use crate::resource::ResourceError;
+use crate::resource::{ResourceError, WireDecimal};
 
 const OPERATION: &str = "git.diff";
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
@@ -138,7 +138,19 @@ fn report(
     // changes view show more lines (cx-ncc.85).
     let context_lines = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
     let paths = pathspecs(fields)?;
-    let page_offset = fields.get("patch_offset").and_then(Value::as_u64);
+    let page_offset = fields
+        .get("patch_offset")
+        .map(|value| {
+            serde_json::from_value::<WireDecimal>(value.clone()).map(WireDecimal::get).map_err(
+                |_| {
+                    ResourceError::validation_invalid(
+                        Some("patch_offset"),
+                        "patch_offset must be an unsigned decimal string",
+                    )
+                },
+            )
+        })
+        .transpose()?;
     if page_offset.is_some() && (!include_patch || paths.len() != 1) {
         return Err(ResourceError::validation_invalid(
             Some("patch_offset"),
@@ -272,9 +284,9 @@ fn patch_page(
     }
     let next = offset + output.stdout.len() as u64;
     Ok(json!({
-        "offset": offset,
-        "next_offset": next,
-        "total_bytes": window.total_bytes,
+        "offset": WireDecimal::new(offset),
+        "next_offset": WireDecimal::new(next),
+        "total_bytes": WireDecimal::new(window.total_bytes),
         "revision": window.sha256,
         "data_base64": base64::engine::general_purpose::STANDARD.encode(output.stdout),
         "complete": next == window.total_bytes,

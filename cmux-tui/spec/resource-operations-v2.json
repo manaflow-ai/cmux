@@ -9037,21 +9037,21 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "uint64"
+            "name": "decimal"
           }
         },
         "next_offset": {
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "uint64"
+            "name": "decimal"
           }
         },
         "total_bytes": {
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "uint64"
+            "name": "decimal"
           }
         },
         "revision": {
@@ -19514,7 +19514,7 @@
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "uint64"
+              "name": "decimal"
             },
             "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
           },
@@ -20107,7 +20107,7 @@
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "uint64"
+              "name": "decimal"
             },
             "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
           },
