@@ -194,3 +194,65 @@ fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
     state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
     assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
+
+/// `cmux mcp serve` in a session no app owns (a cmux TUI or Cloud session):
+/// `current` is the caller's own pane, found from the daemon as the CLI
+/// finds it, not a `caller.unresolved` error on every call
+/// (tests/tool-evals `no-app-current`, 2026-10-27).
+#[test]
+fn mcp_current_is_the_callers_pane_without_an_app() {
+    let Split { server, terminal, pane, alpha, beta } =
+        caller_in_alpha_beta_focused("caller-mcp-no-app");
+    let base = server.socket.parent().unwrap().to_path_buf();
+    let config = base.join("cmux-next-mcp.json");
+    fs::write(&config, r#"{"mcp":{"enabled":true}}"#).unwrap();
+    let mut child = Command::new(bin())
+        .args(["mcp", "serve"])
+        .env("LC_ALL", "C")
+        .env("CMUX_NEXT_CONFIG_FILE", &config)
+        .env("CMUX_TUI_SOCKET", &server.socket)
+        .env("CMUX_TUI_TERMINAL_ID", &terminal)
+        .env("CMUX_SOCKET_PATH", base.join("no-app.sock"))
+        .env_remove("CMUX_AGENT_SESSION")
+        .env_remove("CMUX_BUNDLE_ID")
+        .env_remove("CMUX_TAG")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        for message in [
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "caller-mcp", "version": "1"}}}),
+            serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "cmux_exec", "arguments": {"script":
+                    "const split = await cmux.pane_split({pane: 'current', direction: 'right'}); \
+                     const panes = await cmux.pane_list({workspace: 'current'}); \
+                     return {split, panes};"}}}),
+        ] {
+            writeln!(stdin, "{message}").unwrap();
+        }
+    }
+    let output = child.wait_with_output().unwrap();
+    let reply = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|message| message["id"] == 2)
+        .unwrap_or_else(|| panic!("no reply: {}", String::from_utf8_lossy(&output.stderr)));
+    let result = &reply["result"];
+    assert_eq!(result["isError"], false, "{reply}");
+    let value = &result["structuredContent"]["result"];
+    let new_pane = value["split"]["value"]["pane_id"].as_str().unwrap_or_else(|| panic!("{reply}"));
+    let placed = state_cli(&server, None, &["pane", new_pane, "show"]);
+    let screen =
+        state_cli(&server, None, &["screen", placed["screen_id"].as_str().unwrap(), "show"]);
+    assert_eq!(screen["workspace_id"], alpha.as_str(), "split landed in {screen}");
+    let listed = value["panes"]["items"].as_array().unwrap_or_else(|| panic!("{reply}"));
+    assert!(listed.iter().any(|item| item["id"] == pane.as_str()), "{reply}");
+    let focused = state_cli(&server, None, &["workspace", "current", "show"]);
+    assert_eq!(focused["id"], beta.as_str(), "{focused}");
+}
