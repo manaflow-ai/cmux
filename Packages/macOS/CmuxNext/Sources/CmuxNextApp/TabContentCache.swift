@@ -254,7 +254,8 @@ final class TabContentCache {
                                                      generation: daemon.store.generation)
         // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
         // The new view shows what the old one showed until its own content draws (no empty pane between them).
-        let carried = terminals[tab.id]?.session.carriedFrame()
+        let identity = tab.terminalResourceID.map { "term:\($0.rawValue)" } ?? "surface:\(tab.surface.rawValue)"
+        let carried = terminals[tab.id].flatMap { $0.terminalIdentity == identity ? $0.session.carriedFrame() : nil }
         discardTerminal(tab.id)
         let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
                                              cursorDefault: .user)
@@ -269,6 +270,7 @@ final class TabContentCache {
         if let carried { session.holdCarriedFrame(carried) }
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
+        entry.terminalIdentity = identity
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.
