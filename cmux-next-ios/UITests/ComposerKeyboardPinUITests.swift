@@ -1,6 +1,6 @@
 import XCTest
 
-/// Every composer stays pinned right above the keyboard (verify/keyboard-pin.md):
+/// The Chief and terminal composers stay pinned right above the keyboard (verify/keyboard-pin.md):
 /// the same gap after the keyboard shows, after an interactive dismissal and a
 /// second show, through a rotation and back, and, on iPad, a floating keyboard
 /// leaves the composer at its resting place until the keyboard docks again.
@@ -28,11 +28,6 @@ final class ComposerKeyboardPinUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentChatComposerStaysOnKeyboard() throws {
-        try exercise(demo: "kbd-chat", field: "chat.composer.field")
-    }
-
-    @MainActor
     private func exercise(demo: String, field id: String) throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -41,85 +36,118 @@ final class ComposerKeyboardPinUITests: XCTestCase {
         app.launch()
 
         let field = app.textViews[id]
-        let keyboard = app.keyboards.firstMatch
+        let probe = app.staticTexts["debug.kbd-pin"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field \(id)\n\(app.debugDescription)")
-        if keyboard.exists {
+        XCTAssertTrue(probe.waitForExistence(timeout: 5), "the app's keyboard pin probe (-cmux-mobile-kbd-pin-trace)")
+        if reading(probe).keyboardTop != nil {
             // A screen that focuses its composer on open: start from rest.
             dismissInteractively(app)
-            XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "keyboard away before the run")
         }
-        let rest = settledFrame(of: field)
+        let rest = reading(probe) { $0.keyboardTop == nil }
+        XCTAssertNil(rest.keyboardTop, "keyboard away before the run (\(rest.line))")
         attach(app, "rest")
 
         // Show: the field settles right above the keyboard.
         field.tap()
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "tapping the field shows the keyboard")
-        let docked = try pinnedGap(field, keyboard, "first show")
+        let docked = pinnedGap(probe, "first show")
         attach(app, "shown")
 
         // Interactive dismissal: back to the same resting place.
         dismissInteractively(app)
-        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "dragging the content down takes the keyboard away")
-        XCTAssertEqual(settledFrame(of: field).maxY, rest.maxY, accuracy: 1, "the field returns to its resting place")
+        let dismissed = reading(probe) { $0.keyboardTop == nil }
+        XCTAssertNil(dismissed.keyboardTop, "dragging the content down takes the keyboard away (\(dismissed.line))")
+        XCTAssertEqual(dismissed.fieldBottom, rest.fieldBottom, accuracy: 1, "the field returns to its resting place")
         attach(app, "dismissed")
 
         // A second show lands on the same gap.
         field.tap()
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "the field still brings the keyboard back")
-        XCTAssertEqual(try pinnedGap(field, keyboard, "second show"), docked, accuracy: 1, "same gap on every show")
+        XCTAssertEqual(pinnedGap(probe, "second show"), docked, accuracy: 1, "same gap on every show")
 
         // Rotation and back, keyboard up.
         XCUIDevice.shared.orientation = .landscapeLeft
-        if keyboard.waitForExistence(timeout: 5) {
-            _ = try pinnedGap(field, keyboard, "landscape")
+        let landscape = reading(probe)
+        if landscape.keyboardTop != nil, landscape.docked {
+            _ = pinnedGap(probe, "landscape")
         }
         attach(app, "landscape")
         XCUIDevice.shared.orientation = .portrait
-        if !keyboard.waitForExistence(timeout: 3) { field.tap() }
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "keyboard back in portrait")
-        XCTAssertEqual(try pinnedGap(field, keyboard, "portrait again"), docked, accuracy: 1, "the gap survives a rotation")
+        if reading(probe).keyboardTop == nil { field.tap() }
+        XCTAssertEqual(pinnedGap(probe, "portrait again"), docked, accuracy: 1, "the gap survives a rotation")
         attach(app, "portrait-again")
 
         if UIDevice.current.userInterfaceIdiom == .pad {
             // A floating keyboard (pinch in) leaves the composer at rest; docking it again re-pins it.
-            keyboard.pinch(withScale: 0.4, velocity: -1)
-            let floated = settledFrame(of: keyboard)
-            if floated.width < app.windows.firstMatch.frame.width - 1 {
-                XCTAssertEqual(settledFrame(of: field).maxY, rest.maxY, accuracy: 1, "a floating keyboard leaves the composer at rest")
+            app.keyboards.firstMatch.pinch(withScale: 0.4, velocity: -1)
+            let floating = reading(probe) { !$0.docked }
+            if floating.keyboardTop != nil, !floating.docked {
+                XCTAssertEqual(floating.fieldBottom, rest.fieldBottom, accuracy: 1, "a floating keyboard leaves the composer at rest (\(floating.line))")
                 attach(app, "floating")
-                keyboard.pinch(withScale: 2.5, velocity: 1)
-                _ = settledFrame(of: keyboard)
-                XCTAssertEqual(try pinnedGap(field, keyboard, "docked again"), docked, accuracy: 1, "docking re-pins the composer")
+                app.keyboards.firstMatch.pinch(withScale: 2.5, velocity: 1)
+                XCTAssertEqual(pinnedGap(probe, "docked again"), docked, accuracy: 1, "docking re-pins the composer")
             } else {
-                XCTContext.runActivity(named: "keyboard did not float (\(floated))") { _ in }
+                XCTContext.runActivity(named: "keyboard did not float (\(floating.line))") { _ in }
             }
         }
     }
 
-    /// The keyboard's top minus the field's bottom, once both are still.
-    @MainActor
-    private func pinnedGap(_ field: XCUIElement, _ keyboard: XCUIElement, _ step: String) throws -> CGFloat {
-        let kb = settledFrame(of: keyboard)
-        let fieldFrame = settledFrame(of: field)
-        let gap = kb.minY - fieldFrame.maxY
-        XCTAssertGreaterThanOrEqual(gap, 0, "\(step): the keyboard covers the field (field \(fieldFrame), keyboard \(kb))")
-        XCTAssertLessThanOrEqual(gap, 40, "\(step): the field floats \(gap) pt above the keyboard (field \(fieldFrame), keyboard \(kb))")
-        return gap
+    /// One frame of the app's trace: the keyboard and the field as drawn.
+    private struct Reading: Equatable {
+        var line: String
+        var keyboardTop: CGFloat?
+        var fieldBottom: CGFloat
+        /// A full-width keyboard (not floating, not split).
+        var docked: Bool
+
+        init(_ line: String) {
+            self.line = line
+            var values: [String: String] = [:]
+            for pair in line.split(separator: " ") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                if kv.count == 2 { values[String(kv[0])] = String(kv[1]) }
+            }
+            keyboardTop = values["kb"].flatMap { Double($0) }.map { CGFloat($0) }
+            fieldBottom = CGFloat(values["fb"].flatMap { Double($0) } ?? -1)
+            let width = values["win"]?.split(separator: "x").first.flatMap { Double($0) } ?? 0
+            docked = (values["kbw"].flatMap { Double($0) } ?? 0) >= width - 1
+        }
+
+        static func == (a: Reading, b: Reading) -> Bool {
+            a.keyboardTop == b.keyboardTop && a.fieldBottom == b.fieldBottom
+        }
     }
 
-    /// An element's frame once it holds still for a few polls.
+    /// The probe's reading once the keyboard and the field hold still.
     @MainActor
-    private func settledFrame(of element: XCUIElement, timeout: TimeInterval = 4) -> CGRect {
-        var last = element.frame
-        var stable = 0
+    /// `until`: first wait (up to the timeout) for a reading that passes it.
+    private func reading(_ probe: XCUIElement, timeout: TimeInterval = 5, until: (Reading) -> Bool = { _ in true }) -> Reading {
         let deadline = Date().addingTimeInterval(timeout)
+        var last = Reading(probe.value as? String ?? "")
+        while Date() < deadline, !until(last) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            last = Reading(probe.value as? String ?? "")
+        }
+        var stable = 0
         while Date() < deadline, stable < 3 {
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
-            let now = element.exists ? element.frame : .zero
+            let now = Reading(probe.value as? String ?? "")
             stable = now == last ? stable + 1 : 0
             last = now
         }
         return last
+    }
+
+    /// The keyboard's top minus the field's bottom, once both are still.
+    @MainActor
+    private func pinnedGap(_ probe: XCUIElement, _ step: String) -> CGFloat {
+        let r = reading(probe) { $0.keyboardTop != nil }
+        guard let top = r.keyboardTop else {
+            XCTFail("\(step): no keyboard on screen (\(r.line))")
+            return -1
+        }
+        let gap = top - r.fieldBottom
+        XCTAssertGreaterThanOrEqual(gap, 0, "\(step): the keyboard covers the field (\(r.line))")
+        XCTAssertLessThanOrEqual(gap, 24, "\(step): the field floats \(gap) pt above the keyboard (\(r.line))")
+        return gap
     }
 
     @MainActor

@@ -10,7 +10,9 @@ import UIKit
 /// agent chat, terminal), plus a line per keyboard notification
 /// (verify/keyboard-pin.md, `verify/scripts/kbd_pin_trace.py`).
 ///
-/// Read-only: it never changes a view, a responder or a layout.
+/// It never changes a view, a responder or a layout of the app. UI tests read
+/// the latest frame from `probe`, a 1 pt label in the key window that takes no
+/// touches (ComposerKeyboardPinUITests).
 @MainActor
 final class KeyboardPinTrace: NSObject {
     static let flag = "-cmux-mobile-kbd-pin-trace"
@@ -20,6 +22,7 @@ final class KeyboardPinTrace: NSObject {
     private static var shared: KeyboardPinTrace?
     private var link: CADisplayLink?
     private let handle: FileHandle?
+    private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
 
     static func startIfRequested() {
@@ -32,6 +35,11 @@ final class KeyboardPinTrace: NSObject {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try? FileHandle(forWritingTo: url)
         super.init()
+        probe.isUserInteractionEnabled = false
+        probe.alpha = 0.02
+        probe.isAccessibilityElement = true
+        probe.accessibilityIdentifier = "debug.kbd-pin"
+        probe.accessibilityLabel = "keyboard pin probe"
         let center = NotificationCenter.default
         let names: [(Notification.Name, String)] = [
             (UIResponder.keyboardWillShowNotification, "willShow"),
@@ -71,6 +79,7 @@ final class KeyboardPinTrace: NSObject {
 
     @objc private func tick(_ link: CADisplayLink) {
         guard let window = keyWindow else { return }
+        if probe.window !== window { window.addSubview(probe) }
         var parts = [String(format: "t=%.4f", link.targetTimestamp - start)]
         parts.append(String(format: "win=%.0fx%.0f", window.bounds.width, window.bounds.height))
         parts.append("orient=\(window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0)")
@@ -95,7 +104,9 @@ final class KeyboardPinTrace: NSObject {
         } else {
             parts.append("field=-")
         }
-        write(parts.joined(separator: " "))
+        let line = parts.joined(separator: " ")
+        probe.accessibilityValue = line
+        write(line)
     }
 
     /// The keyboard as drawn, window coordinates; nil when none is on screen.
