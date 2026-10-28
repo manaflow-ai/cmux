@@ -29,11 +29,14 @@ import Testing
     /// Runs the main run loop until `done` or 30 s (the resize animation lands on the run loop). The
     /// test checks where the window lands, not how fast: a loaded runner may take far longer than
     /// the animation's own length, so the bound is only a hang guard.
-    private func runUntil(_ done: () -> Bool) {
+    private func runUntil(_ what: String, _ window: NSWindow, _ done: () -> Bool) {
+        let begin = Date()
         let end = Date(timeIntervalSinceNow: 30)
         while !done(), Date() < end {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
+        print("WindowZoomTests: \(what): done=\(done()) after \(Date().timeIntervalSince(begin)) s, frame \(window.frame), "
+            + "isZoomed \(window.isZoomed), inLiveResize \(window.inLiveResize), visible \(window.screen?.visibleFrame ?? .zero)")
     }
 
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
@@ -54,10 +57,10 @@ import Testing
         window.zoom(nil)
         #expect(window.frame == start, "zoom resized the window inside its own call (\(window.frame)): the animation held the main thread")
         #expect(window.isZoomed, "a zoom on its way to the standard frame counts as zoomed")
-        runUntil { window.frame != start && !window.inLiveResize && window.isZoomed && window.frame.width > start.width + 1 }
+        runUntil("zoom in", window) { window.frame != start && !window.inLiveResize && window.isZoomed && window.frame.width > start.width + 1 }
         #expect(window.frame.width > start.width, "the window reached its zoomed frame on the run loop")
         window.zoom(nil)
-        runUntil { abs(window.frame.width - start.width) <= 1 && abs(window.frame.height - start.height) <= 1 }
+        runUntil("zoom back", window) { abs(window.frame.width - start.width) <= 1 && abs(window.frame.height - start.height) <= 1 }
         #expect(abs(window.frame.width - start.width) <= 1 && abs(window.frame.minY - start.minY) <= 1,
                 "the second zoom went back to \(start), the window is at \(window.frame)")
     }
