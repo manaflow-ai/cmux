@@ -62,6 +62,11 @@ final class HomeHostView: NSView {
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The conversation this view shows (`HomeService.debugHostViews`).
+    var debugConversation: String { control.conversation.rawValue }
+    #endif
+
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
@@ -73,6 +78,9 @@ final class HomeHostView: NSView {
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
                                        picks: services.chiefMascotPicks, uploads: services.chiefAvatarUploads)
         super.init(frame: .zero)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        service.debugHostViews.add(self)
+        #endif
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
@@ -132,23 +140,9 @@ final class HomeHostView: NSView {
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
         settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
+        // One rename path for every Chief (HomeService.renameChief): every surface shows the new name at once.
         settingsView.onRename = { [weak service] name in
-            guard let service else { return .noConnection }
-            // A cloud Chief's name is its account record's (UserDO renames its conversation after):
-            // the local daemon has no such conversation, and the cloud refuses title.set on a Chief's.
-            if service.isCloudConversation(id) { return await service.directory.renameChief(conversation: conversation, to: name) }
-            // A Chief of this Mac: one set-title op; no daemon, or the daemon refusing it, says so on the card.
-            guard let connection = service.connection else { return .noConnection }
-            let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
-            do {
-                _ = try await CmuxNextDaemon.ConversationClient(connection).op(
-                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
-                return nil
-            } catch CmuxNextDaemon.DaemonError.command(_, let message, let code, _, _) {
-                return code == "invalid_title" ? .invalidName : .refused(message.isEmpty ? (code ?? "") : message)
-            } catch {
-                return .noConnection
-            }
+            await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -187,7 +181,9 @@ final class HomeHostView: NSView {
                 // A cloud Chief's brain runs on its paired server, never on
                 // this Mac's mux home (2026-10-08: the sidebar wrote codex
                 // here while cmux-lawrence ran claude-sr).
-                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id),
+                // The Chief's own name (HomeService.chiefName(of:)), the one its tile and tab show.
+                let name = service.chiefName(of: id)
+                return (chief, store.transcriptVersion[id] ?? 0, name ?? row?.summary.title ?? "", service.isCloudConversation(id),
                         row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) },
                         service.cloudChiefPlacement(of: conversation)?.placed != true,
                         row.flatMap { HomeService.soleChief(of: $0.summary.participants) })
@@ -212,6 +208,7 @@ final class HomeHostView: NSView {
                     settingsView.use(control.engineSource())
                 }
                 settingsView.setName(title)
+                transcript.headerTitle = isChief ? service.chiefName(of: id) : nil
                 if !isChief, settings.isShown { settings.close() }
                 if settings.isShown { settingsView.refresh() }
             }
