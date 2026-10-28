@@ -31,7 +31,7 @@ import Testing
         #expect(abs(p1.width - 20) <= 1, "p1 is \(p1.width) pt wide")
         let edge = SplitGeometry.layout(Self.pair.settingRatio(0.001, for: SplitID("x")), in: container, style: style)
         let folded = try #require(edge.panes[PaneID("p1")])
-        #expect(folded.width < 10, "a pane at the edge folds: \(folded.width) pt")
+        #expect(folded.width <= style.collapsedPaneExtent + 0.5, "a pane at the edge collapses: \(folded.width) pt")
         let rest = try #require(edge.panes[PaneID("p2")])
         #expect(abs(folded.maxX + style.dividerThickness - rest.minX) < 0.5 && abs(rest.maxX - container.maxX) < 0.5, "\(folded) \(rest)")
     }
@@ -58,7 +58,7 @@ import Testing
         let folded = layout.settingRatio(ratio, for: split)
         let style = LayoutStyle()
         let frames = SplitGeometry.layout(try #require(folded.tree(containing: PaneID("p1"))), in: CGRect(x: 0, y: 0, width: 1200, height: 800), style: style)
-        #expect(try #require(frames.panes[PaneID("p1")]).width < 10)
+        #expect(try #require(frames.panes[PaneID("p1")]).width <= style.collapsedPaneExtent + 0.5)
         let back = try #require(PaneResize.change(for: PaneID("p1"), direction: .right, in: folded))
         guard case let .splitRatio(_, grown) = back else {
             Issue.record("expected a split ratio, got \(back)")
@@ -108,7 +108,7 @@ import Testing
         defer { harness.close() }
         harness.drag(toX: 2)
         let folded = try harness.frame(of: PaneID("p1"))
-        #expect(folded.width < 10, "dragged to the edge the pane folds: \(folded.width) pt")
+        #expect(folded.width <= LayoutStyle().collapsedPaneExtent + 0.5 && folded.width > 0, "dragged to the edge the pane collapses: \(folded.width) pt")
         harness.drag(toX: 300)
         let back = try harness.frame(of: PaneID("p1"))
         #expect(abs(back.width - 300) <= 2, "dragged back the pane is 300 pt wide: \(back.width) pt")
@@ -122,7 +122,7 @@ import Testing
         let sorted = frames.sorted { $0.value.minX < $1.value.minX }
         for (pane, frame) in sorted {
             #expect(frame.minX >= rect.minX - 0.5 && frame.maxX <= rect.maxX + 0.5, "\(pane) \(frame) leaves \(rect)")
-            #expect(frame.width >= 0 && frame.height >= 0, "\(pane) \(frame)")
+            #expect(frame.width > 0 && frame.height > 0, "\(pane) \(frame): every pane keeps some room")
         }
         for (first, second) in zip(sorted, sorted.dropFirst()) {
             #expect(first.value.maxX <= second.value.minX + 0.5, "\(first.key) \(first.value) overlaps \(second.key) \(second.value)")

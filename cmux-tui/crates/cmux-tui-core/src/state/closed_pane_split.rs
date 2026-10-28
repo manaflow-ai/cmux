@@ -192,7 +192,7 @@ impl Mux {
         split: &Value,
     ) -> Option<PaneId> {
         let edge = TabDropEdge::parse(split["direction"].as_str()?).ok()?;
-        let ratio = split["ratio"].as_f64().map(|ratio| (ratio as f32).clamp(0.05, 0.95));
+        let ratio = split["ratio"].as_f64().map(|ratio| (ratio as f32).clamp(0.001, 0.999));
         match self.move_tab_to_split_as(actor, surface, neighbor, edge, ratio, false, None) {
             Ok(outcome) => Some(outcome.pane),
             Err(error) => {

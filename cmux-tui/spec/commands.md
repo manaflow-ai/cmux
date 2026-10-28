@@ -3780,7 +3780,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets the deepest split ratio in `dir` on the path to `pane`. The server clamps the supplied ratio to `0.05..0.95` before applying it. The result does not report the clamped value.
+Sets the deepest split ratio in `dir` on the path to `pane`. The server clamps the supplied ratio to `0.001..0.999` before applying it. The result does not report the clamped value.
 
 Params:
 
@@ -3788,7 +3788,7 @@ Params:
 | --- | --- | --- | --- |
 | `pane` | `Id` | required | Pane used to find a split on its ancestor path |
 | `dir` | `string` | required | `"right"` or `"down"` |
-| `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+| `ratio` | `float32` | required | Clamped to `0.001..0.999` |
 
 Result:
 
@@ -3832,14 +3832,14 @@ Example:
 | status | implemented |
 | since | protocol 8 |
 
-Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged. A compatibility split representing a horizontal viewport column also preserves the column width invariant `0.1..1.0`.
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.001..0.999`. The split id and every unrelated node remain unchanged. A compatibility split representing a horizontal viewport column also preserves the column width invariant `0.1..1.0`.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
-| `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+| `ratio` | `float32` | required | Clamped to `0.001..0.999` |
 | `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
 Result: `object{}`.

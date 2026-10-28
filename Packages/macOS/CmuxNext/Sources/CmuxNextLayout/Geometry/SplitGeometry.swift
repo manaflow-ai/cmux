@@ -166,11 +166,15 @@ public nonisolated enum SplitGeometry {
         var value = available * CGFloat(ratio)
         let foldsA = collapsedA != nil && value < minimumA - 0.5
         let foldsB = collapsedB != nil && available - value < minimumB - 0.5
-        if foldsA, let collapsedA, !foldsB || value <= available - value {
-            return ceilToPixel(min(collapsedA, available), scale: scale)
-        }
-        if foldsB, let collapsedB {
-            return floorToPixel(max(0, available - collapsedB), scale: scale)
+        if foldsA || foldsB {
+            // The collapsed side's bar, and the rest for the other side, which keeps its own collapsed extent
+            // (or its minimum) when there is room: no side ever gets 0 while the other takes it all.
+            let barA = foldsA && (!foldsB || value <= available - value)
+            let bar = (barA ? collapsedA : collapsedB) ?? 0
+            let other = (barA ? (collapsedB ?? minimumB) : (collapsedA ?? minimumA))
+            let extent = bar + other > available && bar + other > 0 ? available * bar / (bar + other) : bar
+            let first = barA ? extent : available - extent
+            return min(max(0, roundToPixel(first, scale: scale)), floorToPixel(available, scale: scale))
         }
         if available >= minimumA + minimumB {
             value = min(max(value, minimumA), available - minimumB)

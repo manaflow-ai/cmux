@@ -69,12 +69,12 @@ public final class CollapsedPaneBarView: NSView {
         CATransaction.commit()
     }
 
-    /// The pane's content background and the icon in the chrome's secondary text color, from the theme.
+    /// The pane's content background, opaque (it covers content that keeps the keys), and the icon in the chrome's secondary text color, from the theme.
     private func applyColors() {
         let scale = window?.backingScaleFactor ?? 2
         let side = TabStripMetrics.standard.iconSize
         let (background, image) = performWithTheme {
-            (Palette.surfaceBackground.cgColor, item?.iconImage(tint: Palette.textSecondary, size: side, scale: scale))
+            (Palette.surfaceBackground.withAlphaComponent(1).cgColor, item?.iconImage(tint: Palette.textSecondary, size: side, scale: scale))
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)

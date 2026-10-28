@@ -264,18 +264,29 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// What the chrome shows at this pane's size: the full strip, a compact one, none, or a folded bar.
     var chromeFit: PaneChromeFit { PaneChromeFit(paneSize: bounds.size, stripHeight: fullStripHeight) }
 
-    /// A compact strip under 160 pt, and a folded bar over hidden content when thinner than a cell: a hidden
-    /// terminal keeps its grid and its process, a hidden page lets its host view go (as a parked tab).
+    /// A compact strip under 160 pt, and a collapsed bar over the content when thinner than a cell. The content
+    /// hides under the bar (a hidden page lets its host view go, as a parked tab; a terminal keeps its grid and
+    /// process), except while it holds the window's first responder: hiding it then would move the keys to the
+    /// next key view and the focus model would no longer agree, so it stays under the bar, which is
+    /// opaque, above it and takes the clicks.
     private func applyFit(_ fit: PaneChromeFit) {
         // A browser's band holds the strip's place: it opens or closes with the strip.
         if (fit.strip == .hidden) != (appliedFit?.strip == .hidden) { refreshBandHeight() }
         appliedFit = fit
         stripView.isCompact = fit.strip == .compact
         toolbar?.view.isCompact = fit.strip == .compact
-        if contentHost.isHidden != fit.isCollapsed { contentHost.isHidden = fit.isCollapsed }
+        let holdsKeys = (window?.firstResponder as? NSView)?.isDescendant(of: contentHost) == true
+        let hides = fit.isCollapsed && !holdsKeys
+        if contentHost.isHidden != hides { contentHost.isHidden = hides }
         if collapsedBar.isHidden == fit.isCollapsed { collapsedBar.isHidden = !fit.isCollapsed }
         guard fit.isCollapsed else { return }
         if collapsedBar.frame != bounds { collapsedBar.frame = bounds }
+        refreshCollapsedBar()
+    }
+
+    /// The collapsed bar shows the selected tab's icon (`PaneController.apply` calls it when the tabs change).
+    func refreshCollapsedBar() {
+        guard !collapsedBar.isHidden else { return }
         let model = stripView.model
         collapsedBar.show(model.selectedID.flatMap { id in model.tabs.first { $0.id == id } } ?? model.tabs.first)
     }

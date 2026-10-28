@@ -50,8 +50,7 @@ public final class PaneToolbarView: NSView {
             guard isCompact != oldValue else { return }
             for button in buttons { button.isHidden = isCompact }
             invalidateIntrinsicContentSize()
-            needsLayout = true // invalidate: the pinned buttons show or go (the guard above)
-            superview?.needsLayout = true // invalidate: the strip takes or gives up their width
+            needsLayout = true // invalidate: the pinned buttons show or go (the guard above); the pane reads the new width in the same pass
         }
     }
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.

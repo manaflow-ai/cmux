@@ -59,7 +59,13 @@ public final class TabStripView: NSView {
         didSet {
             guard isCompact != oldValue else { return }
             newTabButton.isHidden = !showsNewTabButton
-            applyTokens(animated: false)
+            // Set from the pane's layout pass: new metrics and an invalidation, no layout here; this strip's
+            // own layout() lays the tabs out again (the viewport counts as changed).
+            let base = customMetrics ?? TabStripMetrics()
+            metrics = isCompact ? base.compacted() : base
+            for cell in cells.values { cell.metrics = metrics }
+            lastViewportWidth = -1
+            needsLayout = true // invalidate: compact or full metrics (the guard above)
         }
     }
 

@@ -124,9 +124,11 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
         (axis == .horizontal ? minimumPaneContentSize.width : minimumPaneContentSize.height) <= 0
     }
 
-    /// The extent of a folded pane across its bar: a divider's hit width ("about 6 pt", Lawrence 2026-10-28)
-    /// plus the padding around the content.
-    public var collapsedPaneExtent: CGFloat { max(1, dividerHitThickness) + panePadding * 2 }
+    /// The extent of a collapsed pane across its bar ("about 6 pt", Lawrence 2026-10-28): a divider's hit
+    /// width plus the padding, below one cell (`PaneChromeFit` shows the bar under 8 pt). The neighbouring
+    /// divider's hit area covers part of the bar; a click there with no drag expands the bar too
+    /// (`ScreenContentView.handleDrag`).
+    public var collapsedPaneExtent: CGFloat { max(1, min(dividerHitThickness, minimumDrawableContentSize.width - 1)) + panePadding * 2 }
 }
 
 extension LayoutStyle {

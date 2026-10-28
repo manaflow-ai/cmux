@@ -70,7 +70,7 @@ extension PaneContentView {
     /// The strip's drawn height: while a hold keeps it after it hid, its
     /// shown height (the content already takes its place, unseen).
     var shownStripHeight: CGFloat {
-        guard holdKeepsStrip, paintHold.kept != nil else { return stripHeight }
+        guard holdKeepsStrip, paintHold.kept != nil, chromeFit.strip != .hidden || hidesStrip else { return stripHeight }
         return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 

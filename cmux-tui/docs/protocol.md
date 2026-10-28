@@ -159,7 +159,7 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 {"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
 ```
 
-Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
+Ratios are clamped to `0.001..0.999` (the app collapses a pane at either end). A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
 
 `frontend-browser-tabs-v1` adds browser tabs whose page the frontend
 renders with WebKit or CEF. `new-frontend-browser-tab` creates one in the

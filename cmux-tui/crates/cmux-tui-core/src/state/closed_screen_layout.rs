@@ -115,7 +115,7 @@ impl Shape {
                         let ratio = node["ratio"].as_f64().unwrap_or(0.5) as f32;
                         Some(Self::Split {
                             edge,
-                            share: (1.0 - ratio).clamp(0.05, 0.95),
+                            share: (1.0 - ratio).clamp(0.001, 0.999),
                             first: Box::new(first),
                             second: Box::new(second),
                         })

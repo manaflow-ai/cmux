@@ -348,6 +348,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             noteNeighbors()  // a reorder, close or new tab moves the neighbors
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
+        view.refreshCollapsedBar()  // a collapsed pane's bar shows the selected tab's icon
         if !snapshot.items.isEmpty { services.launchReveal.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
@@ -393,7 +394,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// Selects `id` on the strip; a newly selected tab is viewed (its title attention dot goes).
     func setStripSelection(_ id: StripTabID?) {
-        if stripModel.selectedID != id { stripModel.selectedID = id }
+        if stripModel.selectedID != id {
+            stripModel.selectedID = id
+            view.refreshCollapsedBar()
+        }
         selectTabNode(id?.rawValue)
         guard stripSelection != id?.rawValue else { return }
         stripSelection = id?.rawValue

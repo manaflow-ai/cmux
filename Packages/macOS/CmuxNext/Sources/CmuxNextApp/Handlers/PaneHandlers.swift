@@ -241,8 +241,9 @@ enum PaneHandlers {
         // Ctrl-Cmd-X and a collapsed bar's click: the collapsed panes get their share back in the key's turn; the
         // ratios go to the daemon as Equalize Splits sends them (`LayoutModel.equalizeSplit`).
         registry.bindEffect("pane.expandCollapsed", effect: { invocation in
-            guard let pane = ctx.paneController(invocation), let content = pane.workspace,
-                  content.layoutView.expandCollapsedPanes(around: pane.layoutPaneID) else {
+            // No pane: paneController(_:) already said why.
+            guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return .done }
+            guard content.layoutView.expandCollapsedPanes(around: pane.layoutPaneID) else {
                 return .refused(RefusalStrings.noCollapsedPane, quiet: true)
             }
             return .done
