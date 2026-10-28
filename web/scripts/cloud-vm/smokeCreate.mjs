@@ -5,8 +5,11 @@ export const CREATE_VM_RETRY_BUDGET_MS = 8 * 60 * 1_000;
 export const CREATE_VM_REQUEST_TIMEOUT_MS = 45_000;
 const RESPONSE_BODY_CANCEL_CLEANUP_MS = 1_000;
 
-/** Read a response body without allowing cancellation or timeout to strand a canary. */
-/** @param {Response} response @param {{ signal?: AbortSignal, timeoutMs?: number }} [options] */
+/**
+ * Read a response body without allowing cancellation or timeout to strand a canary.
+ * @param {Response} response
+ * @param {{ signal?: AbortSignal, timeoutMs?: number }} [options]
+ */
 export async function readResponseText(response, { signal, timeoutMs = CREATE_VM_REQUEST_TIMEOUT_MS } = {}) {
   const reader = response.body?.getReader?.();
   const body = reader ? readResponseBody(reader) : response.text();
