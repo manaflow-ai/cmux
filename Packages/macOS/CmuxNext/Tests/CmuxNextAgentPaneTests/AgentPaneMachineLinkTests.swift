@@ -46,7 +46,7 @@ struct AgentPaneMachineLinkTests {
         #expect(await up.reconnect.isEmpty)
     }
 
-    @Observable @MainActor private final class Machine {
+    @Observable @MainActor final class Machine {
         var use: AgentPaneMachineLink.Use
         init(_ use: AgentPaneMachineLink.Use) { self.use = use }
     }
