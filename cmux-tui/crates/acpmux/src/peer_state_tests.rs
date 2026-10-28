@@ -280,15 +280,16 @@ async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
     let (_, _, first) = notices.recv().await.unwrap();
     assert!(matches!(first, PeerNotice::Disconnected(_)));
     let early = tokio::time::timeout(Duration::from_secs(120), notices.recv()).await;
-    peer.stop();
-    running.await.unwrap();
-    assert!(early.is_err(), "a day-old outage retried within two minutes");
     let refusal = tokio::time::timeout(
         Duration::from_millis(1),
         peer.request(method::SESSION_NEW, json!({})),
     )
-    .await
-    .expect("a parked peer refuses immediately")
-    .unwrap_err();
+    .await;
+    let later = tokio::time::timeout(Duration::from_secs(3_600), notices.recv()).await;
+    peer.stop();
+    running.await.unwrap();
+    assert!(early.is_err(), "a day-old outage retried within two minutes");
+    assert!(later.is_ok(), "a parked peer must continue hourly attempts");
+    let refusal = refusal.expect("a parked peer refuses immediately").unwrap_err();
     assert_eq!(reason(&refusal), Some("peer_unreachable"));
 }

@@ -411,10 +411,16 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let read = tokio::process::Command::new("ssh")
+        let mut child = tokio::process::Command::new("ssh")
             .args(read_config_argv(&host))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
-            .output();
+            .spawn()
+            .map_err(|e| format!("read remote config: {e}"))?;
+        let errors = ssh_errors::Capture::start(child.stderr.take());
+        let read = child.wait_with_output();
         let out = tokio::time::timeout(self.timings.connect, read)
             .await
             .map_err(|_| {
@@ -429,7 +435,7 @@ impl Peer {
         if out.stdout.is_empty() && !out.status.success() {
             return Err(ssh_errors::describe(
                 format!("ssh to {host} failed ({})", out.status),
-                ssh_errors::reason(&out.stderr),
+                errors.finish().await,
             ));
         }
         let (config, peer) = split_remote_read(&out.stdout);
