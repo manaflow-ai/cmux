@@ -71,6 +71,51 @@ pub fn bind(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
     std::os::unix::net::UnixListener::bind(path)
 }
 
+/// Binds `path` so that the socket is never reachable with a wider mode than
+/// owner read and write (0600): the socket is bound in a new owner-only
+/// (0700) directory beside `path`, set to 0600 there, and then renamed onto
+/// `path` (which replaces a stale socket file there). A socket bound in place
+/// and then chmod-ed has the umask's mode until the chmod, and a peer can
+/// connect in that window. The caller checks that no live server owns `path`
+/// first.
+#[cfg(unix)]
+pub fn bind_private(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    check_path(path)?;
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("no socket file name in {}", path.display()),
+        )
+    })?;
+    // A short sibling name, so the staged path fits when `path` does.
+    let staging = parent.join(format!(".s{:x}", std::process::id() ^ unique()));
+    std::fs::DirBuilder::new().mode(0o700).create(&staging)?;
+    let staged = staging.join(name);
+    let result = (|| {
+        check_path(&staged)?;
+        let listener = std::os::unix::net::UnixListener::bind(&staged)?;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::rename(&staged, path)?;
+        Ok(listener)
+    })();
+    let _ = std::fs::remove_file(&staged);
+    let _ = std::fs::remove_dir(&staging);
+    result
+}
+
+/// A per-call number for staging names (time and a counter).
+#[cfg(unix)]
+fn unique() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    nanos ^ NEXT.fetch_add(1, Ordering::Relaxed).rotate_left(16)
+}
+
 /// `UnixStream::connect` after [`check_path`].
 #[cfg(unix)]
 pub fn connect(path: &Path) -> io::Result<std::os::unix::net::UnixStream> {
