@@ -123,7 +123,7 @@ class ResourceApiTests(unittest.TestCase):
             try:
                 if asynchronous:
                     async def exercise():
-                        async with cmux.aio.Client(path, timeout=0.1) as client:
+                        async with cmux.aio.Client(path, timeout=2) as client:
                             try:
                                 await client.session(SESSION).terminal(TERMINAL).write(
                                     "x" * (1024 * 1024),
@@ -133,7 +133,7 @@ class ResourceApiTests(unittest.TestCase):
                                 finished.set()
                     asyncio.run(exercise())
                 else:
-                    with Client(path, timeout=0.1) as client:
+                    with Client(path, timeout=2) as client:
                         try:
                             client.with_request_options(
                                 RequestOptions(timeout=0.05),
@@ -151,7 +151,7 @@ class ResourceApiTests(unittest.TestCase):
             try:
                 self.assertTrue(accepted.wait(1), "server did not accept the SDK client")
                 self.assertTrue(
-                    finished.wait(1),
+                    finished.wait(0.5),
                     "request deadline did not bound blocked socket dispatch",
                 )
             finally:
@@ -170,12 +170,17 @@ class ResourceApiTests(unittest.TestCase):
 
     def test_pre_write_dispatch_timeout_keeps_connection_reusable(self) -> None:
         observed = []
-        finished = threading.Event()
-        errors = []
+        pending_seen = threading.Event()
+        release_response = threading.Event()
+        timed_out = threading.Event()
+        pending_result = []
+        timed_out_errors = []
 
         def handler(connection, _index):
             request = next(frames(connection))
             observed.append(request)
+            pending_seen.set()
+            release_response.wait(1)
             ok(
                 connection,
                 request,
@@ -188,6 +193,12 @@ class ResourceApiTests(unittest.TestCase):
                 },
             )
 
+        def pending_request(client):
+            try:
+                pending_result.append(client.session(SESSION).ping())
+            except BaseException as error:
+                pending_result.append(error)
+
         def timed_out_request(client):
             try:
                 client.with_request_options(
@@ -195,32 +206,42 @@ class ResourceApiTests(unittest.TestCase):
                     client.session(SESSION).ping,
                 )
             except BaseException as error:
-                errors.append(error)
+                timed_out_errors.append(error)
             finally:
-                finished.set()
+                timed_out.set()
 
         with UnixJsonServer(handler) as server:
-            with Client(server.path, timeout=0.2) as client:
+            with Client(server.path, timeout=2) as client:
+                pending_worker = threading.Thread(
+                    target=pending_request,
+                    args=(client,),
+                )
+                pending_worker.start()
+                self.assertTrue(pending_seen.wait(1))
                 send_lock = client._connection._wire._send_lock
                 self.assertTrue(send_lock.acquire())
-                worker = threading.Thread(
+                timed_out_worker = threading.Thread(
                     target=timed_out_request,
                     args=(client,),
                 )
-                worker.start()
+                timed_out_worker.start()
                 try:
                     self.assertTrue(
-                        finished.wait(1),
+                        timed_out.wait(1),
                         "request did not time out while waiting for send lock",
                     )
                 finally:
                     send_lock.release()
-                    worker.join(timeout=1)
-                self.assertFalse(worker.is_alive())
-                self.assertEqual(len(errors), 1)
-                self.assertIsInstance(errors[0], cmux.TimeoutError)
+                    timed_out_worker.join(timeout=1)
+                self.assertFalse(timed_out_worker.is_alive())
+                self.assertEqual(len(timed_out_errors), 1)
+                self.assertIsInstance(timed_out_errors[0], cmux.TimeoutError)
                 self.assertFalse(client.closed)
-                self.assertTrue(client.session(SESSION).ping().alive)
+                release_response.set()
+                pending_worker.join(timeout=1)
+                self.assertFalse(pending_worker.is_alive())
+                self.assertEqual(len(pending_result), 1)
+                self.assertTrue(pending_result[0].alive)
 
         self.assertEqual(
             [request["operation"] for request in observed],
