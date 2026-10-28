@@ -335,7 +335,11 @@ export async function validateScreenshot(file: string, artifact: GeometryArtifac
     if (createHash("sha256").update(bytes).digest("hex") !== artifact.capture.screenshotSha256) errors.push(`${file}: screenshot hash mismatch`);
     const png = PNG.sync.read(bytes);
     const scale = artifact.capture.deviceScaleFactor;
-    if (png.width !== Math.round(artifact.capture.viewport.width * scale) || png.height !== Math.round(artifact.capture.viewport.height * scale)) errors.push(`${file}: screenshot dimensions do not match viewport and scale`);
+    const expectedWidth = Math.round(artifact.capture.viewport.width * scale);
+    const minimumHeight = Math.round(artifact.capture.viewport.height * scale);
+    // Gallery captures use fullPage: true, so a page may be taller than the requested viewport.
+    // Width must remain exact; height must cover the viewport and may extend below it.
+    if (png.width !== expectedWidth || png.height < minimumHeight) errors.push(`${file}: screenshot dimensions do not cover viewport and scale`);
   } catch (error) {
     errors.push(`${file}: screenshot evidence unavailable: ${error instanceof Error ? error.message : String(error)}`);
   }

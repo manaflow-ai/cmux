@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lintGeometry, parseArtifact, parseConfig, type GeometryArtifact, type GeometryConfig, type GeometryRule } from "./geometry";
+import { createHash } from "node:crypto";
+import { lintGeometry, parseArtifact, parseConfig, validateScreenshot, type GeometryArtifact, type GeometryConfig, type GeometryRule } from "./geometry";
+import { PNG } from "pngjs";
 import { main as lintMain } from "./geometry-lint";
 
 const sha = "92c51f49804f48da9f46a86bbebea2bc11cd7f99";
@@ -118,6 +120,25 @@ test("finding IDs preserve element boundaries", async () => {
   first.capture.caseId = "rows:extra";
   otherTuple.capture.engine = "extra:chromium";
   expect((await lint(first)).findings[0]!.id).not.toBe((await lint(otherTuple)).findings[0]!.id);
+});
+
+
+test("full-page screenshots may exceed viewport height", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "geometry-screenshot-"));
+  try {
+    const screenshot = join(dir, "full-page.png");
+    const png = new PNG({ width: 100, height: 180 });
+    writeFileSync(screenshot, PNG.sync.write(png));
+    const value = artifact();
+    value.capture.screenshot = screenshot;
+    value.capture.screenshotSha256 = createHash("sha256").update(readFileSync(screenshot)).digest("hex");
+    expect(await validateScreenshot("fixture.geometry.json", value)).toEqual([]);
+    const narrow = new PNG({ width: 99, height: 180 });
+    writeFileSync(screenshot, PNG.sync.write(narrow));
+    expect((await validateScreenshot("fixture.geometry.json", value))[0]).toContain("do not cover viewport");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("CLI writes a failing report when screenshot evidence is missing", async () => {
