@@ -1,0 +1,50 @@
+{
+  "id": "arrows-history",
+  "priority": "P0",
+  "title": "Up recalls the last command, Left moves the cursor into it, Down returns to the line being typed",
+  "why": "Arrow keys are the first editing keys a person uses: an arrow that reaches the shell as the wrong sequence (or not at all) makes history and line editing useless. The outputs a-N-942 and z-N-6 can only come from a recalled line edited at the right place and from the restored half-typed line.",
+  "source": "everyday terminal use (holistic-quality.md 1: arrow keys and history)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-arrows-history"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo a-${nonce}-$((6*7))", "enter": true, "mark": "first"},
+    {"do": "expect", "title": "the first command runs", "since": "first", "timeout": 10,
+     "all": [{"daemon_line": "a-${nonce}-42"}, {"daemon_prompt": true}]},
+
+    {"do": "key", "key": "up", "mark": "up"},
+    {"do": "expect", "title": "Up puts the last command back on the prompt line", "since": "up", "within": 1.0, "timeout": 5,
+     "all": [
+       {"daemon_line": "${prompt}echo a-${nonce}-$((6*7))"},
+       {"app_text_contains": "${prompt}echo a-${nonce}-$((6*7))"}
+     ]},
+    {"do": "key", "key": "left"}, {"do": "key", "key": "left"}, {"do": "key", "key": "left"}, {"do": "key", "key": "left"},
+    {"do": "key", "key": "left"}, {"do": "key", "key": "left"}, {"do": "key", "key": "left"}, {"do": "key", "key": "left"},
+    {"do": "type", "text": "9", "enter": true, "mark": "edited"},
+    {"do": "expect", "title": "eight Lefts put the cursor before $((6*7)): the edited recall prints a-N-942", "since": "edited", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "${prompt}echo a-${nonce}-9$((6*7))"},
+       {"daemon_line": "a-${nonce}-942"},
+       {"app_text_line": "a-${nonce}-942"},
+       {"daemon_prompt": true},
+       {"frame_text": "a-${nonce}-942"}
+     ]},
+
+    {"do": "type", "text": "echo z-${nonce}-"},
+    {"do": "key", "key": "up", "mark": "up2"},
+    {"do": "expect", "title": "Up from a half-typed line recalls the edited command", "since": "up2", "within": 1.0, "timeout": 5,
+     "all": [{"daemon_line": "${prompt}echo a-${nonce}-9$((6*7))"}]},
+    {"do": "key", "key": "down", "mark": "down"},
+    {"do": "expect", "title": "Down brings the half-typed line back", "since": "down", "within": 1.0, "timeout": 5,
+     "all": [{"daemon_line": "${prompt}echo z-${nonce}-"}]},
+    {"do": "type", "text": "$((2*3))", "enter": true, "mark": "restored"},
+    {"do": "expect", "title": "the restored line runs with the rest typed after it", "since": "restored", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "z-${nonce}-6"},
+       {"app_text_line": "z-${nonce}-6"},
+       {"daemon_prompt": true},
+       {"app_prompt": true},
+       {"frame_text": "z-${nonce}-6"}
+     ]}
+  ]
+}

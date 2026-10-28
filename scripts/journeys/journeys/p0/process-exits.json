@@ -1,0 +1,40 @@
+{
+  "id": "process-exits",
+  "priority": "P0",
+  "title": "A command that ends by itself gives the prompt back, with its exit status",
+  "why": "When a foreground process exits on its own the shell must get the terminal back at once and the pane must show the prompt: no hang, no lost output, no stuck foreground group. The exit status shows the shell saw the real exit.",
+  "source": "everyday terminal use (holistic-quality.md 1: a process that exits)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-process-exits"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "sleep 2; echo slept-${nonce}-$((6*7))", "enter": true, "mark": "start"},
+    {"do": "expect", "title": "sleep runs in the foreground", "since": "start", "timeout": 5,
+     "all": [{"process_present": {"match": "^sleep 2$", "bind": "sleep", "foreground": true}}]},
+    {"do": "expect", "title": "sleep ends by itself, the next command prints, and the prompt returns about 2 s after Return", "since": "start", "within": 4, "timeout": 10,
+     "all": [
+       {"process_gone": "sleep"},
+       {"daemon_line": "slept-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "slept-${nonce}-42"},
+       {"app_prompt": true}
+     ]},
+
+    {"do": "type", "text": "sh -c 'sleep 1; exit 3'; echo code-${nonce}-$?", "enter": true, "mark": "fail"},
+    {"do": "expect", "title": "a command that fails by itself reports its status and the prompt returns", "since": "fail", "within": 4, "timeout": 10,
+     "all": [
+       {"daemon_line": "code-${nonce}-3"},
+       {"daemon_prompt": true},
+       {"app_text_line": "code-${nonce}-3"},
+       {"app_prompt": true},
+       {"app_pane": {"focused": true, "link": "connected"}},
+       {"frame_text": "code-${nonce}-3"}
+     ]},
+    {"do": "type", "text": "echo after-${nonce}-$((6*7))", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "the shell takes input again", "since": "after", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "after-${nonce}-42"},
+       {"app_text_line": "after-${nonce}-42"}
+     ]}
+  ]
+}

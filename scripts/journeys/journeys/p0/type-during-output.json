@@ -1,0 +1,31 @@
+{
+  "id": "type-during-output",
+  "priority": "P0",
+  "title": "Keys typed while a command prints output are neither lost nor reordered",
+  "why": "A person types the next command while the last one still prints (a build, a log). Each key must reach the PTY in order while output streams the other way; one dropped, doubled or swapped key changes the typed-N line. The journey checks the producer still ran after Return, so the keys really went in during output.",
+  "source": "everyday terminal use (holistic-quality.md 1: long-running output while you type)",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-type-during-output"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "sh -c 'for i in $(seq 1 600); do echo r-$((i+1000))-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; sleep 0.02; done; echo producer-$((600*2))-done'", "enter": true, "mark": "producer"},
+    {"do": "expect", "title": "the producer runs in the foreground and its output streams", "since": "producer", "timeout": 10,
+     "all": [
+       {"process_present": {"match": "^sh -c for i in", "bind": "producer", "foreground": true}},
+       {"daemon_contains": "r-1"}
+     ]},
+    {"do": "type", "text": "echo typed-${nonce}-qwertyuiop-asdfghjkl-zxcvbnm-0123456789-QWERTY-$((6*7))", "enter": true, "mark": "typed"},
+    {"do": "expect", "title": "the producer still ran after Return: the keys went in during output", "since": "typed", "timeout": 2,
+     "all": [{"process_present": {"match": "^sh -c for i in", "bind": "producer-after", "foreground": true}}]},
+    {"do": "expect", "title": "after the producer ends, the typed line runs exactly as typed: its computed output shows", "since": "typed", "timeout": 45,
+     "all": [
+       {"process_gone": "producer-after"},
+       {"daemon_line": "producer-1200-done"},
+       {"daemon_line": "typed-${nonce}-qwertyuiop-asdfghjkl-zxcvbnm-0123456789-QWERTY-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "typed-${nonce}-qwertyuiop-asdfghjkl-zxcvbnm-0123456789-QWERTY-42"},
+       {"app_prompt": true},
+       {"frame_text": "typed-${nonce}-qwertyuiop"}
+     ]}
+  ]
+}

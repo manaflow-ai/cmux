@@ -6,7 +6,7 @@
   "source": "dogfood bug v1 (Lawrence), everyday terminal use",
   "budget_seconds": 60,
   "steps": [
-    {"do": "new_terminal", "name": "jr-ctrl-c"},
+    {"do": "new_terminal", "via": "key"},
     {"do": "neutral_prompt"},
     {"do": "type", "text": "echo before-${nonce}-$((6*7))", "enter": true, "mark": "before"},
     {"do": "expect", "title": "the shell answers", "since": "before", "timeout": 10,

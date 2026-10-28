@@ -54,7 +54,8 @@ LEASE_SECONDS = 540
 # Download, launch, the OCR compile (first time per mini) and its warm-up (about 60 s), before the first journey.
 SETUP_RESERVE = 240
 JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
-RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png)|host\.json|summary\.json)")
+RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
+                         r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
@@ -258,6 +259,9 @@ def run_lease(specs, build, out, frame_interval):
     if not acquired:
         return {i: {"status": "not run", "reason": "capture-host acquire printed no lease"} for i in ids}
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
+    # Crash reports from this lease on: any of the app under test fails every journey here (dogfood gate rule).
+    leased_at = time.time() - 60
+    app, crashes = None, []
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
     facts, host = {}, None
@@ -299,16 +303,35 @@ def run_lease(specs, build, out, frame_interval):
         files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
+        crashes = lease_crashes(host, app, facts.get("bundle_id"), leased_at, left)
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
-        return collect(out, ids, host, missing_reason=reason)
+        if host and app:
+            crashes = lease_crashes(host, app, facts.get("bundle_id"), leased_at, left)
+        return crashed_results(collect(out, ids, host, missing_reason=reason), crashes)
     finally:
         released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
-    return collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
-                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})")
+    return crashed_results(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
+                                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})"),
+                           crashes)
+
+
+def lease_crashes(host, app, bundle_id, since_epoch, left):
+    """The app's crash reports on `host` since `since_epoch` (``crash_listing_script``); logged. A listing that fails
+    is logged and counts as none: the journeys' own checks still judge the run."""
+    listing = remote(host, crash_listing_script(app, bundle_id, since_epoch), timeout=left(60), check=False)
+    if listing.returncode != 0:
+        log(f"[{host}] could not list crash reports (exit {listing.returncode}): "
+            f"{listing.stderr.decode(errors='replace').strip()[-200:]}")
+        return []
+    crashes = parse_crash_listing(listing.stdout.decode(errors="replace"))
+    for crash in crashes:
+        kind = "deliberate crash (debug.crash.app)" if is_deliberate_crash(crash) else "CRASH of the app under test"
+        log(f"[{host}] {kind}: {crash['file']} {crash['signal']} {' < '.join(crash['frames'][:2])}")
+    return crashes
 
 
 def take_results(files, out, ids):
@@ -326,6 +349,74 @@ def take_results(files, out, ids):
             target = out / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(tar.extractfile(member).read())
+
+
+def crashed_results(results, crashes):
+    """`results` with every journey failed when the app under test crashed during the lease (`crashes`, from
+    ``parse_crash_listing``): a crash the app relaunched from can hide behind a later pass."""
+    crashes = [c for c in crashes if not is_deliberate_crash(c)]
+    if not crashes:
+        return results
+    first = crashes[0]
+    what = (f"app crashed during the lease ({len(crashes)} report(s); {first['file']}: "
+            f"{first['signal'] or first['exception'] or 'unknown signal'} in {' < '.join(first['frames'][:2]) or 'unknown frame'})")
+    failed = {}
+    for journey, result in results.items():
+        own = result.get("reason") or ""
+        failed[journey] = {**result, "status": "fail", "reason": what + (f"; {own}" if own else ""), "crashes": crashes}
+    return failed
+
+
+# A crash a journey asks for (debug.crash.app, app-life-crash-recovers) has this frame on its faulting thread.
+DELIBERATE_CRASH_FRAME = "DebugCrashes.crashApp"
+
+
+def is_deliberate_crash(crash):
+    """Whether a crash report is the app's own debug.crash.app (a journey step), not a crash of the build."""
+    return any(DELIBERATE_CRASH_FRAME in frame for frame in crash.get("frames", []))
+
+
+def parse_crash_listing(text):
+    """The crash reports ``crash_listing_script`` printed, one JSON object a line; other lines are skipped."""
+    crashes = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("file"), str):
+            crashes.append({"file": row["file"], "signal": str(row.get("signal") or ""),
+                            "exception": str(row.get("exception") or ""),
+                            "frames": [str(f) for f in (row.get("frames") or [])][:6]})
+    return crashes
+
+
+def crash_listing_script(app, bundle_id, since_epoch):
+    """A script for the mini: one JSON line per crash report in ~/Library/Logs/DiagnosticReports written at or after
+    `since_epoch` of the app under test, with its signal and faulting thread's top frames. The report's coalitionName is
+    the slot clone's own bundle id (`bundle_id`, capture-host's launch prints it); macOS shortens its procPath to
+    /Users/Shared/*/<bundle name>, so without a bundle id the bundle's file name (`app`'s last part) matches it."""
+    program = r"""
+import glob, json, os, sys
+bundle, since, name = sys.argv[1], float(sys.argv[3]), "/" + sys.argv[2].rstrip("/").rsplit("/", 1)[-1] + "/"
+for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")):
+    try:
+        if os.path.getmtime(path) < since:
+            continue
+        head, _, body = open(path, errors="replace").read().partition(chr(10))
+        report = json.loads(body)
+    except (OSError, ValueError):
+        continue
+    if (report.get("coalitionName") != bundle) if bundle else (name not in str(report.get("procPath", ""))):
+        continue
+    threads = report.get("threads") or [{}]
+    thread = threads[min(int(report.get("faultingThread") or 0), len(threads) - 1)]
+    exception = report.get("exception") or {}
+    print(json.dumps({"file": os.path.basename(path), "signal": exception.get("signal", ""),
+                      "exception": exception.get("type", ""),
+                      "frames": [f.get("symbol", "?") for f in (thread.get("frames") or [])[:6]]}))
+"""
+    return f"/usr/bin/python3 -I -c {q(program)} {q(bundle_id or '')} {q(app)} {int(since_epoch)}"
 
 
 def collect(out, ids, host, missing_reason):
