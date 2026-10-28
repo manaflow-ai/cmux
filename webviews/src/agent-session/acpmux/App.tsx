@@ -224,12 +224,8 @@ import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./c
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
-import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
-import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
-import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
-import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -440,7 +436,7 @@ import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { RetryBackoff } from "../../pages/shared/retryBackoff";
 import { callNative } from "./callNative";
 import type { MeasurableRenderer, NativeRegistry, OpenDiff, RowProps } from "./rows/rowProps";
-import { resumeAgentPair, editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
+import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { MessageRow } from "./rows/MessageRow";
 import { ToolActivityRow } from "./rows/ToolActivityRow";
 import { WorkedRow } from "./rows/WorkedRow";
@@ -453,6 +449,12 @@ import { RenderRow } from "./rows/RenderRow";
 import { SummaryRow } from "./rows/SummaryRow";
 import { PlanRow } from "./rows/PlanRow";
 import { NoticeRow } from "./rows/NoticeRow";
+import { BackgroundTaskRow } from "./rows/BackgroundTaskRow";
+import { CompactionRow } from "./rows/CompactionRow";
+import { FailoverRow } from "./rows/FailoverRow";
+import { PolicyUnenforcedRow } from "./rows/PolicyUnenforcedRow";
+import { AgentPairRow } from "./rows/AgentPairRow";
+import { SessionStartRow } from "./rows/SessionStartRow";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -839,42 +841,6 @@ const PREVIEW_TURNS = 8;
 /// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
 const REVEAL_HOLD_MS = 2_000;
 
-const BackgroundTaskRow = memo(
-  function BackgroundTaskRow({ row }: RowProps) {
-    return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const CompactionRow = memo(
-  function CompactionRow({ row }: RowProps) {
-    return row.compaction ? <CompactionNote compaction={row.compaction} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const FailoverRow = memo(
-  function FailoverRow({ row }: RowProps) {
-    return row.failover ? <FailoverNote failover={row.failover} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const PolicyUnenforcedRow = memo(
-  function PolicyUnenforcedRow({ row }: RowProps) {
-    return row.policyUnenforced ? <PolicyUnenforcedNote note={row.policyUnenforced} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const AgentPairRow = memo(
-  function AgentPairRow({ row }: RowProps) {
-    return row.agentPair ? <AgentPairNote pair={row.agentPair} onResume={resumeAgentPair} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const SessionStartRow = memo(
-  function SessionStartRow({ row }: RowProps) {
-    return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
 const PermissionRow = memo(
   function PermissionRow({ row }: RowProps) {
     const t = useT();
