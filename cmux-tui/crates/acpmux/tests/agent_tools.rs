@@ -381,8 +381,9 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
 }
 
 /// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a background Bash call in a
-/// chat whose MCP config has the `acpmux` server is denied with the exact `bg_start` call; with
-/// no such server, with no config, or for a foreground call it prints nothing and the shell runs.
+/// chat whose MCP config has the `acpmux` server is denied with the exact `bg_start` call, and
+/// the same call again runs (the server may be unusable); with no such server, with no config,
+/// or for a foreground call it prints nothing and the shell runs.
 #[test]
 fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     let home = std::env::temp_dir().join(format!("acpmux-bg-hook-{}", std::process::id()));
@@ -419,9 +420,13 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     assert_eq!(out["permissionDecision"], "deny", "{deny}");
     let reason = out["permissionDecisionReason"].as_str().unwrap();
     assert!(
-        reason.ends_with(r#"mcp__acpmux__bg_start {"command":"npm run dev","cwd":"/srv/app"}"#),
+        reason.contains(r#"mcp__acpmux__bg_start {"command":"npm run dev","cwd":"/srv/app"}"#),
         "{reason}"
     );
+    assert!(reason.ends_with("send this same Bash call again and it runs as asked."), "{reason}");
+    assert_eq!(run("with", true), "", "the same call again: the native background shell runs");
+    assert!(run("with", true).contains("deny"), "after it ran, a new call is turned away again");
+    assert!(run("with", true).is_empty());
     assert_eq!(run("with", false), "", "a foreground call runs");
     assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
     assert_eq!(run("no-config", true), "", "no config: the native background shell runs");

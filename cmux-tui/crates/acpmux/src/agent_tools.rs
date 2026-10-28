@@ -459,7 +459,9 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
-    let _ = std::fs::remove_file(mcp_config_path(home, session_id));
+    let path = mcp_config_path(home, session_id);
+    let _ = std::fs::remove_file(crate::bg_hook::denied_path(&path));
+    let _ = std::fs::remove_file(path);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -827,11 +829,15 @@ impl AgentTools {
                     args.push("--mcp-config".into());
                     args.push(config_file.to_string_lossy().into_owned());
                 }
-                // Never fall back to inline JSON: that puts the token in argv.
-                Err(e) => tracing::warn!(
-                    "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
-                    config_file.display()
-                ),
+                // Never fall back to inline JSON: that puts the token in argv. An earlier
+                // launch's file goes too, so the hook never reads servers this one lacks.
+                Err(e) => {
+                    let _ = std::fs::remove_file(config_file);
+                    tracing::warn!(
+                        "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
+                        config_file.display()
+                    )
+                }
             }
         }
         if let Some(dir) = &self.plugin_dir {

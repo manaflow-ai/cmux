@@ -7,7 +7,10 @@
 //!
 //! It never strands the agent: when the chat's MCP config (`agent_tools::mcp_config_path`) has
 //! no `acpmux` server, plain or behind the `cmux` server's code mode, or anything cannot be read,
-//! it says nothing and Claude Code runs the shell as asked.
+//! it says nothing and Claude Code runs the shell as asked. A configured server may still be
+//! unusable (it failed to start), so it turns a command away only once: the same call again
+//! runs as asked, and the deny says so. The last command turned away is kept beside the config
+//! (`<config>.bg-denied`, a hash), one file per chat, removed with the config.
 
 use serde_json::{Value, json};
 
@@ -51,6 +54,13 @@ pub fn route(config: &Value) -> Option<Route> {
     Some(if all { Route::Listed } else { Route::CodeMode })
 }
 
+/// Where the hook keeps the last command it turned away, beside the chat's MCP config.
+pub fn denied_path(config: &std::path::Path) -> std::path::PathBuf {
+    let mut name = config.as_os_str().to_owned();
+    name.push(".bg-denied");
+    name.into()
+}
+
 /// The hook's answer to one PreToolUse `input`, or None to let the call run.
 pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
     if input["tool_name"].as_str() != Some("Bash")
@@ -72,7 +82,7 @@ pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
     let reason = format!(
         "Not run: in this chat a run_in_background shell ends when the agent hibernates after 2 \
 idle minutes. Run the same command as a background task the daemon owns, which keeps running; it \
-answers with the task's id, and bg_output reads its output: {call}"
+answers with the task's id, and bg_output reads its output: {call} If that tool is not available, send this same Bash call again and it runs as asked."
     );
     Some(json!({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -87,12 +97,25 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
-    let route = std::env::var(crate::acpmux_mcp::SESSION_ENV).ok().and_then(|session| {
-        let home = home.unwrap_or_else(crate::config::home);
-        let path = crate::agent_tools::mcp_config_path(&home, &session);
-        route(&serde_json::from_slice(&std::fs::read(path).ok()?).ok()?)
-    });
-    if let Some(answer) = decide(&input, route) {
+    let Ok(session) = std::env::var(crate::acpmux_mcp::SESSION_ENV) else { return Ok(()) };
+    let home = home.unwrap_or_else(crate::config::home);
+    let config = crate::agent_tools::mcp_config_path(&home, &session);
+    let route = std::fs::read(&config)
+        .ok()
+        .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .and_then(|c: Value| route(&c));
+    let Some(answer) = decide(&input, route) else { return Ok(()) };
+    // The same call turned away just before runs as asked (the replacement may be unusable).
+    // Keyed by what the call runs, not its per-call ids.
+    let what = json!([input["cwd"], input["tool_input"]]);
+    let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
+    let denied = denied_path(&config);
+    if std::fs::read_to_string(&denied).is_ok_and(|last| last == key) {
+        let _ = std::fs::remove_file(&denied);
+        return Ok(());
+    }
+    // Unrecorded, a repeat could not get through: then the call runs.
+    if crate::agent_tools::write_private(&denied, key.as_bytes()).is_ok() {
         println!("{answer}");
     }
     Ok(())
@@ -117,8 +140,8 @@ mod tests {
     #[test]
     fn a_background_shell_is_turned_to_bg_start_with_the_same_command_and_folder() {
         let args = r#"{"command":"npm run dev","cwd":"/work/app"}"#;
-        assert!(reason(Route::Direct).ends_with(&format!("mcp__acpmux__bg_start {args}")));
-        assert!(reason(Route::Listed).ends_with(&format!("mcp__cmux__acpmux_bg_start {args}")));
+        assert!(reason(Route::Direct).contains(&format!("mcp__acpmux__bg_start {args} ")));
+        assert!(reason(Route::Listed).contains(&format!("mcp__cmux__acpmux_bg_start {args} ")));
         assert!(reason(Route::CodeMode).contains(&format!("cmux.acpmux_bg_start({args})")));
     }
 
