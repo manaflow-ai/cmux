@@ -356,14 +356,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
-            if !json_out
-                && new_without_prompt_requires_tty(
-                    args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
-                    args.detach,
-                    std::io::stdin().is_terminal(),
-                    std::io::stdout().is_terminal(),
-                )
-            {
+            if new_requires_tty(
+                json_out,
+                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
+                args.detach,
+                std::io::stdin().is_terminal(),
+                std::io::stdout().is_terminal(),
+            ) {
                 return Err(errors::AppError::usage(
                     "acpmux new without a prompt needs a terminal; pass a prompt or -d",
                 )
@@ -1069,6 +1068,16 @@ fn new_without_prompt_requires_tty(
     no_prompt && !detach && (!stdin_terminal || !stdout_terminal)
 }
 
+fn new_requires_tty(
+    json_out: bool,
+    no_prompt: bool,
+    detach: bool,
+    stdin_terminal: bool,
+    stdout_terminal: bool,
+) -> bool {
+    !json_out && new_without_prompt_requires_tty(no_prompt, detach, stdin_terminal, stdout_terminal)
+}
+
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
 fn parse_duration_ms(text: &str) -> Result<u64> {
     let mut rest = text.trim();
@@ -1155,8 +1164,8 @@ fn text_field(value: Option<&Value>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        new_without_prompt_requires_tty, parse_duration_ms, parse_fields, project_fields,
-        send_steers, started_by,
+        new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, parse_fields,
+        project_fields, send_steers, started_by,
     };
     use serde_json::json;
 
@@ -1205,5 +1214,7 @@ mod tests {
         assert!(!new_without_prompt_requires_tty(true, true, false, false));
         assert!(!new_without_prompt_requires_tty(false, false, false, false));
         assert!(!new_without_prompt_requires_tty(true, false, true, true));
+        assert!(!new_requires_tty(true, true, false, false, false));
+        assert!(new_requires_tty(false, true, false, false, true));
     }
 }

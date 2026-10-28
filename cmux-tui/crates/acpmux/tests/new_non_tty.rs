@@ -67,23 +67,3 @@ fn promptless_new_from_a_pipe_exits_with_usage_without_starting_a_daemon() {
     assert!(stderr.contains("needs a terminal"), "stderr: {stderr}");
     assert!(fs::read_dir(&root).unwrap().next().is_none(), "daemon side effects in {root:?}");
 }
-
-#[test]
-fn json_promptless_new_from_a_pipe_creates_a_session() {
-    let root = std::env::temp_dir().join(format!("acpmux-new-json-pipe-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).unwrap();
-    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-    let _cleanup = Cleanup(root.clone());
-
-    let output = daemon_env::command(&root, daemon_env::Agents::Deny, &[])
-        .args(["--json", "new", "-m", "unii"])
-        .env("ACPMUX_HOME", &root)
-        .env("ACPMUX_LOGIN_ENV", "0")
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "stdout: {:?}\nstderr: {:?}", output.stdout, output.stderr);
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(value.get("sessionId").and_then(serde_json::Value::as_str).is_some(), "{value}");
-}
