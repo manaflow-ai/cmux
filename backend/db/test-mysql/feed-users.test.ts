@@ -21,8 +21,8 @@ run("feed sweep user pages on the MySQL projection", () => {
     db = await mysql.createConnection({ uri: url!, timezone: "Z", dateStrings: true })
     await db.query("SET time_zone = '+00:00'")
     await db.query("DELETE FROM users WHERE id LIKE 'user\\_fu\\_%'")
-    for (const [i, id] of [...IDS].reverse().entries()) {
-      const [sql, args] = projectionStatementMysql("user.upsert", { id, stack_user_id: `s${i}`, email: `${id}@example.com`, display_name: id, personal_team: `team_${id}` }, `user:${id}`, 1)!
+    for (const id of [...IDS].reverse()) {
+      const [sql, args] = projectionStatementMysql("user.upsert", { id, stack_user_id: `st_${id}`, email: `${id}@example.com`, display_name: id, personal_team: `team_${id}` }, `user:${id}`, 1)!
       await db.query(sql, args)
     }
   }, 60_000)
