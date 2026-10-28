@@ -80,6 +80,17 @@ nonisolated enum AddMachineStrings {
 
     static var connected: String { s("machines.connected", "Connected") }
     static var offline: String { s("machines.offline", "Offline") }
+    static var connecting: String { s("machines.connecting", "Connecting…") }
+
+    /// A group header of the Machines section; nil for this Mac, whose row has no header.
+    static func group(_ kind: MachineKind) -> String? {
+        switch kind {
+        case .local: nil
+        case .cloud: s("machines.group.cloud", "Cloud")
+        case .ssh: s("machines.group.ssh", "SSH")
+        case .server: s("machines.group.servers", "Servers")
+        }
+    }
     static var newWorkspace: String { s("machines.newWorkspace", "New Workspace on This Machine") }
     static var addMachine: String { s("machines.addMachine", "Add Machine…") }
     static var healthOK: String { s("machines.health.ok", "Last check passed") }

@@ -1,0 +1,568 @@
+public import AppKit
+public import CmuxNextDesign
+import CmuxNextIcons
+
+/// The right sidebar's Machines section (AppKit): this Mac, then a header per kind (Cloud, SSH,
+/// Servers) over its machines, then Add Machine…, laid out as ``MachineSectionStyle`` says. Every
+/// icon sits in one column and every name starts on one line; text takes three theme inks
+/// (``MachineSectionInk``). Rows take value snapshots and an action bundle, never a store.
+public final class MachineSectionView: NSView {
+    /// What the section's controls do.
+    public struct Actions {
+        /// New Workspace on a machine (`workspace.newOnMachine`'s `machine`).
+        public var newWorkspace: @MainActor (String) -> Void
+        /// Add Machine… (`device.add`).
+        public var addMachine: @MainActor () -> Void
+
+        public init(newWorkspace: @escaping @MainActor (String) -> Void, addMachine: @escaping @MainActor () -> Void) {
+            self.newWorkspace = newWorkspace
+            self.addMachine = addMachine
+        }
+    }
+
+    private let actions: Actions
+    let addRow: MachineSectionAddRow
+    public private(set) var rows: [MachineSectionRow] = []
+    public private(set) var style: MachineSectionStyle = .compact
+    /// Row views by machine id, kept across updates so a row under the pointer keeps its hover.
+    private(set) var rowViews: [String: MachineSectionRowView] = [:]
+    /// The shown views top to bottom, each with the gap above it.
+    private var arranged: [(view: NSView, gap: CGFloat)] = []
+    private var shown = false
+
+    public init(actions: Actions) {
+        self.actions = actions
+        addRow = MachineSectionAddRow(action: actions.addMachine)
+        super.init(frame: .zero)
+        setAccessibilityIdentifier("cmux.machinesSection")
+        rebuild()
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    nonisolated override public var isFlipped: Bool { true }
+
+    /// Shows `rows` in `style`; nothing changes when both are what it shows.
+    public func update(_ rows: [MachineSectionRow], style: MachineSectionStyle) {
+        guard rows != self.rows || style != self.style || !shown else { return }
+        self.rows = rows
+        self.style = style
+        rebuild()
+    }
+
+    /// The headers' and rows' text as shown, top to bottom (tests and the gallery).
+    public var shownLines: [String] {
+        arranged.compactMap { item in
+            switch item.view {
+            case let header as MachineSectionHeaderView: header.label.stringValue
+            case let row as MachineSectionRowView: row.shownText
+            case let add as MachineSectionAddRow: add.label.stringValue
+            default: nil
+            }
+        }
+    }
+
+    private func rebuild() {
+        shown = true
+        var next: [(view: NSView, gap: CGFloat)] = []
+        var live: [String: MachineSectionRowView] = [:]
+        for group in style.groups(rows) {
+            if let title = group.title {
+                next.append((MachineSectionHeaderView(title: title), next.isEmpty ? 0 : Metrics.space4))
+            }
+            for row in group.rows {
+                let view = rowViews[row.id] ?? MachineSectionRowView(newWorkspace: actions.newWorkspace)
+                view.configure(row, showsStateLine: style.showsStateLine)
+                live[row.id] = view
+                next.append((view, next.last?.view is MachineSectionHeaderView ? Metrics.space1 : 0))
+            }
+        }
+        next.append((addRow, style.groupsByKind && !next.isEmpty ? Metrics.space3 : 0))
+        let keep = Set(next.map { ObjectIdentifier($0.view) })
+        for item in arranged where !keep.contains(ObjectIdentifier(item.view)) { item.view.removeFromSuperview() }
+        for item in next where item.view.superview !== self { addSubview(item.view) }
+        arranged = next
+        rowViews = live
+        needsLayout = true
+    }
+
+    override public func layout() {
+        super.layout()
+        var y = Metrics.space2
+        for item in arranged {
+            y += item.gap
+            let height = item.view.intrinsicContentSize.height
+            item.view.frame = NSRect(x: 0, y: y, width: bounds.width, height: height)
+            y += height
+        }
+    }
+}
+
+/// The section's three text inks, from the theme's tokens (no ad-hoc opacities): names in primary;
+/// headers, states, icons and actions in secondary; disabled glyphs in tertiary. Read inside the
+/// view's theme scope (`performWithTheme`).
+enum MachineSectionInk {
+    static var primary: NSColor { Palette.textPrimary }
+    static var secondary: NSColor { Palette.textSecondary }
+    static var tertiary: NSColor { Palette.textTertiary }
+}
+
+/// A group header: the kind's name in the header font and the secondary ink, at the section's inset.
+final class MachineSectionHeaderView: NSView {
+    let label = ChromeLabel(labelWithString: "")
+
+    init(title: String) {
+        super.init(frame: .zero)
+        label.stringValue = title
+        label.font = Typography.header
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel(title)
+        label.setAccessibilityElement(false)
+        applyColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: label.intrinsicContentSize.height)
+    }
+
+    override func layout() {
+        super.layout()
+        let inset = MachineSectionMetrics.inset, size = label.intrinsicContentSize
+        label.frame = NSRect(x: inset, y: 0, width: min(size.width, max(0, bounds.width - 2 * inset)), height: size.height)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme { label.textColor = MachineSectionInk.secondary }
+    }
+}
+
+/// One machine: its kind's icon in the icon column, its name and last check, its link state (a second
+/// line, or at the trailing edge when it is not connected: a spinner while connecting), and New
+/// Workspace as a trailing button that shows while the pointer is on the row or its menu is open. The
+/// button's hover fill covers the button alone. The right-click menu and VoiceOver reach it too.
+final class MachineSectionRowView: NSView {
+    private let icon = NSImageView()
+    let nameLabel = ChromeLabel(labelWithString: "")
+    let stateLabel = ChromeLabel(labelWithString: "")
+    private let health = MachineHealthMarkView()
+    private let spinner = StatusIndicatorView.spinner()
+    let newButton: MachineSectionIconButton
+    private let newWorkspace: @MainActor (String) -> Void
+    private(set) var row = MachineSectionRow(id: "", name: "", isConnected: false, isLocal: false)
+    private(set) var showsStateLine = false
+    private var tracking: NSTrackingArea?
+    private var pointerInside = false
+    private var menuOpen = false
+    private var iconSize: CGFloat = 0
+
+    init(newWorkspace: @escaping @MainActor (String) -> Void) {
+        self.newWorkspace = newWorkspace
+        newButton = MachineSectionIconButton(icon: .actionAdd, label: AddMachineStrings.newWorkspace)
+        super.init(frame: .zero)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.setAccessibilityElement(false)
+        for label in [nameLabel, stateLabel] {
+            label.lineBreakMode = .byTruncatingMiddle
+            label.setAccessibilityElement(false)
+        }
+        nameLabel.font = Typography.body
+        stateLabel.font = Typography.caption
+        spinner.isHidden = true
+        newButton.onPress = { [weak self] in self?.runNewWorkspace() }
+        newButton.alphaValue = 0
+        for view in [icon, nameLabel, health, stateLabel, spinner, newButton] as [NSView] { addSubview(view) }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    func configure(_ row: MachineSectionRow, showsStateLine: Bool) {
+        guard row != self.row || showsStateLine != self.showsStateLine else { return }
+        self.row = row
+        self.showsStateLine = showsStateLine
+        nameLabel.stringValue = row.name
+        stateLabel.stringValue = row.stateText
+        // The state shows on its own line, or at the trailing edge only when the link is down.
+        stateLabel.isHidden = !showsStateLine && (row.isConnected || row.isConnecting)
+        spinner.isHidden = !row.isConnecting
+        spinner.spin(row.isConnecting)
+        health.health = row.health
+        newButton.isEnabled = row.isConnected
+        themedToolTip = row.healthHelp
+        setAccessibilityLabel(row.accessibilityText)
+        setAccessibilityCustomActions([NSAccessibilityCustomAction(name: AddMachineStrings.newWorkspace, target: self,
+                                                                   selector: #selector(accessibilityNewWorkspace))])
+        iconSize = 0
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        applyColors()
+    }
+
+    /// The row's text as shown: its name, then its state when it shows.
+    var shownText: String {
+        ([nameLabel] + (stateLabel.isHidden ? [] : [stateLabel])).map(\.stringValue).joined(separator: " · ")
+    }
+
+    /// Whether New Workspace is showing (the pointer is on the row, or its menu is open).
+    var revealsNewWorkspace: Bool { newButton.alphaValue > 0 }
+
+    private func runNewWorkspace() {
+        guard row.isConnected else { return }
+        newWorkspace(row.id)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let text = showsStateLine
+            ? nameLabel.intrinsicContentSize.height + Metrics.space1 / 2 + stateLabel.intrinsicContentSize.height
+            : nameLabel.intrinsicContentSize.height
+        return NSSize(width: NSView.noIntrinsicMetric, height: max(MachineSectionMetrics.rowHeight, ceil(text + 2 * Metrics.space2)))
+    }
+
+    override func layout() {
+        super.layout()
+        let inset = MachineSectionMetrics.inset, side = MachineSectionMetrics.iconColumn
+        if iconSize != side {
+            iconSize = side
+            icon.image = NSImage.icon(row.kind.icon, size: side)
+        }
+        let mid = bounds.midY
+        icon.frame = NSRect(x: inset, y: mid - side / 2, width: side, height: side)
+        let button = MachineSectionMetrics.buttonSide
+        newButton.frame = NSRect(x: bounds.maxX - inset - button, y: mid - button / 2, width: button, height: button)
+        var trailing = newButton.frame.minX - Metrics.space2
+        if !spinner.isHidden {
+            let size = Metrics.smallIconSize
+            spinner.frame = NSRect(x: trailing - size, y: mid - size / 2, width: size, height: size)
+            trailing = spinner.frame.minX - Metrics.space2
+        }
+        let textX = icon.frame.maxX + MachineSectionMetrics.iconGap
+        let name = nameLabel.intrinsicContentSize
+        let state = stateLabel.intrinsicContentSize
+        if !showsStateLine, !stateLabel.isHidden {
+            let width = min(state.width, max(0, trailing - textX))
+            stateLabel.frame = NSRect(x: trailing - width, y: mid - state.height / 2, width: width, height: state.height)
+            trailing = stateLabel.frame.minX - Metrics.space2
+        }
+        let mark = health.health == nil ? 0 : MachineHealthMarkView.side + Metrics.space2
+        let nameWidth = min(name.width, max(0, trailing - textX - mark))
+        let textHeight = showsStateLine ? name.height + Metrics.space1 / 2 + state.height : name.height
+        let top = mid - textHeight / 2
+        nameLabel.frame = NSRect(x: textX, y: top, width: nameWidth, height: name.height)
+        health.frame = NSRect(x: nameLabel.frame.maxX + Metrics.space2, y: nameLabel.frame.midY - MachineHealthMarkView.side / 2,
+                              width: MachineHealthMarkView.side, height: MachineHealthMarkView.side)
+        if showsStateLine {
+            stateLabel.frame = NSRect(x: textX, y: nameLabel.frame.maxY + Metrics.space1 / 2,
+                                      width: min(state.width, max(0, trailing - textX)), height: state.height)
+        }
+    }
+
+    // MARK: Hover and menu
+
+    override func updateTrackingAreas() {
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) { setPointerInside(true) }
+    override func mouseExited(with event: NSEvent) { setPointerInside(false) }
+
+    func setPointerInside(_ inside: Bool) {
+        pointerInside = inside
+        reveal()
+    }
+
+    private func reveal() {
+        newButton.alphaValue = pointerInside || menuOpen ? 1 : 0
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenu() }
+
+    /// The row's right-click menu: New Workspace on This Machine (disabled while the link is down).
+    func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: AddMachineStrings.newWorkspace, action: #selector(menuNewWorkspace), keyEquivalent: "")
+        item.target = self
+        item.isEnabled = row.isConnected
+        menu.autoenablesItems = false
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func menuNewWorkspace() { runNewWorkspace() }
+
+    @objc private func accessibilityNewWorkspace() -> Bool {
+        guard row.isConnected else { return false }
+        runNewWorkspace()
+        return true
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        menuOpen = true
+        reveal()
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        menuOpen = false
+        reveal()
+    }
+
+    // MARK: Colors
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            icon.contentTintColor = MachineSectionInk.secondary
+            nameLabel.textColor = row.isConnected ? MachineSectionInk.primary : MachineSectionInk.secondary
+            stateLabel.textColor = MachineSectionInk.secondary
+        }
+        health.needsDisplay = true
+    }
+}
+
+/// A small icon button in the secondary ink (tertiary when disabled) with the chrome's own hover and
+/// pressed fill, which covers the button alone.
+final class MachineSectionIconButton: NSButton {
+    private(set) lazy var hover = ChromeHover(self, behindContent: true)
+    /// What a click or VoiceOver's press does.
+    var onPress: (() -> Void)?
+    private let glyph: IconName
+    private var renderedSize: CGFloat = 0
+
+    init(icon: IconName, label: String) {
+        glyph = icon
+        super.init(frame: .zero)
+        title = ""
+        isBordered = false
+        bezelStyle = .regularSquare
+        imagePosition = .imageOnly
+        imageScaling = .scaleProportionallyDown
+        setAccessibilityLabel(label)
+        themedToolTip = label
+        wantsLayer = true
+        target = self
+        action = #selector(pressed)
+        refusesFirstResponder = true
+        focusRingType = .none
+        hover.followPointer(isHoverable: { [weak self] in self?.isEnabled == true }, onChange: { [weak self] in self?.needsDisplay = true })
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override var isEnabled: Bool { didSet { needsDisplay = true } }
+
+    @objc private func pressed() { onPress?() }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled, let onPress else { return false }
+        onPress()
+        return true
+    }
+
+    override func layout() {
+        super.layout()
+        let size = Metrics.smallIconSize
+        guard size != renderedSize else { return }
+        renderedSize = size
+        image = NSImage.icon(glyph, size: size)
+    }
+
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.cornerRadius = Metrics.itemCornerRadius
+        performWithTheme {
+            contentTintColor = isEnabled ? MachineSectionInk.secondary : MachineSectionInk.tertiary
+        }
+        hover.refresh(animated: false)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
+        hover.state.pressed = true
+        defer { hover.state.pressed = false }
+        super.mouseDown(with: event)
+    }
+}
+
+/// Add Machine… as the section's last row: its icon in the machines' icon column, its text in the
+/// body font. The pointer brightens it from the secondary ink to the primary one; it draws no fill.
+final class MachineSectionAddRow: NSView {
+    private let icon = NSImageView()
+    let label = ChromeLabel(labelWithString: "")
+    private let action: @MainActor () -> Void
+    private var tracking: NSTrackingArea?
+    private var pointerInside = false
+    private var iconSize: CGFloat = 0
+
+    init(action: @escaping @MainActor () -> Void) {
+        self.action = action
+        super.init(frame: .zero)
+        label.stringValue = AddMachineStrings.addMachine
+        label.font = Typography.body
+        label.lineBreakMode = .byTruncatingTail
+        label.setAccessibilityElement(false)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.setAccessibilityElement(false)
+        addSubview(icon)
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(AddMachineStrings.addMachine)
+        applyColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: MachineSectionMetrics.rowHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        let inset = MachineSectionMetrics.inset, side = MachineSectionMetrics.iconColumn
+        if iconSize != side {
+            iconSize = side
+            icon.image = NSImage.icon(.actionAdd, size: side)
+        }
+        icon.frame = NSRect(x: inset, y: bounds.midY - side / 2, width: side, height: side)
+        let x = icon.frame.maxX + MachineSectionMetrics.iconGap
+        let size = label.intrinsicContentSize
+        label.frame = NSRect(x: x, y: bounds.midY - size.height / 2, width: min(size.width, max(0, bounds.maxX - inset - x)), height: size.height)
+    }
+
+    /// Only the icon and the text take the click and the hover, never the empty width after them.
+    private var hitRect: NSRect { NSRect(x: 0, y: 0, width: label.frame.maxX + Metrics.space2, height: bounds.height) }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        return hitRect.contains(local) ? self : nil
+    }
+
+    override func updateTrackingAreas() {
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: hitRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+        addTrackingArea(area)
+        tracking = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) { setPointerInside(true) }
+    override func mouseExited(with event: NSEvent) { setPointerInside(false) }
+
+    func setPointerInside(_ inside: Bool) {
+        pointerInside = inside
+        applyColors()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard hitRect.contains(convert(event.locationInWindow, from: nil)) else { return }
+        action()
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            let ink = pointerInside ? MachineSectionInk.primary : MachineSectionInk.secondary
+            icon.contentTintColor = ink
+            label.textColor = ink
+        }
+    }
+}
+
+/// A machine's last check as a small mark after its name: a check in the success color when every
+/// step passed, a dot in the warning or danger color otherwise, nothing before a check ran.
+final class MachineHealthMarkView: NSView {
+    /// The mark's slot (the check's side; the dot is `AddMachineMetrics.dotSize`).
+    static var side: CGFloat { AddMachineMetrics.dotSize * 2 }
+    private let check = NSImageView()
+
+    var health: HostHealth? {
+        didSet {
+            guard health != oldValue else { return }
+            isHidden = health == nil
+            check.isHidden = health != .ok
+            applyColors()
+            needsDisplay = true
+        }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isHidden = true
+        check.isHidden = true
+        check.imageScaling = .scaleProportionallyDown
+        check.image = NSImage.icon(.statusComplete, size: Self.side)
+        addSubview(check)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        check.frame = bounds
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme { check.contentTintColor = Palette.success }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let health, health != .ok else { return }
+        performWithTheme {
+            let dot = AddMachineMetrics.dotSize
+            (health == .warning ? Palette.attention : Palette.danger).setFill()
+            NSBezierPath(ovalIn: NSRect(x: bounds.midX - dot / 2, y: bounds.midY - dot / 2, width: dot, height: dot)).fill()
+        }
+    }
+}
