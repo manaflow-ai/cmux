@@ -583,8 +583,9 @@ function shapeTurn(
     if (lastWorked) {
       lastWorked.status = summary.status;
       // The turn's tokens (its `turn_result`'s) on its "Worked for" when that line is the turn's
-      // only one: a steered turn's, or a turn folded into several stretches, are not split by line.
-      if (part.opener === user && workedRows === 1 && summary.tokens) lastWorked.tokens = summary.tokens;
+      // only one: an unsteered turn (its last part is its prompt's, its only part) folded into one
+      // stretch. A steered turn's, or a turn folded into several stretches, are not split by line.
+      if (lastPart && part.opener === user && workedRows === 1 && summary.tokens) lastWorked.tokens = summary.tokens;
     }
   }
   shaped.push(...editsCard(edits));

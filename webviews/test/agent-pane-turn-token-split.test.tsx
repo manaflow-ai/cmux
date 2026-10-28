@@ -10,6 +10,7 @@ import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkedFor } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { tokenDetail } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SPLIT, tokenLineMarkup, tokenLines } from "./support/turnTokenLines";
@@ -76,4 +77,60 @@ test("the time and both token parts take the tertiary text token, in tabular num
   const rule = css.slice(at, css.indexOf("}", at));
   expect(rule).toContain("color: var(--cv-text-dim);");
   expect(rule).toContain("font-variant-numeric: tabular-nums;");
+});
+
+// Where a finished turn's tokens land (turns.ts): on its Worked for only when that line is the
+// turn's one fold. A turn folded into several stretches, or a steered turn, has no line that spans
+// the whole turn, so none of its lines carries the turn's count.
+let at = 0;
+const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  kind,
+  version: 1,
+  at: (at += 1_000),
+  ...extra,
+});
+const ran = (id: string) =>
+  row(id, "activity", {
+    items: [{ kind: "tool", text: "", tool: { id, title: id, kind: "execute", status: "completed" } }],
+  });
+const takeaway = (id: string) =>
+  row(id, "assistant", {
+    text: `${id}: the import moves your shell history, bookmarks and themes into the app.\n\nTwo things for you:\n1. Pick the profile to import.\n2. Say whether to keep the old one.`,
+  });
+const ended = () => row("end", "turnSummary", { status: "completed", durationMs: 9_000, tokens: SPLIT });
+const workedTokens = (rows: AcpmuxRow[]) =>
+  turnView(rows, new Set(), { working: false })
+    .filter((shaped) => shaped.kind === "worked")
+    .map((shaped) => [shaped.id, shaped.tokens]);
+
+test("a turn with one Worked for carries the turn's tokens on it", () => {
+  expect(workedTokens([row("u", "user"), ran("ran-1"), ran("ran-2"), takeaway("done"), ended()])).toEqual([
+    ["worked-u", SPLIT],
+  ]);
+});
+
+test("a turn folded into several stretches carries its tokens on none of them", () => {
+  expect(
+    workedTokens([row("u", "user"), ran("ran-1"), takeaway("first"), ran("ran-2"), takeaway("second"), ended()]),
+  ).toEqual([
+    ["worked-u", undefined],
+    ["worked-first", undefined],
+  ]);
+});
+
+test("a steered turn carries its tokens on none of its parts' lines", () => {
+  expect(
+    workedTokens([
+      row("u", "user"),
+      ran("ran-1"),
+      row("s", "user", { text: "also the retry path", steer: "landed" }),
+      ran("ran-2"),
+      takeaway("done"),
+      ended(),
+    ]),
+  ).toEqual([
+    ["worked-u", undefined],
+    ["worked-s", undefined],
+  ]);
 });

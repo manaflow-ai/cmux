@@ -1511,7 +1511,7 @@ pre.cv-math-source {
 /* Split, output first and what the model read second (TurnTokens.tsx): "↓ 12.4K out ↑ 3.9M in". */
 .cv-worked__tokens.is-split {
   display: inline-flex;
-  gap: 6px;
+  gap: 8px;
 }
 /* The turn's time is quieter than its words too, as its tokens are (Leo, 2026-10-21: "shouldnt the
    token text and maybe time tho be less prominent? darker?"): beside "Thinking" or a call, and
