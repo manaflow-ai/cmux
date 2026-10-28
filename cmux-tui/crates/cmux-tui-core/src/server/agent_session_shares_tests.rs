@@ -1,12 +1,13 @@
-//! Link shares: the owner's verbs, redeem, expiry and a restart.
+//! Link shares: the owner's verbs, redeem, the guest binding, expiry and a restart.
 use super::*;
 use crate::server::agent_session_attach_tests::{
-    Client, FakeAcpmux, SESSION, agent_tab, assert_code, mux_with, terminal_pane,
+    Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with, terminal_pane,
 };
 use crate::server::{
     BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
     handle_connection_frame,
 };
+use base64::Engine as _;
 
 fn create(owner: &mut Client, surface: u64, extra: Value) -> Value {
     let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});
@@ -27,6 +28,22 @@ fn list(owner: &mut Client) -> Value {
     let reply = owner.request(json!({"cmd":"agent-session-share-list"}));
     assert_eq!(reply["ok"], true, "{reply}");
     reply["data"]["shares"].clone()
+}
+
+fn bind(mux: &Arc<Mux>, share: &Value, guest: &Value, label: &str) -> (Client, Value) {
+    let mut client = Client::connect(mux, label);
+    let reply = client.request(json!({"cmd":"agent-session-proxy-bind",
+        "link_guest": {"share_id": share["share_id"], "guest_id": guest["data"]["guest_id"]}}));
+    (client, reply)
+}
+
+/// Waits (bounded) until no guest connection stays bound: the daemon closed them.
+fn wait_unbound(mux: &Mux, count: usize) {
+    let deadline = std::time::Instant::now() + WAIT;
+    while mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().len() != count {
+        assert!(std::time::Instant::now() < deadline, "the guest connection is closed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]
@@ -68,6 +85,7 @@ fn the_owner_creates_lists_kicks_and_revokes() {
     assert_eq!(list(&mut owner)[0]["guests"][0]["state"], "kicked");
     // The kicked guest's redeem, replayed with its attempt and the secret, stays refused.
     assert_code(&redeem(&mut owner, &share, "Theo", "attempt-1"), "share.kicked");
+    assert_code(&bind(&mux, &share, &guest, "share-verbs-kicked").1, "agent_session.share_ended");
     let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
     assert_eq!(owner.request(revoke)["ok"], true);
     assert_eq!(list(&mut owner)[0]["state"], "revoked");
@@ -125,20 +143,113 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
 }
 
 #[test]
-fn a_share_expires_on_every_use() {
+fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
+    let fake = FakeAcpmux::start("share-guest");
+    let mux = mux_with(&fake, "share-guest");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-guest-owner");
+    let share = create(&mut owner, surface, json!({}));
+    let guest = redeem(&mut owner, &share, "Theo", "a1");
+    let (mut client, bound) = bind(&mux, &share, &guest, "share-guest-link");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let (share_id, guest_id) =
+        (share["share_id"].as_str().unwrap(), guest["data"]["guest_id"].as_str().unwrap());
+    let author = json!({"id": format!("guest:{share_id}.{guest_id}"), "name":"Theo",
+        "approval":"owner"});
+    // Whatever surface the frame names, it reaches the shared chat's.
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":9999}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    let frame = fake.frame();
+    assert_eq!(frame["params"]["_meta"]["acpmux"]["author"], author);
+    assert_eq!(frame["params"]["kinds"], json!(["transcript"]));
+    let prompt = json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c1",
+        "text":"hello"});
+    assert_eq!(client.request(prompt.clone())["ok"], true);
+    let sent = fake.frame();
+    let hash = digest(&[share_id, guest_id, "c1"]);
+    let id = format!("g-{}", &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)[..22]);
+    assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], id);
+    assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    let mut unnamed = prompt.clone();
+    unnamed.as_object_mut().unwrap().remove("client_id");
+    assert_code(&client.request(unnamed), "agent_session.bad_request");
+    for (cmd, field) in [("agent-session-typing", "on"), ("agent-session-view", "visible")] {
+        let reply = client.request(json!({"cmd":cmd, "surface":surface, field:true}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author, "{cmd}");
+    }
+    for frame in [
+        json!({"cmd":"agent-session-cancel", "surface":surface}),
+        json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
+            "option_id":"allow"}),
+        json!({"cmd":"agent-session-children", "surface":surface}),
+        json!({"cmd":"agent-session-media", "surface":surface, "path":"/tmp/a.png"}),
+        json!({"cmd":"agent-session-start", "cwd":"/tmp"}),
+        json!({"cmd":"agent-session-trust", "cwd":"/tmp"}),
+        json!({"cmd":"agent-session-of", "surface":surface}),
+        json!({"cmd":"agent-session-share-create", "surface":surface}),
+        json!({"cmd":"agent-session-share-list"}),
+        json!({"cmd":"list-workspaces"}),
+        json!({"cmd":"identify"}),
+    ] {
+        assert_code(&client.request(frame), "agent_session.scope_not_granted");
+    }
+    let forged = json!({"cmd":"agent-session-events", "surface":surface,
+        "_host_author":{"id":"tailnet:someone"}});
+    assert_code(&client.request(forged), "agent_session.not_trusted");
+    let pinned_elsewhere = json!({"cmd":"agent-session-events", "_host_session":"acp_other"});
+    assert_code(&client.request(pinned_elsewhere), "agent_session.not_trusted");
+    assert_eq!(client.request(json!({"cmd":"agent-session-events", "surface":1}))["ok"], true);
+    assert_eq!(fake.frame()["method"], "_acpmux/events", "only the allowed verbs reached acpmux");
+    fake.no_frame();
+}
+
+#[test]
+fn kick_and_revoke_close_the_guests_connections_at_once() {
+    let fake = FakeAcpmux::start("share-close");
+    let mux = mux_with(&fake, "share-close");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-close-owner");
+    let share = create(&mut owner, surface, json!({"uses":2}));
+    let first = redeem(&mut owner, &share, "Ann", "a1");
+    let second = redeem(&mut owner, &share, "Bob", "a2");
+    let (mut ann, _) = bind(&mux, &share, &first, "share-close-ann");
+    let (mut bob, _) = bind(&mux, &share, &second, "share-close-bob");
+    for client in [&mut ann, &mut bob] {
+        let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+        assert_eq!(attach["ok"], true, "{attach}");
+    }
+    owner.request(json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"],
+        "guest_id":first["data"]["guest_id"]}));
+    wait_unbound(&mux, 1);
+    assert_eq!(bob.request(json!({"cmd":"agent-session-events", "surface":surface}))["ok"], true);
+    owner.request(json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]}));
+    wait_unbound(&mux, 0);
+    assert_eq!(owner.request(json!({"cmd":"list-workspaces"}))["ok"], true, "the owner stays");
+}
+
+#[test]
+fn a_share_expires_on_its_timer_and_on_every_use() {
     let fake = FakeAcpmux::start("share-expiry");
     let mux = mux_with(&fake, "share-expiry");
     let surface = agent_tab(&mux, Some(SESSION));
     let mut owner = Client::connect(&mux, "share-expiry-owner");
     let share = create(&mut owner, surface, json!({"ttl_secs":60, "uses":2}));
     let shares = &mux.control_clients.agent_sessions.link_shares;
+    let armed = shares.armed.lock().unwrap().as_ref().map(|(_, at)| *at);
+    assert_eq!(armed, share["expires_at"].as_u64(), "one timer, at the expiry");
     let guest = redeem(&mut owner, &share, "Ann", "a1");
-    assert_eq!(guest["ok"], true);
-    shares.advance(std::time::Duration::from_secs(59));
+    let (_ann, bound) = bind(&mux, &share, &guest, "share-expiry-ann");
+    assert_eq!(bound["ok"], true);
+    shares.advance(Duration::from_secs(59));
     assert_eq!(redeem(&mut owner, &share, "Ann", "a1")["ok"], true, "a retry before the expiry");
-    shares.advance(std::time::Duration::from_secs(2));
-    assert_code(&redeem(&mut owner, &share, "Ann", "a1"), "share.expired");
+    shares.advance(Duration::from_secs(2));
+    // What the timer runs at the expiry: the guest's connection closes, nothing stays armed.
+    shares.expired(&mux);
+    wait_unbound(&mux, 0);
+    assert!(shares.armed.lock().unwrap().is_none());
     assert_code(&redeem(&mut owner, &share, "Bob", "a2"), "share.expired");
+    assert_code(&bind(&mux, &share, &guest, "share-expiry-late").1, "agent_session.share_ended");
     assert_eq!(list(&mut owner)[0]["state"], "expired");
 }
 
@@ -172,29 +283,32 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
     assert_eq!(read(&second), read(&first), "the restart reads what was written");
     assert_eq!(read(&second)[0].uses_left, 2);
     assert_eq!(redeem(&second, "a1"), Err("share.kicked"), "a kick holds after a restart");
+    let guest_id = ann["guest_id"].as_str().unwrap();
+    assert_eq!(second.guest(dir, &share_id, guest_id), Err("share.kicked"));
     second.end(dir, &Named { share_id: share_id.clone(), guest_id: None }).unwrap();
     assert_eq!(redeem(&LinkShares::default(), "a2"), Err("share.revoked"));
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-/// Share verbs come from the owner's own local connection only: never a remote relay, a WebSocket
-/// or a teammate's bound link.
+/// Share verbs and a guest bind come from the owner's own local connection only: never a remote
+/// relay, a WebSocket or a teammate's bound link.
 #[test]
-fn share_verbs_need_the_owners_local_connection() {
+fn share_verbs_and_guest_binds_need_the_owners_local_connection() {
     let fake = FakeAcpmux::start("share-trust");
     let mux = mux_with(&fake, "share-trust");
     let surface = agent_tab(&mux, Some(SESSION));
     let mut owner = Client::connect(&mux, "share-trust-owner");
     let share = create(&mut owner, surface, json!({"uses":2}));
-    assert_eq!(redeem(&mut owner, &share, "Ann", "a1")["ok"], true);
+    let guest = redeem(&mut owner, &share, "Ann", "a1");
+    let link = json!({"share_id":share["share_id"], "guest_id":guest["data"]["guest_id"]});
     for transport in [ClientTransport::Remote, ClientTransport::WebSocket] {
-        // A remote relay or a WebSocket client: no answer is a success.
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let client = mux.control_clients.register(transport, writer.clone());
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
         for frame in [
+            json!({"id":1, "cmd":"agent-session-proxy-bind", "link_guest":link}),
             json!({"id":2, "cmd":"agent-session-share-create", "surface":surface}),
             json!({"id":3, "cmd":"agent-session-share-redeem", "share_id":share["share_id"],
                 "secret":share["secret"], "name":"Eve", "attempt_id":"e"}),
@@ -213,6 +327,7 @@ fn share_verbs_need_the_owners_local_connection() {
             assert_ne!(reply["ok"], true, "{line}");
         }
     }
+    assert_eq!(mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().len(), 0);
     let mut teammate = Client::connect(&mux, "share-trust-teammate");
     let author = json!({"id":"tailnet:p@example.com", "login":"p@example.com", "node":"n"});
     assert_eq!(
@@ -221,5 +336,9 @@ fn share_verbs_need_the_owners_local_connection() {
     );
     let create = json!({"cmd":"agent-session-share-create", "surface":surface});
     assert_code(&teammate.request(create), "agent_session.not_trusted");
+    // A bind names a teammate or a guest, never both.
+    let mut both = Client::connect(&mux, "share-trust-both");
+    let frame = json!({"cmd":"agent-session-proxy-bind", "author":author, "link_guest":link});
+    assert_code(&both.request(frame), "agent_session.bad_request");
     assert_eq!(list(&mut owner)[0]["uses_left"], 1, "nothing else was redeemed");
 }

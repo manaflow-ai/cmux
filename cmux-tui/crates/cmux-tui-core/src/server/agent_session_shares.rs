@@ -7,8 +7,11 @@
 //!
 //! The verbs are the owner's own: a same-user unix connection that is neither bound (a teammate's
 //! proxy or a guest) nor a remote relay. Only the secret's SHA-256 is kept; create answers the
-//! secret once. Expiry is checked on every use. The guest's binding (a connection that reaches the
-//! shared chat as the redeemed guest, its prompts held for the owner) comes in the next change.
+//! secret once. A redeemed guest binds a connection with `agent-session-proxy-bind {link_guest}`
+//! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, approval: "owner"}`,
+//! so acpmux holds each of its prompts for the owner. Every guest frame re-checks the share (its
+//! state and expiry) and the guest (kicked). Revoke, kick and expiry close the guest's connections
+//! at once; expiry is one one-shot timer to the next `expires_at` (no polling).
 //!
 //! The hosted room (`room`, `provision_key`, `pending_room_ops`, the `provisioning` state) comes
 //! with the room bridge: until then a share is `active` from its create and `url` is null.
@@ -16,17 +19,20 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use super::super::{MessageWriter, Response, ok, send_response, tab_session};
+use super::super::{MessageWriter, Refusal, Response, ok, send_response, tab_session};
+use super::Teammate;
+use crate::apps::timer::{TimerId, Timers};
 use crate::mux::Mux;
 use crate::server::agent_transfer::state_file::{read_trusted, save};
 
+pub(super) const GUEST_PREFIX: &str = "guest:";
 const FILE: &str = "agent-session-shares.json";
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
 const MAX_TTL_SECS: u64 = 7 * DEFAULT_TTL_SECS;
@@ -120,8 +126,17 @@ impl LinkShare {
 #[derive(Default)]
 pub(in crate::server) struct LinkShares {
     shares: Mutex<Option<Vec<LinkShare>>>,
+    timers: Timers,
+    /// The one timer armed, and the expiry it ends.
+    armed: Mutex<Option<(TimerId, u64)>>,
     /// Added to the wall clock (tests move time with it).
     skew_ms: AtomicU64,
+}
+
+impl Drop for LinkShares {
+    fn drop(&mut self) {
+        self.timers.stop();
+    }
 }
 
 fn wall_ms() -> u64 {
@@ -189,6 +204,12 @@ fn load(directory: Option<&Path>) -> Vec<LinkShare> {
         .unwrap_or_default()
 }
 
+/// The author a guest binds as.
+fn guest_author(share: &LinkShare, guest: &Guest) -> Value {
+    json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
+        "name": guest.name, "approval": "owner"})
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Create {
@@ -229,7 +250,7 @@ impl LinkShares {
     }
 
     #[cfg(test)]
-    pub(super) fn advance(&self, by: std::time::Duration) {
+    pub(super) fn advance(&self, by: Duration) {
         self.skew_ms.fetch_add(by.as_millis() as u64, Ordering::Relaxed);
     }
 
@@ -368,6 +389,89 @@ impl LinkShares {
             ))
         })
     }
+
+    /// The chat a live guest reaches: its share's session and surface, and the guest's author.
+    fn guest(
+        &self,
+        directory: Option<&Path>,
+        share_id: &str,
+        guest_id: &str,
+    ) -> Result<(String, u64, Value), &'static str> {
+        self.with(directory, |shares, _| {
+            let share = find(shares, share_id)?;
+            share.live()?;
+            let guest =
+                share.guests.iter().find(|g| g.guest_id == guest_id).ok_or("share.unknown")?;
+            if guest.state != GuestState::Active {
+                return Err("share.kicked");
+            }
+            Ok(((share.session.clone(), share.surface, guest_author(share, guest)), false))
+        })
+    }
+
+    /// Arms the one timer at the next active share's expiry (cancelling an earlier one).
+    fn rearm(&self, mux: &Arc<Mux>) {
+        let next = {
+            let shares = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+            shares
+                .iter()
+                .flatten()
+                .filter(|s| s.state == ShareState::Active)
+                .map(|s| s.expires_at)
+                .min()
+        };
+        let mut armed = self.armed.lock().unwrap_or_else(|e| e.into_inner());
+        if armed.as_ref().map(|(_, at)| *at) == next {
+            return;
+        }
+        if let Some((timer, _)) = armed.take() {
+            self.timers.cancel(timer);
+        }
+        let Some(at) = next else { return };
+        let weak = Arc::downgrade(mux);
+        let after = Duration::from_millis(at.saturating_sub(self.now()));
+        let timer = self.timers.schedule(after, move || {
+            if let Some(mux) = weak.upgrade() {
+                mux.control_clients.agent_sessions.link_shares.expired(&mux);
+            }
+        });
+        *armed = Some((timer, at));
+    }
+
+    /// The timer's job: closes the guests of every share that ended, then arms the next expiry.
+    pub(super) fn expired(&self, mux: &Arc<Mux>) {
+        *self.armed.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let directory = mux.session_state_directory();
+        let ended = self.with(directory.as_deref(), |shares, _| {
+            let ended = shares
+                .iter()
+                .filter(|s| s.live().is_err())
+                .map(|s| format!("{GUEST_PREFIX}{}.", s.share_id));
+            Ok((ended.collect::<Vec<_>>(), false))
+        });
+        close(mux, |id| ended.iter().flatten().any(|prefix| id.starts_with(prefix.as_str())));
+        self.rearm(mux);
+    }
+}
+
+/// Ends at once every guest connection whose author id `ended` names.
+fn close(mux: &Mux, ended: impl Fn(&str) -> bool) {
+    let clients: Vec<u64> = {
+        let authors = mux
+            .control_clients
+            .agent_sessions
+            .proxy_authors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        authors
+            .iter()
+            .filter(|(_, a)| a["id"].as_str().is_some_and(&ended))
+            .map(|(c, _)| *c)
+            .collect()
+    };
+    for client in clients {
+        mux.control_clients.abort_connection(client);
+    }
 }
 
 /// `agent-session-share-*` of the owner's own connection (`bound`: a teammate's or a guest's).
@@ -413,7 +517,17 @@ pub(super) fn handle(
                 if (cmd == "agent-session-share-kick") != p.guest_id.is_some() {
                     return Err("share.bad_request");
                 }
-                shares.end(directory, &p)
+                let reply = shares.end(directory, &p)?;
+                let ended = format!(
+                    "{GUEST_PREFIX}{}.{}",
+                    p.share_id,
+                    p.guest_id.as_deref().unwrap_or_default()
+                );
+                close(
+                    mux,
+                    |id| if p.guest_id.is_some() { id == ended } else { id.starts_with(&ended) },
+                );
+                Ok(reply)
             })
         }
         "agent-session-share-redeem" => {
@@ -421,6 +535,7 @@ pub(super) fn handle(
         }
         _ => Err("share.bad_request"),
     };
+    shares.rearm(mux);
     match answer {
         Ok(data) => ok(writer, id, data),
         Err(code) => fail(writer, id, code),
@@ -459,6 +574,72 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
             error_delivery: None,
         },
     )
+}
+
+/// `agent-session-proxy-bind {link_guest: {share_id, guest_id}}`: the author of a live guest.
+pub(super) fn guest_author(mux: &Arc<Mux>, link: Value) -> Result<Value, Refusal> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Link {
+        share_id: String,
+        guest_id: String,
+    }
+    let link: Link = serde_json::from_value(link).map_err(|_| Refusal::BadRequest)?;
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    let found = shares.guest(directory.as_deref(), &link.share_id, &link.guest_id);
+    shares.rearm(mux);
+    found.map(|(_, _, author)| author).map_err(|_| Refusal::ShareEnded)
+}
+
+/// A bound guest's frame: its share and guest are still live, it names no other author or chat,
+/// and it goes to the surface that shows the share's chat (whatever surface it named). A prompt's
+/// id is `g-` and 22 characters of base64url SHA-256 of the share, the guest and the frame's
+/// `client_id`, so acpmux's prompt ledger runs a retried prompt once.
+pub(super) fn check_guest(
+    mux: &Mux,
+    bound: Value,
+    supplied: Option<Value>,
+    pinned: Option<Value>,
+    object: &mut serde_json::Map<String, Value>,
+) -> Result<Teammate, Refusal> {
+    let id = bound["id"].as_str().unwrap_or_default();
+    let (share_id, guest_id) = id
+        .strip_prefix(GUEST_PREFIX)
+        .and_then(|rest| rest.split_once('.'))
+        .ok_or(Refusal::NotTrusted)?;
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    let (session, surface, author) =
+        shares.guest(directory.as_deref(), share_id, guest_id).map_err(|_| Refusal::ShareEnded)?;
+    if author != bound
+        || supplied.is_some_and(|a| a != bound)
+        || pinned.is_some_and(|p| p.as_str() != Some(session.as_str()))
+    {
+        return Err(Refusal::NotTrusted);
+    }
+    let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
+    if cmd == "agent-session-prompt" {
+        let client_id = object.remove("client_id");
+        let client_id = client_id.as_ref().and_then(Value::as_str).filter(|c| valid_id(c));
+        let Some(client_id) = client_id else { return Err(Refusal::BadRequest) };
+        let hash = digest(&[share_id, guest_id, client_id]);
+        let prompt_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash);
+        object.insert("prompt_id".into(), json!(format!("g-{}", &prompt_id[..22])));
+    }
+    if cmd == "agent-session-detach" {
+        object.insert("surface".into(), json!(surface));
+        return Ok(Teammate { author, pinned: None });
+    }
+    // The share's surface, or (after a restart renumbered the surfaces) the one showing its chat.
+    let shown = Some(surface).filter(|s| tab_session(mux, *s).as_deref() == Some(session.as_str()));
+    let shown = shown.or_else(|| {
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        surfaces.into_iter().find(|s| tab_session(mux, *s).as_deref() == Some(session.as_str()))
+    });
+    let surface = shown.ok_or(Refusal::NotShared)?;
+    object.insert("surface".into(), json!(surface));
+    Ok(Teammate { author, pinned: Some(session) })
 }
 
 #[cfg(test)]
