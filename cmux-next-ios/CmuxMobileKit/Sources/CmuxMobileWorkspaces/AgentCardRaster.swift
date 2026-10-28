@@ -20,13 +20,22 @@ struct AgentCardRasterKey: Equatable {
     /// Pixels per page point: the card's on-screen resolution.
     var scale: CGFloat
 
-    /// A running turn animates (its working label): drawn live, not as a
-    /// still. An image attachment without its bytes loads them in a `.task`,
-    /// which never runs in a picture: that turn is drawn live too (bytes
-    /// already in the turn draw in the picture).
+    /// Drawn the same way (scheme, size, insets, resolution), whatever the
+    /// turns: an older picture of the same layout stands in until the new
+    /// one is drawn, as a terminal's last frame does.
+    func sameLayout(_ other: AgentCardRasterKey) -> Bool {
+        colorScheme == other.colorScheme && page == other.page && visibleHeight == other.visibleHeight
+            && topInset == other.topInset && bottomInset == other.bottomInset && scale == other.scale
+    }
+
+    /// A card is a still of its page, a running turn included (its working
+    /// label would animate every frame on a live card; the card's copy follows
+    /// the chat at most once a second, `AgentCardFeed`). An image attachment
+    /// without its bytes loads them in a `.task`, which never runs in a
+    /// picture: that turn is drawn live (bytes already in the turn draw).
     var isDrawable: Bool {
         let pendingImage = turns.contains { $0.attachments.contains { $0.kind == .image && $0.data == nil } }
-        return turns.last?.status != .running && !pendingImage && page.width > 0 && visibleHeight > 0
+        return !pendingImage && page.width > 0 && visibleHeight > 0
     }
 }
 
@@ -174,7 +183,9 @@ struct AgentTabCard: View {
                                      visibleHeight: min(page.height, page.width * Self.cardAspect),
                                      topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale)
         Group {
-            if let raster = feed.raster, raster.key == key {
+            // The picture, also while a newer one waits for the grid to rest:
+            // building a card never lays out a page of transcript then.
+            if let raster = feed.raster, raster.key.sameLayout(key) {
                 Image(uiImage: raster.image)
                     .resizable()
                     .frame(width: page.width, height: key.visibleHeight)

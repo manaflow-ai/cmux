@@ -346,6 +346,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate {
 
     /// Watches what the rows are built from; a change reloads at the end of this turn of the
     /// main queue (the store applies streamed text once per frame, so this is once per frame).
+    /// The surface's held refresh last applied.
+    private var appliedHeldRefresh = 0
+
     private func observe() {
         let store = store
         let surface = surface
@@ -355,11 +358,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate {
             _ = store.pendingQuestion?.id
             _ = surface.permissionBarHidden
             _ = store.diffs.version
+            _ = surface.holdsTranscript
+            _ = surface.heldRefresh
         } onChange: { [weak self] in
             // Called before the change lands: rebuild once it has, later in this turn.
             Task { @MainActor [weak self] in
                 guard let self, self.store === store else { return }
                 self.observe()
+                // Held (the page is a card on the tab grid): no reload per token;
+                // the release or a held refresh reloads once with what arrived.
+                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh { return }
+                self.appliedHeldRefresh = surface.heldRefresh
                 self.reload()
             }
         }

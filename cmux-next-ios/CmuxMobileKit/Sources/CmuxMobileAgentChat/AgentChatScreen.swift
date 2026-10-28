@@ -17,6 +17,14 @@ import UIKit
 @Observable
 public final class AgentChatSurface {
     public var text = ""
+    /// The transcript holds its rows as they are (the page is shown as a
+    /// small card on the tab grid): streamed changes wait and apply in one
+    /// reload when this goes back to false, or on `refreshHeldTranscript()`.
+    public var holdsTranscript = false
+    /// Bumped to apply what arrived while held, in one reload (the grid's
+    /// once-a-second card refresh).
+    private(set) var heldRefresh = 0
+    public func refreshHeldTranscript() { heldRefresh &+= 1 }
     var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the

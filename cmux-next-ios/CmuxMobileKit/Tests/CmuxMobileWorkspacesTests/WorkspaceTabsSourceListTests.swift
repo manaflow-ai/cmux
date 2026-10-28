@@ -103,7 +103,8 @@ import SwiftUI
         #expect(key.isDrawable)
         var live = key
         live.turns = [done, running]
-        #expect(!live.isDrawable)
+        // A running turn is drawn as a still too (its card follows once a second).
+        #expect(live.isDrawable)
         var light = key
         light.colorScheme = .light
         #expect(light != key)
@@ -190,6 +191,69 @@ import SwiftUI
         source.overviewIdleChanged(true)
         #expect(source.kitTabBuilds == before + 1)
         source.overviewVisibilityChanged(false)
+    }
+
+    /// Round 2 (1): while the grid shows, the active chat's live page (its
+    /// card) holds its transcript; leaving the grid releases it, and a new
+    /// active chat takes the hold.
+    @Test func gridHoldsTheActiveTranscript() throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        // Two agent chats in the workspace.
+        store.workspaces = store.workspaces.map { ws in
+            var ws = ws
+            if ws.id == "ws-cmux" {
+                ws.tabs.append(WorkspaceTab(id: "t-agent-2", kind: .agent, title: "Claude 2", subtitle: "Second chat", harness: "claude"))
+            }
+            return ws
+        }
+        let source = Self.source(store)
+        let agents = source.tabs.filter { $0.kind == TabsKitTabKind("agent") }
+        try #require(agents.count >= 2)
+        source.activate(agents[0].id)
+        source.overviewWillAppear()
+        source.overviewVisibilityChanged(true)
+        #expect(source.surface(agents[0].id).holdsTranscript)
+        source.activate(agents[1].id)
+        #expect(!source.surface(agents[0].id).holdsTranscript)
+        #expect(source.surface(agents[1].id).holdsTranscript)
+        source.overviewVisibilityChanged(false)
+        #expect(!source.surface(agents[1].id).holdsTranscript)
+        #expect(!source.showStaticCard(for: agents[1].id))
+    }
+
+    /// Round 2 (1): a card's copy changes only on `catchUp()` (the source's
+    /// once-a-second follow while the grid rests), never per streamed change.
+    @Test func cardFeedCopiesOnlyOnCatchUp() async throws {
+        let mock = MockAgentSession(
+            summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            sleep: { _ in await Task.yield() }
+        )
+        mock.chunkSize = 8
+        let chat = AgentChatStore(source: mock)
+        while chat.turns.isEmpty { await Task.yield() }
+        let feed = AgentCardFeed(store: chat)
+        let start = feed.pulls
+        let before = chat.turns
+        chat.send(prompt: "go")
+        // Many streamed changes arrive; the card copies none of them.
+        for _ in 0..<2000 where chat.turns == before { await Task.yield() }
+        for _ in 0..<200 { await Task.yield() }
+        try #require(chat.turns != before)
+        #expect(feed.pulls == start)
+        #expect(feed.stale)
+        feed.catchUp()
+        #expect(feed.pulls == start + 1)
+        #expect(feed.turns == Array(chat.turns.suffix(2)))
+        chat.cancel()
+    }
+
+    /// Round 2 (3): opening a workspace makes no web view; a browser tab's
+    /// model is made when its page is first shown.
+    @Test func browserModelsAreMadeOnFirstPage() throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        let workspace = try #require(source.listedWorkspace)
+        for tab in workspace.tabs where tab.kind == .browser { #expect(source.existingBrowser(tab.id) == nil) }
     }
 }
 #endif
