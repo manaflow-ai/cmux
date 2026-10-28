@@ -1,0 +1,760 @@
+{
+ "id": "heavy-session-reap",
+ "priority": "P1",
+ "title": "A heavy session (6 pages, 16 New Tab pages, 12 terminals) left running for the capture tool to reap",
+ "why": "P0 #1 (2026-10-28): optimized builds crashed in Chromium (SIGSEGV in RenderWidgetHostImpl::OnSnapshotFromSurfaceReceived) when a renderer exited while a page picture was in flight; 19 of 21 reports came at lease ends (SIGTERM, then the quit closes every renderer). A crashed renderer, a discard or a quit ends renderers every day. The crashes came at the capture tool's reap of heavy leases (790-1220 processes), up to 10 minutes after the lease ended.",
+ "source": "handoff/cef-snapshot-crash-result.md",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-capstorm-${nonce}",
+   "as": "left"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo capstorm-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "term"
+  },
+  {
+   "do": "expect",
+   "title": "the terminal works",
+   "since": "term",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "capstorm-${nonce}-42"
+    },
+    {
+     "app_text_line": "capstorm-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b0-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b0-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "enter": true,
+   "mark": "b0"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.com shows",
+   "since": "b0",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    },
+    {
+     "frame_text": "Example Domain"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b1-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b1-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.org",
+   "enter": true,
+   "mark": "b1"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.org shows",
+   "since": "b1",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b2-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b2-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.net",
+   "enter": true,
+   "mark": "b2"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.net shows",
+   "since": "b2",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b3-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b3-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com/?a",
+   "enter": true,
+   "mark": "b3"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.com/?a shows",
+   "since": "b3",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b4-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b4-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.org/?b",
+   "enter": true,
+   "mark": "b4"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.org/?b shows",
+   "since": "b4",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b5-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b5-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.net/?c",
+   "enter": true,
+   "mark": "b5"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.net/?c shows",
+   "since": "b5",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "capture_storm",
+   "seconds": 20,
+   "as": "tail"
+  },
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "expect",
+   "title": "the heavy session is alive",
+   "since": "term",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "system.identify",
+      "path": "pid",
+      "not_equals": null
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -311,9 +311,22 @@ def run_lease(specs, build, out, frame_interval):
             crashes = lease_crashes(host, app, facts.get("bundle_id"), leased_at, left)
         return crashed_results(collect(out, ids, host, missing_reason=reason), crashes)
     finally:
-        released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
-        log(f"released {lease}" if released.returncode == 0 else
-            f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
+        if os.environ.get("JOURNEYS_KEEP_LEASE") == "1":
+            # Repro of a lease the tool reaps (P0 #1): no release; the capture tool ends the app at the lease's
+            # expiry (SIGTERM, its quit path), as it reaps any lease whose holder went away.
+            pid = ""
+            if host and facts.get("socket"):
+                probe = ("import json,socket;c=socket.socket(socket.AF_UNIX);c.settimeout(5);c.connect(%r);"
+                         "c.sendall(b'{\"id\":1,\"method\":\"system.identify\",\"params\":{}}\\n');b=b''\n"
+                         "while not b.endswith(b'\\n'):\n d=c.recv(65536)\n if not d: break\n b+=d\n"
+                         "print(json.loads(b)['result']['pid'])") % facts["socket"]
+                got = remote(host, f"/usr/bin/python3 -I -c {q(probe)}", timeout=30, check=False)
+                pid = got.stdout.decode().strip()
+            log(f"KEPT {lease} host={host} app_pid={pid} (no release: the capture tool reaps it)")
+        else:
+            released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
+            log(f"released {lease}" if released.returncode == 0 else
+                f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
     return crashed_results(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
                                                                   f"{drove.stderr.decode(errors='replace').strip()[-300:]})"),
                            crashes)
