@@ -1637,8 +1637,7 @@ const RowFrame = React.memo(function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
-  /// The row came in on a page of older history and has not been in view yet: it fades in once,
-  /// the first time it comes into view (OlderRowFade).
+  /// The row came in on a page of older history and has never mounted: its first copy fades once.
   older: OlderRowFade | undefined;
   onOlderShown: (id: string) => void;
   active: boolean;
@@ -1685,6 +1684,10 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !olderFade) return;
+    // A warm-window copy has rendered too: consume eligibility and start its fade before paint,
+    // even offscreen. Neither a later intersection nor a remount may defer or replay it.
+    onOlderShown(row.id);
+    node.dataset.olderShown = "true";
     return olderFade.watch(node, () => onOlderShown(row.id));
     // Only the first mount fades.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1803,10 +1806,9 @@ const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
-/// Rows from a page of older history fade in once, the first time they come into view: a page
-/// lands above the view (prefetched well before the top), so the fade waits for the reader to
-/// scroll the row in at the top edge. Opacity only (conversation.css `.acpmux-row--older`), so
-/// nothing measured moves; Reduce Motion draws the row in full ink at once.
+/// Rows from a page of older history fade on their first mounted copy, including warm copies
+/// outside the view. Eligibility is consumed before paint; an intersection only releases the
+/// observation and never starts a second fade. Opacity only, so nothing measured moves.
 class OlderRowFade {
   private readonly pending = new Set<string>();
   private readonly waiting = new Map<Element, () => void>();
@@ -1824,7 +1826,7 @@ class OlderRowFade {
   clear() {
     this.pending.clear();
   }
-  /// Starts the row's fade when it first intersects the view; returns the unwatch.
+  /// Releases the first copy's observation when it intersects; returns the unwatch.
   watch(node: HTMLElement, shown: () => void): () => void {
     if (typeof IntersectionObserver === "undefined") {
       shown();
