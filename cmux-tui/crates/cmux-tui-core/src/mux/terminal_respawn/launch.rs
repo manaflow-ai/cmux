@@ -209,6 +209,21 @@ mod tests {
         assert_eq!(usable_env(&env), vec![("COLORTERM".to_string(), "truecolor".to_string())]);
     }
 
+    /// A respawned shell keeps the TERM the person chose (`terminal.term`,
+    /// recorded as CMUX_TERM_CHOICE); a bare recorded TERM is still dropped.
+    #[test]
+    fn a_chosen_term_is_respawned_with_it() {
+        let env = vec![
+            ("CMUX_TERM_CHOICE".to_string(), "xterm-ghostty".to_string()),
+            ("COLORTERM".to_string(), "truecolor".to_string()),
+        ];
+        assert!(
+            usable_env(&env).contains(&("TERM".to_string(), "xterm-ghostty".to_string())),
+            "{:?}",
+            usable_env(&env)
+        );
+    }
+
     #[test]
     fn a_stale_terminfo_drops_term() {
         let env = vec![

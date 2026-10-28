@@ -93,6 +93,30 @@ fn replay_never_restores_a_recorded_term() {
     assert_eq!(env, vec![("COLORTERM".to_string(), "truecolor".to_string())]);
 }
 
+/// The person chose `terminal.term = "xterm-ghostty"` (the app sends it as
+/// CMUX_TERM_CHOICE with TERM at each spawn): the record keeps the choice and
+/// a reopened terminal comes back with it, not xterm-256color.
+#[test]
+fn a_chosen_term_is_recorded_and_reopened_with_it() {
+    let env = [
+        ("TERM", "xterm-ghostty"),
+        ("CMUX_TERM_CHOICE", "xterm-ghostty"),
+        ("COLORTERM", "truecolor"),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()));
+    let record = RelaunchRecord::from_launch(Some("/tmp"), None, "/bin/zsh", &env);
+    assert!(
+        record.env.contains(&("CMUX_TERM_CHOICE".to_string(), "xterm-ghostty".to_string())),
+        "{:?}",
+        record.env
+    );
+    let env: Map<String, Value> =
+        record.env.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect();
+    let tab = json!({"cwd": "/tmp", "relaunch": {"env": env}});
+    let (_, env) = replay(&tab);
+    assert!(env.contains(&("TERM".to_string(), "xterm-ghostty".to_string())), "{env:?}");
+}
+
 #[test]
 fn replay_drops_a_gone_directory_and_a_term_without_its_terminfo() {
     let tab = json!({

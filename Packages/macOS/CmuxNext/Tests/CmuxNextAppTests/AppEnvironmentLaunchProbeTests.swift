@@ -57,9 +57,18 @@ struct AppEnvironmentLaunchProbeTests {
                                                                     term: { TerminalTermChoice(setting: "xterm-ghostty") })()
         #expect(ghostty["TERM"] == "xterm-ghostty")
         #expect(ghostty["TERM_PROGRAM"] == "ghostty")
+        // The choice goes with the spawn, so the daemon records it and a restored or respawned terminal keeps it.
+        #expect(ghostty["CMUX_TERM_CHOICE"] == "xterm-ghostty")
         let missing = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil },
                                                                     term: { TerminalTermChoice(setting: "wezterm") })()
         #expect(missing["TERM"] == "xterm-256color")
+        #expect(missing["CMUX_TERM_CHOICE"] == nil)
+        // A CMUX_TERM_CHOICE from the login environment (cmux started from a cmux terminal) is not passed on.
+        let inherited = await environment.terminalEnvironmentProvider(
+            login: { ["PATH": "/usr/bin:/bin", "CMUX_TERM_CHOICE": "xterm-ghostty"] }, settings: { nil },
+            term: { TerminalTermChoice() })()
+        #expect(inherited["TERM"] == "xterm-256color")
+        #expect(inherited["CMUX_TERM_CHOICE"] == nil)
         let invalid = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil },
                                                                     term: { TerminalTermChoice(setting: "../../etc/x") })()
         #expect(invalid["TERM"] == "xterm-256color")
