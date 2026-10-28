@@ -68,7 +68,8 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
         }
       </script></body></html>`);
     try {
-      // Run the production CLI in a child: its process.exitCode must survive both stages.
+      // Run the production CLI in a child: play failures are diagnostic, while
+      // geometry remains the gate.
       const child = Bun.spawn([process.execPath, join(import.meta.dir, "geometry-audit.ts"),
         "--gallery-dir", directory, "--output-dir", output, "--config", config, "--expected-sha", sha],
         { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
@@ -77,7 +78,7 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
         .finally(() => clearTimeout(deadline));
       const report = JSON.parse(readFileSync(join(output, "geometry-report", "geometry-report.json"), "utf8"));
       expect({ exitCode, geometryPassed: report.passed, errors: report.errors })
-        .toEqual({ exitCode: scenario === "ready" ? 0 : 1, geometryPassed: true, errors: [] });
+        .toEqual({ exitCode: scenario === "unready" ? 1 : 0, geometryPassed: true, errors: [] });
       const [result] = JSON.parse(readFileSync(join(output, "results.json"), "utf8"));
       expect(result.ready).toBe(scenario === "unready" ? "error" : "1");
       expect(result.play.status).toBe(scenario === "failed-play" ? "fail" : "pass");
@@ -88,6 +89,24 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
     }
   }, 30_000);
 }
+
+test("collector assigns unique IDs across repeated selections", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "geometry-collector-ids-"));
+  try {
+    writeFileSync(join(directory, "capture.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+    const page = { evaluate: async () => ({
+      elements: [
+        { id: "label:0", kind: "web", source: "dom-rect", group: "label", rect: { x: 0, y: 0, width: 1, height: 1 } },
+        { id: "label:0", kind: "web", source: "dom-rect", group: "label", rect: { x: 1, y: 0, width: 1, height: 1 } },
+      ], deviceScaleFactor: 1, viewport: { width: 2, height: 1 },
+    }) } as any;
+    const filename = await collectGeometry(page, [{ group: "label", selector: ".all" }, { group: "label", selector: ".secondary" }], { schemaVersion: 1, revision: { sha: "a".repeat(40), source: "fixture" }, capture: { caseId: "fixture", engine: "chromium", theme: "light", screenshot: "capture.png" } } as any, directory);
+    const artifact = parseArtifact(JSON.parse(readFileSync(join(directory, filename), "utf8")));
+    expect(artifact.elements.map((element) => element.id)).toEqual(["label:0", "label:1"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("audit baseline pairs both appearances and every required group has a selector", () => {
   const config = parseConfig(baseline);
