@@ -109,8 +109,7 @@ public final class MobileSSHComputers {
 
     @ObservationIgnored weak var sink: (any MobileSSHComputersSink)?
     @ObservationIgnored private var connections: [UUID: SSHConnection] = [:]
-    @ObservationIgnored private var connectTasks: [UUID: Task<SSHConnection, any Error>] = [:]
-    @ObservationIgnored private var connectionAttempts = MobileSSHConnectionAttemptRegistry()
+    @ObservationIgnored private let connectionAttempts = MobileSSHConnectionAttempts<SSHConnection>()
     @ObservationIgnored private var providers: [UUID: MobileSSHHostProviders] = [:]
     @ObservationIgnored private var workspacesByHost: [UUID: [MobileSSHWorkspace]] = [:]
     /// Bumped per listing started, so only the newest listing publishes.
@@ -316,10 +315,6 @@ public final class MobileSSHComputers {
     /// refreshes its workspace rows. An explicit open re-enables automatic
     /// reconnects for the host.
     public func open(hostID: UUID) async {
-        if host(id: hostID) != nil {
-            lastUsedHostID = hostID
-            await hostStore.markUsed(id: hostID)
-        }
         autoConnectSuppressed.remove(hostID)
         // The user asked for this connection, so identity questions may be
         // asked again: for the host and for the jump host it tunnels through.
@@ -327,9 +322,13 @@ public final class MobileSSHComputers {
         if let jumpID = host(id: hostID)?.jumpHostID {
             setAutoConnectPaused(false, hostID: jumpID)
         }
-        // Join an automatic connect already in flight rather than racing it
-        // through the same first-connect questions.
-        if let pending = autoConnectTasks[hostID] { await pending.value }
+        if host(id: hostID) != nil {
+            lastUsedHostID = hostID
+            await hostStore.markUsed(id: hostID)
+        }
+        guard !autoConnectSuppressed.contains(hostID) else { return }
+        // The connection owner coalesces explicit and automatic opens. Waiting
+        // on the outer auto-connect task could start again after disconnect.
         await connectAndList(hostID: hostID)
     }
 
@@ -380,7 +379,7 @@ public final class MobileSSHComputers {
         if let jumpID = host.jumpHostID, self.host(id: jumpID)?.isAutoConnectPaused == true { return false }
         return (statusByHost[hostID] ?? .idle) == .idle
             && connections[hostID] == nil
-            && connectTasks[hostID] == nil
+            && !connectionAttempts.isConnecting(hostID: hostID)
             && autoConnectTasks[hostID] == nil
             && !autoConnectSuppressed.contains(hostID)
     }
@@ -396,7 +395,7 @@ public final class MobileSSHComputers {
         let task = Task { [weak self] in
             guard let self else { return }
             await self.connectAndList(hostID: hostID)
-            self.autoConnectTasks[hostID] = nil
+            if !Task.isCancelled { self.autoConnectTasks[hostID] = nil }
         }
         autoConnectTasks[hostID] = task
         return task
@@ -433,7 +432,7 @@ public final class MobileSSHComputers {
             statusByHost[hostID] = .connected
             if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
         } catch {
-            guard refreshGenerations[hostID] == generation else { return }
+            guard refreshGenerations[hostID] == generation, providers[hostID] === provider else { return }
             fail(hostID: hostID, error)
         }
     }
@@ -539,23 +538,27 @@ public final class MobileSSHComputers {
     /// Tears down the host's connection, attachments, and forwards, and
     /// returns it to idle. Leaves automatic-connect eligibility to callers.
     private func closeConnection(hostID: UUID) async {
+        // Revoke every resource's ownership before the first suspension. A
+        // reconnect during slow teardown must not be removed by this close.
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
+        connectionAttempts.cancel(hostID: hostID)
+        providers[hostID] = nil
+        let connection = connections.removeValue(forKey: hostID)
         let surfaceIDs = Set(attachments.keys)
             .union(attachTasks.keys)
             .union(attachAwaitingGrid)
-        for surfaceID in surfaceIDs where MobileSSHIdentifier(surfaceID).hostID == hostID {
-            await detach(surfaceID: surfaceID)
-        }
-        for panelID in browserSessions.keys where MobileSSHIdentifier(panelID).hostID == hostID {
-            await stopBrowser(panelID: panelID)
-        }
-        providers[hostID] = nil
-        connectionAttempts.invalidate(for: hostID)
-        connectTasks[hostID]?.cancel()
-        connectTasks[hostID] = nil
+        let terminals = surfaceIDs
+            .filter { MobileSSHIdentifier($0).hostID == hostID }
+            .compactMap { removeAttachment(surfaceID: $0) }
+        let panelIDs = browserSessions.keys.filter { MobileSSHIdentifier($0).hostID == hostID }
+        let browsers = panelIDs.compactMap { browserSessions.removeValue(forKey: $0) }
         stopAllPortForwards(hostID: hostID)
-        if let connection = connections.removeValue(forKey: hostID) { await connection.close() }
         statusByHost[hostID] = .idle
+        if let host = host(id: hostID) { publish(host: host) }
+
+        for terminal in terminals { await terminal.detach() }
+        for browser in browsers { await browser.detach() }
+        await connection?.close()
     }
 
     // MARK: Files and forwarding
@@ -809,14 +812,17 @@ public final class MobileSSHComputers {
     }
 
     private func detach(surfaceID: String) async {
+        await removeAttachment(surfaceID: surfaceID)?.detach()
+    }
+
+    /// Removes ownership synchronously so teardown cannot affect a replacement.
+    private func removeAttachment(surfaceID: String) -> (any MobileSSHAttachedTerminal)? {
         attachAwaitingGrid.remove(surfaceID)
         pendingInputBySurface[surfaceID] = nil
         attachGenerations[surfaceID] = nil
         attachTasks.removeValue(forKey: surfaceID)?.cancel()
-        sizingTasks[surfaceID] = nil
-        if let attachment = attachments.removeValue(forKey: surfaceID) {
-            await attachment.detach()
-        }
+        sizingTasks.removeValue(forKey: surfaceID)?.cancel()
+        return attachments.removeValue(forKey: surfaceID)
     }
 
     private func handle(_ event: MobileSSHAttachEvent, surfaceID: String, generation: UInt64) {
@@ -852,9 +858,9 @@ public final class MobileSSHComputers {
         let connection = try await connection(for: hostID)
         guard let host = hosts.first(where: { $0.id == hostID }) else { throw SSHConnectionError.closed }
         let registry = await MobileSSHHostProviders.make(connection: connection, host: host)
+        guard connections[hostID] === connection else { throw MobileSSHConnectionAttemptSuperseded() }
         // A concurrent caller may have finished first on the same connection.
         if let existing = providers[hostID] { return existing }
-        guard connections[hostID] === connection else { throw SSHConnectionError.closed }
         registry.onTopologyChange = { [weak self] in
             Task { await self?.refreshWorkspaces(hostID: hostID) }
         }
@@ -865,52 +871,41 @@ public final class MobileSSHComputers {
 
     private func connection(for hostID: UUID) async throws -> SSHConnection {
         if let connection = connections[hostID] { return connection }
-        if let task = connectTasks[hostID] { return try await task.value }
         guard let host = hosts.first(where: { $0.id == hostID }) else { throw SSHConnectionError.closed }
-        statusByHost[hostID] = .connecting
-        publish(host: host)
-        let generation = connectionAttempts.begin(for: hostID)
-        let task = Task { () throws -> SSHConnection in
-            guard let keyID = host.keyID else { throw MobileSSHRuntimeError.noKey }
-            let key = try await keyStore.privateKey(for: keyID)
-            let jump = try await jumpConnection(for: host)
-            return try await SSHConnection.connect(
-                to: host.endpoint,
-                credentials: [.privateKey(key)],
-                hostKeyVerifier: verifier(for: host),
-                via: jump
-            )
-        }
-        connectTasks[hostID] = task
-        defer {
-            if connectionAttempts.clearIfCurrent(generation, for: hostID) {
-                connectTasks[hostID] = nil
+        let connection = try await connectionAttempts.connection(
+            hostID: hostID,
+            connect: {
+                self.statusByHost[hostID] = .connecting
+                self.publish(host: host)
+                guard let keyID = host.keyID else { throw MobileSSHRuntimeError.noKey }
+                let key = try await self.keyStore.privateKey(for: keyID)
+                try Task.checkCancellation()
+                let jump = try await self.jumpConnection(for: host)
+                try Task.checkCancellation()
+                return try await SSHConnection.connect(
+                    to: host.endpoint,
+                    credentials: [.privateKey(key)],
+                    hostKeyVerifier: self.verifier(for: host),
+                    via: jump
+                )
+            },
+            discard: { await $0.close() },
+            connected: { connection in
+                self.connections[hostID] = connection
+                self.statusByHost[hostID] = .connected
+                self.publish(host: host)
+                connection.closeFuture.whenComplete { [weak self] _ in
+                    Task { @MainActor in self?.connectionClosed(hostID: hostID, connection: connection) }
+                }
+                self.restoreBrowserProxy(hostID: hostID)
+            },
+            failed: { error in
+                // Jump-host failures must update that host as well as its caller.
+                self.fail(hostID: hostID, error)
             }
-        }
-        let connection: SSHConnection
-        do {
-            connection = try await task.value
-        } catch {
-            guard connectionAttempts.isCurrent(generation, for: hostID) else {
-                throw MobileSSHConnectionAttemptSuperseded()
-            }
-            // Record the failure on THIS host too: when it is a jump host,
-            // the caller only reports the host it was asked to open, and
-            // this one would otherwise stay "connecting" forever.
-            fail(hostID: hostID, error)
-            throw error
-        }
-        guard connectionAttempts.isCurrent(generation, for: hostID) else {
-            await connection.close()
-            throw MobileSSHConnectionAttemptSuperseded()
-        }
-        connections[hostID] = connection
-        statusByHost[hostID] = .connected
-        publish(host: host)
-        connection.closeFuture.whenComplete { [weak self] _ in
-            Task { @MainActor in self?.connectionClosed(hostID: hostID, connection: connection) }
-        }
-        restoreBrowserProxy(hostID: hostID)
+        )
+        // Disconnect can run after publication but before a waiter resumes.
+        guard connections[hostID] === connection else { throw MobileSSHConnectionAttemptSuperseded() }
         return connection
     }
 
