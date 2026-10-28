@@ -60,17 +60,34 @@ test("a cold plain user prompt is placed without initializing the Markdown parse
 });
 
 test("the first-paint shortcut requires geometry and follows narrow or large-font wrapping", () => {
-  setChatDisplay({ "agentPane.display.font.size": 14 });
-  expect(isShortPlainUserPrompt(text, 720)).toBe(true);
-  // A caller without the current row geometry cannot safely skip the measured path.
-  expect(isShortPlainUserPrompt(text)).toBe(false);
-  setChatDisplay({ "agentPane.display.font.size": 28 });
-  expect(isShortPlainUserPrompt(text, 120)).toBe(false);
-  expect(isShortPlainUserPrompt("W".repeat(64), 120)).toBe(false);
-  expect(isShortPlainUserPrompt(text, 1400)).toBe(true);
-  expect(isShortPlainUserPrompt("**bold**")).toBe(false);
-  expect(isShortPlainUserPrompt("Réponds en français")).toBe(false);
-  expect(isShortPlainUserPrompt("x".repeat(65))).toBe(false);
+  const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const context = {
+    font: "",
+    measureText: () => ({ width: Number(context.font.match(/([\d.]+)px/)?.[1]) }),
+  };
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: { style: { setProperty() {}, removeProperty() {} } },
+      createElement: () => ({ getContext: () => context }),
+    },
+  });
+  try {
+    setChatDisplay({ "agentPane.display.font.size": 14 });
+    expect(isShortPlainUserPrompt(text, 720)).toBe(true);
+    // A caller without the current row geometry cannot safely skip the measured path.
+    expect(isShortPlainUserPrompt(text)).toBe(false);
+    setChatDisplay({ "agentPane.display.font.size": 28 });
+    expect(isShortPlainUserPrompt(text, 120)).toBe(false);
+    expect(isShortPlainUserPrompt("W".repeat(64), 120)).toBe(false);
+    expect(isShortPlainUserPrompt(text, 1400)).toBe(true);
+    expect(isShortPlainUserPrompt("**bold**", 1400)).toBe(false);
+    expect(isShortPlainUserPrompt("Réponds en français", 1400)).toBe(false);
+    expect(isShortPlainUserPrompt("x".repeat(65), 1400)).toBe(false);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "document", original);
+    else delete (globalThis as { document?: unknown }).document;
+  }
 });
 
 test("Markdown-looking, multiline, attachment and Chief paths retain their parser", () => {

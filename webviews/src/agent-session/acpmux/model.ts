@@ -18,7 +18,13 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { isRunGroup, SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import {
+  COLLAPSED_PROMPT_LINES,
+  PASTE_CHIP_HEIGHT,
+  type PasteRange,
+  collapsedPromptHeight,
+  promptParts,
+} from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
