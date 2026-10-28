@@ -294,7 +294,7 @@ pub(super) async fn task_new(
     };
     let blocks = vec![json!({"type": "text", "text": tasks::brief_text(&row)})];
     let (task_hub, client) = (hub.clone(), conn.label());
-    tokio::spawn(async move {
+    hub.supervise("server.task", Fatal, ShutdownBehavior::Skip, async move {
         if let Err(error) = task_hub.prompt_with(&target, blocks, &client, true, opts).await {
             task_hub.briefs.update(&id, |r| r["error"] = json!(error.message));
         }
