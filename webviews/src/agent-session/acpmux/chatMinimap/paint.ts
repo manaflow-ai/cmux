@@ -5,7 +5,7 @@
 // rest (dates, notices, the working line) draws nothing. Each kind is one path and one fill, and
 // rows that land on the same device pixel line merge, so a draw is bounded by the canvas's height,
 // not by the number of rows, after one pass over them.
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import { readGeometry, type AcpmuxRow, type LayoutSource } from "../model";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
 
 /// The minimap's width in CSS px, and the room it keeps from the pane's right edge.
@@ -66,14 +66,15 @@ export type MinimapContext = Pick<
 /// is no change.
 export function firstChangedRow(
   rows: readonly AcpmuxRow[],
-  layout: ConversationLayout,
-  before: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  layout: LayoutSource,
+  before: { rows: readonly AcpmuxRow[]; layout: LayoutSource },
 ): number {
-  const count = Math.min(rows.length, layout.tops.length);
-  const kept = Math.min(count, before.rows.length, before.layout.tops.length);
+  const geometry = readGeometry(layout);
+  const count = Math.min(rows.length, geometry.count);
+  const old = readGeometry(before.layout);
+  const kept = Math.min(count, before.rows.length, old.count);
   for (let index = 0; index < kept; index += 1) {
-    if (layout.tops[index] !== before.layout.tops[index] || layout.heights[index] !== before.layout.heights[index])
-      return index;
+    if (geometry.topAt(index) !== old.topAt(index) || geometry.heightAt(index) !== old.heightAt(index)) return index;
     const row = rows[index]!;
     const was = before.rows[index]!;
     if (row !== was && (row.id !== was.id || minimapKind(row) !== minimapKind(was))) return index;
@@ -104,7 +105,7 @@ const jitter = (seed: number, line: number) => 0.55 + (((seed + line * 17) % 41)
 export function paintMinimap(
   ctx: MinimapContext,
   rows: readonly AcpmuxRow[],
-  layout: ConversationLayout,
+  layout: LayoutSource,
   {
     width,
     height,
@@ -122,7 +123,8 @@ export function paintMinimap(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   if (scale <= 0) return 0;
-  const count = Math.min(rows.length, layout.tops.length);
+  const geometry = readGeometry(layout);
+  const count = Math.min(rows.length, geometry.count);
   const kinds = Array.from({ length: count }, (_, index) => minimapKind(rows[index]!));
   const pixel = 1 / dpr;
   let drawn = 0;
@@ -135,9 +137,9 @@ export function paintMinimap(
     let lastLine = -1;
     for (let index = 0; index < count; index += 1) {
       if (kinds[index] !== kind) continue;
-      const rowHeight = layout.heights[index]! * scale;
+      const rowHeight = geometry.heightAt(index) * scale;
       if (rowHeight <= 0) continue;
-      const top = (layout.tops[index]! + THREAD_PADDING_TOP) * scale;
+      const top = (geometry.topAt(index) + THREAD_PADDING_TOP) * scale;
       if (top >= height) break;
       const line = Math.floor(top * dpr);
       // Under a device pixel: one pixel line, unless this kind already drew on it.

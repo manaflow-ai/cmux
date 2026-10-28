@@ -10,7 +10,7 @@
  *   bun bench/height-index.bench.ts
  *   ROWS=9000 UPDATES=300 bun bench/height-index.bench.ts
  */
-import { PlacedHeightIndex } from "../src/agent-session/acpmux/placedHeightIndex";
+import { geometryFromHeights, placeMeasuredRows } from "../src/agent-session/acpmux/conversationGeometry";
 
 const rows = Number(process.env.ROWS ?? 9_000);
 const updates = Number(process.env.UPDATES ?? 300);
@@ -36,11 +36,21 @@ let beforeTotal = 0;
 for (let update = 0; update < updates; update += 1) beforeTotal += fullPrefixPlacement(initial, 43 + (update & 1));
 const beforeMs = performance.now() - beforeStart;
 
-let index = PlacedHeightIndex.fromHeights(initial);
+const estimate = geometryFromHeights(initial);
+let index = estimate;
+let heightReads = 0;
 const afterStart = performance.now();
 let afterTotal = 0;
 for (let update = 0; update < updates; update += 1) {
-  index = index.update(changed, 43 + (update & 1));
+  index = placeMeasuredRows(
+    estimate,
+    () => {
+      heightReads += 1;
+      return 43 + (update & 1);
+    },
+    [changed],
+    { layout: index, from: rows },
+  );
   afterTotal += index.totalHeight;
 }
 const afterMs = performance.now() - afterStart;
@@ -53,6 +63,7 @@ const report = {
   beforePerUpdateMs: Number((beforeMs / updates).toFixed(4)),
   afterPerUpdateMs: Number((afterMs / updates).toFixed(4)),
   speedup: Number((beforeMs / Math.max(afterMs, Number.EPSILON)).toFixed(2)),
+  heightReads,
   totalsMatch: Math.abs(beforeTotal / updates - afterTotal / updates) < 0.001,
   scope: "model-only; no React, DOM, WebKit, or full-app frame claim",
 };

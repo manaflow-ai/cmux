@@ -13,6 +13,36 @@ export type LayoutGeometry = {
   readonly upperBoundTop: (target: number) => number;
 };
 
+/** Legacy callers and fixtures may supply explicit arrays; production uses LayoutGeometry. */
+export type LayoutSource =
+  | LayoutGeometry
+  | {
+      tops: ArrayLike<number>;
+      heights: ArrayLike<number>;
+      totalHeight: number;
+    };
+
+/** Adapts explicit legacy arrays by reference, without copying or caching them. */
+export function readGeometry(source: LayoutSource): LayoutGeometry {
+  if ("topAt" in source) return source;
+  return {
+    count: source.heights.length,
+    totalHeight: source.totalHeight,
+    topAt: (index) => source.tops[index] ?? source.totalHeight,
+    heightAt: (index) => source.heights[index] ?? 0,
+    upperBoundTop: (target) => {
+      let low = 0;
+      let high = source.tops.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (source.tops[middle]! <= target) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    },
+  };
+}
+
 /** Geometry together with its persistent source, for bounded point updates. */
 export type IndexedLayoutGeometry = LayoutGeometry & {
   readonly index: PlacedHeightIndex;
@@ -56,4 +86,33 @@ export function applyHeightChanges(
     index = index.update(change.index, change.height);
   }
   return index === previous.index ? previous : geometryFromIndex(index);
+}
+
+/**
+ * Reconciles changed estimates and drawn reports against the previous placement.
+ * `from` is the first revised estimate. A compatible row order preserves all
+ * previously measured points; structural resets restore measurements once.
+ */
+export function placeMeasuredRows(
+  estimate: IndexedLayoutGeometry,
+  heightAt: (index: number) => number | undefined,
+  changed: Iterable<number>,
+  previous?: { layout: IndexedLayoutGeometry; from: number },
+): IndexedLayoutGeometry {
+  let index = previous?.layout.index ?? estimate.index;
+  const height = (at: number) => {
+    const drawn = heightAt(at);
+    return drawn !== undefined && Number.isFinite(drawn) && drawn >= 0 ? drawn : estimate.heightAt(at);
+  };
+  const from = previous?.from ?? 0;
+  for (let at = from; at < estimate.count; at += 1) {
+    const value = height(at);
+    index = at < index.count ? index.update(at, value) : index.append([value]);
+  }
+  for (const at of changed) {
+    if (!Number.isInteger(at) || at < 0 || at >= Math.min(from, estimate.count)) continue;
+    index = index.update(at, height(at));
+  }
+  if (index === previous?.layout.index) return previous.layout;
+  return index === estimate.index ? estimate : geometryFromIndex(index);
 }

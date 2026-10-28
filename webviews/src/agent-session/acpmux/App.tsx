@@ -24,12 +24,13 @@ import { applyAgentTheme } from "../shared/theme";
 import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
-  layoutConversation,
+  layoutConversationIndexed,
   onlyQuietThoughts,
-  type ConversationLayout,
+  type LayoutGeometry,
+  type IndexedLayoutGeometry,
   type RowHeights,
   paneHeader,
-  placeRows,
+  placeMeasuredRows,
   transcriptRowWidth,
   mergeRowRanges,
   scrollLeadRanges,
@@ -1446,9 +1447,15 @@ const defaultRegistry: NativeRegistry = {
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
+type DrawnHeight = {
+  sessionId?: string;
+  version: number;
+  width: number;
+  height: number;
+  index: number;
+};
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
-type ReportDrawn = (id: string, version: number, height: number | undefined) => void;
+type ReportDrawn = (id: string, version: number, height: number | undefined, index: number) => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -1709,8 +1716,21 @@ const RowFrame = React.memo(function RowFrame({
         row.id,
         row.version,
         acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
+        index,
       );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, beforeFooter, lastFooter, lastTurn, report]);
+  }, [
+    row.id,
+    row.version,
+    rowWidth,
+    expanded,
+    joinsPrevious,
+    joinsNext,
+    beforeFooter,
+    lastFooter,
+    lastTurn,
+    report,
+    index,
+  ]);
   return (
     <article
       ref={ref}
@@ -1864,9 +1884,6 @@ class OlderRowFade {
     this.waiting.clear();
   }
 }
-/// How far around the last mounted range a row whose drawn height changed is looked for; farther
-/// (a jump), the whole transcript is placed again.
-const DRAWN_SEARCH_ROWS = 64;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 /// Viewports of rows kept mounted either side of the reader, built between frames.
 const WARM_VIEWPORTS = 1;
@@ -1934,12 +1951,12 @@ export type ScrollAnchor = { rowId: string; offset: number };
 function restingAnchor(
   top: number,
   atLatest: boolean,
-  placed: Parameters<typeof visibleLayoutRange>[0],
+  placed: LayoutGeometry,
   shown: readonly { id: string }[],
 ): ScrollAnchor | null {
   const index = visibleLayoutRange(placed, top, 0, 0).first;
   const row = shown[index];
-  return atLatest || !row ? null : { rowId: row.id, offset: top - placed.tops[index] };
+  return atLatest || !row ? null : { rowId: row.id, offset: top - placed.topAt(index) };
 }
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
@@ -2337,15 +2354,25 @@ export function VirtualTranscript({
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
   // Rows place by their drawn height once drawn, and by the estimate until then.
-  const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
+  const drawn = useRef(new Map<string, DrawnHeight>()).current;
+  const [drawnVersion, invalidateDrawn] = useReducer((version: number) => version + 1, 0);
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<
-    { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string } | undefined
+    | {
+        rows: readonly AcpmuxRow[];
+        layout: IndexedLayoutGeometry;
+        width: number;
+        sessionId?: string;
+      }
+    | undefined
   >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
-  const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
+  const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({
+    registry,
+    heights: new WeakMap(),
+  });
   const measurementSession = useRef(sessionId);
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
@@ -2454,7 +2481,7 @@ export function VirtualTranscript({
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight) => {
+    (id, version, drawnHeight, index) => {
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -2462,29 +2489,27 @@ export function VirtualTranscript({
           version,
           width: rowWidthRef.current,
           height: drawnHeight,
+          index,
         });
     },
     [sessionId],
   );
   // All of a commit's reports land in one update, before the frame paints.
-  /// Rows whose drawn height changed since the last placement, which places again from the first.
-  const changedDrawn = useRef(new Set<string>());
-  /// The last placement, and the mounted range it was drawn with.
+  /// Reported row indices, validated by id before applying a point correction.
+  const changedDrawn = useRef(new Map<string, number>());
+  /// The last immutable estimate and placement, for bounded height corrections.
   const lastPlaced = useRef<
     | {
         rows: readonly AcpmuxRow[];
-        drawn: Map<string, DrawnHeight>;
-        layout: ConversationLayout;
+        drawnVersion: number;
+        layout: IndexedLayoutGeometry;
+        estimate: IndexedLayoutGeometry;
         width: number;
         sessionId?: string;
         /// A new registry estimates every row again, so nothing is kept.
         registry: NativeRegistry;
         /// A new chat look (Minimal Mode included) estimates every row again too: nothing is kept.
         look: ReturnType<typeof useChatDisplay>;
-        first: number;
-        last: number;
-        /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
-        held: readonly number[];
       }
     | undefined
   >(undefined);
@@ -2492,16 +2517,19 @@ export function VirtualTranscript({
     if (!pendingDrawn.current.size) return;
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
-    for (const id of updates.keys()) changedDrawn.current.add(id);
-    setDrawn((current) => {
-      let next: Map<string, DrawnHeight> | undefined;
-      for (const [id, entry] of updates) {
-        if (sameDrawn(current.get(id), entry)) continue;
-        next ??= new Map(current);
-        next.set(id, entry);
+    let changed = false;
+    for (const [id, entry] of updates) {
+      const old = drawnRef.current.get(id);
+      if (sameDrawn(old, entry)) {
+        // Reordered rows can keep their height while changing index.
+        if (old && old.index !== entry.index) drawnRef.current.set(id, entry);
+        continue;
       }
-      return next ?? current;
-    });
+      drawnRef.current.set(id, entry);
+      changedDrawn.current.set(id, entry.index);
+      changed = true;
+    }
+    if (changed) invalidateDrawn();
   }, []);
   const observer = useMemo(
     () =>
@@ -2512,7 +2540,13 @@ export function VirtualTranscript({
             const measure = () => {
               for (const target of targets) {
                 const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
-                if (row && row.id === target.dataset.rowId) reportDrawn(row.id, row.version, drawnHeightOf(target));
+                if (row && row.id === target.dataset.rowId)
+                  reportDrawn(
+                    row.id,
+                    row.version,
+                    drawnHeightOf(target),
+                    Number(target.getAttribute("aria-posinset")) - 1,
+                  );
               }
             };
             measure();
@@ -2573,10 +2607,13 @@ export function VirtualTranscript({
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
-    setDrawn((current) => {
-      if ([...current.keys()].every((id) => ids.has(id))) return current;
-      return new Map([...current].filter(([id]) => ids.has(id)));
-    });
+    let removed = false;
+    for (const id of drawnRef.current.keys()) {
+      if (ids.has(id)) continue;
+      drawnRef.current.delete(id);
+      removed = true;
+    }
+    if (removed) invalidateDrawn();
   }, [rows, queuedTail]);
   useLayoutEffect(flushDrawn);
   // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
@@ -2592,16 +2629,14 @@ export function VirtualTranscript({
     for (const row of rowsRef.current) if (row.incoming?.kind === "message") incoming.add(row.id);
     if (!incoming.size) return;
     for (const id of incoming) pendingDrawn.current.delete(id);
-    setDrawn((current) => {
-      let next: Map<string, DrawnHeight> | undefined;
-      for (const id of incoming) {
-        if (!current.has(id)) continue;
-        next ??= new Map(current);
-        next.delete(id);
-        changedDrawn.current.add(id);
-      }
-      return next ?? current;
-    });
+    let removed = false;
+    for (let at = 0; at < rowsRef.current.length; at += 1) {
+      const id = rowsRef.current[at]!.id;
+      if (!incoming.has(id) || !drawnRef.current.delete(id)) continue;
+      changedDrawn.current.set(id, at);
+      removed = true;
+    }
+    if (removed) invalidateDrawn();
   }, [chatLook.minimal]);
   const didOpenAtLatest = useRef(false);
   /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
@@ -2677,7 +2712,7 @@ export function VirtualTranscript({
     measure(false);
     return () => observer.disconnect();
   }, [noteQueue]);
-  const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
+  const previousLayout = useRef<LayoutGeometry | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
@@ -2738,7 +2773,7 @@ export function VirtualTranscript({
       rowHeights.current = { registry, heights: new WeakMap() };
     const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook));
     const last = lastEstimate.current;
-    const layout = layoutConversation(
+    const layout = layoutConversationIndexed(
       rows,
       rowWidth,
       cache,
@@ -2746,79 +2781,60 @@ export function VirtualTranscript({
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
       !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
       sessionId,
+      rowsChange.current,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, width, chatWidth, chatLook]);
-  // A row that draws moves only the rows below it: place them again, measuring none.
+  // Drawn reports change only their indexed heights; prefix queries place the rows below them.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
     const rowWidth = transcriptRowWidth(width);
     const last = lastPlaced.current;
-    // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
-    const drawnChanged = drawn !== last?.drawn;
-    const changed = drawnChanged ? changedDrawn.current : new Set<string>();
-    if (drawnChanged) changedDrawn.current = new Set();
-    // Rows before the first that changed (by object, or by drawn height) keep their places. A
-    // drawn height comes from a mounted row, so its index is looked for around the mounted range.
-    let kept = 0;
-    if (
+    // Reports flushed since the last placement, including held rows outside the viewport.
+    const drawnChanged = drawnVersion !== last?.drawnVersion;
+    const changed = drawnChanged ? changedDrawn.current : new Map<string, number>();
+    if (drawnChanged) changedDrawn.current = new Map();
+    const compatible =
       last &&
       last.width === rowWidth &&
       last.sessionId === sessionId &&
       last.registry === registry &&
       last.look === chatLook &&
-      drawn.size > 0
-    ) {
-      const limit = Math.min(rows.length, last.rows.length);
-      while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
-      if (changed.size > 0) {
-        let found = 0;
-        const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);
-        const to = Math.min(rows.length, last.last + DRAWN_SEARCH_ROWS);
-        for (let index = from; index < to && found < changed.size; index += 1)
-          if (changed.has(rows[index]!.id)) {
-            kept = Math.min(kept, index);
-            found += 1;
-          }
-        // A held row (a margin drag's selection end) is mounted far from that range: looked up itself.
-        for (const index of last.held)
-          if ((index < from || index >= to) && rows[index] && changed.has(rows[index]!.id)) {
-            kept = Math.min(kept, index);
-            found += 1;
-          }
-        if (found < changed.size) kept = 0;
+      last.rows.length <= rows.length;
+    const from = last?.estimate === estimated.layout ? rows.length : estimated.layout.from;
+    let sameOrder = Boolean(compatible);
+    if (sameOrder && last && last.rows !== rows) {
+      for (let at = from; at < last.rows.length; at += 1) {
+        if (last.rows[at]!.id !== rows[at]?.id) {
+          sameOrder = false;
+          break;
+        }
       }
     }
-    const layout =
-      drawn.size === 0
-        ? estimated.layout
-        : placeRows(
-            estimated.layout,
-            // A row keeps its last drawn height until its new version is drawn: a streaming reply's
-            // text appears after the version that holds it, so an estimate of the version ran ahead
-            // of the drawn text, and its drawn height then pulled the view back a line or more at
-            // every chunk (agent-pane-chat-column.test.ts under load). Growth comes from what is drawn.
-            (index) => {
-              const known = drawn.get(rows[index].id);
-              return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
-            },
-            last && kept > 0 ? { layout: last.layout, kept } : undefined,
-          );
+    const indices: number[] = [];
+    for (const [id, at] of changed) if (rows[at]?.id === id) indices.push(at);
+    const layout = placeMeasuredRows(
+      estimated.layout,
+      (at) => {
+        const known = drawn.get(rows[at]!.id);
+        return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
+      },
+      indices,
+      sameOrder && last ? { layout: last.layout, from } : undefined,
+    );
     lastPlaced.current = {
       rows,
-      drawn,
+      drawnVersion,
       layout,
+      estimate: estimated.layout,
       width: rowWidth,
       sessionId,
       registry,
       look: chatLook,
-      first: last?.first ?? 0,
-      last: last?.last ?? 0,
-      held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width, chatLook]);
+  }, [estimated, drawn, drawnVersion, registry, rows, sessionId, width, chatLook]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -2961,13 +2977,6 @@ export function VirtualTranscript({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
-  // The scrolled rows only: a held row far from the view would widen every drawn-height search
-  // (`measured`) to the rows between them. The held rows are looked up by index instead.
-  if (lastPlaced.current) {
-    lastPlaced.current.first = scrolledRanges[0]?.first ?? 0;
-    lastPlaced.current.last = scrolledRanges.at(-1)?.last ?? 0;
-    lastPlaced.current.held = heldIndices;
-  }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
   const effectiveActiveRowId = sessionChanged ? rows[0]?.id : activeRowId;
@@ -3005,7 +3014,7 @@ export function VirtualTranscript({
         return;
       }
       unlift();
-      const top = layout.tops[nextIndex] ?? 0;
+      const top = layout.topAt(nextIndex);
       const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
       const nextTop = Math.max(0, Math.min(maximum, top));
       const physicalTop = physicalScrollTop(node, nextTop);
@@ -3104,8 +3113,8 @@ export function VirtualTranscript({
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
-      layout.tops[first],
-      layout.tops[last - 1] + layout.heights[last - 1],
+      layout.topAt(first),
+      layout.topAt(last - 1) + layout.heightAt(last - 1),
     ]);
     acpmuxPerf.mounted = spans;
     // A memo hit spent no time in geometry this render.
@@ -3280,7 +3289,7 @@ export function VirtualTranscript({
         endSeek();
         setSeeking(false);
       } else {
-        const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
+        const top = at < 0 ? latest : Math.min(latest, layout.topAt(at) + openAt!.offset);
         clearScrollOrigin(node);
         if (at < 0) node.scrollTop = top;
         else writeAnchorScrollTop(node, top);
@@ -3363,7 +3372,11 @@ export function VirtualTranscript({
             host,
             id,
             !foldInputs.current.expanded.has(id),
-            { count: shown.length, idAt: (index) => shown[index]?.id, tops: foldInputs.current.layout.tops },
+            {
+              count: shown.length,
+              idAt: (index) => shown[index]?.id,
+              geometry: foldInputs.current.layout,
+            },
             foldInputs.current.sessionId,
           )
         : undefined;
@@ -3373,7 +3386,11 @@ export function VirtualTranscript({
         const placed = rowsRef.current;
         const { layout, sessionId } = foldInputs.current;
         return {
-          placed: { count: placed.length, idAt: (index: number) => placed[index]?.id, tops: layout.tops },
+          placed: {
+            count: placed.length,
+            idAt: (index: number) => placed[index]?.id,
+            geometry: layout,
+          },
           sessionId,
         };
       };
@@ -3449,8 +3466,8 @@ export function VirtualTranscript({
     revealWindow.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
-    const top = layout.tops[findIndex];
-    const bottom = top + layout.heights[findIndex];
+    const top = layout.topAt(findIndex);
+    const bottom = top + layout.heightAt(findIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = layoutScrollTop(node) - liftRef.current;
     if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
@@ -3473,8 +3490,8 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || revealIndex < 0) return;
-    const top = layout.tops[revealIndex];
-    const bottom = top + layout.heights[revealIndex];
+    const top = layout.topAt(revealIndex);
+    const bottom = top + layout.heightAt(revealIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = layoutScrollTop(node) - liftRef.current;
     if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
@@ -3597,7 +3614,7 @@ export function VirtualTranscript({
       ? (seenAnchor.current ?? null)
       : scrolledTo.current.atLatest || !row
         ? null
-        : { rowId: row.id, offset: logicalTop - placed.tops[index] };
+        : { rowId: row.id, offset: logicalTop - placed.topAt(index) };
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;
@@ -4137,7 +4154,7 @@ export function VirtualTranscript({
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
-                      top={layout.tops[absoluteIndex]}
+                      top={layout.topAt(absoluteIndex)}
                       rowWidth={transcriptRowWidth(width)}
                       expanded={isExpanded}
                       observer={observer}

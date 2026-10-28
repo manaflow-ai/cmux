@@ -1,7 +1,7 @@
 // The full-height thread minimap's model (ScrollMap.tsx): the rail spans the transcript's viewport
 // and maps the whole scroll height onto it, so every message draws where it is in the chat. Pure
 // functions over the transcript's layout, so nothing here measures a row.
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import { readGeometry, type AcpmuxRow, type LayoutSource } from "../model";
 import { THREAD_PADDING_TOP, type MinimapTurn } from "./model";
 
 /// Space kept above and below the rail inside the transcript's viewport.
@@ -91,9 +91,10 @@ export function mapThumb(
 export function mapMarks(
   rows: readonly AcpmuxRow[],
   turns: readonly MinimapTurn[],
-  layout: ConversationLayout,
+  layout: LayoutSource,
   height: number,
 ): MapMark[] {
+  const geometry = readGeometry(layout);
   const marks: MapMark[] = [];
   let turn = -1;
   let lastAgent = -Infinity;
@@ -101,9 +102,14 @@ export function mapMarks(
     const row = rows[index]!;
     if (row.kind === "user") {
       while (turn + 1 < turns.length && turns[turn + 1]!.index <= index) turn += 1;
-      marks.push({ kind: "user", row: index, turn, y: mapY(layout.tops[index] ?? 0, layout.totalHeight, height) });
+      marks.push({
+        kind: "user",
+        row: index,
+        turn,
+        y: mapY(geometry.topAt(index), layout.totalHeight, height),
+      });
     } else if (row.kind === "assistant" && row.text) {
-      const y = mapY(layout.tops[index] ?? 0, layout.totalHeight, height);
+      const y = mapY(geometry.topAt(index), layout.totalHeight, height);
       if (y - lastAgent < MERGE_PX) continue;
       lastAgent = y;
       marks.push({ kind: "agent", row: index, turn, y });

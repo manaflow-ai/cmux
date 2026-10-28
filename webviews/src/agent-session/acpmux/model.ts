@@ -23,15 +23,24 @@ import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import { PlacedHeightIndex } from "./placedHeightIndex";
 import {
   applyHeightChanges,
+  readGeometry,
+  geometryFromIndex,
   type HeightChange,
   type IndexedLayoutGeometry,
-  type LayoutGeometry,
+  type LayoutSource,
 } from "./conversationGeometry";
 
-export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
-export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
+export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry, LayoutSource } from "./conversationGeometry";
+export {
+  applyHeightChanges,
+  geometryFromHeights,
+  geometryFromIndex,
+  readGeometry,
+  placeMeasuredRows,
+} from "./conversationGeometry";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -1455,6 +1464,64 @@ export function layoutConversation(
   return { tops, heights, totalHeight: top };
 }
 
+/**
+ * Indexed estimate path for the virtual transcript. Structural snapshots can
+ * rebuild once, while a streaming revision updates only the suffix whose row
+ * objects changed. It never allocates compatibility tops/heights arrays.
+ */
+export function layoutConversationIndexed(
+  rows: AcpmuxRow[],
+  width: number,
+  cache = new Map<string, PreparedRow>(),
+  measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
+  known?: RowHeights,
+  previous?: { rows: readonly AcpmuxRow[]; layout: IndexedLayoutGeometry },
+  sessionId?: string,
+  change?: { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number },
+): IndexedLayoutGeometry & { from: number } {
+  let start = 0;
+  // Truncation rebuilds; row revisions and appends retain the immutable prefix.
+  const reusable = previous && previous.rows.length <= rows.length ? previous : undefined;
+  let index = reusable?.layout.index ?? PlacedHeightIndex.empty();
+  if (reusable) {
+    if (rows === reusable.rows) start = rows.length;
+    else if (change?.base === reusable.rows && change.rows === rows) start = change.from;
+    else {
+      const limit = Math.min(rows.length, reusable.rows.length);
+      while (start < limit && rows[start] === reusable.rows[start]) start += 1;
+    }
+    let drawn = start - 1;
+    while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
+    if (
+      drawn >= 0 &&
+      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn)) !== rowEdge(rows[drawn]!, nextDrawnRow(reusable.rows, drawn))
+    )
+      start = drawn;
+  }
+  let nextDrawn = start;
+  for (let at = start; at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (nextDrawn <= at) {
+      nextDrawn = at + 1;
+      while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
+    }
+    const edge = rowEdge(row, rows[nextDrawn]);
+    const kept = known?.get(row);
+    let height: number;
+    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    else {
+      const customHeight = measureOverride?.(row, width);
+      height =
+        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
+          ? customHeight
+          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn", sessionId);
+      known?.set(row, { width, height, edge });
+    }
+    index = at < index.count ? index.update(at, height) : index.append([height]);
+  }
+  return { ...geometryFromIndex(index), from: start };
+}
+
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
 /// No row is measured, so this costs one pass over the rows' heights.
 /// `kept` rows at the start keep their places from `previous` (the last placement, which they
@@ -1495,26 +1562,11 @@ export function placeRowsIndexed(
   return applyHeightChanges(estimate, changes);
 }
 
-function upperBound(values: Float64Array, target: number): number {
-  let low = 0;
-  let high = values.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if (values[middle] <= target) low = middle + 1;
-    else high = middle;
-  }
-  return low;
-}
-
-export function visibleLayoutRange(
-  layoutModel: ConversationLayout,
-  scrollTop: number,
-  viewportHeight: number,
-  overscan = 4,
-) {
-  if (layoutModel.tops.length === 0) return { first: 0, last: 0 };
-  const first = Math.max(0, upperBound(layoutModel.tops, Math.max(0, scrollTop)) - 1 - overscan);
-  const last = Math.min(layoutModel.tops.length, upperBound(layoutModel.tops, scrollTop + viewportHeight) + overscan);
+export function visibleLayoutRange(layoutModel: LayoutSource, scrollTop: number, viewportHeight: number, overscan = 4) {
+  const geometry = readGeometry(layoutModel);
+  if (geometry.count === 0) return { first: 0, last: 0 };
+  const first = Math.max(0, geometry.upperBoundTop(Math.max(0, scrollTop)) - 1 - overscan);
+  const last = Math.min(geometry.count, geometry.upperBoundTop(scrollTop + viewportHeight) + overscan);
   return { first, last };
 }
 
@@ -1537,7 +1589,7 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 /// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
 /// never on screen, so they are not built (cx-j33s4).
 export function scrollLeadRanges(
-  layoutModel: ConversationLayout,
+  layoutModel: LayoutSource,
   scrollTop: number,
   delta: number,
   viewportHeight: number,

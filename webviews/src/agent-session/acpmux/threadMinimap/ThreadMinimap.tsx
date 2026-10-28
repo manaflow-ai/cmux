@@ -8,7 +8,7 @@
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
+import { transcriptColumn, type AcpmuxRow, readGeometry, type LayoutSource } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -106,7 +106,7 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 export function ThreadMinimap({
   rows,
   sessionId,
-  layout,
+  layout: layoutSource,
   scroller,
   scrollTop,
   viewportHeight,
@@ -118,7 +118,7 @@ export function ThreadMinimap({
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
-  layout: ConversationLayout;
+  layout: LayoutSource;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
@@ -135,6 +135,7 @@ export function ThreadMinimap({
   /// reads only the rows from there (model.ts minimapTurns).
   change?: RowsChange;
 }) {
+  const layout = readGeometry(layoutSource);
   const t = useT();
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
@@ -214,10 +215,13 @@ export function ThreadMinimap({
   const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
   if (anchored && seen !== undefined)
-    restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
+    restoring.current = {
+      from: seen,
+      by: layout.topAt(anchored.index) - anchor.current!.layoutTop,
+    };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
+  const onScreen = visibleTurns(turns, layout, layout.totalHeight, top, viewportHeight);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const height = railHeight(
     turns.length,
@@ -237,7 +241,7 @@ export function ThreadMinimap({
   const live = useRef({
     turns,
     ticks,
-    tops: layout.tops,
+    geometry: layout,
     total: layout.totalHeight,
     marks,
     viewportHeight,
@@ -250,7 +254,7 @@ export function ThreadMinimap({
     live.current = {
       turns,
       ticks,
-      tops: layout.tops,
+      geometry: layout,
       total: layout.totalHeight,
       marks,
       viewportHeight,
@@ -267,12 +271,12 @@ export function ThreadMinimap({
     const node = scroller.current;
     if (!node) return;
     const scrolled = () => {
-      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+      const { turns: all, geometry, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height);
+      const next = visibleTurns(all, geometry, total, layoutScrollTop(node), height);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
@@ -289,11 +293,11 @@ export function ThreadMinimap({
     placed.current = () => {
       const node = scroller.current;
       if (!node) return;
-      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+      const { turns: all, geometry, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height);
+      const next = visibleTurns(all, geometry, total, layoutScrollTop(node), height);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -321,7 +325,7 @@ export function ThreadMinimap({
     const target = () =>
       physicalScrollTop(
         node,
-        Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+        Math.min(turnScrollTop(turn, live.current.geometry), Math.max(0, live.current.total - node.clientHeight)),
       );
     const row = mountedRow(node, turn.id);
     const to = target();
@@ -370,7 +374,7 @@ export function ThreadMinimap({
     /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
-      const { turns: all, ticks: keys, tops, total } = live.current;
+      const { turns: all, ticks: keys, geometry, total } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
@@ -379,8 +383,9 @@ export function ThreadMinimap({
       if (stepping >= 0) reading = stepping;
       else
         for (let index = 0; index < all.length; index += 1)
-          if (turnScrollTop(all[index]!, tops) <= top + 1) reading = index;
-      const start = by > 0 || stepping >= 0 || turnScrollTop(all[reading]!, tops) >= top - 1 ? reading + by : reading;
+          if (turnScrollTop(all[index]!, geometry) <= top + 1) reading = index;
+      const start =
+        by > 0 || stepping >= 0 || turnScrollTop(all[reading]!, geometry) >= top - 1 ? reading + by : reading;
       for (let index = start; index >= 0 && index < all.length; index += by) if (matches(index)) return index;
       return undefined;
     };
@@ -485,7 +490,7 @@ export function ThreadMinimap({
         tick: { key: ticks[onScreen.first]!.key, id: ticks[onScreen.first]!.id },
         first: { key: ticks[0]!.key, id: ticks[0]!.id },
         index: onScreen.first,
-        layoutTop: layout.tops[first.index] ?? 0,
+        layoutTop: layout.topAt(first.index),
         y: railTop + onScreen.first * ROW_PITCH - scrolled,
       };
   });

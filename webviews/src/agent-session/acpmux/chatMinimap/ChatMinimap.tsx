@@ -7,7 +7,7 @@
 // a placeholder with a shimmer (chatMinimap.css), and it draws once when the reply ends. The box then
 // moves only for the person's own scrolling, never for the transcript following the reply. Every listener, observer and timer goes on unmount.
 import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
+import { transcriptColumn, type AcpmuxRow, readGeometry, type LayoutGeometry, type LayoutSource } from "../model";
 import { useT } from "../i18n";
 import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
@@ -47,7 +47,7 @@ const MIN_TRACK = 64;
 
 type Props = {
   rows: readonly AcpmuxRow[];
-  layout: ConversationLayout;
+  layout: LayoutSource;
   scroller: React.RefObject<HTMLElement | null>;
   /// The transcript's view height (above the room under the last row).
   viewportHeight: number;
@@ -59,7 +59,7 @@ type Props = {
   /// Where these rows first differ from the last render's (App.tsx rowsChange), if the transcript knows.
   change?: RowsChange;
 };
-type Source = { rows: readonly AcpmuxRow[]; layout: ConversationLayout };
+type Source = { rows: readonly AcpmuxRow[]; layout: LayoutGeometry };
 
 /// The placeholder's look: the shimmer, except in the gallery, which compares the others. Only the
 /// gallery sets an arm in globalThis.cmuxExperiments; a stored cmux.experiments override is ignored.
@@ -77,8 +77,8 @@ function ChatMinimapOn(props: Props) {
   const column = chatColumnOf(useChatWidth(), useChatDisplay());
   const room = transcriptColumn(props.width, column).inset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE;
   // The rows reach the map through a ref: a token renders nothing in it.
-  const source = useRef<Source>({ rows: props.rows, layout: props.layout });
-  source.current = { rows: props.rows, layout: props.layout };
+  const source = useRef<Source>({ rows: props.rows, layout: readGeometry(props.layout) });
+  source.current = { rows: props.rows, layout: readGeometry(props.layout) };
   const changed = useRef<(() => void) | undefined>(undefined);
   const { rows, layout } = props;
   useEffect(() => changed.current?.(), [rows, layout]);
@@ -285,9 +285,9 @@ const Minimap = memo(function Minimap({
     if (streaming >= 0) {
       const { layout } = source.current;
       const scale = minimapScale(layout.totalHeight, track);
-      const from = layout.tops[streaming] ?? layout.totalHeight;
+      const from = layout.topAt(streaming);
       const top = Math.min(track - MIN_PLACEHOLDER, (from + THREAD_PADDING_TOP) * scale);
-      const height = Math.min(track - top, Math.max(MIN_PLACEHOLDER, (layout.heights[streaming] ?? 0) * scale));
+      const height = Math.min(track - top, Math.max(MIN_PLACEHOLDER, layout.heightAt(streaming) * scale));
       setHold({ top, height });
     } else setHold(undefined);
     schedule(false);
