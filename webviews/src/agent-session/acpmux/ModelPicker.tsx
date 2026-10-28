@@ -583,18 +583,21 @@ export function ModelPicker(props: ModelPickerProps) {
     const viewport = rail?.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
     const list = rail?.querySelector<HTMLElement>(".acpmux-mp-rail-list");
     if (!rail || !container || !viewport || !list) return;
+    const matchMedia = globalThis.matchMedia;
+    const ResizeObserverImpl = globalThis.ResizeObserver;
+    if (typeof matchMedia !== "function" || typeof ResizeObserverImpl !== "function") return;
     const quantize = () => {
-      quantizePickerRail(rail, container, viewport, globalThis.matchMedia("(max-width: 407px)").matches);
+      quantizePickerRail(rail, container, viewport, matchMedia.call(globalThis, "(max-width: 407px)").matches);
     };
     quantize();
-    const observer = new ResizeObserver(quantize);
+    const observer = new ResizeObserverImpl(quantize);
     observer.observe(container);
     observer.observe(list);
-    const media = globalThis.matchMedia("(max-width: 407px)");
-    media.addEventListener("change", quantize);
+    const media = matchMedia.call(globalThis, "(max-width: 407px)");
+    media.addEventListener?.("change", quantize);
     return () => {
       observer.disconnect();
-      media.removeEventListener("change", quantize);
+      media.removeEventListener?.("change", quantize);
       rail.style.removeProperty("width");
     };
   }, [menuStyle.visibility, open, harnessFixed, railHarnesses.length]);

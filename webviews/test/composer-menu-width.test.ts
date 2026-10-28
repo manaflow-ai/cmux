@@ -34,8 +34,10 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
     expect(first).toBe("152px");
     quantizePickerRail(rail, container, viewport, true);
     expect(width).toBe(first);
+    expect(first).toBe("152px");
     quantizePickerRail(rail, container, { ...viewport, scrollWidth: 120 }, true);
     expect(width).toBe("");
+    width = "152px";
     quantizePickerRail(rail, container, viewport, false);
     expect(width).toBe("");
   });
@@ -229,10 +231,11 @@ ${css}
               (list as HTMLElement).style.cssText +=
                 ";display:flex;flex-direction:row;gap:4px;width:max-content;min-width:max-content;padding:6px";
             });
-            if (count > 3)
-              await page.$eval(".acpmux-mp-rail-viewport", (viewport) => {
-                (viewport as HTMLElement).style.setProperty("width", "100px", "important");
+            if (count > 3) {
+              await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
+                (rail as HTMLElement).style.setProperty("width", "100px", "important");
               });
+            }
             const endpoint = async (position: "start" | "middle" | "end") => {
               if (position === "middle") {
                 const box = await page.$eval(".acpmux-mp-rail-viewport", (node) => {
@@ -323,28 +326,6 @@ ${css}
             expect(startState.tabSnap).toContain("start");
             expect(new Set(startState.gaps.map((gap) => Math.round(gap))).size).toBe(1);
             expect(startState.gaps.every((gap) => Math.abs(gap - 4) < 0.5)).toBe(true);
-            if (count === 3) {
-              const lifecycle = await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
-                const viewport = rail.querySelector<HTMLElement>(".acpmux-mp-rail-viewport")!;
-                const quantify = () => {
-                  const available = rail.parentElement?.clientWidth ?? rail.clientWidth;
-                  if (viewport.scrollWidth <= available) rail.style.removeProperty("width");
-                  else {
-                    const cells = Math.max(1, Math.floor((available - 12 + 4) / 36));
-                    rail.style.setProperty("width", `${cells * 36 - 4 + 12}px`, "important");
-                  }
-                };
-                quantify();
-                const first = { width: viewport.clientWidth, maxScroll: viewport.scrollWidth - viewport.clientWidth };
-                quantify();
-                return {
-                  first,
-                  second: { width: viewport.clientWidth, maxScroll: viewport.scrollWidth - viewport.clientWidth },
-                };
-              });
-              expect(lifecycle.second).toEqual(lifecycle.first);
-              expect(lifecycle.second.maxScroll).toBe(0);
-            }
             for (const [label, state] of [
               ["start", startState],
               ["middle", middleState],
@@ -357,38 +338,6 @@ ${css}
             await page.close();
           }
         }
-      });
-
-      test("the narrow rail quantizer is idempotent and clears on wide panes", async () => {
-        const page = await open(200);
-        const result = await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
-          const viewport = rail.querySelector<HTMLElement>(".acpmux-mp-rail-viewport")!;
-          const container = rail.parentElement!;
-          const quantize = (narrow: boolean) => {
-            if (!narrow) {
-              rail.style.removeProperty("width");
-              return;
-            }
-            const available = container.clientWidth;
-            const content = viewport.scrollWidth;
-            if (content <= available) {
-              rail.style.removeProperty("width");
-              return;
-            }
-            const cells = Math.max(1, Math.floor((available - 12 + 4) / 36));
-            rail.style.setProperty("width", `${cells * 36 - 4 + 12}px`, "important");
-          };
-          rail.style.setProperty("width", "120px", "important");
-          quantize(true);
-          const first = rail.style.width;
-          quantize(true);
-          const second = rail.style.width;
-          quantize(false);
-          return { first, second, cleared: rail.style.width };
-        });
-        expect(result.first).toBe(result.second);
-        expect(result.cleared).toBe("");
-        await page.close();
       });
 
       test("the portaled location menu gets the pane's menu surface, not a clear background", async () => {
