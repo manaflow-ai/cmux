@@ -27,13 +27,23 @@ struct SuspendWatchTests {
         }
     }
 
+    /// What the displays' probe reads; the test says when they sleep.
+    @MainActor final class FakeDisplays {
+        var asleep = false
+    }
+
     struct Rig {
         let center = NotificationCenter()
         let path = FakePath()
+        let displays: FakeDisplays
         let watch: SuspendWatch
 
-        init() {
-            watch = SuspendWatch(events: AppEvents(center: center), path: path.wait)
+        init(displaysAsleep: Bool = false) {
+            let displays = FakeDisplays()
+            displays.asleep = displaysAsleep
+            self.displays = displays
+            watch = SuspendWatch(events: AppEvents(center: center), appEvents: AppEvents(center: center), path: path.wait,
+                                 displaysAsleep: { displays.asleep })
         }
 
         func post(_ name: Notification.Name) {
@@ -86,6 +96,41 @@ struct SuspendWatchTests {
         rig.post(NSWorkspace.screensDidWakeNotification)
         #expect(rig.watch.state == SuspendWatch.State())
         #expect(rig.path.starts == 0)
+    }
+
+    /// pro-audits item 2: a system sleep that starts while the displays sleep wakes with only
+    /// `didWakeNotification`. The watch reads the displays then; it used to keep `screensAsleep`
+    /// (keepalives held) until the next screens-wake notice.
+    @Test func aSystemWakeWithNoScreensWakeEndsTheDisplaySleep() {
+        let rig = Rig()
+        rig.watch.start()
+        rig.displays.asleep = true
+        rig.post(NSWorkspace.screensDidSleepNotification)
+        rig.post(NSWorkspace.willSleepNotification)
+        #expect(rig.watch.state == SuspendWatch.State(suspended: true, screensAsleep: true))
+        rig.displays.asleep = false
+        rig.post(NSWorkspace.didWakeNotification)
+        #expect(rig.watch.state == SuspendWatch.State(), "a wake with no screens-wake notice kept the displays asleep")
+    }
+
+    /// A display plugged in or out while the displays sleep posts only a display change.
+    @Test func aDisplayChangeReadsTheDisplays() {
+        let rig = Rig()
+        rig.watch.start()
+        rig.displays.asleep = true
+        rig.post(NSWorkspace.screensDidSleepNotification)
+        rig.displays.asleep = false
+        rig.post(NSApplication.didChangeScreenParametersNotification)
+        #expect(!rig.watch.state.screensAsleep, "a display that is awake after the change kept the displays asleep")
+    }
+
+    /// A watch started while the displays sleep (a launch in the dark) starts with them asleep.
+    @Test func aWatchStartedWhileTheDisplaysSleepStartsAsleep() {
+        let rig = Rig(displaysAsleep: true)
+        rig.watch.start()
+        #expect(rig.watch.state == SuspendWatch.State(screensAsleep: true))
+        rig.post(NSWorkspace.screensDidWakeNotification)
+        #expect(rig.watch.state == SuspendWatch.State())
     }
 
     @Test func aStoppedWatchHearsNothing() {

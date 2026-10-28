@@ -172,7 +172,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
                 isAppHidden: @escaping @MainActor () -> Bool = { NSApp?.isHidden ?? false },
                 drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
                 center: NotificationCenter = .default,
-                workspaceEvents: AppEvents, mainWork: MainWorkScheduler) {
+                workspaceEvents: AppEvents, displaysAsleep: @escaping @MainActor () -> Bool = { false },
+                mainWork: MainWorkScheduler) {
         self.windows = windows
         self.orderedWindows = orderedWindows
         self.facts = facts

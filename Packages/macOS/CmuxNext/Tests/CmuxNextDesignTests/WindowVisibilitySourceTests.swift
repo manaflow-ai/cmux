@@ -83,7 +83,8 @@ import Testing
         let workspaceCenter = NotificationCenter()
         let appEvents = AppEvents(center: appCenter)
         let workspaceEvents = AppEvents(center: workspaceCenter)
-        let app = AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: false)
+        let app = AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: false,
+                                      displaysAsleep: { false })
         let windows = (0..<3).map { _ in Self.window() }
         let windowEvents = windows.map { WindowEvents(window: $0, center: appCenter) }
         let sources = zip(windows, windowEvents).map { window, events in
@@ -100,6 +101,67 @@ import Testing
         #expect(sources.allSatisfy { $0.node.isVisible })
     }
 
+    /// What the displays' probe reads: the test says when they sleep.
+    private final class FakeDisplays {
+        var asleep = false
+    }
+
+    /// The app node, on private centers, whose displays' state `displays` gives.
+    private static func appSource(_ appCenter: NotificationCenter, _ workspaceCenter: NotificationCenter,
+                                  _ displays: FakeDisplays) -> AppVisibilitySource {
+        AppVisibilitySource(appEvents: AppEvents(center: appCenter), workspaceEvents: AppEvents(center: workspaceCenter),
+                            isAppHidden: false, displaysAsleep: { displays.asleep })
+    }
+
+    /// pro-audits item 2: a system sleep during display sleep can wake with only
+    /// `NSWorkspace.didWakeNotification`, no `screensDidWakeNotification`. The app node reads the
+    /// displays then and shows again; it used to stay occluded (terminals paused) until the next
+    /// display wake.
+    @Test func aSystemWakeWithNoScreensWakeShowsTheAppAgain() {
+        let appCenter = NotificationCenter(), workspaceCenter = NotificationCenter()
+        let displays = FakeDisplays()
+        let app = Self.appSource(appCenter, workspaceCenter, displays)
+        #expect(app.node.isVisible)
+        displays.asleep = true
+        workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        #expect(app.node.effective == .occluded)
+        // The Mac woke with its displays still dark: still occluded.
+        workspaceCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        #expect(app.node.effective == .occluded)
+        displays.asleep = false
+        workspaceCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        #expect(app.node.isVisible, "a wake with no screens-wake notice left the app occluded")
+        #expect(!app.screensAsleep)
+    }
+
+    /// A display plugged in or out while the displays sleep posts only a display change
+    /// (`NSApplication.didChangeScreenParametersNotification`): the node follows the displays.
+    @Test func aDisplayChangeWhileTheDisplaysSleepReadsThem() {
+        let appCenter = NotificationCenter(), workspaceCenter = NotificationCenter()
+        let displays = FakeDisplays()
+        let app = Self.appSource(appCenter, workspaceCenter, displays)
+        displays.asleep = true
+        workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        appCenter.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        #expect(app.node.effective == .occluded, "every display still sleeps")
+        displays.asleep = false
+        appCenter.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        #expect(app.node.isVisible, "a display that is awake after the change left the app occluded")
+    }
+
+    /// A launch while the displays sleep starts occluded, not visible. A display's wake notice then
+    /// shows the app even while the probe still says asleep: the notice is the newer fact.
+    @Test func aLaunchWhileTheDisplaysSleepStartsOccluded() {
+        let appCenter = NotificationCenter(), workspaceCenter = NotificationCenter()
+        let displays = FakeDisplays()
+        displays.asleep = true
+        let app = Self.appSource(appCenter, workspaceCenter, displays)
+        #expect(app.screensAsleep)
+        #expect(app.node.effective == .occluded, "a launch during display sleep started visible")
+        workspaceCenter.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        #expect(app.node.isVisible)
+    }
+
     @Test func appStateHiddenWinsOverAsleep() {
         #expect(AppVisibilitySource.visibility(appHidden: true, screensAsleep: true) == .hidden)
         #expect(AppVisibilitySource.visibility(appHidden: false, screensAsleep: true) == .occluded)
@@ -113,7 +175,7 @@ import Testing
         let appCenter = NotificationCenter()
         let workspaceCenter = NotificationCenter()
         let app = AppVisibilitySource(appEvents: AppEvents(center: appCenter), workspaceEvents: AppEvents(center: workspaceCenter),
-                                      isAppHidden: false)
+                                      isAppHidden: false, displaysAsleep: { false })
         workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
         #expect(app.node.effective == .occluded)
         appCenter.post(name: NSApplication.didHideNotification, object: nil)

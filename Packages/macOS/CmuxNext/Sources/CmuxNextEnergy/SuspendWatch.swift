@@ -49,7 +49,8 @@ public final class SuspendWatch {
     /// - Parameters:
     ///   - events: The fan-out on `NSWorkspace.shared.notificationCenter` (`AppServices.workspaceEvents`).
     ///   - path: The network path wait (``NetworkPathWait/system(on:)``; tests pass their own).
-    public init(events: AppEvents, path: NetworkPathWait) {
+    public init(events: AppEvents, appEvents: AppEvents, path: NetworkPathWait,
+                displaysAsleep: @escaping @MainActor () -> Bool = { false }) {
         self.events = events
         self.path = path
     }

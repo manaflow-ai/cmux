@@ -34,6 +34,7 @@ public import CmuxNextWakeups
     ///   - uptime: The clock of the tree's `hiddenSince`.
     ///   - workCounts: Where the tree counts its work (`debug.layout_counters`); nil counts nothing.
     public init(appEvents: AppEvents, workspaceEvents: AppEvents, isAppHidden: Bool,
+                displaysAsleep: @escaping @MainActor () -> Bool = { false },
                 uptime: @escaping VisibilityNode.Uptime = VisibilityNode.systemUptime,
                 workCounts: VisibilityWorkCounts? = nil) {
         self.isAppHidden = isAppHidden
