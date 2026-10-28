@@ -4902,7 +4902,7 @@ jobs:
             CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
             CMUX_NEXT_TUI_MODE=tree
             CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
-            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           set -euo pipefail
           # This step runs early in the job (before the lookup's waits): the capture step's fallback
@@ -4949,7 +4949,7 @@ jobs:
           # format(): an unset variable is null, and null == '0' is true (both coerce to the number 0).
           SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || steps.hybrid-ref.outputs.compile == 'true' && 'a REF capture needs a real compile' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
           # A repository variable the compile step reads changes the product but not this file: key it.
-          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           set -euo pipefail
           key="$(python3 -I scripts/ci/job_input_fingerprint.py dev-release-product \
@@ -5138,10 +5138,12 @@ jobs:
           # compilation cache (no kept build products, no remote store:
           # scripts/cmux-next/lib/compilation-cache.sh), built per file with -O
           # (singlefile, Xcode's "Incremental") so a one-file change replays
-          # every other file. Repo variables switch each back:
-          # CMUX_NEXT_DEV_COMPILATION_CACHE=0, CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE=wholemodule.
+          # every other file. auto (compile-dev-release.sh) compiles whole-module instead
+          # when the build has no host cache to replay (lock busy, cache off, not a mini).
+          # Repo variables switch each back: CMUX_NEXT_DEV_COMPILATION_CACHE=0,
+          # CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE=wholemodule (or singlefile, everywhere).
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
-          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
@@ -5324,7 +5326,7 @@ jobs:
             CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
             CMUX_NEXT_TUI_MODE=tree
             CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
-            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           BUILD_ROOT: ${{ steps.compile-cmux-next-dev-release.outputs.build_root }}
           DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
@@ -5560,7 +5562,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SKIP_REASON: ${{ format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
-          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           set -euo pipefail
           key="$(python3 -I scripts/ci/job_input_fingerprint.py dev-release-product \
@@ -5625,7 +5627,7 @@ jobs:
           CMUX_NEXT_TUI_MODE: tree
           CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
-          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing/metrics.json
@@ -5696,13 +5698,14 @@ jobs:
           set -uo pipefail
           report="$RUNNER_TEMP/cmux-next-dev-landing/report.txt"
           mode="$(sed -n 's/^mode=//p' "$report" 2>/dev/null)"
+          swift_mode="$(sed -n 's/^swift_mode=//p' "$report" 2>/dev/null)"
           origin="$(sed -n 's/^previous_sha=//p' "$report" 2>/dev/null)"
           gap="$(python3 -I scripts/ci/dev_landing_place.py gap "$origin" "$GITHUB_SHA")"
           host="$(printf '%s' "$RUNNER_NAME" | tr '[:upper:]' '[:lower:]')"; host="${host%-glaeda*}"
           [[ "$POOL" == owned ]] || host="blacksmith"
           counts="$(python3 -I -c 'import json, sys; c = json.load(open(sys.argv[1])).get("compiler_cache") or {}; print(c.get("hits"), c.get("misses"), c.get("compile_wall_seconds"))' "$METRICS" 2>/dev/null || echo "? ? ?")"
           read -r hits misses seconds <<<"$counts"
-          line="host=$host (placed ${PLACED:-any}) runner=$RUNNER_NAME overflow=$([[ "$POOL" == owned ]] && echo no || echo yes) mode=${mode:-?} restored=${origin:0:12} gap=${gap:-?} xcodebuild=${seconds}s hits=$hits misses=$misses"
+          line="host=$host (placed ${PLACED:-any}) runner=$RUNNER_NAME overflow=$([[ "$POOL" == owned ]] && echo no || echo yes) mode=${mode:-?} swift_mode=${swift_mode:-?} restored=${origin:0:12} gap=${gap:-?} xcodebuild=${seconds}s hits=$hits misses=$misses"
           echo "::notice title=DEV landing compile::$line"
           echo "DEV landing compile: $line" >> "$GITHUB_STEP_SUMMARY"
           scripts/cmux-next/dev-cas-holder.sh "$report" "$RUNNER_TEMP/cmux-next-dev-cas-holder" >> "$GITHUB_OUTPUT"
