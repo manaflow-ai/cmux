@@ -473,22 +473,28 @@ impl Peer {
         self.github_broker.load(Ordering::SeqCst) && lends_over(&self.url)
     }
 
-    /// Whether this link takes a GitHub action now: lent, and its handshake finished with the
-    /// peer serving this daemon as a peer (not Web), so nothing sent before or around it is.
-    fn github_ready(&self) -> bool {
-        self.github_broker() && self.github_link.load(Ordering::SeqCst) == self.link_epoch() + 1
+    /// Whether the link `link` (the epoch it was read on) takes a GitHub action now: lent, the
+    /// peer not stopped, `link` still the live one, and its handshake finished with the peer
+    /// serving this daemon as a peer (not Web), so nothing sent before or around it is.
+    fn github_ready(&self, link: u64) -> bool {
+        self.github_broker()
+            && !self.stop.load(Ordering::SeqCst)
+            && self.link_epoch() == link
+            && self.github_link.load(Ordering::SeqCst) == link + 1
     }
 
     /// The peer's daemon asked for a GitHub action (`github_broker.rs`) and `admit_owner` let it
-    /// in: run it, and answer on the link it came on, never on a later one.
+    /// in on `link` (the epoch it was read on): run it, and answer on that link, never on a
+    /// later one.
     fn serve_github_action(
         self: &Arc<Self>,
         id: Value,
         params: Value,
         slot: tokio::sync::OwnedSemaphorePermit,
+        link: u64,
     ) {
         let me = self.clone();
-        let epoch = self.link_epoch();
+        let epoch = link;
         // The slot is held until the answer is queued, within the request budget: at most
         // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
         // stops reading.
@@ -498,7 +504,9 @@ impl Peer {
             let revoked = me.github_revoked.notified();
             tokio::pin!(revoked);
             revoked.as_mut().enable();
-            if me.link_epoch() != epoch || !me.github_broker() {
+            // Lending that ended between the admission and here (the link ended, the peer was
+            // stopped or removed, `githubBroker` off) starts nothing.
+            if !me.github_ready(epoch) {
                 return;
             }
             let reply = tokio::select! {
@@ -1069,9 +1077,9 @@ impl Peer {
                         Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
                             // Refused here, before anything is spawned, unless this Mac lends the
                             // peer GitHub, the handshake on this link finished, and a slot is free.
-                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(), &self.github_slots);
+                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots);
                             match admitted {
-                                Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot),
+                                Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot, link),
                                 Err(e) => {
                                     // Bounded like any frame: a peer that asks and never reads
                                     // cannot hold this loop.
@@ -1127,10 +1135,13 @@ impl Peer {
 /// handshake that makes a link a peer could come from anything on the path.
 fn lends_over(url: &str) -> bool {
     let Ok(u) = reqwest::Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").trim_start_matches('[').trim_end_matches(']');
     match u.scheme() {
         "ssh" => ssh_target(url).is_ok(),
         "wss" => true,
-        "ws" => matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "[::1]")),
+        "ws" => {
+            host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        }
         _ => false,
     }
 }
@@ -1497,6 +1508,8 @@ mod link_epoch_tests {
             ("ws://127.0.0.1:7777", true),
             ("ws://localhost:7777", true),
             ("ws://[::1]:7777", true),
+            ("ws://127.0.0.2:7777", true),
+            ("ws://[::2]:7777", false),
             ("wss://box.example", true),
             ("ssh://leo@box.example", true),
         ] {
@@ -1504,6 +1517,33 @@ mod link_epoch_tests {
             peer.set_github_broker(true);
             assert_eq!(peer.github_broker(), lends, "{url}");
         }
+    }
+
+    /// Review of #24797 at ee07ea5: an action admitted just before the peer stopped took the
+    /// epoch after the stop as its own, so it still ran.
+    #[tokio::test]
+    async fn an_action_admitted_before_a_stop_never_runs() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("stopped-mid-admit", "ws://127.0.0.1:9", None, None, tx);
+        peer.set_github_broker(true);
+        let link = peer.link_epoch();
+        peer.github_link.store(link + 1, Ordering::SeqCst);
+        let slot = crate::github_broker::admit_owner(
+            &peer.name,
+            peer.github_ready(link),
+            &peer.github_slots,
+        )
+        .unwrap();
+        peer.stop();
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        peer.serve_github_action(json!(1), json!({"action": "read", "repo": "o/r"}), slot, link);
+        let sent = tokio::time::timeout(Duration::from_secs(1), out.recv()).await;
+        assert!(
+            sent.is_err(),
+            "nothing ran or answered: {:?}",
+            sent.ok().flatten().map(|f| f.line)
+        );
+        assert_eq!(peer.github_slots.available_permits(), crate::github_broker::OWNER_SLOTS);
     }
 
     /// Review of #24797 at 30e24d1: each reconnect's new peer had slots of its own while the

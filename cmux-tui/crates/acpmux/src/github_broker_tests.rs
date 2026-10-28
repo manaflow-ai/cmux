@@ -173,3 +173,12 @@ fn the_gh_the_broker_runs_gets_no_token_or_host_from_the_daemon() {
     }
     assert_eq!(envs.get(std::ffi::OsStr::new("GH_HOST")), Some(&Some("github.com".as_ref())));
 }
+
+/// Review of the broker core at c0d5122: the output was cut to its limit before tokens were cut
+/// out, and `[redacted]` is longer than the shortest token, so it grew past the limit.
+#[test]
+fn output_full_of_tokens_stays_within_its_limit() {
+    let out = clean_output("ghp_a ".repeat(OUTPUT_MAX).as_bytes());
+    assert!(out.len() <= OUTPUT_MAX + '…'.len_utf8(), "{}", out.len());
+    assert!(!out.contains("ghp_"), "no token is left");
+}
