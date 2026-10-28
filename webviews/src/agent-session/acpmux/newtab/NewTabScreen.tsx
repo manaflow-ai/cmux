@@ -1448,6 +1448,12 @@ export function NewTabScreen(props: Props) {
   // The ambient widgets (weather, machines): their own row under the field, so they never move it;
   // with the stage, whose composer sits at the foot, the row is in the stage, after the widgets. The
   // edit mode does not frame or move them; Settings turns them on and off.
+  // Where the next chat goes: a saved environment's machine, else the picked machine.
+  const nextMachine = environment
+    ? environment.kind === "ssh" && environment.host
+      ? environment.host
+      : "local"
+    : (machine?.peer ?? "local");
   const ambient = (
     <AmbientWidgets
       {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}
@@ -1458,21 +1464,14 @@ export function NewTabScreen(props: Props) {
       // The machines are buttons: a press starts the next chat there (a down one reconnects as it
       // is picked), resumes or opens an account Cloud machine, and Add Machine… opens Add Device.
       buttons={{
-        // Where the next chat goes: a saved environment's machine, else the picked machine; none
-        // reads pressed while Sandboxed is the run (a VM of its own).
-        current:
-          props.runMode?.mode === "sandboxed"
-            ? ""
-            : environment
-              ? environment.kind === "ssh" && environment.host
-                ? environment.host
-                : "local"
-              : (machine?.peer ?? "local"),
+        // None reads pressed while Sandboxed is the run (a VM of its own).
+        current: props.runMode?.mode === "sandboxed" ? "" : nextMachine,
         onPick: (id) => {
           // A machine is a pick of its own: Sandboxed would send elsewhere, so the run goes back to
-          // Persistent. Pressing the machine already picked keeps its folder.
+          // Persistent. Pressing the machine the next chat already goes to keeps its folder and its
+          // saved environment.
           if (props.runMode?.mode === "sandboxed") props.runMode.onMode("persistent");
-          if (!environment && id === (machine?.peer ?? "local")) return field.current?.focus();
+          if (id === nextMachine) return field.current?.focus();
           pickMachine(id === "local" ? undefined : { peer: id });
         },
         onReconnect: (id) => props.onReconnectMachine?.(id),

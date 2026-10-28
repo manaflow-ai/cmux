@@ -515,6 +515,17 @@ test("a saved environment presses its machine's button", async () => {
   expect(machineButton("cloud-1")?.getAttribute("aria-pressed")).toBe("false");
 });
 
+test("pressing a saved environment's own machine keeps the environment and its folder", async () => {
+  const calls = await mount({ machines: true });
+  await click(environmentButton());
+  await click(row("Devbox API"));
+  expect(machineButton("devbox")?.getAttribute("aria-pressed")).toBe("true");
+  await click(machineButton("devbox"));
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Devbox API`);
+  await ask("tail the logs");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: "/srv/api", peer: "devbox" });
+});
+
 test("Add Machine… is the widget's last button", async () => {
   await mount({ machines: true });
   const buttons = $$(".nt-machines button");
