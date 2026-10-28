@@ -16,14 +16,15 @@ enum MotionActivity {
     /// An animation runs from now for `seconds` (no effect for 0, a negative or a non-finite time).
     static func began(seconds: TimeInterval) {
         guard seconds > 0, seconds.isFinite else { return }
-        end = max(end, CACurrentMediaTime() + seconds)
+        // The Motion Inspector's slow motion plays it out over `startScale` times as long (1 when off).
+        end = max(end, CACurrentMediaTime() + seconds * MotionInspector.startScale)
     }
 
     /// `animation` about to be added now, `delay` seconds before it starts, counted until it ends; returned as is.
     @discardableResult
     static func began<Kind: CAAnimation>(_ animation: Kind, after delay: CFTimeInterval = 0) -> Kind {
         began(seconds: delay + activeSeconds(animation))
-        return animation
+        return MotionInspector.noteAnimation(animation, after: delay)
     }
 
     /// How long `animation` runs: its repeat duration, else its duration times its repeats (twice when it

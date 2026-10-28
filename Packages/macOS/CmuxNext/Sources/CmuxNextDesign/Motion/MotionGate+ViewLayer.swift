@@ -24,7 +24,11 @@ extension MotionGate {
     /// the frame changes in one frame and the alpha crossfades (a Reduce Motion crossfade) or changes in
     /// one frame. `completion` runs when the view lands (``RenderSpring/Completion``).
     public func animate(_ token: MotionSpring, in view: NSView, frame: NSRect?, alpha: CGFloat? = nil,
-                        completion: RenderSpring.Completion? = nil) {
+                        completion: RenderSpring.Completion? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        MotionInspector.within(category, file, line) { animateLayer(token, in: view, frame: frame, alpha: alpha, completion: completion) }
+    }
+
+    private func animateLayer(_ token: MotionSpring, in view: NSView, frame: NSRect?, alpha: CGFloat?, completion: RenderSpring.Completion?) {
         let spring = renderSpring(token)
         // One outer transaction: the rest values and their animations commit together.
         CATransaction.begin()
@@ -40,7 +44,11 @@ extension MotionGate {
     /// Motion, motion.md rule 7); the alpha when fades do not. `completion` runs when the view lands
     /// (``RenderSpring/Completion``).
     public func animate(_ token: MotionFade, in view: NSView, frame: NSRect?, alpha: CGFloat? = nil,
-                        completion: RenderSpring.Completion? = nil) {
+                        completion: RenderSpring.Completion? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        MotionInspector.within(category, file, line) { animateLayer(token, in: view, frame: frame, alpha: alpha, completion: completion) }
+    }
+
+    private func animateLayer(_ token: MotionFade, in view: NSView, frame: NSRect?, alpha: CGFloat?, completion: RenderSpring.Completion?) {
         let seconds = canAnimate(in: view) ? duration(token) : 0
         CATransaction.begin()
         let moves = Self.restMoves(of: view, frame: frame, alpha: alpha)

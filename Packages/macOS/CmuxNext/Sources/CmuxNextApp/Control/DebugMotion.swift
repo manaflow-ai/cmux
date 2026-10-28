@@ -12,7 +12,7 @@ enum DebugMotion {
         let windows = services?.windows.controllers.compactMap(\.window) ?? []
         let report = MotionDebug.handle(params.mapValues(\.foundationObject), windows: windows,
                                         samplers: [TabStripDebug.motionSample, SidebarContainerView.motionSample],
-                                        commitProbe: commitProbe)
+                                        commitProbe: commitProbe, inspector: services?.motionInspector)
         return JSONValue(foundation: report) ?? .null
     }
 }

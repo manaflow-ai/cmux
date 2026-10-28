@@ -68,6 +68,11 @@ enum MainMenu {
         // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
         var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
         if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu().makeItem(), StatusIconSetMenu().makeItem()] }
+        // Debug Windows: the debug tool windows (the Motion Inspector).
+        if DevTools.isEnabled, let inspector = registry.makeMenuItem(for: "debug.motionInspector") {
+            inspector.title = Strings.menuMotionInspector
+            debug += [submenu(Strings.menuDebugWindows, items: [inspector])]
+        }
         if !debug.isEmpty {
             let debugItem = submenu(Strings.menuDebug, items: debug)
             #if DEBUG

@@ -14,7 +14,7 @@ public import CmuxNextDesignTokens
 /// commit), so moves of neighbouring layers stay in lockstep.
 public struct MotionMove: Sendable {
     enum Curve: Sendable {
-        case tween(MotionTween)
+        case tween(MotionTween, MotionGate)
         case spring(MotionSpring, MotionGate)
     }
 
@@ -27,7 +27,7 @@ public struct MotionMove: Sendable {
     /// speed off, Reduce Motion, a live resize, or a `ui.animations.newTab` kind that is off).
     public static func tween(_ token: MotionTween, in gate: MotionGate) -> MotionMove? {
         let duration = gate.duration(token)
-        return duration > 0 ? MotionMove(curve: .tween(token), duration: duration) : nil
+        return duration > 0 ? MotionMove(curve: .tween(token, gate), duration: duration) : nil
     }
 
     /// A move on spring `token`, or nil when movement does not animate.
@@ -38,21 +38,23 @@ public struct MotionMove: Sendable {
 
     /// The additive animation of `keyPath` from `offset` (the old value minus the new) to `zero`.
     /// Add it under a key no other move uses, so it stacks instead of replacing one in flight.
-    public func additive(_ keyPath: String, from offset: Any, to zero: Any) -> CAAnimation {
-        let animation: CABasicAnimation
+    /// The Motion Inspector records it with the caller's `file`:`line` and the gate's category.
+    public func additive(_ keyPath: String, from offset: Any, to zero: Any,
+                         file: StaticString = #fileID, line: UInt = #line) -> CAAnimation {
         switch curve {
-        case .tween(let token):
-            animation = CABasicAnimation(keyPath: keyPath)
+        case .tween(let token, let gate):
+            let animation = CABasicAnimation(keyPath: keyPath)
             animation.duration = duration
             animation.timingFunction = token.timingFunction
-            MotionActivity.began(animation)
+            animation.fromValue = offset
+            animation.toValue = zero
+            animation.isAdditive = true
+            return MotionInspector.within(gate.category, file, line) { MotionActivity.began(animation) }
         case .spring(let token, let gate):
-            animation = gate.springAnimation(token, keyPath, from: offset, to: zero)
+            let animation = gate.springAnimation(token, keyPath, from: offset, to: zero, file: file, line: line)
+            animation.isAdditive = true
+            return animation
         }
-        animation.fromValue = offset
-        animation.toValue = zero
-        animation.isAdditive = true
-        return animation
     }
 }
 

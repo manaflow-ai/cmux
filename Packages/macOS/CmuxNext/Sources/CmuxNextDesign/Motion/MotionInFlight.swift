@@ -83,8 +83,10 @@ extension MotionGate {
     /// newer change may have moved things since.
     public func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
                                settleAtSleep: @escaping @MainActor () -> Void,
-                               completion: (@MainActor @Sendable () -> Void)? = nil) {
-        animateSpring(token, in: view, changes, settleAtSleep: settleAtSleep, completion: completion)
+                               completion: (@MainActor @Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        MotionInspector.within(category, file, line) {
+            animateSpring(token, in: view, changes, settleAtSleep: settleAtSleep, completion: completion)
+        }
     }
 
     /// Tracks a `token` move that runs on the render server (additive springs from
@@ -106,9 +108,14 @@ extension MotionGate {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
         MotionActivity.began(seconds: duration(token))
-        let spring = self.spring(token)
+        // AppKit steps a SwiftUI-animation group on the main thread, outside every layer's time base: the
+        // Motion Inspector's slow motion lengthens it as it starts (MotionInspector.startScale, 1 when off).
+        let spring = self.spring(token).scaled(by: MotionInspector.startScale)
         let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
-        let finished = traced("appkit.\(token.rawValue)", completion)
+        let finished = MotionInspector.noteAppKit("appkit.\(token.rawValue)", view: view,
+                                                  curve: .spring(response: spring.response, damping: spring.dampingFraction,
+                                                                 perceived: duration(token) * MotionInspector.startScale),
+                                                  completion: traced("appkit.\(token.rawValue)", completion))
         let done = settleAtSleep.map { MotionInFlight.track(settle: $0, seconds: self.duration(token), completion: finished) } ?? finished
         guard #available(macOS 15, *) else {
             // macOS 14 has no SwiftUI-animation NSAnimationContext: the timed curve, not retargetable.
