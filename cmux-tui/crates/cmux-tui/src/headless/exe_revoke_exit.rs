@@ -9,10 +9,11 @@
 //! spun at 390-570% for 13 hours this way (`sample` itself died of SIGBUS
 //! reading them); an owner whose binary is still on disk stays idle.
 //!
-//! So one thread waits on the executable's kqueue `NOTE_REVOKE` and calls
-//! `_exit` directly: after the event only the system library (on the sealed
-//! system volume) runs, and the watcher's own code is wired (`mlock`) before
-//! it waits, so it is resident when the event comes. The owner's terminal
+//! So one thread waits on the executable's kqueue `NOTE_REVOKE` and ends the
+//! process with a raw `exit` system call: from the event to the exit only the
+//! watcher's own code runs, wired (`mlock`) before it waits so it is
+//! resident when the event comes, with no call through the executable's
+//! stubs. The owner's terminal
 //! hosts are separate processes and keep running; the next owner of the
 //! session adopts them, as after any owner exit.
 //!
@@ -102,31 +103,53 @@ fn arm() -> io::Result<ExeRevokeExit> {
     let thread = std::thread::Builder::new().name("exe-revoke-exit".into()).spawn(move || {
         // Both descriptors stay open while the thread waits.
         let _held = (exe, reader);
+        // No signal reaches this thread, so `kevent` never returns EINTR and
+        // the wait never has to call into the executable again.
+        // SAFETY: a full set, applied to this thread only.
+        unsafe {
+            let mut all: libc::sigset_t = std::mem::zeroed();
+            libc::sigfillset(&mut all);
+            libc::pthread_sigmask(libc::SIG_BLOCK, &all, std::ptr::null_mut());
+        }
         wait_for_revoke(queue.as_raw_fd());
     })?;
     Ok(ExeRevokeExit { stop, thread })
 }
 
 /// Waits for the revoke (then exits the process) or the stop pipe (then
-/// returns). Only `kevent` and `_exit`, both in the system library, run
-/// between the event and the exit.
+/// returns). From the event to the exit only this function's wired code
+/// runs: `kevent` returns straight into it, and the exit is a raw system
+/// call, not a call through the executable's stubs (whose page may no
+/// longer be resident).
 #[inline(never)]
 fn wait_for_revoke(queue: libc::c_int) {
     // SAFETY: kevent is plain data; all-zero is a valid value.
     let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-    loop {
-        // SAFETY: a live queue, no changes, one event slot, no timeout.
-        let n =
-            unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, std::ptr::null()) };
-        if n == 1 && event.filter == libc::EVFILT_VNODE {
-            // SAFETY: ends the process without running any of its code.
-            unsafe { libc::_exit(REVOKED_EXIT) };
-        }
-        // SAFETY: reads this thread's errno.
-        if n < 0 && unsafe { *libc::__error() } == libc::EINTR {
-            continue;
-        }
-        return;
+    // SAFETY: a live queue, no changes, one event slot, no timeout.
+    let n = unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, std::ptr::null()) };
+    if n == 1 && event.filter == libc::EVFILT_VNODE {
+        exit_now();
+    }
+}
+
+/// `exit(2)` with [`REVOKED_EXIT`], as a raw system call (Darwin's `SYS_exit`
+/// is 1): it ends every thread of the process.
+#[inline(always)]
+fn exit_now() -> ! {
+    // SAFETY: SYS_exit takes the status and never returns.
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        std::arch::asm!("svc #0x80", in("x16") 1u64, in("x0") REVOKED_EXIT as u64, options(noreturn));
+    }
+    // SAFETY: as above (BSD system calls are class 2 on x86_64).
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        std::arch::asm!("syscall", in("rax") 0x200_0001u64, in("rdi") REVOKED_EXIT as u64, options(noreturn));
+    }
+    // SAFETY: as above, through the system library.
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    unsafe {
+        libc::_exit(REVOKED_EXIT)
     }
 }
 
