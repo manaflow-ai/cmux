@@ -57,9 +57,19 @@ final class KeyboardPinTrace: NSObject {
                 let curve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? -1
                 let local = (info[UIResponder.keyboardIsLocalUserInfoKey] as? Bool) ?? true
                 MainActor.assumeIsolated {
-                    self?.write(String(format: "t=%.4f ev=%@ end=%.1f,%.1f,%.1f,%.1f dur=%.3f curve=%d local=%d",
-                                       CACurrentMediaTime() - (self?.start ?? 0), label,
-                                       end.minX, end.minY, end.width, end.height, duration, curve, local ? 1 : 0))
+                    guard let self else { return }
+                    // Where the window sits in the screen's and the scene's
+                    // coordinate spaces (an iPhone app on an iPad).
+                    var place = ""
+                    if let window = self.keyWindow {
+                        let inScreen = window.convert(window.bounds, to: window.screen.coordinateSpace)
+                        let screen = window.screen.bounds
+                        place = String(format: " winscreen=%.1f,%.1f,%.1f,%.1f screen=%.0fx%.0f",
+                                       inScreen.minX, inScreen.minY, inScreen.width, inScreen.height, screen.width, screen.height)
+                    }
+                    self.write(String(format: "t=%.4f ev=%@ end=%.1f,%.1f,%.1f,%.1f dur=%.3f curve=%d local=%d",
+                                      CACurrentMediaTime() - self.start, label,
+                                      end.minX, end.minY, end.width, end.height, duration, curve, local ? 1 : 0) + place)
                 }
             }
         }
