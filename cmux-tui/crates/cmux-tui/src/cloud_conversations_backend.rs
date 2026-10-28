@@ -130,6 +130,13 @@ fn stall_left(idle: Duration, sent: bool) -> Duration {
     (if sent { UPLOAD_REPLY } else { UPLOAD_STALL }).saturating_sub(idle)
 }
 
+/// How long the slot's reply body may take to arrive once its head came:
+/// `streamed` for a file body (the slot answers after committing it).
+fn reply_body_window(streamed: bool) -> Duration {
+    let _ = streamed;
+    UPLOAD_STALL
+}
+
 /// Resolves once [`stall_left`] says the upload stalled. It ends with its
 /// `select!`, when the upload answers first.
 async fn stalled(started: Instant, progress: Arc<UploadProgress>) {
@@ -213,6 +220,7 @@ impl CloudBackend for RemoteCloudBackend {
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
+        let streamed = matches!(body, PutBody::File { .. });
         self.runtime.block_on(async move {
             let response = match body {
                 PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
@@ -241,7 +249,7 @@ impl CloudBackend for RemoteCloudBackend {
             };
             let response = response.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
-            let bytes = tokio::time::timeout(UPLOAD_STALL, response.bytes())
+            let bytes = tokio::time::timeout(reply_body_window(streamed), response.bytes())
                 .await
                 .map_err(|_| TransportError("the upload reply did not finish".into()))?
                 .map_err(|error| transport(&error))?;
@@ -463,6 +471,13 @@ mod tests {
         // A body that stopped moving, or a reply that never comes, still ends.
         assert!(stall_left(UPLOAD_STALL, false).is_zero());
         assert!(stall_left(UPLOAD_REPLY, true).is_zero());
+    }
+
+    /// Review of #26498 at 6a89561a: the reply body of a streamed upload was
+    /// read within the stall window, not the reply window.
+    #[test]
+    fn a_streamed_uploads_reply_body_has_the_reply_window() {
+        assert_eq!(reply_body_window(true), UPLOAD_REPLY);
     }
 
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
