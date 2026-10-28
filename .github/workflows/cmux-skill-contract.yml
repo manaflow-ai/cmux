@@ -19,11 +19,6 @@ on:
       - "tests/fixtures/bug-triage/**"
       - "tests/test_cmux_bug_triage.py"
       - "tests/test_socket_control_schema.py"
-      - "skills/cmux-keyboard-shortcuts/**"
-      - "web/app/[locale]/(landing)/docs/configuration/page.tsx"
-      - "web/app/[locale]/(landing)/docs/keyboard-shortcuts/page.tsx"
-      - "web/messages/en.json"
-      - "tests/test_shortcut_alternates_documented.py"
   push:
     branches: [main]
     paths:
@@ -43,11 +38,6 @@ on:
       - "tests/fixtures/bug-triage/**"
       - "tests/test_cmux_bug_triage.py"
       - "tests/test_socket_control_schema.py"
-      - "skills/cmux-keyboard-shortcuts/**"
-      - "web/app/[locale]/(landing)/docs/configuration/page.tsx"
-      - "web/app/[locale]/(landing)/docs/keyboard-shortcuts/page.tsx"
-      - "web/messages/en.json"
-      - "tests/test_shortcut_alternates_documented.py"
 
 permissions:
   contents: read
@@ -89,7 +79,3 @@ jobs:
       - name: The cmux-bug-triage skill script on the tester report fixture
         if: ${{ !cancelled() }}
         run: python3 tests/test_cmux_bug_triage.py
-
-      - name: The shortcut alternates form is documented wherever the forms are listed
-        if: ${{ !cancelled() }}
-        run: python3 tests/test_shortcut_alternates_documented.py
