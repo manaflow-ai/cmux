@@ -100,6 +100,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+tempfile = "3"
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
