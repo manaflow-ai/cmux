@@ -62,13 +62,16 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.differentiateWithoutColor = differentiateWithoutColor
     }
 
-    /// The static look (cx-sya4n): the setting says static, or Reduce Motion
-    /// is on. Nothing animates and each state draws its own still shape in
-    /// the same slot and size, whatever the icon set.
-    public var isStatic: Bool { settings.animation == .static || reduceMotion }
+    /// The static look (cx-sya4n): the setting says static, Reduce Motion
+    /// is on, or Differentiate Without Color is on. Nothing animates and each
+    /// state draws its own still shape in the same slot and size, whatever the
+    /// icon set.
+    public var isStatic: Bool { settings.animation == .static || reduceMotion || differentiateWithoutColor }
 
-    /// The static look draws its shapes (``StatusIndicatorPlan/make``'s `staticShapes`).
-    public var drawsShapes: Bool { staticShapes }
+    /// The static look draws its shapes (``StatusIndicatorPlan/make``'s `staticShapes`): the
+    /// Debug Settings switch, or Differentiate Without Color, where no two states may share a
+    /// shape and differ only by tint (pro audit 16: done and waiting were one dot).
+    public var drawsShapes: Bool { staticShapes || differentiateWithoutColor }
 
     /// The style for a report that asked for `hint`: the Debug Settings
     /// override, else the hint, else the setting.
@@ -93,7 +96,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             iconSet: StatusIconSet.tunable.value,
             reduceMotion: Motion.reduceMotion,
             staticShapes: StatusIndicatorPlan.staticShapes.value,
-            workingLook: StatusWorkingLook.tunable.value)
+            workingLook: StatusWorkingLook.tunable.value,
+            differentiateWithoutColor: DesignSettings.shared.signals.display.differentiateWithoutColor)
     }
 }
 
@@ -140,8 +144,10 @@ public final class StatusIndicatorAppearance {
         self.windows = windows
         // Re-read synchronously when Reduce Motion flips (the system setting, the tests' pin or calm
         // mode), or an appearance created before a pin keeps the system setting's loops (a runner
-        // with Reduce Motion on shows no spinner).
-        reduceMotionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "StatusIndicatorAppearance") { [weak self] in
+        // with Reduce Motion on shows no spinner). Differentiate Without Color (a display option)
+        // switches the marks to their shapes the same way.
+        reduceMotionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion, .displayOptions],
+                                                                    owner: "StatusIndicatorAppearance") { [weak self] in
             self?.apply(StatusIndicatorConfig.current)
         }
     }

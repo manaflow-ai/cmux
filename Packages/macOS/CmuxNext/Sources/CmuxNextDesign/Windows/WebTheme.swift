@@ -145,7 +145,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
-        statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
+        // Differentiate Without Color draws the static shapes too: no two states read apart by tint alone.
+        statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static
+            || DesignSettings.shared.signals.display.differentiateWithoutColor ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         let webMotion = Motion.web.policy
         motion = Self.motionValue(webMotion)
