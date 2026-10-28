@@ -83,6 +83,8 @@ extension PageWebView {
         guard !isParkedSpare, !isShownForDiscard else { return false }
         // First: from here the page loads nothing, so ending its document below reports no load.
         discardShell.isDiscarded = true
+        // Its restore loads the files served then: a web files change it missed is no reason to load again.
+        bundleStale = false
         // A frozen page's engine page goes with its document; the WebKit view gets back the
         // throttling it had before the freeze, which its restored document runs with.
         if case .webKit(let restoring)? = frozenEngine, let restoring {

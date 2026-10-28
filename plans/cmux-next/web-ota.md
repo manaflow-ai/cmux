@@ -77,15 +77,24 @@ server and overlay (#22664) stay ahead of an update, and an update stays ahead o
 Pages hosted in Chromium keep their bundled files for now.
 
 A new update never changes what an open page loads: a page's lazy chunks must come from the build
-its document came from. `WebUpdates` holds a ready tree as pending and swaps it in at a safe point,
-then reloads every page and agent pane the handlers served (`WebBundleServedViews`). The safe
+its document came from. `WebUpdates` holds a ready tree as pending and swaps it in at a safe point
+through the page host (`WebUIHost.webBundleDidChange`, chrome-parity task p13-webui-071), which
+reaches only the WebKit pages the overlay serves. Every page that holds a document reloads; with the
+default-off feature `webUpdateReloadOnShow`, only the shown pages reload, hidden and frozen pages are
+marked, and the preload slot drops its page and makes it again. A marked page keeps its document
+until it shows; then it is asked at once and reloads only when it answers that a reload keeps what
+it holds, else it stays marked and the same safe point below asks it again (`WebUpdates.staleShown`,
+`WebBundleSafePoint`). Without the
+feature, the preload slot's parked page is marked and its claim reloads it. Each document pins the tree it loaded from
+(`WebBundleOverlay.Pin`), so a kept document loads its lazy chunks and `cmux.shared` files from its
+own tree, and the updater prunes no pinned tree. A `web-dev.json` change takes the same path. The safe
 point (`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what someone is doing:
 
 - no page shows: at once;
 - the app has a modal window or sheet open, or is tracking a menu: look again in 15 seconds;
 - cmux is in the front: no keyboard, pointer, scroll or click input for 30 seconds (the session's
   `CGEventSource` idle time; no event monitor); behind other apps: 3 seconds after it left;
-- then every served page answers `window.cmuxWebSwap.hold()` (`webviews/src/pages/shared/webSwap.ts`,
+- then every page the swap reloads (the shown ones with `webUpdateReloadOnShow`) answers `window.cmuxWebSwap.hold()` (`webviews/src/pages/shared/webSwap.ts`,
   installed with the desktop layer) within a second, null when a reload keeps everything it holds.
   It says why not while a component holds it (a prompt the host has not taken, a screenshot being
   read, dictation, shell mode, a new chat's prompt with no chat to keep it, chips the host does not
@@ -93,10 +102,11 @@ point (`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what
   yet), while an input method composes, while text is selected, while a field has the keyboard that
   does not take it back (the composer does) or its caret is before the end, while a menu, popover
   or dialog is open, or while a scroller other than the transcript is away from its start. A page
-  that does not answer is busy.
+  that does not answer is busy. With `webUpdateReloadOnShow`, a hidden or frozen page is never
+  asked, so it never holds the swap; it is asked once it shows.
 
 Any wait looks again in 15 seconds (one DemandTimer, `web-updates.safe-point`, which stops once
-nothing is pending); `updates.web.status` `waiting_for` names the last reason. A reload keeps a
+nothing is pending and no shown page waits to reload); `updates.web.status` `waiting_for` names the last reason. A reload keeps a
 composer draft (the composer writes every change to the pane origin's `localStorage` at once and to
 acpmux, `composerDraft.ts`), its chips (the host's `chat.draftAttachments`, `keptAttachments.ts`)
 and the transcript's place (`chat.scrollAnchor`), and reads them back on load.

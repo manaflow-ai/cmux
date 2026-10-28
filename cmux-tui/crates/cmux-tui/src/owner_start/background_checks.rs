@@ -19,6 +19,7 @@ pub(super) fn spawn() {
         crate::client_log::info(LOG_AREA, "update-check: off (offline)");
         return;
     }
+    // supervise-allow: one best-effort pass (flags, then the update check) that owns no shared state; a panic loses only this pass's log lines, as offline does.
     let _ = std::thread::Builder::new().name("background-checks".into()).spawn(|| {
         let line = flags();
         crate::client_log::info(LOG_AREA, &format!("feature-flags: {line}"));

@@ -21,10 +21,14 @@
 /// they scale with the refresh period (``scaled(toIntervalNanos:)``) and the pass target is the
 /// period less ``inputReserve`` and the measured render pass (``passTargetNanos(intervalNanos:renderNanos:)``).
 public struct FrameBudgets: Sendable, Equatable {
+    /// The share of screen updates no action of the person caused (2.5 ms by default).
     public var visible: Duration
+    /// The share of work an agent, the CLI or another process asked for (1 ms by default).
     public var automation: Duration
+    /// The share of work nobody waits on (0.5 ms by default).
     public var background: Duration
 
+    /// Shares per class; the defaults split the 4 ms of scheduled work a frame may hold.
     public init(visible: Duration = .microseconds(2_500), automation: Duration = .milliseconds(1),
                 background: Duration = .microseconds(500)) {
         self.visible = visible
