@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import CmuxNextFocusUI
 import CmuxNextCompat
 import CmuxNextActions
@@ -214,6 +215,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// Runs from `CmuxApplication.sendEvent` for every key-down of the
     /// process, before any window or responder. `window` is where the key
     /// goes (the key window). Returns whether the key was consumed.
+    /// `path` took `event` to run it later (`debug.input late_keys` names it); true.
+    private func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) -> Bool { services?.inputLatency.arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos()); return true }
+
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
@@ -226,9 +230,9 @@ final class KeyRouter: BrowserKeyRouting {
             trace?("normal mode: a typing key goes to the focused view")
             return typesIntoFocusedView(event, in: window)
         }
-        if newTabInputCoordinator.capture(event, in: window) { return true }
-        if creationInputCoordinator.capture(event, in: window) { return true }
-        if modes.contains(.launchPicture), launchPictureKeys.holdsUndecided(event, in: window, router: self) { return true }
+        if newTabInputCoordinator.capture(event, in: window) { return held(event, by: .newTab) }
+        if creationInputCoordinator.capture(event, in: window) { return held(event, by: .creation) }
+        if modes.contains(.launchPicture), launchPictureKeys.holdsUndecided(event, in: window, router: self) { return held(event, by: .launchPicture) }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
         if cancelsMissedModal(event, in: window) { return true }

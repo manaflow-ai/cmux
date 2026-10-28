@@ -845,6 +845,7 @@ final class AppServices {
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
+        runtime.echoStages.install(TerminalKeyLatency(tracker: inputLatency.tracker))  // terminal keys' echo frame: presented (p04-input-094)
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
             previousConfigChange?()
