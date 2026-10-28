@@ -32,10 +32,12 @@ ENV = {
 }
 
 
-def feed(*items: tuple[int, str, int]) -> str:
+def feed(*items: tuple, channel: dict | None = None) -> str:
+    channel = channel or {}
     body = "".join(
-        f'<item><sparkle:version>{build}</sparkle:version><enclosure url="{url}" length="{length}" '
-        f'sparkle:edSignature="sig"/></item>' for build, url, length in items)
+        f'<item><sparkle:version>{build}</sparkle:version>'
+        + (f"<sparkle:channel>{channel[build]}</sparkle:channel>" if build in channel else "")
+        + f'<enclosure url="{url}" length="{length}" sparkle:edSignature="sig"/></item>' for build, url, length in items)
     return ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
             f"<channel>{body}</channel></rss>")
 
@@ -87,7 +89,7 @@ class RewriteTests(unittest.TestCase):
         self.assertIn(other, path.read_text())
 
 
-class WriteFeedTests(unittest.TestCase):
+class FeedWriteCase(unittest.TestCase):
     def setUp(self) -> None:
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -114,6 +116,8 @@ class WriteFeedTests(unittest.TestCase):
                 mock.patch.object(r2.subprocess, "run", fake_run):
             return r2.write_feed(self.path, str(self.output), same_build)
 
+
+class WriteFeedTests(FeedWriteCase):
     def test_a_newer_live_feed_is_left_alone(self) -> None:
         live = feed((300, "x", 1)).encode()
         self.assertEqual(self.run_with([live], []), 0)
@@ -153,6 +157,82 @@ class WriteFeedTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(self.run_with([feed((200, "x", 1)).encode()], [0], same_build=True), 0)
         self.assertIn("--replace-sha256", self.calls[0])
+
+
+class KeepEarlierBuildsTests(FeedWriteCase):
+    """The feed keeps two builds, so nightly-next-rollback.yml always has a published build to serve."""
+
+    def builds(self) -> list[int]:
+        return [build for _, build in r2.item_builds(self.path.read_bytes())]
+
+    def test_the_live_feeds_newest_earlier_build_stays_beside_the_new_one(self) -> None:
+        live = feed((150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4),
+                    (100, f"{BASE}/cmux-nightly-next-macos-arm64-100.dmg", 3)).encode()
+        self.assertEqual(self.run_with([live], [0]), 0)
+        self.assertEqual(self.builds(), [200, 150])
+        # The kept item is the live feed's bytes, signature and all.
+        kept = next(m.group(0) for m, build in r2.item_builds(live) if build == 150)
+        self.assertIn(kept, self.path.read_bytes())
+
+    def test_a_feed_that_already_has_two_builds_is_written_as_it_is(self) -> None:
+        self.path.write_text(feed((200, "a", 5), (190, "b", 5)), encoding="utf-8")
+        before = self.path.read_bytes()
+        self.assertEqual(self.run_with([feed((150, "c", 4)).encode()], [0]), 0)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_a_build_that_landed_meanwhile_replaces_an_older_kept_one(self) -> None:
+        # Ours was combined from an older read ([200, 150]); the live feed now has 190 above 150.
+        self.path.write_text(feed((200, "a", 5), (150, "c", 4)), encoding="utf-8")
+        self.assertEqual(self.run_with([feed((190, "b", 5), (150, "c", 4)).encode()], [0]), 0)
+        self.assertIn(190, self.builds())
+
+    def test_a_dev_tagged_build_is_never_the_kept_one(self) -> None:
+        live = feed((180, "d", 1), (150, "c", 4), channel={180: "cmux-next-dev", 150: "cmux-next"}).encode()
+        self.assertEqual(self.run_with([live], [0]), 0)
+        self.assertEqual(self.builds(), [200, 150])
+
+    def test_a_promotion_that_raced_the_write_keeps_the_nightly_item(self) -> None:
+        # Ours tags 190 Dev; the live feed promoted it to Nightly meanwhile. The written feed serves
+        # 190 to Nightly apps, so a rollback of 200 has a build to serve.
+        self.path.write_text(feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next-dev"}),
+                             encoding="utf-8")
+        live = feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next"}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        text = self.path.read_bytes()
+        self.assertEqual(self.builds(), [200, 190])
+        self.assertNotIn(b"cmux-next-dev", text)
+
+    def test_the_promotion_race_survives_a_lost_cas(self) -> None:
+        self.path.write_text(feed((200, "a", 5), (190, "b", 5), channel={190: "cmux-next-dev"}), encoding="utf-8")
+        first = feed((150, "c", 4)).encode()
+        second = feed((190, "b", 5), (150, "c", 4), channel={190: "cmux-next"}).encode()
+        self.assertEqual(self.run_with([first, second], [r2.CONFLICT, 0]), 0)
+        self.assertEqual(self.builds(), [200, 190])
+        self.assertNotIn(b"cmux-next-dev", self.path.read_bytes())
+
+    def test_a_lost_race_keeps_from_the_feed_it_read_last(self) -> None:
+        first, second = feed((100, "x", 1)).encode(), feed((180, "y", 1), (100, "x", 1)).encode()
+        self.assertEqual(self.run_with([first, second], [r2.CONFLICT, 0]), 0)
+        self.assertEqual(self.builds(), [200, 180])
+
+    def test_no_live_feed_writes_the_new_build_alone(self) -> None:
+        self.assertEqual(self.run_with([None], [0]), 0)
+        self.assertEqual(self.builds(), [200])
+
+    def test_the_delta_republish_keeps_the_earlier_build_too(self) -> None:
+        live = feed((200, "x", 1), (150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4)).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        self.assertEqual(self.builds(), [200, 150])
+
+    def test_a_rollback_of_the_written_feed_serves_the_kept_build(self) -> None:
+        spec = importlib.util.spec_from_file_location("rollback", ROOT / "scripts" / "ci" / "nightly_next_feed_rollback.py")
+        rollback = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rollback)
+        live = feed((150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4)).encode()
+        self.assertEqual(self.run_with([live], [0]), 0)
+        _, summary = rollback.plan(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(summary["pulled"], ["200"])
+        self.assertEqual(summary["serving"], "150")
 
 
 class UploadTests(unittest.TestCase):

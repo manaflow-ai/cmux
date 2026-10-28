@@ -24,10 +24,12 @@ final class SidebarFooterBand {
         // (SIDEBAR-FOOTER-MINIMAL).
         let side = Metrics.sidebarRowHeight
         var x = Metrics.space4
+        // The Search button holds the row's right end (Lawrence 2026-10-27): status stops before it.
+        let trailing = host?.design.sidebarSections.showSearchButton == true ? Self.searchButtonSide + Metrics.space2 : 0
         for (slot, view) in slots {
             let width: CGFloat = switch slot {
             case .account, .cloud: side
-            case .status: max(0, f.width - x - Metrics.space4)
+            case .status: max(0, f.width - x - Metrics.space4 - trailing)
             }
             view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
             x += width + Metrics.space2
@@ -56,11 +58,12 @@ final class SidebarFooterBand {
         }
     }
 
-    /// The footer section's first row in the sidebar's coordinates: its frame
-    /// across the row, and where its items end. Nil when it shows none.
+    /// The footer section's first row in the sidebar's coordinates: its leading
+    /// item's frame, and where its items end. Nil when it shows none.
     var bandFirstRow: (frame: NSRect, itemsMaxX: CGFloat)? {
         let items = footerItemRows
-        guard let host, let first = items.min(by: { $0.frame.minY < $1.frame.minY }) else { return nil }
+        // The row's leading item (the profile avatar): the Search button mirrors its inset.
+        guard let host, let first = items.min(by: { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }) else { return nil }
         let line = items.filter { abs($0.frame.minY - first.frame.minY) < 0.5 }
         let frame = host.convert(first.frame, from: host.footerRegion)
         let maxX = line.map { host.convert($0.frame, from: host.footerRegion).maxX }.max() ?? frame.maxX
@@ -72,7 +75,8 @@ final class SidebarFooterBand {
     func placeSpaces(top: CGFloat, height: CGFloat) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
-        let searchMaxX = placeSearch()
+        // The Search button sits at the row's right end: the strip ends before it.
+        let searchMinX = placeSearch()
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -80,30 +84,29 @@ final class SidebarFooterBand {
             bar.centerX = bounds.midX
         } else if let row = bandFirstRow {
             if bar.superview !== host { host.addSubview(bar) }
-            // The bar starts right after the control and the Search button (the
-            // strip never covers them; the slots carry the gap) and centers on
+            // The bar runs from right after the control to the Search button (the
+            // strip never covers either; the slots carry the gap) and centers on
             // the sidebar's middle.
-            let lead = max(row.itemsMaxX, searchMaxX ?? 0)
+            let lead = row.itemsMaxX, end = searchMinX ?? bounds.width
             bar.leadingInset = 0
-            bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, bounds.width - lead), height: row.frame.height)
+            bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, end - lead), height: row.frame.height)
             bar.centerX = bounds.midX - lead
         } else {
             if bar.superview !== footer { footer.addSubview(bar) }
-            // The Search button holds the leading slot; the strip starts after it.
-            let lead = searchMaxX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? 0
-            bar.leadingInset = searchMaxX == nil ? nil : 0
-            bar.frame = NSRect(x: lead, y: 0, width: max(0, footer.bounds.width - lead), height: footer.bounds.height)
-            bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x - lead
+            // The strip ends before the Search button at the row's right end.
+            let end = searchMinX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
+            bar.leadingInset = nil
+            bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
+            bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
         }
         bar.refresh()
     }
 
     // MARK: Search button
 
-    /// The smallest side of the Search button: the macOS minimum control size (HIG, 28 pt).
-    static let searchButtonMinSide: CGFloat = 28
-    /// The Search button's side: the minimum control size, or the row where that is taller.
-    static var searchButtonSide: CGFloat { max(searchButtonMinSide, Metrics.sidebarRowHeight) }
+    /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
+    /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
+    static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
 
     /// The pinned footer section's padding under its last row. The footer is one line, the
     /// account control and the Search button centered on it, whose taller control ends on
@@ -122,15 +125,18 @@ final class SidebarFooterBand {
     /// bit lower").
     var searchLensDrop: CGFloat { 1 / (host?.window?.backingScaleFactor ?? 2) }
 
-    /// Places the Search button (plans/cmux-next/sidebar-search.md) right after the
-    /// footer band's first-row items (the profile avatar), on their line, or
-    /// leading in the footer when the band shows none. Returns its maxX in the
-    /// sidebar's coordinates, or nil when `sidebar.showSearchButton` hides it.
+    /// Places the Search button (plans/cmux-next/sidebar-search.md) at the footer row's right
+    /// end (Lawrence 2026-10-27 message 14242: "move the bottom-left search thing to the right
+    /// side"), its inset mirroring the profile avatar's at the left, on the avatar's line; at
+    /// the footer's right end when the band shows none. It never covers the band's first-row
+    /// items. Returns its minX in the sidebar's coordinates, or nil when
+    /// `sidebar.showSearchButton` or `sidebar.noFade` hides it.
     @discardableResult
     func placeSearch() -> CGFloat? {
         guard let host else { return nil }
         let button = host.searchButton
-        guard host.design.sidebarSections.showSearchButton else {
+        // `sidebar.noFade` hides the whole footer bar, the Search button with it.
+        guard host.design.sidebarSections.showSearchButton, !host.design.sidebarSections.noFade else {
             button.isHidden = true
             return nil
         }
@@ -138,19 +144,18 @@ final class SidebarFooterBand {
         let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
-            // Flush after the avatar's square, the lens on its center: the two controls' own
-            // insets are the gap between them, as a toolbar's buttons (Leo 2026-10-21: "this
-            // stupid space").
-            (x, midY) = (row.itemsMaxX, row.frame.midY + searchLensDrop)
+            // The avatar's left inset, mirrored at the right, the lens on its center line.
+            let rightEnd = host.bounds.maxX - row.frame.minX - side
+            (x, midY) = (max(row.itemsMaxX, rightEnd), row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
-            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+            (x, midY) = (host.bounds.maxX - Metrics.space4 - side, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
-        button.frame = NSRect(x: x, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
-        return button.frame.maxX
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        return button.frame.minX
     }
 
     // MARK: Profile menu

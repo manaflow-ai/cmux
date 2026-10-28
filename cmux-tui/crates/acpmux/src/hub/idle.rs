@@ -7,6 +7,8 @@
 //! holds its spawn lock, and nothing was logged for `idle_child`. Its
 //! harness is then stopped through `detach_child`: the record and the
 //! agent session id stay, so the next prompt resumes it (`session/load`).
+//! It is stopped only while nothing but its MCP servers runs under it
+//! (`idle_census.rs`): a stop ends its group and what runs under it.
 //!
 //! The same task ends a running turn whose model has said nothing for
 //! `stalledTurnEndMs` (`stalled_turn.rs`), and an agent a mode write moved
@@ -39,10 +41,11 @@ impl Hub {
             && session.attached.load(Ordering::SeqCst) == 0
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
-            && session.turn_lock.try_lock().is_ok()
+            && !session.harness_turn.load(Ordering::SeqCst)
+            && session.asks_in_flight.load(Ordering::SeqCst) == 0
+            && !self.secrets.waiting_in(&session.id)
             && session.queued() == 0
             && session.pending_permissions().is_empty()
-            && session.spawn_lock.try_lock().is_ok()
             // A process still running in the background (a dev server, a
             // watcher) ends with the harness: never reap it for idleness.
             && !self.any_process_running(session)
@@ -54,6 +57,7 @@ impl Hub {
     /// `shutdown_all`): the idle reaper never stops a harness again.
     pub fn stop_idle_reaper(&self) {
         self.stopping.store(true, Ordering::SeqCst);
+        self.idle_wake.notify_one();
     }
 
     /// A child was published: make sure the reaper runs and sees it.
@@ -70,6 +74,9 @@ impl Hub {
         loop {
             let (next, clock) = {
                 let Some(hub) = weak.upgrade() else { return };
+                if hub.stopping.load(Ordering::SeqCst) {
+                    return;
+                }
                 let clock = hub.clock.lock().unwrap().clone();
                 // The same task ends stalled turns (`stalled_turn.rs`).
                 let stalled = hub.config.read().await.stalled_turn_end();
@@ -126,22 +133,53 @@ impl Hub {
             if !has_child {
                 continue;
             }
-            if self.idle_eligible(&session) {
-                tracing::info!(session = %session.id, "idle harness exits; the session resumes on its next prompt");
-                // A hosted child whose link is closed cannot take a Terminate
-                // frame: end its host with the nonce proof, as closing does.
-                let child = session.child.lock().await.clone();
-                let link_lost = match &child {
-                    Some(c) => c.host_record().is_some() && !c.is_alive().await,
-                    None => false,
-                };
-                self.detach_child(&session).await;
-                if link_lost {
-                    self.end_unadopted_host(&session).await;
-                }
-            } else {
+            // In use at its deadline: a full idle period starts now.
+            let busy = session.turn_lock.try_lock().is_err()
+                || session.spawn_lock.try_lock().is_err()
+                || session.harness_use.try_write().is_err();
+            if busy || !self.idle_eligible(&session) {
+                self.touch(&session);
+                continue;
+            }
+            // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
+            let Some(child) = session.child.lock().await.clone() else { continue };
+            let sidecars = self.sidecars(&child).await;
+            // Held until the harness is ended: no turn, start, mode change, fork or stop
+            // begins meanwhile, and one that already began keeps the harness up.
+            let turn = session.turn_lock.try_lock();
+            let using = session.harness_use.try_write();
+            let spawning = session.spawn_lock.try_lock();
+            let same = session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child));
+            if turn.is_err()
+                || using.is_err()
+                || spawning.is_err()
+                || !same
+                || !self.idle_eligible(&session)
+            {
                 // In use at its deadline: a full idle period starts now.
                 self.touch(&session);
+                continue;
+            }
+            // Nothing it did not report may end with it (`idle_census.rs`).
+            let census = self.idle_census(child.pid, sidecars).await;
+            if !matches!(census, super::idle_census::Census::Clear) {
+                self.note_refusal(&session, &census);
+                self.touch(&session);
+                continue;
+            }
+            // Anything that happened while the census ran moved the deadline.
+            if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > self.clock_now()
+                || !self.idle_eligible(&session)
+            {
+                continue;
+            }
+            tracing::info!(session = %session.id, "idle harness exits; the session resumes on its next prompt");
+            // A hosted child whose link is closed cannot take a Terminate
+            // frame: end its host with the nonce proof, as closing does.
+            let link_lost = child.host_record().is_some() && !child.is_alive().await;
+            self.detach_child(&session).await;
+            if link_lost {
+                self.end_unadopted_host(&session).await;
             }
         }
     }

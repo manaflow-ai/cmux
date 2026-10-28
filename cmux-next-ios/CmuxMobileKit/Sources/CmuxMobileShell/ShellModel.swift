@@ -2,6 +2,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -259,6 +260,11 @@ final class ShellModel {
 
     /// Whether the route's chat is on screen now (its notification shows no banner).
     func isShowing(_ route: NotificationRoute) -> Bool {
+        // Chief lives on Home: its conversation on screen there shows the message itself.
+        if route.kind == "chief" {
+            guard UIApplication.shared.applicationState == .active, tab == .home, let id = route.conversationID else { return false }
+            return ChiefSession.conversationOnScreen == id
+        }
         guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
               let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
         return destination == shown
@@ -294,6 +300,12 @@ final class ShellModel {
         guard pendingRestore == nil, let saved = lastOpen.load() else { return }
         pendingRestore = saved
         continueRestore()
+    }
+
+    /// A link opened: the launch restore is dropped.
+    func cancelRestore() {
+        restoreAttempted = true
+        pendingRestore = nil
     }
 
     /// The workspaces (or a Mac's data phase) changed while a restore waits.
