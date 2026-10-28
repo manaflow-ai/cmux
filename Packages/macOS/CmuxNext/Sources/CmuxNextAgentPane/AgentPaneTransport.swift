@@ -30,6 +30,9 @@ import CmuxNextCompat
     /// Gets each push for the page (the view sends it through the bridge) and a completion to call
     /// once the page has run it (it paces the next push).
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
+    /// Runs right before a push goes to the page: a hidden page that froze (the app's hibernation)
+    /// thaws first, so a push the page waits on runs now and its completion paces the next one.
+    public var willDeliver: (@MainActor () -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
     private var pacerStorage: any AgentPaneTransportPacer
@@ -384,6 +387,7 @@ import CmuxNextCompat
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }
         deliveries += 1
         let delivery = deliveries
+        willDeliver?()
         deliver(event) { [weak self] in
             guard let self, self.deliveries == delivery else { return }
             self.pacer.delivered()
