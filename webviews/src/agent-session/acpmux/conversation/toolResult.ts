@@ -322,8 +322,9 @@ const MARKDOWN =
   /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
 const LOG_LINE =
   /^\s*(?:\[[^\]]+\]\s*)?(?:(?:\[(?:debug|info|warn|error|trace)\]|(?:debug|info|warn|error|trace)\b)|(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)/i;
-const CODE_LINE =
-  /^\s*(?:(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|try|except|async|await|export)\b|[A-Za-z_]\w*\s*=\s*[^=])/m;
+const CODE_DECLARATION =
+  /^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|try|except|async|await|export)\b/m;
+const CODE_ASSIGNMENT = /^\s*[A-Za-z_]\w*\s*=\s*[^=]/m;
 const DUNDER = /(?:^|[^\w])__\w+__(?=$|[^\w])/;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
@@ -332,7 +333,7 @@ function isMarkdownText(text: string, web = false): boolean {
   if (text.length > MAX_MARKDOWN_CHARS) return false;
   const lines = text.split("\n").filter(Boolean);
   if (!lines.length || lines.every((line) => LOG_LINE.test(line))) return false;
-  if (CODE_LINE.test(text) || DUNDER.test(text)) return false;
+  if (CODE_DECLARATION.test(text) || CODE_ASSIGNMENT.test(text) || DUNDER.test(text)) return false;
   return web || MARKDOWN.test(text);
 }
 
