@@ -301,10 +301,13 @@ async fn mint(
         .await
         .map_err(|_| format!("the cmux API answered {status} with no readable body"))?;
     if !status.is_success() || body.get("ok") != Some(&Value::Bool(true)) {
-        let error = body.get("error");
-        let field =
-            |key: &str| error.and_then(|e| e.get(key)).and_then(Value::as_str).unwrap_or("");
-        return Err(format!("{} ({})", field("message"), field("code")));
+        // Only the error's code, and only when it is a plain code: an answer that echoed a
+        // credential (a proxy, a broken server) never reaches the terminal.
+        let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
+        return Err(format!(
+            "the cmux API refused the client session: {status} {}",
+            plain_code(code)
+        ));
     }
     let session: Session =
         serde_json::from_value(body.get("value").cloned().unwrap_or_default())
@@ -334,12 +337,28 @@ async fn exec(
         .await
         .map_err(|e| format!("the machine did not answer: {}", e.without_url()))?;
     let status = response.status();
-    let body: Value = response.json().await.unwrap_or(Value::Null);
+    let body: Option<Value> = response.json().await.ok();
     if !status.is_success() {
-        let code = body.get("code").and_then(Value::as_str).unwrap_or("");
-        return Err(format!("the machine refused the command: {status} {code}"));
+        let code = body.as_ref().and_then(|b| b.get("code")).and_then(Value::as_str);
+        return Err(format!("the machine refused the command: {status} {}", plain_code(code)));
+    }
+    // A readable answer is an object; a statusCode, when present, is a number (absent: killed at the deadline).
+    let body = body.filter(Value::is_object).ok_or("the machine's answer is not readable")?;
+    if body.get("statusCode").is_some_and(|c| !c.is_null() && !c.is_i64()) {
+        return Err("the machine's answer has no readable exit status".into());
     }
     Ok(body)
+}
+
+/// `code` when it is a plain error code (`cloud.machine.not_found` or `NOT_FOUND`: one case, no
+/// digits, at most 64), else nothing, so a token or credential echoed in its place is never printed.
+fn plain_code(code: Option<&str>) -> &str {
+    let lower = |b: u8| b.is_ascii_lowercase() || b == b'.' || b == b'_';
+    let upper = |b: u8| b.is_ascii_uppercase() || b == b'_';
+    code.filter(|c| {
+        !c.is_empty() && c.len() <= 64 && (c.bytes().all(lower) || c.bytes().all(upper))
+    })
+    .unwrap_or("")
 }
 
 /// A new file only (an existing path is refused), mode 0600 from creation.

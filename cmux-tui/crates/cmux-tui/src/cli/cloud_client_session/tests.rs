@@ -75,6 +75,14 @@ fn credential_and_api_come_from_flags_or_env_and_need_https() {
 
 /// A fake cmux API and provider on one port: the mint, then (for exec) the command.
 fn fake(answers: usize) -> (String, mpsc::Receiver<String>) {
+    fake_with(
+        answers,
+        json!({ "statusCode": 3, "stdout": "hello from the machine\n", "stderr": "warn\n" })
+            .to_string(),
+    )
+}
+
+fn fake_with(answers: usize, exec_body: String) -> (String, mpsc::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let base = origin.clone();
@@ -102,12 +110,14 @@ fn fake(answers: usize) -> (String, mpsc::Receiver<String>) {
                     }
                 }
             };
-            let body = if request.starts_with(&format!("POST /v1/cloud/machines/{VM}/client-session ")) {
+            let body = if request
+                .starts_with(&format!("POST /v1/cloud/machines/{VM}/client-session "))
+            {
                 json!({ "ok": true, "value": { "machine": VM, "vm_id": "fsvm-1", "linux_user": "cmux", "token": TOKEN, "expires_at": 1_800_000_000_000_u64, "api_base_url": base, "ssh": { "host": "ssh.test", "user": "fsvm-1+cmux" } } })
+            .to_string()
             } else {
-                json!({ "statusCode": 3, "stdout": "hello from the machine\n", "stderr": "warn\n" })
-            }
-            .to_string();
+                exec_body.clone()
+            };
             let _ = stream.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
             let _ = sender.send(request);
         }
@@ -165,4 +175,22 @@ fn create_writes_the_token_to_a_new_private_file_and_prints_the_ssh_line() {
         run(&command, &origin, "cred", OutputMode::Human, &mut Vec::new(), &mut Vec::new())
             .is_err()
     );
+}
+
+#[test]
+fn errors_print_only_plain_codes() {
+    assert_eq!(plain_code(Some("cloud.machine.not_found")), "cloud.machine.not_found");
+    assert_eq!(plain_code(Some("NOT_FOUND")), "NOT_FOUND");
+    for echoed in [TOKEN, "Bearer abc", "eyJhbGciOi.eyJzdWIi.sig", "aB", "a b", ""] {
+        assert_eq!(plain_code(Some(echoed)), "", "{echoed}");
+    }
+    assert_eq!(plain_code(None), "");
+}
+
+#[test]
+fn an_unreadable_exec_answer_is_an_error_not_a_timeout() {
+    let (origin, _requests) = fake_with(2, "not json".into());
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let error = run(&command, &origin, "cred", OutputMode::Human, &mut Vec::new(), &mut Vec::new());
+    assert_eq!(error, Err("the machine's answer is not readable".into()));
 }
