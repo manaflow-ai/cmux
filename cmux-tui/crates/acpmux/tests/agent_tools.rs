@@ -343,7 +343,9 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
             .unwrap();
     let bash = &hooks["hooks"]["PreToolUse"][0];
     assert_eq!(bash["matcher"], "Bash", "{hooks}");
-    assert!(bash["hooks"][0]["command"].as_str().unwrap().ends_with("'__bg-hook'"), "{hooks}");
+    // With the daemon's home, which the harness's env does not carry.
+    let with_home = format!("'__bg-hook' '{}'", acpmux::config::home().display());
+    assert!(bash["hooks"][0]["command"].as_str().unwrap().ends_with(&with_home), "{hooks}");
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.
@@ -389,7 +391,10 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
         use std::io::Write;
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
             .arg("__bg-hook")
-            .env("ACPMUX_HOME", &home)
+            .arg(&home)
+            // As a harness runs it: no ACPMUX_HOME (`agent::harness_command`), so the argument
+            // alone says where the config is.
+            .env_remove("ACPMUX_HOME")
             .env("ACPMUX_SESSION_ID", session)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

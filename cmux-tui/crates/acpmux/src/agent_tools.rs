@@ -947,13 +947,17 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
 }
 
 /// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, run by this binary
-/// as the daemon runs (so it reads the same home). Leo, 2026-10-27: "also when it comes to
+/// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
+/// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
+/// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
+/// its content's hash, so each home has its own. Leo, 2026-10-27: "also when it comes to
 /// hibernation...can't you hibernate the agent but not hibernate the bg tasks?"
 fn bg_hooks() -> String {
     let this = crate::self_command::SelfCommand::current()
         .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
-    words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG]));
+    let home = crate::config::home().to_string_lossy().into_owned();
+    words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
     json!({"hooks": {"PreToolUse": [{"matcher": "Bash",

@@ -82,12 +82,14 @@ answers with the task's id, and bg_output reads its output: {call}"
 }
 
 /// The hook process: reads the call on stdin, prints a deny or nothing, and always exits 0.
-pub fn main() -> anyhow::Result<()> {
+/// `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP config is.
+pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
     let route = std::env::var(crate::acpmux_mcp::SESSION_ENV).ok().and_then(|session| {
-        let path = crate::agent_tools::mcp_config_path(&crate::config::home(), &session);
+        let home = home.unwrap_or_else(crate::config::home);
+        let path = crate::agent_tools::mcp_config_path(&home, &session);
         route(&serde_json::from_slice(&std::fs::read(path).ok()?).ok()?)
     });
     if let Some(answer) = decide(&input, route) {

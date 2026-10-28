@@ -1,8 +1,9 @@
 //! The `acpmux` MCP server's background-task tools (`hub/bg_tasks.rs`, docs/hibernation.md):
 //! `bg_start`, `bg_list`, `bg_output` and `bg_stop`, each for this server's own chat. A task
 //! started here runs under the daemon, not the harness, so it keeps running while the chat's
-//! agent hibernates, and the woken agent finds it by id. `bg_start` sends this server's own
-//! environment, which is the harness's, so the task sees what the agent's shell sees.
+//! agent hibernates, and the woken agent finds it by id. The daemon gives the task the
+//! environment the chat's agent runs with (`Hub::bg_env`), not this server's, which a harness
+//! may filter (Codex passes only a few names).
 
 use super::{error_result, ok, refusal};
 use crate::client::Client;
@@ -18,7 +19,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({"name": "bg_start", "description": "Run a shell command in the background: a dev server, a watcher, a long build or test run. It keeps running while this chat is idle or its agent hibernates, and after a restart; read it later with bg_output by its id. Prefer it to the harness's own background shell, which ends when the agent hibernates. Returns at once with the task's id.",
             "inputSchema": {"type": "object", "properties": {
-                "command": {"type": "string", "description": "The command, run by /bin/sh -c."},
+                "command": {"type": "string", "description": "The command, run by bash -c (/bin/sh where there is no bash), in the agent's environment."},
                 "cwd": {"type": "string", "description": "Its folder (default: the chat's)."}},
                 "required": ["command"]}}),
         json!({"name": "bg_list", "description": "This chat's background tasks, oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output.",
@@ -28,7 +29,7 @@ pub(super) fn tools() -> Vec<Value> {
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task: SIGTERM to its process group, SIGKILL 5 s later if it still runs.",
+        json!({"name": "bg_stop", "description": "Stop a background task: SIGTERM to its process group, then SIGKILL to the group 5 s later; returns once it ended.",
             "inputSchema": {"type": "object", "properties": {"id": id}, "required": ["id"]}}),
     ]
 }
@@ -37,12 +38,7 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
     let mut params = args.clone();
     params["sessionId"] = json!(session);
     let m = match name {
-        "bg_start" => {
-            let env: serde_json::Map<String, Value> =
-                std::env::vars().map(|(k, v)| (k, json!(v))).collect();
-            params["env"] = Value::Object(env);
-            method::MUX_BG_START
-        }
+        "bg_start" => method::MUX_BG_START,
         "bg_list" => method::MUX_BG_LIST,
         "bg_output" => method::MUX_BG_OUTPUT,
         "bg_stop" => method::MUX_BG_STOP,
