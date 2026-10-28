@@ -258,6 +258,9 @@ final class TabContentCache {
             if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
             return entry
         }
+        // The daemon's tab of a Ctrl-` stand-in (the terminal id that create chose): the stand-in's view, session and
+        // input lane become this tab's, so the keys typed into it meanwhile reach the PTY in order and none is dropped.
+        if let adopted = adoptStandIn(for: tab, daemon: daemon) { return adopted }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
         // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
@@ -274,6 +277,7 @@ final class TabContentCache {
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)
+        if gate != nil { entry.standInTerminalID = tab.terminalID?.rawValue }
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.
@@ -508,12 +512,17 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
-        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
+        moveNode(key, to: tab.id) // the page's node goes with it
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         _ = tracked(entry, tab)
         return true
+    }
+
+    /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
+    func moveNode(_ key: String, to real: String) {
+        if let node = tabNodes.removeValue(forKey: key), tabNodes[real]?.node == nil { tabNodes[real] = node }
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).

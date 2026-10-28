@@ -176,7 +176,10 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
-        // In the key's turn, before any later key: the stand-in's view takes them early (by its terminal id).
+        // In the key's turn, before any later key: focus expects the stand-in (so a Cmd-W of it drops the keys typed for
+        // it), and its view takes them early, by its terminal id, once it has the keyboard; the daemon's tab then adopts
+        // that view (`TabContentCache.adoptStandIn`), as a split's provisional pane keeps its own.
+        if let intent { self.workspace?.focus.expect(.tab(pending.tab), generation: intent) }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
                                                                      earlyTab: daemon.queuesCreatingInput ? pending.tab : nil, tab: pending.tab)
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good

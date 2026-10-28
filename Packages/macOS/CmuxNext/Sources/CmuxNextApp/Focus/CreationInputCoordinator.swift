@@ -266,9 +266,14 @@ final class CreationInputCoordinator {
 
     /// Whether a pending creation's early view (its terminal, which sends keys to the daemon by the terminal id the
     /// create chose, cx-wb5.78) is the focused terminal and has the keyboard: keys go to it now, not after the reply.
+    /// Only that view: focus names the newest pending creation's early tab, its pane shows it, and the window's first
+    /// responder is its terminal (never another terminal, an agent's composer or Home's message box).
     private func takesKeysEarly(_ buffer: CreationInputBuffer, controller: WindowController, window: NSWindow) -> Bool {
-        guard case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab) else { return false }
-        return Self.responderTakesKeys(controller, window: window)
+        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, buffer.newestEarlyTab == tab,
+              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
+              case .terminal(let entry)? = paneController.currentContent,
+              let responder = window.firstResponder as? NSView else { return false }
+        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view)
     }
 
     /// Runs the held keys into the early view that has the keyboard, in order, at once. False when a key run again
