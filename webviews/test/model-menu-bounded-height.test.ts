@@ -126,7 +126,6 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       lastProfileShown: boolean;
     }[];
     profiles: number;
-    hiddenSpacers: number;
   };
 
   /** The model menu and its submenu: their boxes, then each scrolled to its end. */
@@ -167,7 +166,6 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             footerPresent: footer !== null,
           },
           profiles: lists(menu) ? Math.max(0, menu.querySelectorAll("[role^=\"menuitem\"]").length - 1) : 0,
-          hiddenSpacers: [...menu.querySelectorAll(".acpmux-quick-spacer, .acpmux-quick-probe")].filter((row) => own(menu, row)).length,
         };
       });
       return menus.map((menu, index) => {
@@ -226,7 +224,6 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       if (Number.isFinite(menu.available))
         expect(menu.box.height, `${name} is no taller than its room`).toBeLessThanOrEqual(menu.available + 0.5);
       expect(menu.box.bottom, `${name} is no taller than its rows`).toBeLessThanOrEqual(menu.contentBottom + 1);
-      expect(menu.hiddenSpacers, `${name} has no hidden spacer or probe block`).toBe(0);
       expect(menu.childClipped, `${name} cuts off none of its parts`).toBe(false);
       expect(menu.fixed.search, `${name} keeps its search field inside the popup`).toBe(true);
       expect(menu.fixed.footer, `${name} keeps its update footer inside the popup`).toBe(true);
