@@ -380,7 +380,9 @@ test("sources include fetched URLs, files read and MCP tools", () => {
 
 test("Sources keep transcript encounter order across fetched URLs and PR mentions", () => {
   const rows = [
-    toolsRows(tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }))[0]!,
+    toolsRows(
+      tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }),
+    )[0]!,
     activity([shell("gh pr view 41 -R acme/app")], 2),
   ];
   expect(sessionSummary(rows, "acme/app").sources).toEqual([
