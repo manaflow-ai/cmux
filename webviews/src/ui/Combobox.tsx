@@ -154,7 +154,9 @@ export function Combobox({
     return () => window.removeEventListener("resize", reset);
   }, [keep]);
   const held = keep && tallest > 0;
-  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const enabledSuggestions = suggestions.filter(
+    (item) => !isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
+  );
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const update = (next: string) => {
     setValue(next);
@@ -245,14 +247,9 @@ export function Combobox({
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
       {pinnedSuggestions ? (
-        <>
-          <div className="ui-combobox-pinned" role="group">
-            {enabledSuggestions.filter((item) => pinnedSuggestions.includes(item)).map(renderOption)}
-          </div>
-          <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
-            {enabledSuggestions.filter((item) => !pinnedSuggestions.includes(item)).map(renderOption)}
-          </ScrollArea>
-        </>
+        <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
+          <Autocomplete.Collection>{renderOption}</Autocomplete.Collection>
+        </ScrollArea>
       ) : (
         <Autocomplete.Collection>{renderOption}</Autocomplete.Collection>
       )}
@@ -304,6 +301,23 @@ export function Combobox({
             onCancel();
         }}
       />
+      {pinnedSuggestions && (
+        <div className="ui-combobox-pinned">
+          {pinnedSuggestions.map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={cx("ui-combobox-item", itemClassName)}
+              aria-label={itemLabel?.(item)}
+              aria-current={isItemCurrent?.(item) ? true : undefined}
+              disabled={isItemDisabled?.(item)}
+              onClick={() => onSubmit(item)}
+            >
+              {renderItemContent(item)}
+            </button>
+          ))}
+        </div>
+      )}
       {inline ? (
         list
       ) : (

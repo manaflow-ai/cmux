@@ -583,16 +583,15 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   );
   const pinned = host.querySelector(".ui-combobox-pinned")!;
   const scroll = host.querySelector(".ui-combobox-scroll")!;
-  expect([...pinned.querySelectorAll('[role="option"]')].map((node) => node.textContent)).toEqual([
-    "No project",
-    "Add project",
-  ]);
+  expect([...pinned.querySelectorAll("button")].map((node) => node.textContent)).toEqual(["No project", "Add project"]);
   expect([...scroll.querySelectorAll('[role="option"]')].map((node) => node.textContent)).toEqual(["Atlas", "Relay"]);
   const field = host.querySelector<HTMLInputElement>("input")!;
   await act(async () => field.focus());
   await key(field, "ArrowDown");
   await key(field, "Enter");
-  expect(calls).toEqual(["No project"]);
+  expect(calls).toEqual(["Atlas"]);
+  await click(pinned.querySelector<HTMLButtonElement>("button")!);
+  expect(calls).toEqual(["Atlas", "No project"]);
 });
 
 test("scrollbar blur keeps a searchable menu open while outside blur cancels", async () => {
