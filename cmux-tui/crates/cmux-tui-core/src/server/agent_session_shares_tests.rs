@@ -258,7 +258,7 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
     std::fs::create_dir_all(&directory).unwrap();
     let dir = Some(directory.as_path());
     let first = LinkShares::default();
-    let share = first.insert(dir, "acp_x".into(), 3, 3600, 3).unwrap();
+    let share = first.insert(dir, "acp_x".into(), 3, 3600, 3, false).unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
     let redeem = |shares: &LinkShares, attempt: &str| {
         shares.redeem(

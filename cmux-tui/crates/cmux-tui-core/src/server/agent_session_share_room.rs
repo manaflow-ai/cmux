@@ -1,0 +1,378 @@
+//! The link share bridge (design chat-multiplayer.md 4.2 and 4.3; the room is cmux-platform's
+//! `ChatShareRoom`). With a room configured, create provisions each share there (`PUT`, keyed by
+//! its `provision_key`, with the owner's cmux access token, which is never stored) and answers the
+//! guest link `url_base#secret`. A revoke reaches the room from `pending_room_ops`, persisted with
+//! the change: its `DELETE` is retried until it is answered (or the share's expiry ends it there).
+//!
+//! Everything waits on events: one-shot sleeps for backoff (1 s doubling to 60 s), run only while
+//! a `PUT` or `DELETE` is pending. The host socket of each active share (`cmux.share/1`: the
+//! daemon's `guests` after every `hello`, redeem, kick) and the relay of each guest's chat come in
+//! the next changes.
+
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::Duration;
+
+use serde_json::{Value, json};
+use zeroize::Zeroizing;
+
+use super::{LinkShare, LinkShares, ShareState, find};
+use crate::mux::Mux;
+
+/// The bridge's waits; tests shorten them.
+#[derive(Clone, Debug)]
+pub(in crate::server) struct Timing {
+    /// One `PUT`, `DELETE` or socket handshake.
+    pub(in crate::server) request: Duration,
+    /// How long a provision that got no answer is retried before its share is revoked.
+    pub(in crate::server) window: Duration,
+    pub(in crate::server) backoff_min: Duration,
+    pub(in crate::server) backoff_max: Duration,
+}
+
+impl Default for Timing {
+    fn default() -> Self {
+        Self {
+            request: Duration::from_secs(15),
+            window: Duration::from_secs(10 * 60),
+            backoff_min: Duration::from_secs(1),
+            backoff_max: Duration::from_secs(60),
+        }
+    }
+}
+
+/// The configured room: its origin and the waits.
+#[derive(Clone)]
+pub(in crate::server) struct Room {
+    url: String,
+    timing: Timing,
+}
+
+/// The room configuration and the runtime the requests run on.
+#[derive(Default)]
+pub(in crate::server) struct Bridge {
+    room: Mutex<Option<Room>>,
+    runtime: OnceLock<Option<tokio::runtime::Runtime>>,
+}
+
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        // Never blocks, so the last daemon reference may go on a runtime thread.
+        if let Some(Some(runtime)) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
+    }
+}
+
+/// `scheme://host[:port]` of `raw`: https, or http on a loopback host; no path, query or user.
+fn origin(raw: &str) -> Option<String> {
+    let url = url::Url::parse(raw.trim()).ok()?;
+    let loopback = match url.host()? {
+        url::Host::Domain(domain) => domain.eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(address) => address.is_loopback(),
+        url::Host::Ipv6(address) => address.is_loopback(),
+    };
+    let scheme = url.scheme() == "https" || (url.scheme() == "http" && loopback);
+    let bare = url.path() == "/" && url.query().is_none() && url.username().is_empty();
+    (scheme && bare && url.fragment().is_none()).then(|| url.origin().ascii_serialization())
+}
+
+impl Bridge {
+    /// Sets the room new shares are provisioned in (`None`: links have no URL). False when `url`
+    /// is no https origin (then sharing links is off).
+    pub(in crate::server) fn configure(&self, url: Option<&str>, timing: Timing) -> bool {
+        let room = url.and_then(origin).map(|url| Room { url, timing });
+        let valid = room.is_some() || url.is_none();
+        *self.room.lock().unwrap_or_else(|e| e.into_inner()) = room;
+        valid
+    }
+
+    pub(super) fn room(&self) -> Option<Room> {
+        self.room.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn timing(&self) -> Timing {
+        self.room().map(|room| room.timing).unwrap_or_default()
+    }
+
+    fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
+        let runtime = self.runtime.get_or_init(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            let mut builder = tokio::runtime::Builder::new_multi_thread();
+            builder.worker_threads(1).thread_name("mux-share-room").enable_all().build().ok()
+        });
+        runtime.as_ref()
+    }
+}
+
+fn shares(mux: &Mux) -> &LinkShares {
+    &mux.control_clients.agent_sessions.link_shares
+}
+
+/// Runs `change` on one share; a `true` answer is written.
+fn change<T>(
+    mux: &Mux,
+    share_id: &str,
+    edit: impl FnOnce(&mut LinkShare) -> (T, bool),
+) -> Option<T> {
+    let directory = mux.session_state_directory();
+    shares(mux).with(directory.as_deref(), |all, _| Ok(edit(find(all, share_id)?))).ok()
+}
+
+/// What the bridge reads of one share.
+struct View {
+    url: Option<String>,
+    host_token: Option<String>,
+    expires_at: u64,
+    delete: bool,
+    body: Value,
+}
+
+fn view(mux: &Mux, share_id: &str) -> Option<View> {
+    change(mux, share_id, |s| {
+        let room = |field: &str| s.room.as_ref().and_then(|r| r[field].as_str()).map(str::to_owned);
+        let body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
+            "expires_at": s.expires_at, "uses": s.uses_left});
+        let view = View {
+            url: room("url"),
+            host_token: room("host_token"),
+            expires_at: s.expires_at,
+            delete: s.pending_room_ops.iter().any(|o| o["op"] == "delete"),
+            body,
+        };
+        (view, false)
+    })
+}
+
+/// Records the room a `PUT` answered. A share still provisioning becomes active when `activate`
+/// (true); otherwise it ends and its room is deleted (false).
+fn adopt(mux: &Mux, share_id: &str, url: &str, host_token: String, activate: bool) -> bool {
+    change(mux, share_id, |s| {
+        s.room = Some(json!({"url": url, "host_token": host_token}));
+        if activate && s.state == ShareState::Provisioning {
+            s.state = ShareState::Active;
+            return (true, true);
+        }
+        abandon_share(s, true);
+        (false, true)
+    })
+    .unwrap_or(false)
+}
+
+/// A share whose provision failed ends; `delete` queues its room's `DELETE`.
+fn abandon_share(share: &mut LinkShare, delete: bool) {
+    if share.state == ShareState::Provisioning {
+        share.state = ShareState::Revoked;
+    }
+    let queued = share.pending_room_ops.iter().any(|o| o["op"] == "delete");
+    if delete && share.state != ShareState::Active && !queued {
+        share.pending_room_ops.push(json!({"op": "delete"}));
+    }
+}
+
+fn abandon(mux: &Mux, share_id: &str, delete: bool) {
+    change(mux, share_id, |s| (abandon_share(s, delete), true));
+}
+
+/// The room acknowledged `op`.
+fn done(mux: &Mux, share_id: &str, op: &Value) {
+    change(mux, share_id, |s| {
+        let before = s.pending_room_ops.len();
+        s.pending_room_ops.retain(|o| o != op);
+        ((), s.pending_room_ops.len() != before)
+    });
+}
+
+enum Put {
+    Done {
+        host_token: String,
+        url_base: String,
+    },
+    /// The room answered no: the code create answers.
+    Refused(&'static str),
+    Unreachable,
+}
+
+/// One HTTP call to the room with `bearer`: its status and JSON body.
+async fn call(
+    method: reqwest::Method,
+    url: &str,
+    bearer: &str,
+    body: Option<&Value>,
+    timeout: Duration,
+) -> Option<(u16, Value)> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .ok()?;
+    let mut request = client.request(method, url).bearer_auth(bearer);
+    if let Some(body) = body {
+        request = request.json(body);
+    }
+    let reply = request.send().await.ok()?;
+    let status = reply.status().as_u16();
+    Some((status, reply.json().await.unwrap_or(Value::Null)))
+}
+
+async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
+    let url = format!("{}/v1/chat-shares/{share_id}", room.url);
+    let reply = call(reqwest::Method::PUT, &url, token, Some(body), room.timing.request).await;
+    let link = |u: &str| url::Url::parse(u).is_ok_and(|u| matches!(u.scheme(), "https" | "http"));
+    match reply {
+        Some((200..=299, body)) => match (body["host_token"].as_str(), body["url_base"].as_str()) {
+            (Some(token), Some(base)) if !token.is_empty() && link(base) => {
+                Put::Done { host_token: token.into(), url_base: base.into() }
+            }
+            _ => Put::Unreachable,
+        },
+        Some((408 | 429, _)) => Put::Unreachable,
+        Some((401, _)) => Put::Refused("share.needs_sign_in"),
+        Some((400..=499, _)) => Put::Refused("share.room_refused"),
+        _ => Put::Unreachable,
+    }
+}
+
+/// Create's room step: `PUT`, then the share is active and the reply carries its link. With no
+/// answer the share stays provisioning and the `PUT` is retried in the background for the window,
+/// then the share is revoked; a room that answers late is deleted (its link was never handed out).
+pub(super) fn provision(
+    mux: &Arc<Mux>,
+    mut created: Value,
+    room: Room,
+    token: Zeroizing<String>,
+) -> Result<Value, &'static str> {
+    let share_id = created["share_id"].as_str().unwrap_or_default().to_owned();
+    let body = view(mux, &share_id).ok_or("share.unknown")?.body;
+    let Some(runtime) = shares(mux).bridge.runtime() else {
+        abandon(mux, &share_id, false);
+        return Err("share.room_unreachable");
+    };
+    match runtime.block_on(put(&room, &share_id, &token, &body)) {
+        Put::Done { host_token, url_base } => {
+            if !adopt(mux, &share_id, &room.url, host_token, true) {
+                delete(mux, &share_id, None);
+                return Err("share.revoked");
+            }
+            let secret = created["secret"].as_str().unwrap_or_default().to_owned();
+            created["url"] = json!(format!("{url_base}#{secret}"));
+            created["room"] = json!(room.url);
+            Ok(created)
+        }
+        Put::Refused(code) => {
+            abandon(mux, &share_id, false);
+            Err(code)
+        }
+        Put::Unreachable => {
+            runtime.spawn(retry(Arc::downgrade(mux), share_id, room, token, body));
+            Err("share.room_unreachable")
+        }
+    }
+}
+
+async fn retry(
+    mux: Weak<Mux>,
+    share_id: String,
+    room: Room,
+    token: Zeroizing<String>,
+    body: Value,
+) {
+    let deadline = tokio::time::Instant::now() + room.timing.window;
+    let mut wait = room.timing.backoff_min;
+    loop {
+        tokio::time::sleep_until((tokio::time::Instant::now() + wait).min(deadline)).await;
+        wait = (wait * 2).min(room.timing.backoff_max);
+        if tokio::time::Instant::now() >= deadline {
+            let Some(mux) = mux.upgrade() else { return };
+            abandon(&mux, &share_id, true);
+            return delete(&mux, &share_id, Some(token));
+        }
+        match put(&room, &share_id, &token, &body).await {
+            Put::Done { host_token, .. } => {
+                let Some(mux) = mux.upgrade() else { return };
+                adopt(&mux, &share_id, &room.url, host_token, false);
+                return delete(&mux, &share_id, None);
+            }
+            Put::Refused(_) => {
+                return mux.upgrade().map_or((), |mux| abandon(&mux, &share_id, false));
+            }
+            Put::Unreachable => {}
+        }
+    }
+}
+
+/// Runs the share's queued `DELETE` until the room answers it (with its host token, else the
+/// owner's token while it is held); the share's expiry ends it at the room anyway.
+fn delete(mux: &Arc<Mux>, share_id: &str, owner: Option<Zeroizing<String>>) {
+    let bridge = &shares(mux).bridge;
+    let Some(runtime) = bridge.runtime() else { return };
+    let (timing, weak, id) = (bridge.timing(), Arc::downgrade(mux), share_id.to_owned());
+    let fallback = bridge.room().map(|room| room.url);
+    runtime.spawn(async move {
+        let op = json!({"op": "delete"});
+        let mut wait = timing.backoff_min;
+        loop {
+            let target = {
+                let Some(mux) = weak.upgrade() else { return };
+                let Some(v) = view(&mux, &id).filter(|v| v.delete) else { return };
+                let bearer = v.host_token.map(Zeroizing::new).or_else(|| owner.clone());
+                match (v.url.or_else(|| fallback.clone()), bearer) {
+                    (Some(url), Some(bearer)) if shares(&mux).now() < v.expires_at => (url, bearer),
+                    _ => return done(&mux, &id, &op),
+                }
+            };
+            let url = format!("{}/v1/chat-shares/{id}", target.0);
+            let reply = call(reqwest::Method::DELETE, &url, &target.1, None, timing.request).await;
+            // Answered: deleted, already gone, or this credential can never delete it.
+            if reply.is_some_and(|(status, _)| matches!(status, 200..=299 | 401 | 403 | 404 | 410))
+            {
+                return weak.upgrade().map_or((), |mux| done(&mux, &id, &op));
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(timing.backoff_max);
+        }
+    });
+}
+
+/// `LinkShares::settle`'s step for the room: an ended share's queued `DELETE` runs.
+pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
+    let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
+    for (share_id, _) in ended.iter().filter(|(_, guest)| guest.is_none()) {
+        if view(&mux, share_id).is_some_and(|v| v.delete) {
+            delete(&mux, share_id, None);
+        }
+    }
+}
+
+/// Configures the room new links are provisioned in (`CMUX_SHARE_ROOM_URL`, else the build's
+/// default) and resumes every queued `DELETE` of before a restart. A share a restart left
+/// provisioning never answered its create: it is revoked (a room it made without answering ends
+/// at the share's expiry: the owner's token, which its `DELETE` would need, is not kept).
+pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
+    let shares = shares(mux);
+    if !shares.bridge.configure(room, Timing::default()) {
+        eprintln!("cmux-tui: the link share room is not an https origin; links get no URL");
+    }
+    shares.serve(mux);
+    let Some(directory) = mux.session_state_directory() else { return };
+    let bridged = shares.with(Some(directory.as_path()), |all, _| {
+        let mut changed = false;
+        for share in all.iter_mut().filter(|s| s.state == ShareState::Provisioning) {
+            let bridged = share.room.is_some();
+            abandon_share(share, bridged);
+            changed = true;
+        }
+        let ids = all.iter().filter(|s| s.room.is_some()).map(|s| s.share_id.clone());
+        Ok((ids.collect::<Vec<_>>(), changed))
+    });
+    for id in bridged.unwrap_or_default() {
+        if view(mux, &id).is_some_and(|v| v.delete) {
+            delete(mux, &id, None);
+        }
+    }
+    shares.settle(mux);
+}
+
+#[cfg(test)]
+#[path = "agent_session_share_room_tests.rs"]
+mod tests;
