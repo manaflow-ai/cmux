@@ -87,23 +87,26 @@ def is_delivery_run(path: str | None, *names: str | None) -> bool:
 # superseded_unstarted() below is that rule, read by the queue janitor (which
 # skips such runs) and by the agents' cancel guard, which reads this file from
 # origin/main. In detail:
-#   1. Light control and decide jobs are LIGHT_JOBS, the one declared list (job
-#      names, as GitHub lists them; a matrix leg's " (...)" suffix is dropped).
-#      They may be in any state, on any runner (decide may route to a Mac).
+#   1. Light control and decide jobs are LIGHT_JOBS, the one declared list of
+#      exact job names (as GitHub lists them; a matrix leg's " (...)" suffix is
+#      dropped). They may be in any state, on any runner (decide may route to
+#      a Mac).
 #      Every other job of the run's current attempt is queued for a runner
 #      (no runner_name) or skipped. A queued job's started_at is set when it is
 #      queued, so it is never read as a start.
 #   2. Nothing in the run has moved for STALE_WAIT (20 min): its creation and
-#      every job's started_at and completed_at are at least that old.
-#   3. A newer head of the same branch has its own run of the same workflow
-#      (a delivery run itself, from the same event and head repository, never
-#      a fork's branch of the same name, not finished other than in success)
-#      that is building: a build job of it (named for the build, not light) is
-#      running or has succeeded, none of its jobs past the light ones failed,
-#      and every job the old run lists unskipped is listed there too, live or
-#      succeeded (a cache-only or throttled run skips them).
-#   Freshness: a run at the branch tip (tip_sha, when the caller read it) is
-#   never stale. Condition 3 already keeps the newest head's own run.
+#      every job's started_at and completed_at are at least that old. A job
+#      without a readable started_at is unread (GitHub sets it at queueing).
+#   3. The branch tip (tip_sha, which the caller must read) is a newer head
+#      with its own run of the same workflow (a delivery run itself, from the
+#      same event and head repository, never a fork's branch of the same
+#      name, not finished other than in success) that is building: a build
+#      job of it (named for the build, not light) is running or has
+#      succeeded, none of its jobs past the light ones failed, and every job
+#      the old run lists unskipped is listed there too, live or succeeded (a
+#      cache-only or throttled run skips them).
+#   Freshness: a run at the branch tip is never stale, and condition 3 asks
+#   for the tip itself to be building, so the newest tip always builds.
 # Anything unread (no jobs list, no branch, head or head repository) is not a
 # skip. A re-run (run_attempt > 1) is judged on its own attempt's jobs: a
 # re-run of a build that ran is a new build, and until a job of this attempt
@@ -113,16 +116,21 @@ BUILD_JOB_NAME = re.compile(
     r"build|publish|promot|sign|notari[sz]|release|upload|deploy|verif|delta|dmg|archive|compile|\bapp\b",
     re.IGNORECASE)
 # Light control and decide jobs: they only decide, pick a runner label, resolve inputs or look something up, and
-# do no build, sign or publish work. fnmatch patterns over the job's name. tests/test_delivery_workflows_cancel.py
-# checks every delivery workflow's jobs these match against BUILD_JOB_NAME and against build, sign and publish
-# commands in their steps.
-LIGHT_JOBS = (
-    "decide",                # nightly.yml: whether this head builds, and on which track
-    "pick-*-runner",         # nightly.yml: choose a runner label (pick-nightly-app-runner, pick-nightly-sign-runner)
-    "resolve-*",             # nightly.yml: resolve the cmux-tui client commit, a reusable Ghostty CLI helper
-    "find-*-recovery",       # nightly.yml (NEXT): list newer pending notarizations to recover
-    "probe-*",               # nightly.yml: the tag permission probe
-)
+# do no build, sign or publish work. Exact job ids of nightly.yml (some only on the nightly-next branch's revision);
+# a new job is never light until it is named here. tests/test_delivery_workflows_cancel.py checks that every one of
+# them found in a delivery workflow runs no build, sign or publish command.
+LIGHT_JOBS = frozenset({
+    "decide",                              # whether this head builds, and on which track
+    "pick-nightly-app-runner",             # choose a runner label
+    "pick-nightly-build-runner",
+    "pick-nightly-sign-runner",
+    "pick-classic-sign-runner",
+    "pick-classic-prepare-runner",
+    "resolve-nightly-cmux-tui-client",     # resolve the cmux-tui client commit
+    "resolve-nightly-ghostty-cli-helper",  # find a reusable Ghostty CLI helper
+    "find-nightly-next-recovery",          # list newer pending notarizations to recover
+    "probe-nightly-tag-permission",        # the tag permission probe
+})
 STALE_WAIT = _dt.timedelta(minutes=20)
 KNOWN_CONCLUSIONS = frozenset({"success", "failure", "cancelled", "neutral", "timed_out", "action_required",
                                "stale", "startup_failure"})
@@ -143,8 +151,7 @@ def _base_name(name: str) -> str:
 
 def is_light_job(job: Mapping[str, Any] | str) -> bool:
     """A light control or decide job (LIGHT_JOBS): never the build, wherever it ran."""
-    name = _base_name(str(job if isinstance(job, str) else job.get("name") or ""))
-    return any(fnmatch(name, pattern) for pattern in LIGHT_JOBS)
+    return _base_name(str(job if isinstance(job, str) else job.get("name") or "")) in LIGHT_JOBS
 
 
 def _named_for_build(name: str) -> bool:
@@ -193,16 +200,18 @@ def build_started(jobs: Iterable[Mapping[str, Any]]) -> str | None:
 
 
 def waited_since(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]]) -> _dt.datetime | None:
-    """When the run last moved: the newest of its creation and its jobs' started_at and completed_at (None when
-    its creation cannot be read)."""
+    """When the run last moved: the newest of its creation and its jobs' started_at and completed_at. None (unread)
+    when its creation or any job's started_at, or a finished job's completed_at, cannot be read."""
     newest = _time(run.get("created_at"))
     if newest is None:
         return None
     for job in jobs:
-        for key in ("started_at", "completed_at"):
+        keys = ("started_at", "completed_at") if job.get("status") == "completed" else ("started_at",)
+        for key in keys:
             when = _time(job.get(key))
-            if when is not None and when > newest:
-                newest = when
+            if when is None:
+                return None
+            newest = max(newest, when)
     return newest
 
 
@@ -310,8 +319,8 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
 
     `jobs` is the run's complete latest-attempt job list (None when unread); `runs` are runs to find the newer
     head's run among (the same workflow's runs on the branch, or every in-flight run); `jobs_of(newer)` reads a
-    newer run's jobs (None when unread), at most REPLACEMENT_JOB_READS of them. `now` defaults to the clock;
-    `tip_sha`, when the caller read the branch tip, keeps a run at the tip."""
+    newer run's jobs (None when unread), at most REPLACEMENT_JOB_READS of them. `now` defaults to the clock.
+    `tip_sha` is the branch tip the caller read: unread (None or empty) is never stale."""
     if run.get("status") not in WAITING_JOB_STATUSES and run.get("status") != "in_progress":
         return False, f"it is {run.get('status') or 'in an unknown state'}"
     if jobs is None:
@@ -323,8 +332,10 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
     started = build_started(jobs)
     if started:
         return False, f"condition 1 fails, it has started: {started}"
-    head = str(run.get("head_sha") or "").lower()
-    if tip_sha and head and str(tip_sha).lower() == head:
+    head, tip = str(run.get("head_sha") or "").lower(), str(tip_sha or "").lower()
+    if not tip:
+        return False, f"condition 3 cannot be checked: the tip of {run.get('head_branch')} could not be read"
+    if head == tip:
         return False, (f"freshness rule: it builds the tip of {run.get('head_branch')}, and the newest tip must be "
                        "building")
     since = waited_since(run, jobs)
@@ -338,10 +349,10 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
                        f"moved, under {minutes} min")
     # Every leg, with multiplicity: matrix legs may share a name, and each needs its own leg in the newer run.
     listed = sorted(str(job.get("name") or "") for job in jobs if job.get("conclusion") != "skipped")
-    newer = newer_head_runs(run, runs)
+    newer = [other for other in newer_head_runs(run, runs) if str(other.get("head_sha") or "").lower() == tip]
     if not newer:
-        return False, (f"condition 3 fails: no newer head of {run.get('head_branch') or 'its branch'} has its own "
-                       "run of this workflow")
+        return False, (f"condition 3 fails: no newer head of {run.get('head_branch') or 'its branch'} at its tip "
+                       f"{tip[:12]} has its own run of this workflow")
     if jobs_of is None:
         return False, "condition 3 fails: the newer runs' jobs were not read"
     why_not = ""
@@ -353,9 +364,10 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
             return True, (f"stale: (1) every job but the light control and decide ones is queued for a runner or "
                           f"skipped ({pending} job(s) waiting); (2) it has waited {int(waited.total_seconds() // 60)}"
                           f" min since it last moved (at least {minutes}); (3) run {other.get('id')} is building the "
-                          f"newer head {str(other.get('head_sha'))[:12]} of {run.get('head_branch')}")
+                          f"tip {str(other.get('head_sha'))[:12]} of {run.get('head_branch')}")
         why_not = why_not or f"run {other.get('id')}: {problem}"
-    return False, f"condition 3 fails: no newer run of {run.get('head_branch')} is building in its place ({why_not})"
+    return False, (f"condition 3 fails: no newer run of {run.get('head_branch')} at its tip is building in its place "
+                   f"({why_not})")
 
 
 # --- runs that can never deliver ----------------------------------------------

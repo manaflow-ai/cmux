@@ -74,7 +74,7 @@ NOW = dw._time("2026-10-28T05:00:00Z")
 class PickerAndAttemptTests(unittest.TestCase):
     def judge(self, old, jobs):
         new = run(sha("b"), created="2026-10-28T04:00:00Z", ident=2)
-        return dw.superseded_unstarted(old, jobs, [old, new], lambda other: building(), now=NOW)
+        return dw.superseded_unstarted(old, jobs, [old, new], lambda other: building(), now=NOW, tip_sha=sha("b"))
 
     def test_a_picker_job_that_ran_is_not_the_build(self):
         self.assertFalse(dw.is_build_job(job("pick-nightly-app-runner")))
@@ -315,7 +315,7 @@ class StaleRuleTests(unittest.TestCase):
     least 20 min; 3. a newer tip run is already building. A run with any build, sign or publish job started stays
     protected. So does the 25-min freshness rule"."""
 
-    def stale(self, *, jobs=None, newer_jobs=None, now=at(60), newer=True, tip=None, old=None):
+    def stale(self, *, jobs=None, newer_jobs=None, now=at(60), newer=True, tip=sha("b"), old=None):
         old = old or run(sha("a"), created=at(0), ident=1)
         new = run(sha("b"), status="in_progress", created=at(10), ident=2)
         jobs = jobs if jobs is not None else [
@@ -335,8 +335,24 @@ class StaleRuleTests(unittest.TestCase):
     def test_only_control_and_decide_done_long_queued_and_a_newer_tip_building_is_stale(self):
         ok, why = self.stale()
         self.assertTrue(ok, why)
-        for part in ("(1)", "(2) it has waited 55 min", "(3) run 2 is building"):
+        for part in ("(1)", "(2) it has waited 55 min", "(3) run 2 is building the tip"):
             self.assertIn(part, why)
+
+    def test_an_unread_or_moved_tip_is_protected(self):
+        for tip in (None, ""):
+            ok, why = self.stale(tip=tip)
+            self.assertFalse(ok)
+            self.assertIn("tip of nightly-next could not be read", why)
+        # A newer run that is not at the tip does not count: the tip itself must be building.
+        ok, why = self.stale(tip=sha("d"))
+        self.assertFalse(ok)
+        self.assertIn("condition 3 fails: no newer head of nightly-next at its tip", why)
+
+    def test_a_job_without_a_readable_start_is_unread(self):
+        jobs = [job("decide", start=at(1), end=at(2)), job("build-nightly-app", "queued", labels=(MAC,), start=None)]
+        ok, why = self.stale(jobs=jobs)
+        self.assertFalse(ok)
+        self.assertIn("how long it has waited could not be read", why)
 
     def test_the_default_wait_is_20_minutes(self):
         self.assertEqual(dw.STALE_WAIT, dw._dt.timedelta(minutes=20))
@@ -378,19 +394,21 @@ class StaleRuleTests(unittest.TestCase):
         ok, why = self.stale(tip=sha("a"))
         self.assertFalse(ok)
         self.assertIn("freshness rule", why)
-        # The newest head's own run is never stale either: no newer head has a run.
+        # The newest head's own run, at the tip, is never stale either.
         newest = run(sha("b"), status="in_progress", created=at(10), ident=2)
         ok, why = dw.superseded_unstarted(newest, [job("decide", start=at(11), end=at(12))], [newest],
-                                          lambda other: [], now=dw._time(at(60)))
+                                          lambda other: [], now=dw._time(at(60)), tip_sha=sha("b"))
         self.assertFalse(ok)
-        self.assertIn("condition 3 fails", why)
+        self.assertIn("freshness rule", why)
 
     def test_light_jobs_are_declared_once_and_match_patterns(self):
         for name in ("decide", "pick-nightly-app-runner", "pick-nightly-sign-runner (primary)",
                      "resolve-nightly-cmux-tui-client", "find-nightly-next-recovery", "probe-nightly-tag-permission"):
             self.assertTrue(dw.is_light_job(name), name)
+        # Exact names only: a new job that merely looks like a control job is not light until it is listed.
         for name in ("build-nightly-app", "signer-build", "build nightly inputs", "publish-nightly",
-                     "build-sign-notarize-nightly", "promote-nightly-next", "refresh-compilation-cache"):
+                     "build-sign-notarize-nightly", "promote-nightly-next", "refresh-compilation-cache",
+                     "resolve-signing-artifact", "probe-and-publish", "pick-up-signed-app", "decide-and-sign"):
             self.assertFalse(dw.is_light_job(name), name)
             self.assertIsNotNone(dw.build_started([job(name, "in_progress")]), name)
 
@@ -417,13 +435,13 @@ class StaleRuleTests(unittest.TestCase):
                   job("signer-build", start=at(42), end=at(44)),
                   job("build-nightly-app", "in_progress", labels=(MAC,), start=at(45))]
         when = dw._time("2026-10-28T19:54:57Z")
-        ok, why = dw.superseded_unstarted(old, jobs, [old, new], lambda other: theirs, now=when)
+        ok, why = dw.superseded_unstarted(old, jobs, [old, new], lambda other: theirs, now=when, tip_sha=sha("c"))
         self.assertFalse(ok)
         self.assertIn("'signer-build'", why)
         self.assertNotIn("Mac", why)
         # Without signer-build: only decide (on a Mac) and the control jobs, queued 24 min, a newer run building.
         old, jobs = replay_40752120475(signer=False)
-        ok, why = dw.superseded_unstarted(old, jobs, [old, new], lambda other: theirs, now=when)
+        ok, why = dw.superseded_unstarted(old, jobs, [old, new], lambda other: theirs, now=when, tip_sha=sha("c"))
         self.assertTrue(ok, why)
         self.assertIn("waited 24 min", why)
 

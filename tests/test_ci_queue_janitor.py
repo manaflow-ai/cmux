@@ -1230,16 +1230,20 @@ def building_jobs(age):
     return gate_jobs(age, build={"status": "in_progress", "runner_name": "mini-1"})
 
 
+TIP = "ccb74c4d"  # the nightly-next tip in the superseded-run tests
+
+
 class SupersededDeliveryTests(unittest.TestCase):
     """Leo, 2026-10-26: "When nightly runs for older commits are stuck waiting (queued for a runner or a gate),
     skip them and build from the tip: cancel the stale runs and move the nightly branch to the tip". sr2,
     2026-10-28: a run is stale only when every job but the light control and decide ones is still queued, it has
     waited at least 20 min, and a newer tip run is already building."""
 
-    def judge(self, old, old_jobs, runs, newer_jobs=None):
-        # Every newer run is building the same jobs unless told otherwise.
+    def judge(self, old, old_jobs, runs, newer_jobs=None, tip="ccb74c4d"):
+        # Every newer run is building the same jobs unless told otherwise; the branch tip is ccb74c4d.
         return janitor.superseded_unstarted(old, old_jobs, runs,
-                                            lambda other: (newer_jobs or {}).get(other["id"], building_jobs(10)))
+                                            lambda other: (newer_jobs or {}).get(other["id"], building_jobs(10)),
+                                            tip_sha=tip)
 
     def test_unstarted_on_a_superseded_head_is_skipped(self):
         old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
@@ -1288,7 +1292,7 @@ class SupersededDeliveryTests(unittest.TestCase):
                 self.assertIn("no newer head", why)
         self.assertFalse(self.judge(old, None, [old, nightly_run("ccb74c4d", 20)])[0])
         # Without a way to read the newer run's jobs, nothing is skipped.
-        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, nightly_run("ccb74c4d", 20)])[0])
+        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, nightly_run("ccb74c4d", 20)], tip_sha=TIP)[0])
         # A shared workflow's DEV delivery run is not superseded by an ordinary run of that workflow.
         dev = {**nightly_run("864dceb6", 60), "path": ".github/workflows/cmux-next.yml", "workflow_id": 9,
                "name": "cmux-next", "display_title": "cmux NEXT DEV daily · 864dceb6"}
@@ -1305,24 +1309,26 @@ class SupersededDeliveryTests(unittest.TestCase):
         unknown = gate_jobs(20, build={"status": None})
         for newer_jobs in (skipped, deciding, unknown, None):
             with self.subTest(newer_jobs=newer_jobs):
-                ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: newer_jobs)
+                ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: newer_jobs, tip_sha=TIP)
                 self.assertFalse(ok)
                 self.assertIn("building in its place", why)
         # An old run still at its gates (only `decide` queued) is not matched to anything: a cache-only run's
         # `decide` succeeds too.
-        at_gates = [{"name": "decide", "status": "queued", "labels": [LINUX], "runner_name": None}]
-        ok, why = janitor.superseded_unstarted(old, at_gates, [old, new], lambda other: skipped)
+        at_gates = [{"name": "decide", "status": "queued", "labels": [LINUX], "runner_name": None, "started_at": iso(60)}]
+        ok, why = janitor.superseded_unstarted(old, at_gates, [old, new], lambda other: skipped, tip_sha=TIP)
         self.assertFalse(ok)
         self.assertIn("condition 3 fails", why)
         # A newer run that skipped a gate the old one ran (a different path) is not the same build either.
         other_path = gate_jobs(20)
         other_path[1] = {**other_path[1], "status": "completed", "conclusion": "skipped"}
-        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: other_path)[0])
-        # Two newer runs: a cache-only one first, a building one behind it.
+        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: other_path, tip_sha=TIP)[0])
+        # Two newer runs: the tip's is cache-only, an older head's is building. The tip itself must be building.
         building = nightly_run("e3ca669f", 30)
         ok, why = self.judge(old, gate_jobs(60), [old, building, new], {new["id"]: skipped})
-        self.assertTrue(ok, why)
-        self.assertIn(str(building["id"]), why)
+        self.assertFalse(ok, why)
+        self.assertTrue(self.judge(old, gate_jobs(60), [old, building, new], {new["id"]: skipped}, tip="e3ca669f")[0])
+        # An unread tip is never stale.
+        self.assertIn("could not be read", self.judge(old, gate_jobs(60), [old, new], tip="")[1])
 
     def test_a_rerun_is_kept(self):
         # Only the latest attempt's jobs are read; an earlier attempt may have built.
@@ -1343,8 +1349,9 @@ class SupersededDeliveryTests(unittest.TestCase):
         self.assertEqual(janitor.superseded_candidates([old], {old["id"]: jobs}), [old])
         self.assertEqual(janitor.superseded_candidates([old], {old["id"]: gate_jobs(60)}), [])  # attempts unread
 
-    def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None, extra_runs=()):
+    def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None, extra_runs=(), tip=TIP):
         fake = FakeGitHub({r["id"]: dict(r) for r in [*runs, *extra_runs]}, jobs)
+        fake.branches = {"nightly-next": tip}
         fake.completed["nightly.yml"] = list(completed)
         fake.prs = prs or {}
         if rejob:  # what the re-read right before the cancel sees
@@ -1366,6 +1373,16 @@ class SupersededDeliveryTests(unittest.TestCase):
         self.assertNotIn(tip["id"], decided)  # the tip is building, so never a candidate
         self.assertEqual(sorted(fake.posts()), sorted([[str(a["id"]), "cancel"], [str(b["id"]), "cancel"]]))
 
+    def test_an_unread_or_moved_tip_keeps_the_run(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)}
+        for head in ("", "ffffffff"):  # gone (404) or moved past every run the sweep knows
+            with self.subTest(head=head):
+                fake, decided, _ = self.sweep([old, tip], jobs, tip=head)
+                self.assertEqual(decided[old["id"]].action, "keep")
+                self.assertIn("condition 3", decided[old["id"]].note)
+                self.assertEqual(fake.posts(), [])
+
     def test_a_dry_run_cancels_nothing(self):
         old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
         fake, decided, _ = self.sweep([old, tip], {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)},
@@ -1386,6 +1403,7 @@ class SupersededDeliveryTests(unittest.TestCase):
         old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
         jobs = {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)}
         fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.branches = {"nightly-next": tip["head_sha"]}
         fake.runs[tip["id"]].update(status="completed", conclusion="cancelled")  # what the re-read sees
         candidates = janitor.superseded_candidates([old, tip], jobs)
         decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False)
@@ -1396,6 +1414,7 @@ class SupersededDeliveryTests(unittest.TestCase):
         old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
         jobs = {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)}
         fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.branches = {"nightly-next": tip["head_sha"]}
         fake.prs = {"nightly-next": [make_pr(9, head="864dceb6")]}  # what the re-read sees; the snapshot had none
         candidates = janitor.superseded_candidates([old, tip], jobs)
         decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False)
@@ -1429,8 +1448,8 @@ class SupersededDeliveryTests(unittest.TestCase):
         old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
         two = gate_jobs(60) + [dict(gate_jobs(60)[-1])]  # two `build-nightly-app` legs
         one = building_jobs(20)
-        self.assertFalse(janitor.superseded_unstarted(old, two, [old, new], lambda other: one)[0])
-        self.assertTrue(janitor.superseded_unstarted(old, two, [old, new], lambda other: one + [dict(one[-1])])[0])
+        self.assertFalse(janitor.superseded_unstarted(old, two, [old, new], lambda other: one, tip_sha=TIP)[0])
+        self.assertTrue(janitor.superseded_unstarted(old, two, [old, new], lambda other: one + [dict(one[-1])], tip_sha=TIP)[0])
 
     def test_a_finished_newer_run_is_found_by_one_branch_listing(self):
         old = nightly_run("864dceb6", 70)

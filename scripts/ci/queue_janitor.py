@@ -2365,10 +2365,25 @@ def skip_superseded_delivery(
                 print(f"queue-janitor: jobs of run {other_id}: {error}", file=sys.stderr)
         return read_jobs[other_id]
 
+    tips: dict[str, str] = {}
+
+    def tip_of(branch: str) -> str:
+        """The branch's head, read once a sweep ("" when unread or gone: the run is then kept)."""
+        if branch not in tips:
+            try:
+                tips[branch] = github.branch_head(branch) if branch else ""
+            except RateLimited:
+                raise
+            except RuntimeError as error:
+                tips[branch] = ""
+                print(f"queue-janitor: head of {branch}: {error}", file=sys.stderr)
+        return tips[branch]
+
     cancels = 0
     for run in candidates:
         run_id = run["id"]
-        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of)
+        tip = tip_of(str(run.get("head_branch") or ""))
+        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of, tip_sha=tip)
         if not ok and why.startswith("condition 3 fails: no newer"):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
@@ -2380,7 +2395,7 @@ def skip_superseded_delivery(
                     listed[key] = []
                     print(f"queue-janitor: runs of {key[1]} for run {run_id}: {error}", file=sys.stderr)
             ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), [*runs, *listed.get(key, [])],
-                                           jobs_of)
+                                           jobs_of, tip_sha=tip)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", why))
             continue
@@ -2400,6 +2415,7 @@ def skip_superseded_delivery(
         # are read again: a run whose build started since, or whose replacement failed or was cancelled, is kept.
         try:
             current, jobs = github.run(run_id), complete_jobs(github.jobs(run_id))
+            fresh_tip = github.branch_head(str(current.get("head_branch") or ""))  # the tip may have moved
             # The run once more after its jobs: a re-run that began between the two reads changes its attempt.
             after = github.run(run_id)
             pool = [*runs, *[r for rs in listed.values() for r in rs]]
@@ -2420,7 +2436,8 @@ def skip_superseded_delivery(
         if (after.get("run_attempt"), after.get("status")) != (current.get("run_attempt"), current.get("status")):
             decisions.append(SupersededDecision(run, "keep", "on re-read: it changed while its jobs were read"))
             continue
-        ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")))
+        ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")),
+                                       tip_sha=fresh_tip)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
             continue
