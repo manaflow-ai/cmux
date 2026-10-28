@@ -145,18 +145,17 @@ function nearestCaretAtPoint(
     if (!rowOf(node)) continue;
     const range = doc.createRange();
     range.selectNodeContents(node);
+    const rtl = getComputedStyle(node.parentElement!).direction === "rtl";
     for (const rect of Array.from(range.getClientRects())) {
       if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= view.top || rect.top >= view.bottom) continue;
       const above = y >= rect.bottom;
       const below = y <= rect.top;
       const distance = above ? y - rect.bottom : below ? rect.top - y : 0;
-      const lineX = above
-        ? rect.right - 0.5
-        : below
-          ? rect.left + 0.5
-          : Math.min(Math.max(x, rect.left + 0.5), rect.right - 0.5);
+      const startX = rtl ? rect.right - 0.5 : rect.left + 0.5;
+      const endX = rtl ? rect.left + 0.5 : rect.right - 0.5;
+      const lineX = above ? endX : below ? startX : Math.min(Math.max(x, rect.left + 0.5), rect.right - 0.5);
       const horizontal = Math.max(rect.left - x, x - rect.right, 0);
-      const edge = above ? -rect.right : below ? rect.left : horizontal;
+      const edge = above ? (rtl ? rect.left : -rect.right) : below ? (rtl ? -rect.right : rect.left) : horizontal;
       // Prefer the nearest line. An exact midpoint picks the line above so its end is the stable
       // document-style anchor; moving toward the next row then extends in the expected direction.
       if (
