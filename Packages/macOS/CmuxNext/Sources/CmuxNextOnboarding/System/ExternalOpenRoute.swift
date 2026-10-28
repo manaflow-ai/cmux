@@ -83,11 +83,15 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     /// failure to read it counts as quarantined, so an unreadable answer
     /// never runs a file.
     public static func hasQuarantineAttribute(atPath path: String) -> Bool {
-        if getxattr(path, quarantineAttribute, nil, 0, 0, 0) >= 0 { return true }
-        switch errno {
-        case ENOATTR, ENOTSUP, ENOENT: return false
-        default: return true
+        // The target's mark, and a symlink's own (a downloaded link to a local file).
+        for options in [Int32(0), XATTR_NOFOLLOW] {
+            if getxattr(path, quarantineAttribute, nil, 0, 0, options) >= 0 { return true }
+            switch errno {
+            case ENOATTR, ENOTSUP, ENOENT: continue
+            default: return true
+            }
         }
+        return false
     }
 
     /// Script extensions and the shell that runs a script without its execute bit.
@@ -154,8 +158,21 @@ public nonisolated struct ExternalOpenRouter: Sendable {
 
     /// A run of the opened file at `path`, for the person to confirm (or,
     /// downloaded, for the caller to refuse).
+    /// A path whose characters the shell's line editor could read as keys
+    /// (a control or format character, bidi controls included, or a
+    /// backslash, which fish reads as an escape inside quotes) is never typed:
+    /// the file opens in the code editor instead, which runs nothing.
     private func confirmRun(_ path: String, in folder: String, command: String) -> ExternalOpenRoute {
-        .confirmRun(path: path, cwd: folder, command: command, quarantined: isQuarantined(path))
+        guard Self.isTypeSafe(path) else { return .file(URL(fileURLWithPath: path)) }
+        return .confirmRun(path: path, cwd: folder, command: command, quarantined: isQuarantined(path))
+    }
+
+    /// Whether `path` holds only characters that type as themselves.
+    static func isTypeSafe(_ path: String) -> Bool {
+        !path.unicodeScalars.contains { scalar in
+            scalar == "\\" || scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format
+                || scalar.properties.generalCategory == .lineSeparator || scalar.properties.generalCategory == .paragraphSeparator
+        }
     }
 
     /// `ssh://[user@]host[:port]`, as Terminal handles it. The host and

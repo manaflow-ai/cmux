@@ -125,6 +125,8 @@ final class ExternalOpenController {
         request.ask(
             present: { spec, done in _ = CmuxDialogCenter.shared.present(spec, in: .window(window), completion: done) },
             run: { [weak self, weak controller] cwd, typing in
+                // The file may have changed while the question showed: a mark that came since refuses it.
+                guard !ExternalOpenRouter.hasQuarantineAttribute(atPath: request.path) else { return }
                 guard let pane = controller?.focusedPane ?? self?.services?.windows.active?.focusedPane else { return }
                 pane.newTerminalTab(cwd: cwd, typing: typing)
             },
