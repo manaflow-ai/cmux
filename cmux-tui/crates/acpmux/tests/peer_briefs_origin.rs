@@ -22,7 +22,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-/// The peer's name, and a brief only it knows of (its id does not hold the name: a refusal echoes it).
+/// The peer's name, and a brief only it knows of (an id with no name in it: refusals echo ids).
 const PEER: &str = "elsewhere";
 const PEERS_OWN: &str = "brief-only-the-peer-knows";
 
