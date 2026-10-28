@@ -520,6 +520,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   grid-column: 4;
+  color: var(--agent-muted);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line {
   display: grid;
@@ -529,6 +530,9 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:has(> [data-alignment-column="right-action"]) {
   grid-template-columns: minmax(0, 1fr) var(--acpmux-composer-action-size);
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:not(:has(> [data-alignment-column="right-action"])) {
+  padding-right: 0;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button {
   display: grid;

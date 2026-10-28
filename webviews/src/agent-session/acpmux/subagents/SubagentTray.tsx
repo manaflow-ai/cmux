@@ -383,6 +383,7 @@ export const SubagentTray = memo(function SubagentTray({
                   name={item.command.command}
                   label={t("tray.stopCommand")}
                   stop={stopProcess}
+                  alignmentColumn="right-action"
                 />
               )
             }

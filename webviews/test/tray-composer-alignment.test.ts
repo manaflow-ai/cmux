@@ -56,7 +56,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
     for (const scheme of ["light", "dark"])
       test(`${variant} (${scheme}): tray and composer keep shared columns`, async () => {
         const page = await browser!.newPage({
-          viewport: { width: 720, height: 520 },
+          viewport: { width: 720, height: 560 },
         });
         await page.goto(stageURL(variant, scheme));
         await page.waitForFunction(
@@ -84,10 +84,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             ),
         );
         const result = await page.evaluate(() => {
-          const rect = (selector: string) => {
-            const node = document.querySelector<HTMLElement>(selector);
-            if (!node)
-              throw new Error(`missing alignment selector: ${selector}`);
+          const rectFrom = (node: HTMLElement) => {
             const box = node.getBoundingClientRect();
             return {
               left: box.left,
@@ -97,6 +94,12 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               width: box.width,
               height: box.height,
             };
+          };
+          const rect = (selector: string) => {
+            const node = document.querySelector<HTMLElement>(selector);
+            if (!node)
+              throw new Error(`missing alignment selector: ${selector}`);
+            return rectFrom(node);
           };
           return {
             tray: rect(
@@ -136,6 +139,33 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line',
                 )
               : null,
+            commandRow: (() => {
+              const row = [...document.querySelectorAll<HTMLElement>(
+                '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line',
+              )].find((candidate) => candidate.querySelector('.acpmux-chat-inspector-stop'));
+              return row ? rectFrom(row) : null;
+            })(),
+            commandStop: (() => {
+              const stop = document.querySelector<HTMLElement>(
+                '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line > .acpmux-chat-inspector-stop[data-alignment-column="right-action"]',
+              );
+              return stop ? rectFrom(stop) : null;
+            })(),
+            noStopRow: (() => {
+              const row = [...document.querySelectorAll<HTMLElement>(
+                '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line',
+              )].find((candidate) => !candidate.querySelector('.acpmux-chat-inspector-stop'));
+              return row ? rectFrom(row) : null;
+            })(),
+            noStopRight: (() => {
+              const row = [...document.querySelectorAll<HTMLElement>(
+                '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line',
+              )].find((candidate) => !candidate.querySelector('.acpmux-chat-inspector-stop'));
+              const right = row?.querySelector<HTMLElement>(
+                '.acpmux-agent-line__button > [data-alignment-column="right-action"]',
+              );
+              return right ? rectFrom(right) : null;
+            })(),
           };
         });
         const center = (box: { left: number; right: number }) =>
@@ -169,6 +199,27 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 ),
               }
             : {}),
+          ...(result.commandStop && result.commandRow
+            ? {
+                commandRightColumn: Math.abs(
+                  center(result.commandStop) - center(result.mic),
+                ),
+                commandStopWithinRow: Math.max(
+                  result.commandRow.top - result.commandStop.top,
+                  result.commandStop.bottom - result.commandRow.bottom,
+                ),
+              }
+            : {}),
+          ...(result.noStopRight && result.noStopRow
+            ? {
+                noStopRightColumn: Math.abs(
+                  center(result.noStopRight) - center(result.mic),
+                ),
+                noStopRightInset: Math.abs(
+                  result.tray.right - center(result.noStopRight) - 22,
+                ),
+              }
+            : {}),
         };
         console.log(JSON.stringify({ variant, scheme, result, checks }));
         const evidenceDir = "/tmp/nx-tray-composer-align";
@@ -187,6 +238,16 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             value,
             `${name} drifted by ${value.toFixed(2)}px`,
           ).toBeLessThanOrEqual(TOLERANCE);
+        if (variant === "alignment-expanded") {
+          expect(result.commandRow, "expanded tray must render a command row").not.toBeNull();
+          expect(result.commandStop, "command stop must carry the right-action marker").not.toBeNull();
+          expect(checks.commandRightColumn).toBeLessThanOrEqual(TOLERANCE);
+          expect(checks.commandStopWithinRow).toBeLessThanOrEqual(TOLERANCE);
+          expect(result.noStopRow, "expanded tray must render a no-stop row").not.toBeNull();
+          expect(result.noStopRight, "no-stop row must retain its right chevron").not.toBeNull();
+          expect(checks.noStopRightColumn).toBeLessThanOrEqual(TOLERANCE);
+          expect(checks.noStopRightInset).toBeLessThanOrEqual(TOLERANCE);
+        }
         await page.close();
       });
 });

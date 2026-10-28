@@ -41,6 +41,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
   });
   const snapshot = structuredClone(state.snapshot);
+  const processList = state.native?.["_acpmux/process/list"];
+  if (processList)
+    (globalThis as { cmuxAcpmuxMockProcesses?: unknown }).cmuxAcpmuxMockProcesses = processList;
   const answer = (value: unknown) => ({ ok: true, value });
   // The app's staged upload (cloudUploads.ts: begin, base64 chunks, finish, cancel), so a pasted
   // file goes through the path the app runs. A variant that answers or delays a step in `native` /

@@ -409,6 +409,8 @@ export class MockAcpmuxSocket {
         return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
         return { sessions: this.sessions };
+      case "_acpmux/process/list":
+        return (globalThis as { cmuxAcpmuxMockProcesses?: unknown }).cmuxAcpmuxMockProcesses ?? { processes: [] };
       case "_acpmux/harnesses":
         return {
           // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).
