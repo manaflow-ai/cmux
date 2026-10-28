@@ -177,10 +177,18 @@ export function QuickModelMenu({
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
   const { models, current, effort, account, fast } = menu;
-  const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
+  const families = menu.families;
+  const currentFamily = families?.list.find((family) => family.id === families.current);
+  const currentModels = currentFamily ? [...currentFamily.models, ...currentFamily.more] : models;
+  const currentModel = currentModels
+    .flatMap((model) => [model, ...(model.offers ?? [])])
+    .find((model) => model.id === current);
+  // Explicitly unsupported effort overrides session options, including the standalone fallback.
+  // An absent capability still permits the live session to supply its own choices.
+  const levels =
+    currentModel?.efforts?.length === 0 ? [] : (effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? []);
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
-  const families = menu.families;
   // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
@@ -298,7 +306,8 @@ export function QuickModelMenu({
     // Inline effort controls are opt-in. Other compact-menu callers may expose a combined
     // callback for the full picker while retaining the standalone Effort submenu here.
     if (menu.inlineEffort !== true || (!families && !menu.onModelEffort)) return [];
-    // An explicit empty list must not inherit another model's reasoning capabilities.
+    // An explicit empty list must not inherit session choices, including Ultracode.
+    if (model.efforts?.length === 0) return [];
     const advertised =
       model.efforts !== undefined
         ? reasoningChoices(
