@@ -287,8 +287,14 @@ pub(super) fn name_taken(e: &anyhow::Error) -> bool {
 /// The sidebar workspace key for session `id`: the same on every run, so
 /// the app keeps one row for it (a lowercase UUID, as `agent open` takes).
 fn workspace_key(id: &str) -> String {
-    let h = crate::sha256::sha256_hex(format!("acpmux-launch:{id}").as_bytes());
-    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("acpmux-launch:{id}").as_bytes());
+    // The first 16 bytes of the hash, as the first 32 hex digits were.
+    let mut head = [0u8; 16];
+    for (to, from) in head.iter_mut().zip(digest.iter()) {
+        *to = *from;
+    }
+    uuid::Uuid::from_bytes(head).hyphenated().to_string()
 }
 
 /// Shows session `id` in the cmux app's sidebar group `group` through the
@@ -409,6 +415,8 @@ mod tests {
     #[test]
     fn the_sidebar_key_is_a_stable_uuid() {
         let k = workspace_key("lane");
+        // The first 32 hex digits of sha256("acpmux-launch:lane"): the app's row key never changes.
+        assert_eq!(k, "da4b05a5-8df6-5f5a-c17d-cfcba7370bb8");
         assert_eq!(k, workspace_key("lane"));
         assert_ne!(k, workspace_key("lane2"));
         assert!(uuid::Uuid::parse_str(&k).is_ok());

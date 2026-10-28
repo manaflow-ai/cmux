@@ -19,10 +19,10 @@ fn syntaxes() -> &'static SyntaxSet {
     S.get_or_init(SyntaxSet::load_defaults_newlines)
 }
 
-fn theme(name: &str) -> &'static Theme {
+fn theme(name: &str) -> Option<&'static Theme> {
     static T: OnceLock<ThemeSet> = OnceLock::new();
     let set = T.get_or_init(ThemeSet::load_defaults);
-    set.themes.get(name).or_else(|| set.themes.values().next()).expect("syntect ships themes")
+    set.themes.get(name).or_else(|| set.themes.values().next())
 }
 
 /// A styled inline fragment before wrapping.
@@ -140,7 +140,8 @@ fn code_rows(
     } else {
         ss.find_syntax_by_token(lang.split(|ch: char| !ch.is_alphanumeric()).next().unwrap_or(lang))
     };
-    let mut hl = syntax.map(|s| syntect::easy::HighlightLines::new(s, theme(c.code_theme)));
+    let mut hl =
+        syntax.zip(theme(c.code_theme)).map(|(s, t)| syntect::easy::HighlightLines::new(s, t));
     if !lang.is_empty() {
         let label = format!("{indent} {lang}");
         let pad = width.saturating_sub(label.width());

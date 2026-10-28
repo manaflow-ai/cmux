@@ -5,6 +5,7 @@
 //! token from this server's own env, so the daemon knows which session posts.
 
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
@@ -65,7 +66,7 @@ fn ok(text: String, structured: Value) -> Value {
 
 /// What an announce did, as the agent or the CLI reads it.
 pub fn announce_text(r: &Value) -> String {
-    let id = r["post"]["id"].as_str().unwrap_or_default();
+    let id = r.field("post").field("id").as_str().unwrap_or_default();
     if r["proposed"] == true {
         return format!(
             "A person's rule holds this key; your post {id} is a proposal they will see."

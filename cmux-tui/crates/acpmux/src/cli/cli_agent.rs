@@ -192,8 +192,9 @@ impl ReplyFilter {
             }
         }
         let echoed = start > 0;
-        let text: String = lines[start..]
+        let text: String = lines
             .iter()
+            .skip(start)
             .map(|l| format!("{}\n", if echoed { dedent(l) } else { l }))
             .collect();
         let text = if echoed { text.trim_start_matches('\n').to_owned() } else { text };
@@ -357,12 +358,11 @@ async fn run_prompt(
     {
         prompt = format!("{text}\n\n{prompt}");
     }
-    let mut cmd = tokio::process::Command::new(&options.command[0]);
-    cmd.args(&options.command[1..])
-        .current_dir(cwd)
-        .env("NO_COLOR", "1")
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    let Some((program, args)) = options.command.split_first() else {
+        return Err("cli-agent needs a program: cli-agent -- PROGRAM [ARGS]".into());
+    };
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args).current_dir(cwd).env("NO_COLOR", "1").stderr(Stdio::piped()).kill_on_drop(true);
     if options.prompt_arg {
         cmd.arg(&prompt).stdin(Stdio::null());
     } else {
@@ -374,7 +374,7 @@ async fn run_prompt(
         cmd.stdout(Stdio::piped());
         None
     };
-    let mut child = cmd.spawn().map_err(|e| format!("starting {}: {e}", options.command[0]))?;
+    let mut child = cmd.spawn().map_err(|e| format!("starting {program}: {e}"))?;
     // The terminal's other end now lives only in the child: its exit ends the reads.
     drop(cmd);
     if let Some(mut stdin) = child.stdin.take() {
@@ -412,7 +412,9 @@ async fn run_prompt(
     let mut lines = match master {
         Some(master) => read_lines(master),
         None => {
-            let stdout = child.stdout.take().expect("piped stdout");
+            let Some(stdout) = child.stdout.take() else {
+                return Err(format!("{program}'s output was not piped"));
+            };
             let (line_tx, line_rx) = mpsc::unbounded_channel();
             crate::supervised::spawn_scoped(async move {
                 let mut lines = BufReader::new(stdout).lines();
@@ -483,11 +485,11 @@ async fn run_prompt(
             status = exit_rx => status,
         },
     }
-    .map_err(|_| format!("{} was stopped", options.command[0]))?
-    .map_err(|e| format!("waiting for {}: {e}", options.command[0]))?;
+    .map_err(|_| format!("{program} was stopped"))?
+    .map_err(|e| format!("waiting for {program}: {e}"))?;
     if !status.success() {
         let tail = stderr_tail.await.unwrap_or_default();
-        return Err(format!("{} exited with {status}: {tail}", options.command[0]));
+        return Err(format!("{program} exited with {status}: {tail}"));
     }
     Ok("end_turn")
 }

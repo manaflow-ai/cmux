@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::no_panic::JsonExt;
 use crate::user_settings::{self, Settings};
 
 pub const SETTING_AUTO: &str = "agents.trust.autoTrust";
@@ -159,7 +160,7 @@ fn defaults() -> &'static Defaults {
 fn parse_defaults(source: &str) -> Option<Defaults> {
     let doc: Value = serde_json::from_str(source).ok()?;
     let row = |key: &str| -> Option<Value> {
-        doc["lists"]
+        doc.field("lists")
             .as_array()
             .into_iter()
             .flatten()
