@@ -31,6 +31,11 @@ SUITE = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package
 TEST = re.compile(r"@Test\b|\bfunc test[A-Z0-9_]\w*\(")
 # Memory one test process takes at its peak (the whole test bundle, AppKit and WebKit loaded): it bounds the width.
 PROCESS_GB = 4
+# Suite families that run in a shard of their own, never packed beside other suites: (target, suite-name
+# prefix). The Cloud suites drive brokers and daemons under 30-60 s deadlines; packed with CmuxNextAppTests'
+# Cl/I/Sw suites and five other targets, three of them sat 300 s until the stuck watchdog ended the shard
+# (#26809, run 40723548016, shard 4), and the same three pass alone (cmux-ci 67ca029f and f020c796).
+OWN_SHARDS = (("CmuxNextAppTests", "Cloud"),)
 # A process costs seconds to start (the whole test bundle loads), so a shard holds at least this many tests.
 MIN_SHARD_TESTS = 150
 
@@ -76,6 +81,17 @@ def plan(tests_root: Path, package: Path, selected: str, shards: int, exclude: s
         wanted = set(selected.split())
         targets = [t for t in targets if t in wanted]
     counts = {t: suite_counts(tests_root / t) for t in targets}
+    own: list[dict] = []
+    for target, prefix in OWN_SHARDS:
+        if target not in counts:
+            continue
+        family = {n: c for n, c in counts[target].items() if n.startswith(prefix)}
+        if family:
+            counts[target] = {n: c for n, c in counts[target].items() if n not in family}
+            own.append({"filter": rf"^({re.escape(target)}\.{re.escape(prefix)})", "tests": sum(family.values()),
+                        "skip": []})
+    # Every other shard skips the families, whose names its prefix fragments could also match.
+    skip = [rf"{re.escape(t)}\.{re.escape(p)}" for t, p in OWN_SHARDS if t in counts]
     total = sum(sum(c.values()) for c in counts.values())
     shards = max(1, min(shards, total // MIN_SHARD_TESTS))
     share = max(total / shards, 1)
@@ -90,9 +106,11 @@ def plan(tests_root: Path, package: Path, selected: str, shards: int, exclude: s
         lightest = min(bins, key=lambda b: b["tests"])
         lightest["units"].append(unit)
         lightest["tests"] += n
-    out = []
-    for index, b in enumerate(sorted((b for b in bins if b["units"]), key=lambda b: -b["tests"]), 1):
-        out.append({"name": f"shard {index}", "filter": "^(" + "|".join(sorted(b["units"])) + ")", "tests": b["tests"]})
+    packed = [{"filter": "^(" + "|".join(sorted(b["units"])) + ")", "tests": b["tests"], "skip": skip}
+              for b in bins if b["units"]]
+    out = sorted(packed + own, key=lambda shard: -shard["tests"])
+    for index, shard in enumerate(out, 1):
+        shard["name"] = f"shard {index}"
     return out
 
 
@@ -127,7 +145,8 @@ def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadli
                 shard = pending.pop(0)
                 log = Path(tmp) / f"{shard['name'].replace(' ', '-')}.log"
                 env = dict(os.environ, CMUX_NEXT_TEST_HANG_SECONDS=str(max(60, int(deadline - time.time()))))
-                args = [wrapper, "--skip-build", "--ignore-lock", "--filter", shard["filter"], *extra]
+                skips = [arg for pattern in shard.get("skip", []) for arg in ("--skip", pattern)]
+                args = [wrapper, "--skip-build", "--ignore-lock", "--filter", shard["filter"], *skips, *extra]
                 with log.open("w") as out:
                     proc = subprocess.Popen(args, stdout=out, stderr=subprocess.STDOUT, env=env)
                 running.append((shard, proc, log, time.time()))

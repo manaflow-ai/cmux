@@ -36,7 +36,9 @@ shards = load("swift_test_shards", SCRIPT)
 
 
 def matching(plan: list[dict], test_id: str) -> list[str]:
-    return [s["name"] for s in plan if re.search(s["filter"], test_id)]
+    """The shards that run `test_id`: their filter matches it and none of their skips does."""
+    return [s["name"] for s in plan
+            if re.search(s["filter"], test_id) and not any(re.search(k, test_id) for k in s.get("skip", []))]
 
 
 class Plan(unittest.TestCase):
@@ -54,11 +56,24 @@ class Plan(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(len(matching(plan, f"CmuxNextAppTests.{name}/aTest()")), 1)
 
+    def test_the_cloud_suites_run_in_a_shard_of_their_own(self) -> None:
+        # Run 40723548016, shard 4: three Cloud tests sat 300 s packed beside other suites, and pass alone.
+        plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "all", 10)
+        cloud = [s for s in plan if s["filter"] == r"^(CmuxNextAppTests\.Cloud)"]
+        self.assertEqual(len(cloud), 1)
+        for suite in ("CloudCodexBrokerTests", "CloudCodexBrokerAdapterTests", "CloudStartSessionTests"):
+            with self.subTest(suite=suite):
+                self.assertEqual(matching(plan, f"CmuxNextAppTests.{suite}/aTest()"), [cloud[0]["name"]])
+        self.assertEqual(len(matching(plan, "CmuxNextAppTests.ClipboardTests/aTest()")), 1)
+        self.assertNotIn(cloud[0]["name"], matching(plan, "CmuxNextAppTests.ClipboardTests/aTest()"))
+        self.assertEqual([s for s in plan if s["filter"] == r"^(CmuxNextAppTests\.Cloud)"][0]["skip"], [])
+
     def test_shards_are_balanced_and_the_largest_runs_first(self) -> None:
         plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "all", 10)
         sizes = [s["tests"] for s in plan]
         self.assertEqual(sizes, sorted(sizes, reverse=True))
-        self.assertLess(max(sizes), 1.5 * sum(sizes) / len(sizes))
+        packed = [s["tests"] for s in plan if s["skip"]]
+        self.assertLess(max(packed), 1.5 * sum(packed) / len(packed))
 
     def test_only_the_selected_targets_and_never_an_excluded_one(self) -> None:
         plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "CmuxNextFilesTests CmuxNextControlTests", 10,
