@@ -1466,6 +1466,10 @@ export class AcpmuxDirectClient {
   /// `peerStateEvents` feature): the list is read at each connect and these apply on top, so
   /// opening the machine list reads nothing. An older daemon's is read on open, pick and send.
   private peerStateEvents = false;
+  /// Peer list reads in flight (`snapshotPeers`), and the pushes that came during them: a read's
+  /// answer may be from before a push, so each is applied again on top of it.
+  private peerReads = 0;
+  private pushedDuringReads = new Map<string, unknown>();
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -1727,7 +1731,9 @@ export class AcpmuxDirectClient {
         ((Array.isArray(features) && features.includes(PEER_STATE_EVENTS)) ||
           this.capabilities?.has(PEER_STATE_CAPABILITY) === true);
       // The peers as they are now, at every connect (a reconnect included); the pushes apply on top.
-      this.readPeers(await this.request("_acpmux/status", {}).catch(() => undefined));
+      // A connection acpmux calls `peer` or `remote` lists none: another host's peers are its own.
+      if (this.listsPeers) await this.snapshotPeers(() => this.request("_acpmux/status", {}).catch(() => undefined));
+      else this.readPeers(undefined);
       const first = await this.sessionPages.first();
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
@@ -6565,9 +6571,9 @@ export class AcpmuxDirectClient {
   /// Reads acpmux's peers again (`_acpmux/status`): for an older daemon the environment picker
   /// asks as it opens, so a machine that connected or dropped since shows as it is now.
   async refreshPeers(): Promise<void> {
-    const status = await this.request("_acpmux/status", {}).catch(() => undefined);
+    if (!this.listsPeers) return;
+    const status = await this.snapshotPeers(() => this.request("_acpmux/status", {}).catch(() => undefined));
     if (status === undefined) return;
-    this.readPeers(status);
     // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
     // emitting now would record "connected" on the hold before setup says so.
     if (!this.snapshotHold) this.emit();
@@ -6586,26 +6592,39 @@ export class AcpmuxDirectClient {
   private peerStateChanged(params: any): void {
     if (!this.peerStateEvents) return;
     const peer = params?.peer;
+    if (typeof peer === "string" && peer && this.peerReads > 0) this.pushedDuringReads.set(peer, params);
+    if (this.applyPeerState(params, false) && !this.snapshotHold) this.emit();
+  }
+  /// Applies one pushed peer state; true when it changed what the pane shows. `replayed`: applied
+  /// again on a fresh list, where a peer still not listed is left out (no list read for it).
+  private applyPeerState(params: any, replayed: boolean): boolean {
+    const peer = params?.peer;
     const state = params?.state;
-    if (typeof peer !== "string" || !peer || typeof state !== "string" || !PEER_LINK_STATES.has(state)) return;
+    if (typeof peer !== "string" || !peer || typeof state !== "string" || !PEER_LINK_STATES.has(state)) return false;
     if (state === "offline" && params?.error === "removed") {
-      if (!this.peers.includes(peer)) return;
+      if (!this.peers.includes(peer)) return false;
       this.peers = this.peers.filter((name) => name !== peer);
       const { [peer]: _state, ...states } = this.peerStates;
       const { [peer]: _connected, ...connected } = this.peerConnected;
       const { [peer]: _status, ...status } = this.peerStatus;
       [this.peerStates, this.peerConnected, this.peerStatus] = [states, connected, status];
     } else if (!this.peers.includes(peer)) {
-      void this.refreshPeers();
-      return;
+      if (!replayed) void this.refreshPeers();
+      return false;
     } else {
-      if (this.peerStates[peer] === state) return;
-      const lastSeen = typeof params?.lastSeen === "number" && params.lastSeen > 0 ? { lastSeen: params.lastSeen } : {};
+      // The push is the peer's whole link now: its `lastSeen` (null: never) replaces the list's.
+      const lastSeen = typeof params?.lastSeen === "number" && params.lastSeen > 0 ? params.lastSeen : undefined;
+      const known = this.peerStatus[peer];
+      if (this.peerStates[peer] === state && known?.lastSeen === lastSeen) return false;
+      const { lastSeen: _seen, ...rest } = known ?? {};
       this.peerStates = { ...this.peerStates, [peer]: state };
       this.peerConnected = { ...this.peerConnected, [peer]: state === "connected" };
-      this.peerStatus = { ...this.peerStatus, [peer]: { ...this.peerStatus[peer], state, connected: state === "connected", ...lastSeen } };
+      this.peerStatus = {
+        ...this.peerStatus,
+        [peer]: { ...rest, state, connected: state === "connected", ...(lastSeen !== undefined ? { lastSeen } : {}) },
+      };
     }
-    if (!this.snapshotHold) this.emit();
+    return true;
   }
   /// Whether acpmux lists `peer` and says its link finished its handshake (an older daemon: does
   /// not mark it disconnected): a refused call there may go again.
@@ -6644,12 +6663,33 @@ export class AcpmuxDirectClient {
       this.peerStates = { ...this.peerStates, [name]: "connecting" };
       if (!this.snapshotHold) this.emit();
     }
-    const reply = await this.request("_acpmux/peer_reconnect", { name, wait }, wait ? PEER_RECONNECT_WAIT_MS : undefined).catch(
-      () => undefined,
+    const reply = await this.snapshotPeers(() =>
+      this.request("_acpmux/peer_reconnect", { name, wait }, wait ? PEER_RECONNECT_WAIT_MS : undefined).catch(() => undefined),
     );
     if (reply === undefined) return this.refreshPeers();
-    this.readPeers(reply);
     if (!this.snapshotHold) this.emit();
+  }
+  /// This connection may read acpmux's peer list: this machine's own acpmux, or an older one that
+  /// names no origin. One acpmux calls `peer` or `remote` is another host's, whose peers are not
+  /// this machine's to show.
+  private get listsPeers(): boolean {
+    return this.origin !== "peer" && this.origin !== "remote";
+  }
+  /// One read of the peer list (`read` answers it, or undefined when it failed): applied, then every
+  /// push that came while it was in flight applied again on top (the answer may be older than them).
+  private async snapshotPeers(read: () => Promise<any>): Promise<any> {
+    this.peerReads += 1;
+    try {
+      const status = await read();
+      if (status !== undefined) {
+        this.readPeers(status);
+        for (const params of this.pushedDuringReads.values()) this.applyPeerState(params, true);
+      }
+      return status;
+    } finally {
+      this.peerReads -= 1;
+      if (this.peerReads === 0) this.pushedDuringReads.clear();
+    }
   }
   private readPeers(status: any): void {
     this.peers = Array.isArray(status?.peers)

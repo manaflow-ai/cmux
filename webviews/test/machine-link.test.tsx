@@ -78,7 +78,8 @@ test("the App's push sets the pane's machine and clears it for a chat on this Ma
 /// `gone`: the reconnect finds the peer removed (acpmux lists it no more). `cut`: the next
 /// `session/new` or `session/prompt` goes out and the link drops before the answer
 /// (`peer_disconnected`). `events`: it pushes peer link states (`peerStateEvents`).
-/// `origin`: what acpmux says this connection is (`local`, `peer`, `remote`).
+/// `origin`: what acpmux says this connection is (`local`, `peer`, `remote`). `hold()`: answers to
+/// `_acpmux/status` are read at once but held until `release()`, so a push can come before them.
 function daemon(
   state: string,
   { dropped = false, chat = false, gone = false, cut = false, events = false, origin = "local" } = {},
@@ -90,6 +91,8 @@ function daemon(
   const session = { sessionId: "on-gpu", peer: "gpu-box", host: "gpu-box", cwd: "/home/dev/project", updatedAt: 1 };
   let socket: any;
   let listed = true;
+  let holding = false;
+  const held: (() => void)[] = [];
   const peers = () => ({
     peers: listed ? [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] : [],
   });
@@ -137,7 +140,7 @@ function daemon(
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
         asked.push({ method: message.method, params: message.params ?? {} });
-        queueMicrotask(() => {
+        const respond = () => {
           let reply: Record<string, unknown>;
           try {
             reply = { result: answer(message.method) };
@@ -145,8 +148,10 @@ function daemon(
             const data = (error as { data?: unknown }).data;
             reply = { error: { code: -32000, message: String((error as Error).message), ...(data ? { data } : {}) } };
           }
-          socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
-        });
+          return () => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
+        };
+        if (holding && message.method === "_acpmux/status") held.push(respond());
+        else queueMicrotask(() => respond()());
       },
       close() {},
     };
@@ -155,7 +160,14 @@ function daemon(
   };
   /// acpmux pushes a notification to the page.
   const notify = (method: string, params: unknown) => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
-  return { asked, open, notify };
+  const hold = () => {
+    holding = true;
+  };
+  const release = () => {
+    holding = false;
+    for (const deliver of held.splice(0)) deliver();
+  };
+  return { asked, open, notify, hold, release };
 }
 
 async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
@@ -168,7 +180,7 @@ async function client(state: string, options: Parameters<typeof daemon>[1] = {})
     fake.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client: connected, asked: fake.asked, states, notify: fake.notify };
+  return { client: connected, asked: fake.asked, states, notify: fake.notify, hold: fake.hold, release: fake.release };
 }
 
 test("a new chat's first send to a down peer reconnects it and waits for its handshake, then starts", async () => {
@@ -294,11 +306,29 @@ test("an older daemon with no pushes is read again as the list opens", async () 
   expect(reads()).toBe(read + 1);
 });
 
-test("a peer state push on a connection that is not this machine's own acpmux is ignored", async () => {
-  const { client: pane, states, notify } = await client("connected", { events: true, origin: "peer" });
-  const emitted = states.length;
-  notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "offline", lastSeen: 1, error: null, at: 2 });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(states.length).toBe(emitted);
-  expect(states.at(-1)?.["gpu-box"]).toBe("connected");
+test("a connection that is not this machine's own acpmux reads no peer list and ignores its pushes", async () => {
+  for (const origin of ["peer", "remote"]) {
+    const { client: pane, asked, states, notify } = await client("connected", { events: true, origin });
+    const reads = () => asked.filter((message) => message.method === "_acpmux/status").length;
+    expect(reads()).toBe(0);
+    const emitted = states.length;
+    notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "offline", lastSeen: 1, error: null, at: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(states.length).toBe(emitted);
+    expect(states.at(-1)?.["gpu-box"]).toBeUndefined();
+    await pane.refreshPeersOnOpen();
+    expect(reads()).toBe(0);
+  }
+});
+
+test("a push that comes while the peer list is read stays on top of that read's older answer", async () => {
+  const { client: pane, states, notify, hold, release } = await client("connected", { events: true });
+  hold();
+  const read = pane.refreshPeers();
+  // The daemon answered "connected"; the link dropped before that answer reached the page.
+  notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "reconnecting", lastSeen: 1, error: null, at: 2 });
+  expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
+  release();
+  await read;
+  expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
 });
