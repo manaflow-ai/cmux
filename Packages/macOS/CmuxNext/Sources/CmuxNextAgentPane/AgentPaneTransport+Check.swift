@@ -203,7 +203,15 @@ extension AgentPaneTransport {
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
         guard let method = object["method"] as? String else { return nil }
-        let named = (object["params"] as? [String: Any])?["sessionId"]
+        let params = object["params"] as? [String: Any]
+        // Target-form auth is read-only; session-form auth stays bound to this pane.
+        if method == "_acpmux/session/auth" {
+            if let session = params?["sessionId"] as? String, !sessions.contains(session) {
+                return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
+            }
+            return nil
+        }
+        let named = params?["sessionId"]
         // A frame that may name a session and names none is not session-scoped.
         if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)

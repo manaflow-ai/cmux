@@ -65,6 +65,9 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
+        // Read-only auth evidence for an existing pane session, or the selected harness/peer/route.
+        // The target host is a peer name only; it is never an endpoint or a command.
+        "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
@@ -124,6 +127,7 @@ nonisolated extension AcpmuxPaneMethods {
         guard let params = rawParams as? [String: Any] else { return true }
         guard let known = knownParams[method] else { return !params.isEmpty }
         if params.keys.contains(where: { !known.params.contains($0) }) { return true }
+        if method == "_acpmux/session/auth", breaksSessionAuthParams(params) { return true }
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         if params.keys.contains(where: denied.contains) { return true }
@@ -144,7 +148,47 @@ nonisolated extension AcpmuxPaneMethods {
         return false
     }
 
-    /// The longest `_meta.acpmux.model` a start may carry, in bytes.
+
+    /// The page's session/auth query has exactly one identity form. Keep the target bounded to
+    /// names the daemon can resolve; it never carries an endpoint, path, command or credentials.
+    static func breaksSessionAuthParams(_ params: [String: Any]) -> Bool {
+        let hasSession = params["sessionId"] != nil
+        let hasTarget = params["target"] != nil
+        guard hasSession != hasTarget else { return true }
+        if let session = params["sessionId"] {
+            guard let session = session as? String, !session.isEmpty else { return true }
+        }
+        if let target = params["target"] {
+            guard let target = target as? [String: Any],
+                  Set(target.keys).isSubset(of: ["harness", "host", "routeId"]),
+                  let harness = target["harness"] as? String,
+                  isSessionAuthText(harness, allowSlash: true) else { return true }
+            if let host = target["host"] {
+                guard let host = host as? String, isSessionAuthText(host, allowSlash: false) else { return true }
+            }
+            if let route = target["routeId"] {
+                guard let route = route as? String, isSessionAuthText(route, allowSlash: false) else { return true }
+            }
+        }
+        if let refresh = params["refresh"], !isJSONBoolean(refresh) { return true }
+        return false
+    }
+
+    /// A peer/route identifier is a name, not a URL or a shell fragment. Harness ids may contain
+    /// provider slashes, while hosts and routes may not.
+    private static func isSessionAuthText(_ value: String, allowSlash: Bool) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 256,
+              !value.utf8.contains(where: { $0 < 0x20 }),
+              !value.contains(where: { $0.isWhitespace }) else { return false }
+        return allowSlash || !value.contains("/")
+    }
+
+    private static func isJSONBoolean(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
+    }
+
+    /// The longest model id a start may carry, in bytes.
     static let maximumModelIDBytes = 256
 
     /// One model id as harnesses name them (`claude-opus-5-5[1m]`, `provider/model:tag`,
