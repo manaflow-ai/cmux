@@ -144,7 +144,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         const wrap = document.createElement("div");
         wrap.id = "selection-controls";
         wrap.innerHTML =
-          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span>';
+          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><div class="cv-received__body selectable" data-cut>Open received message</div><div class="acpmux-edited-title--toggle">Open file diff</div><div class="acpmux-turn-preview-frame" style="height:30px">Open preview</div>';
         row.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
         const hidden = document.createElement("span");
@@ -154,7 +154,16 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         row.append(hidden);
       });
       const end = (await geometry(page)).after;
-      for (const selector of ["button", "a", '[role="button"]', "input", '[draggable="true"]']) {
+      for (const selector of [
+        "button",
+        "a",
+        '[role="button"]',
+        "input",
+        '[draggable="true"]',
+        ".cv-received__body[data-cut]",
+        ".acpmux-edited-title--toggle",
+        ".acpmux-turn-preview-frame",
+      ]) {
         const control = page.locator(`#selection-controls ${selector}`);
         const box = (await control.boundingBox())!;
         await drag(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, end);

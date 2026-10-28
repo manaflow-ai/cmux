@@ -104,15 +104,11 @@ type CaretHit = { caret: Caret; row: HTMLElement };
 function selectableTextNode(node: Node): boolean {
   const element = node.parentElement;
   if (!element || !node.textContent?.trim()) return false;
+  const select = getComputedStyle(element);
+  if (select.userSelect === "none" || select.getPropertyValue("-webkit-user-select") === "none") return false;
   for (let current: HTMLElement | null = element; current; current = current.parentElement) {
     const style = getComputedStyle(current);
-    if (
-      style.visibility === "hidden" ||
-      style.pointerEvents === "none" ||
-      Number.parseFloat(style.opacity) <= 0 ||
-      style.userSelect === "none" ||
-      style.getPropertyValue("-webkit-user-select") === "none"
-    )
+    if (style.visibility === "hidden" || style.pointerEvents === "none" || Number.parseFloat(style.opacity) <= 0)
       return false;
     if (current.classList.contains("acpmux-row")) break;
   }
