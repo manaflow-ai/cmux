@@ -45,16 +45,12 @@ extension CMUXCLI {
             return
         }
 
+        // `extractMessages` drops blank messages, so an excerpt is never blank.
         guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else { return }
         let messages = AutoNamingEngine().extractMessages(fromTranscriptLines: lines)
         guard let excerpt = DifficultyAssessmentEngine.excerpt(from: messages) else { return }
-        guard !excerpt.user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !excerpt.assistant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            telemetry.breadcrumb("claude-hook.difficulty.empty")
-            return
-        }
 
         // Not the hook session store: `SessionEnd` removes that record on every
         // Claude restart, including the one a rating causes.
@@ -76,10 +72,11 @@ extension CMUXCLI {
         )
         // `summarize` scrubs the environment itself (and needs the raw one to
         // honor CMUX_CUSTOM_CLAUDE_PATH), exactly as the auto-name pass does.
+        // Always Claude, whatever `automation.autoNamingAgent` picks for naming.
         guard let raw = summarize(
             summarizerAgent: "claude",
             prompt: prompt,
-            env: env,
+            env: DifficultyAssessmentEngine.classifierEnvironment(from: env),
             timeout: DifficultyAssessmentConfig.llmTimeout,
             telemetry: telemetry
         ) else {
