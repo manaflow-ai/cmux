@@ -684,6 +684,54 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertIn("<<<<<<<", counts.read_text())
         self.assertIn('"decode": 5', counts.read_text())
 
+    def test_insertion_ordered_json_baseline_merges_entry_by_entry(self):
+        """rust_panic_ratchet.py writes rust-panic-baseline.json with indent=1 and its own key order
+        (sort_keys=False). The driver refused that format as a whole-file conflict, so any two branches
+        that lowered any crate's counts conflicted (36 merge-train conflicts in a day, 2026-10-28). Both
+        sides lowering the same count keeps the higher: the merged code can still hold the hits only one
+        side removed, and the ratchet never rises above the base."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        baseline = self.repo / "scripts/cmux-next/rust-panic-baseline.json"
+        baseline.parent.mkdir(parents=True, exist_ok=True)
+
+        def write(crates):
+            document = {"_doc": "Counts only go down.", "lints": ["unwrap_used", "panic"], "crates": crates}
+            baseline.write_text(json.dumps(document, indent=1, sort_keys=False) + "\n")
+
+        write({"core": {"unwrap_used": 10, "panic": 4}, "app": {"unwrap_used": 7, "panic": 2}})
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "lane")
+        write({"core": {"unwrap_used": 8, "panic": 4}, "app": {"unwrap_used": 7, "panic": 2}})
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        write({"core": {"unwrap_used": 9, "panic": 3}, "app": {"unwrap_used": 7, "panic": 0},
+               "new": {"unwrap_used": 0, "panic": 0}})
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        text = baseline.read_text()
+        self.assertEqual(list(json.loads(text)), ["_doc", "lints", "crates"])  # the writer's order, not sorted
+        self.assertEqual(json.loads(text)["crates"], {"core": {"unwrap_used": 9, "panic": 3},
+                                                      "app": {"unwrap_used": 7, "panic": 0},
+                                                      "new": {"unwrap_used": 0, "panic": 0}})
+        self.assertTrue(text.endswith("}\n") and "\n \"crates\": {" in text, text[:200])
+
+        # A count one side raised is still a person's call: markers, never a quiet merge.
+        self.git("checkout", "--quiet", "-b", "raise", base)
+        write({"core": {"unwrap_used": 12, "panic": 4}, "app": {"unwrap_used": 7, "panic": 2}})
+        self.commit_all("raise")
+        self.git("checkout", "--quiet", "lane")
+        clash = self.git("merge", "--no-edit", "raise", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", baseline.read_text())
+        self.git("merge", "--abort")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
