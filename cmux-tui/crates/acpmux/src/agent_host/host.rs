@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 /// start the harness, answer on stdout, then serve controllers until the
 /// harness ended and its exit was logged.
 pub fn main() -> Result<()> {
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::AgentHost));
+    // Signal dispositions and the panic log (host_process).
     host_process::start();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(run())

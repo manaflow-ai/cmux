@@ -972,6 +972,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-panic-log",
  "cmux-threads",
+ "cmux-trace",
  "libc",
  "rquickjs",
  "serde",
@@ -1003,6 +1004,7 @@ version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
  "cmux-panic-log",
+ "cmux-trace",
  "getrandom 0.3.4",
  "hmac",
  "libc",
