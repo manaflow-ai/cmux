@@ -247,11 +247,13 @@ extension NotificationCenterService {
     /// How long a banner click waits for its tab to arrive in the local daemon's tree.
     static let bannerTabWait: Duration = .seconds(30)
 
-    /// The lasting id of the tab a banner for `notification` opens: the tab on the notification's
-    /// surface (`tab`, else `owner`); nil for a banner of no tab.
+    /// The lasting id of the tab a banner for `notification` opens: the `tab_` resource id of the tab on
+    /// the notification's surface (`tab`, else `owner`); nil for a banner of no tab, or a tab with no
+    /// resource id (its `TabModel.id` falls back to `surface:N`, which a relaunch can give to another tab).
     static func bannerTabID(_ notification: DaemonNotification, tab: TabModel?, owner: TabModel?) -> String? {
-        guard let surface = notification.surface else { return nil }
-        return [tab, owner].lazy.compactMap { $0 }.first { $0.surface == surface }?.id
+        guard let surface = notification.surface,
+              let found = [tab, owner].lazy.compactMap({ $0 }).first(where: { $0.surface == surface }) else { return nil }
+        return found.resourceID?.rawValue
     }
 
     /// Runs `then` once with the surface of `target`'s tab: at once for a banner that names no

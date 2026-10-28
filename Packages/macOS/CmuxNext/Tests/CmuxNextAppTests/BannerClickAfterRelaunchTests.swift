@@ -38,6 +38,19 @@ import Testing
         #expect(posted.surface == 1)
     }
 
+    /// A tab with no `tab_` resource id has a `surface:N` id, which a relaunch can give to another tab:
+    /// its banner names no lasting id and keeps its surface handle, as before.
+    @Test func aTabWithoutAResourceIDNamesNoLastingID() throws {
+        let store = DaemonStore()
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, name: "zsh")])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w",
+                                                                        screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])])]))
+        let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        let wire = #"{"notification":5,"title":"t","body":"","level":"info","surface":1,"source":"terminal"}"#
+        let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
+        #expect(NotificationCenterService.bannerTabID(notification, tab: tab, owner: tab) == nil)
+    }
+
     /// The click macOS delivers at launch, before `NotificationCenterService.start` wired the handlers.
     @Test func aClickBeforeTheHandlersAreWiredRunsWhenTheyAre() {
         let desktop = NotificationCenterService().desktop
