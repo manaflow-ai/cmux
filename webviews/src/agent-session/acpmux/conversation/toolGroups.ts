@@ -67,6 +67,10 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
   const messageFiles = new Map<string, string>();
   const messageFileEndedAt = new Map<string, number | undefined>();
+  // Earlier calls may finish after a later writer. Keep one completion horizon for all possible
+  // aliases, and leave provenance unknown while any preceding mutation has no proven end.
+  let mutationEndedAt = -Infinity;
+  let mutationUnsettled = false;
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
@@ -108,6 +112,22 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const key = call && mcpKey(call);
     const rememberMessageFiles = () => {
       if (!tool) return;
+      const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
+      const rememberMutation = () => {
+        const ended = tool.background
+          ? tool.background.state === "completed" ||
+            tool.background.state === "failed" ||
+            tool.background.state === "stopped"
+          : tool.status === "completed" || tool.status === "failed";
+        if (
+          !ended ||
+          endedAt === undefined ||
+          !Number.isFinite(endedAt) ||
+          (tool.startedAt !== undefined && (!Number.isFinite(tool.startedAt) || tool.startedAt > endedAt))
+        )
+          mutationUnsettled = true;
+        else mutationEndedAt = Math.max(mutationEndedAt, endedAt);
+      };
       // A failed or still-running writer did not produce a durable body. Clear the bounded
       // producer set so a later send cannot display stale content from an earlier call.
       if (
@@ -116,6 +136,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         (tool.exitCode !== undefined && tool.exitCode !== 0) ||
         (tool.background && tool.background.state !== "completed")
       ) {
+        rememberMutation();
         messageFiles.clear();
         messageFileEndedAt.clear();
         return;
@@ -123,13 +144,22 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       // A background call's foreground row can finish before the actual shell. Use the
       // background completion timestamp for provenance; without it, ordering against a later
       // send is unknown and the body must remain unresolved.
-      const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
-      if (endedAt === undefined) {
+      if (endedAt === undefined || !Number.isFinite(endedAt)) {
+        rememberMutation();
         messageFiles.clear();
         messageFileEndedAt.clear();
         return;
       }
-      for (const change of recordedMessageBodyChangesForTool(tool)) {
+      const changes = recordedMessageBodyChangesForTool(tool);
+      const startedAt = tool.startedAt;
+      const orderedWriter =
+        !mutationUnsettled &&
+        startedAt !== undefined &&
+        Number.isFinite(startedAt) &&
+        startedAt >= mutationEndedAt &&
+        startedAt <= endedAt;
+      if (changes.length) rememberMutation();
+      for (const change of changes) {
         if ("reset" in change) {
           messageFiles.clear();
           messageFileEndedAt.clear();
@@ -143,6 +173,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           // aliases without filesystem access, so clear all candidates before recording it.
           messageFiles.clear();
           messageFileEndedAt.clear();
+          if (!orderedWriter) continue;
           messageFiles.set(change.path, change.text);
           messageFileEndedAt.set(change.path, endedAt);
           while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);

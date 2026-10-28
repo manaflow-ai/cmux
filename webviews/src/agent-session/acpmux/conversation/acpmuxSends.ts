@@ -811,7 +811,9 @@ function readAcpmuxSend(
           inner.map((word) => word.text).join(" "),
           rest[0].text,
           depth + 1,
-          new Map([...recordedFiles].map(([path, body]) => [path, body.text])),
+          // Paths inside the remote script belong to that host. Only stdin already opened by
+          // the local wrapper is a known stream; a remote redirect must resolve independently.
+          undefined,
           stdinOf(commands, index, recordedFiles, inheritedStdin),
           provenance,
         );
