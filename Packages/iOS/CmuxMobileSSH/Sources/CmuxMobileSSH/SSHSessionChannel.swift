@@ -89,7 +89,11 @@ public final class SSHSessionChannel: Sendable {
         channel.eventLoop.execute {
             var buffer = channel.allocator.buffer(capacity: data.count)
             buffer.writeBytes(data)
+            let fallback = channel.eventLoop.scheduleTask(in: .seconds(2)) {
+                channel.close(promise: nil)
+            }
             channel.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(buffer))).whenComplete { _ in
+                fallback.cancel()
                 channel.close(promise: nil)
             }
         }
