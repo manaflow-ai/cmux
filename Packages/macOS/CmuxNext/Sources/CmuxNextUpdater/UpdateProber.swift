@@ -57,13 +57,12 @@ nonisolated public struct UpdateProber: Sendable {
                         rollout: StagedRollout?) -> UpdateProbeOutcome {
         let selected = AppcastSelector.select(from: items, currentBuild: currentBuild, system: system)
         guard let rollout else { return selected }
-        let reaches = { (item: AppcastItem) in rollout.offers(item) }
         switch selected {
-        case .updateAvailable(let item) where !reaches(item):
+        case .updateAvailable(let item) where !rollout.offers(item):
             return .upToDate(latest: nil)
         case .requiresNewerSystem:
             // Only the macOS note changes: the reached items' own answer, never an update Sparkle holds.
-            let reached = AppcastSelector.select(from: items.filter(reaches), currentBuild: currentBuild, system: system)
+            let reached = AppcastSelector.select(from: items.filter { rollout.offers($0) }, currentBuild: currentBuild, system: system)
             if case .requiresNewerSystem = reached { return reached }
             return .upToDate(latest: nil)
         default:
