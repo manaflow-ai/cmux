@@ -1,0 +1,74 @@
+/* QuestionCard's compact list. Keep the existing theme, glass and attention tokens in styles.css.
+   The highlight belongs to one inset row; hover and keyboard focus never ring the whole card or
+   move its contents. No transition: each key paints the new row in the same frame, including
+   Reduce Motion. The page's existing opaque theme handles Reduce Transparency. */
+.acpmux-question-rows {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 4px;
+}
+.acpmux-question-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: calc(var(--ds-control-primary, 32px) + var(--ds-space-1, 4px));
+  box-sizing: border-box;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  text-align: left;
+}
+.acpmux-question-row:hover {
+  background-color: var(--acpmux-question-hover);
+}
+.acpmux-question-row:is([data-highlighted], :focus-visible) {
+  background-color: var(--acpmux-question-highlight);
+  outline: none;
+}
+.acpmux-question-row[aria-disabled="true"] {
+  pointer-events: none;
+}
+.acpmux-question-other {
+  align-items: flex-start;
+}
+.acpmux-question-other .acpmux-question-mark {
+  margin-top: 3px;
+}
+.acpmux-question-other :is(input, textarea) {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--ds-control-compact, 24px);
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  line-height: var(--text-control--line-height, 18px);
+  caret-color: var(--cmux-caret, var(--agent-text));
+}
+.acpmux-question-other textarea {
+  field-sizing: content;
+  resize: none;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.acpmux-question-other :is(input, textarea)::placeholder {
+  color: var(--agent-muted);
+}
+.acpmux-question-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge);
+}

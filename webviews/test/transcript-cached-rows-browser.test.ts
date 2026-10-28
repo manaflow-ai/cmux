@@ -107,6 +107,7 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
           let frames = 0;
           let targetFrames = 0;
           let started = 0;
+          let revisit = false;
           let targetLatency: number | null = null;
           let targetPaintLatency: number | null = null;
           await new Promise<void>((resolve) => {
@@ -139,22 +140,33 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                 }
                 for (const row of visible) seen.add(row.dataset.rowId!);
                 frames += 1;
+                // A revisit's scroll comes between frames, as input does: the page hears it in the
+                // next frame's scroll steps, before that frame paints. Written in a frame's own
+                // callbacks, after its scroll steps, it painted that frame at the new offset before
+                // any page could know of it.
+                if (revisit) {
+                  revisit = false;
+                  scroller.scrollTop = end();
+                }
                 if (targetFrames >= 12 || frames >= 180) {
                   resolve();
                   return false;
                 }
               },
               (paint) => {
-                if (frames === 8 && phase === "prime") {
+                // At least, not exactly: a frame's read can land after the next frame's callbacks
+                // on a busy runner, and an exact count passed unseen left the run in its first phase
+                // with no samples (frames 0, run 40753431130).
+                if (frames >= 8 && phase === "prime") {
                   phase = "away";
                   scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -50000, bubbles: true }));
                   scroller.scrollTop = Math.max(0, end() - 50000);
                 }
-                if (frames === 32 && phase === "away") {
+                if (frames >= 32 && phase === "away") {
                   phase = "return";
                   started = paint;
                   if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();
-                  else scroller.scrollTop = end();
+                  else revisit = true;
                 }
               },
             );

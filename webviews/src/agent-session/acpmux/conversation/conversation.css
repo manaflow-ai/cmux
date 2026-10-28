@@ -1210,6 +1210,10 @@ pre.cv-math-source {
    that frame, and the offset clamped short of the end and stayed there. */
 .acpmux-spacer {
   transition: none;
+  /* A row's entrance (`cv-enter`) slides it up 4px into place; its translate must not make the
+     scroller taller than the layout, or a view at its end rests 2-4px short of it until the motion
+     ends (transcript-pinned-bottom). The 4px falls in the row's own bottom padding. */
+  overflow-y: clip;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
    the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that
@@ -1226,6 +1230,12 @@ pre.cv-math-source {
 .acpmux-row[data-transcript-selected="true"] {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+}
+/* Response focus rings are opt-in (focusRing.enabled, #23745): the shared desktop ring leaves the
+   row out (desktop.css), so without the setting the row draws nothing, not the engine's own
+   `outline: auto`. */
+.acpmux-row:focus-visible {
+  outline: none;
 }
 [data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);

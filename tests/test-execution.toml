@@ -270,6 +270,10 @@ path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_targets_installed_first.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -391,6 +395,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_display_suites.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2157,4 +2165,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fresh_home_launch_smoke.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_fetch_all.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"

@@ -259,3 +259,11 @@
 :where(.ui-submenu-chevron:dir(rtl)) {
   transform: rotate(-45deg);
 }
+
+/* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent
+   pane as well as ui.css hosts, so the buttons use the same compact menu shape in both. */
+.ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
+.ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
+.ui-combobox-scroll { min-height: 0; }
+.ui-combobox-pinned > button { display: flex; align-items: center; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+.ui-combobox-pinned > button:hover, .ui-combobox-pinned > button:focus-visible { background: var(--ui-row); }
