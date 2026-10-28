@@ -527,6 +527,24 @@ impl LinkShares {
         answer
     }
 
+    /// Closes every open share of `session` (its chat was closed or removed): the guests'
+    /// connections close at the next `settle`, and a share with a room queues its `DELETE`.
+    fn close_chat(&self, directory: Option<&Path>, session: &str) {
+        let _ = self.with(directory, |shares, _| {
+            let mut changed = false;
+            for share in shares.iter_mut().filter(|s| s.session == session) {
+                if matches!(share.state, ShareState::Active | ShareState::Provisioning) {
+                    share.state = ShareState::Closed;
+                    if share.room.is_some() {
+                        share.pending_room_ops.push(json!({"op": "delete"}));
+                    }
+                    changed = true;
+                }
+            }
+            Ok(((), changed))
+        });
+    }
+
     /// The chat a live guest reaches: its share's session and surface, and the guest's author.
     fn guest(
         &self,
@@ -599,6 +617,16 @@ impl LinkShares {
         room::expired(self);
         self.settle(mux);
     }
+}
+
+/// The agent chat `session` was closed or removed: its link shares close (design 4.2, "Closing
+/// the chat ends its shares"), their guests' connections end, and each room hears `end
+/// {reason: closed}` and its `DELETE`.
+pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    shares.close_chat(directory.as_deref(), session);
+    shares.settle(mux);
 }
 
 /// Ends at once every guest connection whose author id `ended` names.

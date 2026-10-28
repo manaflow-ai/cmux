@@ -909,3 +909,31 @@ fn room_responses_are_bounded_with_or_without_content_length() {
         assert!(response.is_none(), "oversized response accepted (chunked={chunked})");
     }
 }
+
+#[test]
+fn closing_the_chat_closes_its_share_its_guests_and_its_room() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-closed", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Theo",
+        "attempt_id":"attempt-1"}));
+    let mut link = Client::connect(&mux, "room-closed-guest");
+    let bound = link.request(json!({"cmd":"agent-session-proxy-bind", "link_guest":
+        {"share_id": share["share_id"], "guest_id": guest["data"]["guest_id"]}}));
+    assert_eq!(bound["ok"], true, "{bound}");
+    // acpmux says the chat was closed.
+    crate::server::close_chat_shares(&mux, SESSION);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1");
+    let deadline = Instant::now() + WAIT;
+    while !mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "the guest's connection is closed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(state(&mut owner)["state"], "closed");
+    room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
+}

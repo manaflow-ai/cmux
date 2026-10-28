@@ -238,6 +238,12 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             for summary in sessions {
+                if summary["peer"].is_null()
+                    && summary["status"] == "closed"
+                    && let Some(session) = summary["sessionId"].as_str()
+                {
+                    crate::server::close_chat_shares(&mux, session);
+                }
                 let Some(next) = Chat::of(summary) else { continue };
                 if pushed.contains(&next.session) {
                     continue;
@@ -319,6 +325,9 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
         return;
     }
     let Some(session) = params["sessionId"].as_str() else { return };
+    if closes_chat(params) {
+        crate::server::close_chat_shares(mux, session);
+    }
     if params["kind"] == "purged" {
         chats.remove(session);
         return;
@@ -326,6 +335,11 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
     let Some(next) = Chat::of(&params["session"]) else { return };
     let before = chats.remove(&next.session);
     apply(mux, before.as_ref(), next, chats);
+}
+
+/// A change that ends the chat for its link shares: closed by the person, or removed.
+fn closes_chat(params: &Value) -> bool {
+    params["kind"] == "purged" || params["session"]["status"] == "closed"
 }
 
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
@@ -620,6 +634,16 @@ mod tests {
         serve.join().expect("the fake acpmux");
         assert!(chats.contains_key("chat-1"), "the whole list was read");
         assert!(followed.is_err(), "a connection that ends right after its list keeps the backoff");
+    }
+
+    #[test]
+    fn a_closed_or_removed_chat_ends_its_link_shares() {
+        let change = |kind: &str, status: &str| json!({"sessionId": "chat-1", "kind": kind, "session": {"status": status}});
+        assert!(closes_chat(&change("updated", "closed")));
+        assert!(closes_chat(&json!({"sessionId": "chat-1", "kind": "purged"})));
+        for status in ["idle", "running", "disconnected"] {
+            assert!(!closes_chat(&change("updated", status)), "{status}");
+        }
     }
 
     #[test]
