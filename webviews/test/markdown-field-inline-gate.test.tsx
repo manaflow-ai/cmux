@@ -195,6 +195,62 @@ test("a copy of a placed attachment pastes as a copy of it", async () => {
   expect(ids.find((id) => id !== "word")).toMatch(/^word~copy-[0-9a-f]{8}$/);
 });
 
+/// A clipboard as a browser hands it to copy, cut and paste events: what a copy sets, a paste reads.
+function clipboard() {
+  const data = new Map<string, string>();
+  return {
+    files: [] as File[],
+    get types() {
+      return [...data.keys()];
+    },
+    clearData: () => data.clear(),
+    setData: (type: string, value: string) => data.set(type, value),
+    getData: (type: string) => data.get(type) ?? "",
+  };
+}
+
+function clipboardEvent(type: "copy" | "cut" | "paste", data: ReturnType<typeof clipboard>) {
+  const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  act(() => {
+    handle.current!.element()!.querySelector("[contenteditable]")!.dispatchEvent(event);
+  });
+}
+
+const placedIds = (editor: HTMLElement) =>
+  [...editor.querySelectorAll("[data-inline-attachment]")].map((node) => node.getAttribute("data-inline-attachment"));
+
+// Ported from #26553's review (a copy's plain text has no attachment in it and a paste took the
+// plain text over the HTML, so copy then paste dropped every placed attachment).
+test("copying the prompt with a placed attachment and pasting it brings a copy of the attachment", async () => {
+  const editor = await render(() => {}, { value: `before ${inlineToken("one")} after` });
+  expect(placedIds(editor)).toEqual(["one"]);
+  act(() => handle.current!.selectAll());
+  const data = clipboard();
+  clipboardEvent("copy", data);
+  // The copy's plain text stays the text as shown, for other apps.
+  expect(data.getData("text/plain")).not.toContain("\uFFFC");
+  act(() => handle.current!.setCaret(handle.current!.value().length));
+  clipboardEvent("paste", data);
+  await settle();
+  const ids = placedIds(editor);
+  expect(ids).toHaveLength(2);
+  expect(ids).toContain("one");
+  expect(ids.find((id) => id !== "one")).toMatch(/^one~copy-[0-9a-f]{8}$/);
+});
+
+test("cutting a placed attachment and pasting it moves the same attachment", async () => {
+  const editor = await render(() => {}, { value: `a ${inlineToken("one")} b` });
+  act(() => handle.current!.selectAll());
+  const data = clipboard();
+  clipboardEvent("cut", data);
+  await settle();
+  expect(placedIds(editor)).toEqual([]);
+  clipboardEvent("paste", data);
+  await settle();
+  expect(placedIds(editor)).toEqual(["one"]);
+});
+
 // Review (root): the editor read the draft's tokens with no ids, so the person's U+FFFC before a
 // word took the attachment's opening mark: `before` became an attachment and `one` stayed text.
 test("the person's U+FFFC just before a word and an attachment stays their text", async () => {
