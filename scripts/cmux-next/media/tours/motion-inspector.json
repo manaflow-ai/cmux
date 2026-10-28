@@ -13,6 +13,20 @@
       "shot": false
     },
     {
+      "title": "Name the first workspace (its default title shows the host)",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "renameWorkspace",
+          "args": {
+            "name": "Motion review"
+          }
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
       "title": "Open the Motion Inspector (debug.motion window; it never takes the keys)",
       "rpc": {
         "method": "debug.motion",
@@ -75,6 +89,20 @@
       }
     },
     {
+      "title": "Name it (its default title shows the host)",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "renameWorkspace",
+          "args": {
+            "name": "Motion one"
+          }
+        }
+      },
+      "wait": 0.05,
+      "shot": false
+    },
+    {
       "title": "Second",
       "wait": 0.3,
       "shot": false,
@@ -89,8 +117,22 @@
       }
     },
     {
+      "title": "Name it (its default title shows the host)",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "renameWorkspace",
+          "args": {
+            "name": "Motion two"
+          }
+        }
+      },
+      "wait": 0.05,
+      "shot": false
+    },
+    {
       "title": "Third, mid-motion: the list shows each insert's spring, layers, frames and owner",
-      "wait": 0.8,
+      "wait": 0.05,
       "rpc": {
         "method": "debug.key",
         "params": {
@@ -99,7 +141,21 @@
             "cmd"
           ]
         }
-      }
+      },
+      "shot": false
+    },
+    {
+      "title": "Mid-motion at 10x: the list shows each insert's spring, layers, frames and owner",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "renameWorkspace",
+          "args": {
+            "name": "Motion three"
+          }
+        }
+      },
+      "wait": 0.8
     },
     {
       "title": "Paused and stepped one frame",
@@ -139,6 +195,16 @@
       "shot": false,
       "record": "file",
       "resultFile": "records"
+    },
+    {
+      "title": "Show Home for the stills (a New Tab page names the capture host)",
+      "cmux": [
+        "action",
+        "run",
+        "home.show"
+      ],
+      "wait": 2,
+      "shot": false
     }
   ]
 }
