@@ -10,24 +10,27 @@
 
 use serde_json::{Map, Value, json};
 
-/// The selectors above a browser, which a `current` browser chain fills.
-const PARENTS: [&str; 4] = ["workspace", "screen", "pane", "tab"];
+/// The selectors above a browser, which a `current` browser chain fills,
+/// with the prefix of the daemon id each takes.
+const PARENTS: [(&str, &str); 4] =
+    [("workspace", "ws_"), ("screen", "screen_"), ("pane", "pane_"), ("tab", "tab_")];
 
 /// Whether `params` names the `current` browser with nothing but `current`
 /// (or nothing) above it.
 pub(super) fn wants(params: &Map<String, Value>) -> bool {
     params.get("browser").and_then(Value::as_str) == Some("current")
-        && PARENTS
-            .iter()
-            .all(|scope| params.get(*scope).is_none_or(|value| value.as_str() == Some("current")))
+        && PARENTS.iter().all(|(scope, _)| {
+            params.get(*scope).is_none_or(|value| value.as_str() == Some("current"))
+        })
 }
 
 /// Puts the place of the app's `browser` (from `system.identify`: its
 /// workspace, screen, pane and tab) in place of the `current` chain of
 /// `params`. `Ok(false)` leaves `params` as they are: the app does not place
-/// the caller, or it is an app from before #26648 that reports no
-/// `browser`. An error when the caller has no browser near it, or that
-/// browser is in another session than the request's.
+/// the caller, it is an app from before #26648 that reports no `browser`,
+/// or that browser's place is not four daemon ids. An error when the caller
+/// has no browser near it, or that browser is in another session than the
+/// request's.
 pub(super) fn apply(params: &mut Map<String, Value>, identity: &Value) -> Result<bool, Value> {
     let caller = &identity["caller"];
     let workspace = caller.get("workspace").and_then(Value::as_str);
@@ -58,11 +61,18 @@ pub(super) fn apply(params: &mut Map<String, Value>, identity: &Value) -> Result
     }
     // The daemon reads a `current` browser only below a full chain of
     // workspace, screen, pane and tab, so all four name that browser's place.
-    for scope in PARENTS {
-        match browser.get(scope).and_then(Value::as_str) {
-            Some(id) => params.insert(scope.into(), Value::String(id.to_owned())),
-            None => params.remove(scope),
-        };
+    // A place without four daemon ids (an app that reports no screen, a
+    // daemon without resource ids) keeps the chain as it was.
+    let place: Option<Vec<(&str, &str)>> = PARENTS
+        .iter()
+        .map(|(scope, prefix)| {
+            let id = browser.get(*scope).and_then(Value::as_str)?;
+            id.starts_with(prefix).then_some((*scope, id))
+        })
+        .collect();
+    let Some(place) = place else { return Ok(false) };
+    for (scope, id) in place {
+        params.insert(scope.into(), Value::String(id.to_owned()));
     }
     Ok(true)
 }
@@ -129,6 +139,14 @@ mod tests {
         let mut kept = chain.clone();
         assert_eq!(apply(&mut kept, &json!({"caller": {"found": false}})), Ok(false));
         assert_eq!(apply(&mut kept, &json!({"caller": {"workspace": "ws_mine"}})), Ok(false));
+        // A place the daemon cannot name by id: no screen, or a surface fallback id.
+        let partial = json!({"caller": {"workspace": "ws_mine"},
+            "browser": {"tab": "tab_near", "pane": "pane_b", "workspace": "ws_mine", "session": null}});
+        assert_eq!(apply(&mut kept, &partial), Ok(false));
+        let fallback = json!({"caller": {"workspace": "ws_mine"},
+            "browser": {"tab": "surface:4", "pane": "pane:2", "screen": "screen_a",
+                        "workspace": "ws_mine", "session": null}});
+        assert_eq!(apply(&mut kept, &fallback), Ok(false));
         assert_eq!(kept, chain);
     }
 }
