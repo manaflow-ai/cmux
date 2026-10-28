@@ -60,6 +60,17 @@ struct CloudDeliverSecretsTests {
         }
     }
 
+    /// The verb is there for an own machine with no Cloud workspace open: a `--target machine:` run
+    /// implies the context the catalog requires, and the handler (not the catalog) decides.
+    @Test func anOwnMachineTargetIsAvailableWithoutACloudWorkspace() throws {
+        let f = CloudCLITargetTests.fixture()
+        _ = try TabMachineColorTests.sshMachine(f.services.machines)
+        let registry = ActionRegistry(catalog: f.services.registry.descriptors)
+        #expect(!registry.context.contains(.cloudWorkspace))
+        let run = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "lab"), origin: .cli)
+        #expect(registry.isAvailable("cloudDeliverSecrets", for: run))
+    }
+
     @Test func aPeerIsDeliveredToOverItsSSHRouteOnly() throws {
         let peers = [AcpmuxPeerList.Peer(name: "dev-box", connected: true, url: "ssh://ann@dev-box:47811"),
                      AcpmuxPeerList.Peer(name: "tail-box", connected: true, url: "ws://100.64.0.9:47811"),

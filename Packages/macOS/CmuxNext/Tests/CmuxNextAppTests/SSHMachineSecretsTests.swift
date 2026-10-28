@@ -48,14 +48,13 @@ struct SSHMachineSecretsTests {
 
     /// The whole delivery over the stand-in ssh: the receiver writes the file (0600) with the values,
     /// removes its ticket, and answers with the token only it can make.
-    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/sbin/sha256sum")
-                   || FileManager.default.isExecutableFile(atPath: "/usr/bin/sha256sum")))
-    func aDeliveryOverSSHWritesTheMachinesSecretsFile() async throws {
+    /// The stand-in's PATH has no sha256sum, so the receiver takes macOS's shasum, as on a Mac.
+    @Test func aDeliveryOverSSHWritesTheMachinesSecretsFile() async throws {
         let home = try Self.scratchHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let ssh = try Self.standInSSH(in: home)
         let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "ann@own-machine"),
-                                          environment: ["HOME": home.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                                          environment: ["HOME": home.path, "PATH": "/usr/bin:/bin"],
                                           commandLine: SSHCommandLine(sshBinary: ssh.path))
         let values = [(name: "API_KEY", value: "sk-live-1'23"), (name: "DATABASE_URL", value: "postgres://u:p@db/app")]
         let count = try await CloudMachineSecrets.deliver(values, over: link, receiverAt: SSHMachineSecrets.receiverPath,
@@ -81,6 +80,24 @@ struct SSHMachineSecretsTests {
             _ = try await CloudMachineSecrets.deliver([(name: "API_KEY", value: "sk-live-123")], over: link,
                                                       receiverAt: SSHMachineSecrets.receiverPath, ticketAt: SSHMachineSecrets.ticketPath)
         }
+    }
+
+    /// An ssh that stops reading (a stalled link, a receiver gone after READY) ends the typing at its
+    /// deadline instead of holding the delivery.
+    @Test func aStalledSSHEndsTheTypingAtItsDeadline() async throws {
+        let home = try Self.scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = home.appendingPathComponent("ssh")
+        try "#!/bin/sh\necho ready\nexec sleep 30\n".write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ssh.path)
+        let run = try SSHPTYRun([ssh.path], environment: ["PATH": "/usr/bin:/bin"])
+        defer { run.stop() }
+        _ = try await run.waitFor("ready", seconds: 10)
+        let started = ContinuousClock.now
+        await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) {
+            try await run.type(Data(repeating: 0x41, count: 1 << 20), seconds: 1)
+        }
+        #expect(ContinuousClock.now - started < .seconds(10))
     }
 
     // MARK: Helpers

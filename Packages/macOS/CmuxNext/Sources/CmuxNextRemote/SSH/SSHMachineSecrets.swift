@@ -144,6 +144,9 @@ final class SSHPTYRun: Sendable {
         input = stdinPipe.fileHandleForWriting.fileDescriptor
         // A write after ssh ended fails with EPIPE instead of signalling the app.
         _ = fcntl(input, F_SETNOSIGPIPE, 1)
+        // Writes never block: a stalled ssh (a full channel, a receiver gone after READY) ends the
+        // write at its deadline instead of holding the delivery forever (``type(_:seconds:)``).
+        _ = fcntl(input, F_SETFL, fcntl(input, F_GETFL) | O_NONBLOCK)
         let output = OutputBuffer(), fd = stdoutPipe.fileHandleForReading.fileDescriptor
         self.output = output
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -183,19 +186,27 @@ final class SSHPTYRun: Sendable {
         }
     }
 
-    /// Writes `bytes` to ssh's stdin, all of them, off the caller's thread (the pipe blocks while the
-    /// receiver reads). Throws when ssh ended or the run was stopped.
-    @concurrent func type(_ bytes: Data) async throws {
-        guard !running.withLock({ $0.stopped }) else { throw CloudMachineSecrets.DeliveryFailed(reason: "eof") }
+    /// Writes `bytes` to ssh's stdin, all of them, off the caller's thread. Throws when ssh ended, the
+    /// run was stopped, or ssh took no bytes for `seconds` (the pipe stays full: a stalled link).
+    @concurrent func type(_ bytes: Data, seconds: Int = 60) async throws {
         let fd = input
         let wroteAll: Bool = bytes.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return true }
-            var offset = 0
+            var offset = 0, waited = 0
             while offset < raw.count {
+                guard !self.running.withLock({ $0.stopped }) else { return false }
                 let wrote = Darwin.write(fd, base + offset, raw.count - offset)
-                if wrote < 0, errno == EINTR { continue }
-                guard wrote > 0 else { return false }
-                offset += wrote
+                if wrote > 0 { offset += wrote; waited = 0; continue }
+                guard wrote < 0, errno == EINTR || errno == EAGAIN else { return false }
+                if errno == EINTR { continue }
+                // Full: wait for room in slices of at most a second, so a stop is seen soon.
+                guard waited < seconds * 1000 else { return false }
+                var ready = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                let slice = Int32(min(1000, seconds * 1000 - waited))
+                let polled = poll(&ready, 1, slice)
+                if polled < 0, errno != EINTR { return false }
+                if polled > 0, ready.revents & Int16(POLLERR | POLLHUP | POLLNVAL) != 0 { return false }
+                if polled == 0 { waited += Int(slice) }
             }
             return true
         }

@@ -355,7 +355,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
 
     /// The receiver (`~/.cmux/machine-config/receive-secrets`, run with `sh`). It replaces the whole
     /// file, so a removed or renamed secret goes too; the payload stays in a 0700 temporary folder
-    /// that is removed on every exit. It needs nothing but sh, stty, base64 and mktemp.
+    /// that is removed on every exit. It needs nothing but sh, stty, base64, mktemp and sha256sum or shasum.
     public static let receiver = #"""
         #!/bin/sh
         # cmux secret receiver, written by the cmux app (cmux cloud deliver-secrets). Values arrive
@@ -383,6 +383,9 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         trap cleanup EXIT
         trap 'echo "CMUX-SECRETS-ERR interrupted"; exit 1' INT HUP TERM
         stty -echo 2>/dev/null || { echo "CMUX-SECRETS-ERR no-tty"; exit 1; }
+        # SHA-256 and base64 decoding as Linux (coreutils) or macOS (shasum, base64 -D) spell them.
+        digest() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+        unbase64() { if printf 'eA==' | base64 -d >/dev/null 2>&1; then base64 -d; else base64 -D; fi; }
         case "$nonce" in ''|*[!0-9A-Fa-f]*) echo "CMUX-SECRETS-ERR nonce"; exit 1 ;; esac
         case "$mackey" in ''|*[!0-9A-Fa-f]*) echo "CMUX-SECRETS-ERR nonce"; exit 1 ;; esac
         echo "CMUX-SECRETS-READY $nonce"
@@ -398,9 +401,9 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         done
         [ "${line:-}" = "CMUX-SECRETS-END $mackey" ] || { echo "CMUX-SECRETS-ERR eof"; exit 1; }
         # Only what the app typed: the key never reached a screen, so nobody else could make this match.
-        want=$({ printf '%s\n' "$mackey"; cat "$tmp/b64"; } | sha256sum | cut -d' ' -f1)
+        want=$({ printf '%s\n' "$mackey"; cat "$tmp/b64"; } | digest | cut -d' ' -f1)
         [ -n "$mac" ] && [ "$mac" = "$want" ] || { echo "CMUX-SECRETS-ERR bad-mac"; exit 1; }
-        base64 -d < "$tmp/b64" > "$tmp/pairs" 2>/dev/null || { echo "CMUX-SECRETS-ERR bad-base64"; exit 1; }
+        unbase64 < "$tmp/b64" > "$tmp/pairs" 2>/dev/null || { echo "CMUX-SECRETS-ERR bad-base64"; exit 1; }
         n=0
         : > "$tmp/env"
         while IFS= read -r pair || [ -n "$pair" ]; do
@@ -422,7 +425,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         sync "$tmp/env" 2>/dev/null || true
         mv -f "$tmp/env" "$out" || { echo "CMUX-SECRETS-ERR write"; exit 1; }
         # Proof that this receiver, which holds the key, wrote the set: an OK typed by anyone else lacks it.
-        tok=$(printf '%s\nok %s' "$mackey" "$n" | sha256sum | cut -c1-32)
+        tok=$(printf '%s\nok %s' "$mackey" "$n" | digest | cut -c1-32)
         echo "CMUX-SECRETS-OK $n $tok"
         """#
 }
