@@ -5180,8 +5180,23 @@ function AcpmuxPane() {
   // Consecutive received agent messages stay quiet until opened as one fold. The card keeps the
   // original rows inside it, so each sender's shared presentation and actions remain unchanged.
   const lastAgentMessageRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const lastAgentMessageInput = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const agentMessageRows = useMemo(() => {
+    const previousInput = lastAgentMessageInput.current;
+    const tail = turnRowsShown.at(-1);
+    // Assistant streaming updates do not alter a received-message run. Keep the previous grouping
+    // without another transcript pass; a newly delivered message is a user tail and takes the slow
+    // path below. This keeps the message fold out of the per-token transcript path.
+    if (
+      previousInput &&
+      lastAgentMessageRows.current &&
+      previousInput.length === turnRowsShown.length &&
+      previousInput.at(-1) === tail &&
+      !(tail?.kind === "user" && tail.incoming?.kind === "message")
+    )
+      return lastAgentMessageRows.current;
     const grouped = groupAgentMessages(turnRowsShown, lastAgentMessageRows.current);
+    lastAgentMessageInput.current = turnRowsShown;
     lastAgentMessageRows.current = grouped;
     return grouped;
   }, [turnRowsShown]);
