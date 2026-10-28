@@ -5704,6 +5704,14 @@ export class AcpmuxDirectClient {
   async forumRules(): Promise<unknown> {
     return this.request("_acpmux/forum/rules", {});
   }
+  /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
+  /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  async sessionAuth(
+    query: { sessionId: string } | { target: { harness: string; host?: string; routeId?: string } },
+    refresh = false,
+  ): Promise<unknown> {
+    return this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+  }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
   async routes(sessionId: string): Promise<unknown> {
