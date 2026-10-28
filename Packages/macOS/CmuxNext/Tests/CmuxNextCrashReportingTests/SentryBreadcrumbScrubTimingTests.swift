@@ -51,11 +51,16 @@ import Testing
     /// The reporter's own sends (a failure, a non-fatal guard) run `SentrySDK.capture`, so `beforeSend` and its
     /// breadcrumb scrub, on the delivery queue: called from main, the send runs off main.
     @Test @MainActor func aSendFromMainRunsOffMain() async {
-        #expect(Thread.isMainThread)
+        let reporter = CrashReporter(policy: Self.policy, hangTracking: .watchdog)
         let offMain = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            CrashReporter(policy: Self.policy, hangTracking: .watchdog).deliver { done.resume(returning: !Thread.isMainThread) }
+            Self.send(on: reporter) { done.resume(returning: $0) }
         }
         #expect(offMain, "the send ran on the main thread")
+    }
+
+    /// Calls `deliver` from the caller's thread (main here) and reports whether the send ran off main.
+    private static func send(on reporter: CrashReporter, _ ranOffMain: @escaping @Sendable (Bool) -> Void) {
+        reporter.deliver { ranOffMain(!Thread.isMainThread) }
     }
 
     /// A non-fatal guard sent from the delivery queue still carries its caller's stack (taken where it was
