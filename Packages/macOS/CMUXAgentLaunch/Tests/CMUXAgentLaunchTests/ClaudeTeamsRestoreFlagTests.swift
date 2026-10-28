@@ -486,10 +486,24 @@ struct ClaudeTeamsRestoreFlagTests {
             AgentLaunchSanitizer.sanitizedLaunchArguments(launch, launcher: "claudeTeams", fallbackKind: "claude")
                 == launch
         )
-        let direct = ["/usr/local/bin/claude", "--model", "opus"] + option + ["--effort", "high"]
+        let direct = ["/usr/local/bin/claude", "--model", "opus"] + option
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(direct, launcher: "claude", fallbackKind: "claude")
                 == direct
+        )
+    }
+
+    @Test(arguments: ["claudeTeams", "claude"])
+    func dropsTrailingValueOptionLeftByTruncatedRecord(launcher: String) {
+        let launch = launcher == "claudeTeams"
+            ? ["/Applications/cmux.app/Contents/Resources/bin/cmux", "claude-teams", "--model", "opus"]
+            : ["/usr/local/bin/claude", "--model", "opus"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                launch + ["--autocompact"],
+                launcher: launcher,
+                fallbackKind: "claude"
+            ) == launch
         )
     }
 }
