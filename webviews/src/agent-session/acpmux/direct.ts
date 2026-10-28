@@ -1845,24 +1845,15 @@ export class AcpmuxDirectClient {
           const kept = await this.keepPeerCopy(sessionId, generation, error);
           // The chat could not be read: a tail drawn from the host must not stay on screen as if
           // this page had read the chat, here as in `select` — and the pane has to be told, or it
-          // keeps drawing the snapshot that carried those rows.
+          // keeps drawing the snapshot that carried those rows. A cold open drew none, but the
+          // records that came live before its attach failed are not read either (`dropUnread`).
           if (
             !kept &&
-            keptThrough > 0 &&
+            (keptThrough > 0 || (resumeAfter === 0 && this.lastSeq > 0)) &&
             generation === this.selectionGeneration &&
             this.selectedSessionId === sessionId
-          ) {
-            forgetTail(sessionId);
-            this.peerCopy = undefined;
-            this.copyLive = undefined;
-            this.events = [];
-            this.queue = [];
-            // Those rows are off screen again, so the frame the host shows is the failure, not a
-            // chat: it fades in as any first draw of a chat does.
-            this.drewKeptTail = false;
-            this.rebuild();
-            this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
-          }
+          )
+            this.dropUnread(sessionId);
           if (!kept) throw error;
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
@@ -2198,10 +2189,28 @@ export class AcpmuxDirectClient {
       if (mine !== this.copyAttaches) return;
       if (await this.keepPeerCopy(sessionId, generation, error)) return;
       if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+        this.dropUnread(sessionId);
     } finally {
       this.releaseSnapshots(hold);
     }
+  }
+
+  /// The chat's attach failed: nothing on screen was read from it, so nothing stays. A tail drawn
+  /// from the host or the Mac's copy goes, and so do the live records the attach streamed before it
+  /// failed (`eventStream`): `apply` took them and moved `lastSeq` past them, and the next attach
+  /// would resume after them, as if the history before them had been read. The cursors go with
+  /// them (`rebuild`), so that attach reads the chat from nothing; the pane says it could not.
+  private dropUnread(sessionId: string): void {
+    forgetTail(sessionId);
+    this.peerCopy = undefined;
+    this.copyLive = undefined;
+    this.events = [];
+    this.queue = [];
+    // Those rows are off screen again, so the frame the host shows is the failure, not a chat: it
+    // fades in as any first draw of a chat does.
+    this.drewKeptTail = false;
+    this.rebuild();
+    this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
   }
 
   /// After a copy was marked offline: its row said the machine was back while the copy's attach
@@ -6078,16 +6087,13 @@ export class AcpmuxDirectClient {
       if (await this.keepPeerCopy(sessionId, generation, error)) return sessionId;
       // The chat could not be read: a tail drawn from this page's own memory must not stay on
       // screen as if it were the chat, so the pane drops it and says it could not read the chat.
-      if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
-        forgetTail(sessionId);
-        this.peerCopy = undefined;
-        this.copyLive = undefined;
-        this.events = [];
-        this.queue = [];
-        this.drewKeptTail = false;
-        this.rebuild();
-        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
-      }
+      // With no tail drawn, the records that came live before the attach failed go the same way.
+      if (
+        (keptThrough > 0 || this.lastSeq > 0) &&
+        generation === this.selectionGeneration &&
+        this.selectedSessionId === sessionId
+      )
+        this.dropUnread(sessionId);
       throw error;
     } finally {
       this.releaseSnapshots(hold);
