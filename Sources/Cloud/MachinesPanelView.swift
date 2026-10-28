@@ -680,9 +680,7 @@ struct MachinesPanelView: View {
             return
         }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
-        let addGeneration = coderouterStore.beginAddTask()
-
-        Task { @MainActor in
+        coderouterStore.startAddTask { @MainActor addGeneration in
             guard coderouterStore.isCurrentAddTask(addGeneration) else { return }
             let sessionDirectory: URL
             do {

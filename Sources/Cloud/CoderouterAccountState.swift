@@ -253,6 +253,7 @@ final class CoderouterAccountStore {
     var refreshRequest = 0
     @ObservationIgnored let lane = CoderouterCLIOperationLane.shared
     @ObservationIgnored private var addGeneration: UInt64 = 0
+    @ObservationIgnored private var addTask: Task<Void, Never>?
 
     @ObservationIgnored private var scopeChangeObserver: NSObjectProtocol?
 
@@ -294,7 +295,22 @@ final class CoderouterAccountStore {
         return addGeneration
     }
 
+    /// Starts the caller-owned Add Account operation. Scope changes and view
+    /// disappearance cancel this task, while the generation still fences any
+    /// result that races cancellation.
+    func startAddTask(_ operation: @escaping @MainActor (UInt64) async -> Void) {
+        cancelAddTask()
+        let generation = beginAddTask()
+        addTask = Task { @MainActor [weak self] in
+            await operation(generation)
+            guard let self, self.isCurrentAddTask(generation) else { return }
+            self.addTask = nil
+        }
+    }
+
     func cancelAddTask() {
+        addTask?.cancel()
+        addTask = nil
         addGeneration &+= 1
     }
 
