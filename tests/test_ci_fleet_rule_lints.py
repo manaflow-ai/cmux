@@ -84,8 +84,12 @@ def read_text(rel: str) -> str | None:
         return None
 
 
+PROSE_SUFFIXES = (".md", ".mdx", ".txt", ".rst", ".adoc")
+
+
 def prose(rel: str) -> bool:
-    return rel.endswith(".md") or rel.startswith("docs/")
+    """Prose by extension only: a script or code file under docs/ is still checked."""
+    return rel.endswith(PROSE_SUFFIXES)
 
 
 # No file in this repository may read the fleet sudo item, and none outside prose may name it. Fixed here,
@@ -114,6 +118,8 @@ LOOKUP_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=[\"']?(?:\$\(|`)\s*(?:sudo
 def pkill_lines(text: str) -> int:
     """pkill/killall occurrences, plus each kill fed by a name lookup: a line with both pgrep/pidof and kill,
     a pgrep/pidof piped into a loop, and a kill of a variable a pgrep/pidof filled."""
+    # A pipeline continued after a trailing | or a backslash is one logical line.
+    text = re.sub(r"(\\|\|)[ \t]*\n\s*", lambda m: " " if m.group(1) == "\\" else "| ", text)
     n = len(PKILL.findall(text))
     lookup_vars: set[str] = set()
     piped = False  # inside `pgrep ... | while read` until its `done`
@@ -125,7 +131,7 @@ def pkill_lines(text: str) -> int:
             if re.search(r"\|\s*while\b", line):
                 piped = True
             if not PKILL.search(line):
-                n += max(kills, 1 if piped else 0)
+                n += kills
             continue
         if piped:
             n += kills
@@ -141,7 +147,8 @@ def pkill_lines(text: str) -> int:
             j = i
             while j > 0 and not re.search(r"\bwhile\b", lines[j]):
                 j -= 1
-            n += sum(len(KILL_WORD.findall(l)) for l in lines[j:i + 1] if not LOOKUP.search(l) or l is line)
+            # The lookup line itself was counted above.
+            n += sum(len(KILL_WORD.findall(l)) for l in lines[j:i + 1] if not LOOKUP.search(l))
     return n
 
 
@@ -229,20 +236,26 @@ class FleetRuleLints(unittest.TestCase):
         allowed = self.allow.get(rule, {})
         found = self.found[rule]
         problems = []
+        # An allowlist-only change may raise an entry ahead of the code that uses it (the allowlist-first
+        # workflow): those entries may sit above their current count, or match nothing yet.
+        ahead = set()
+        if self.base is not None and only_the_allowlist_changed():
+            old = self.base.get(rule, {})
+            ahead = {rel for rel, e in allowed.items() if e.get("count", 0) > old.get(rel, {}).get("count", 0)}
         for rel, n in sorted(found.items()):
             entry = allowed.get(rel)
             if entry is None:
                 problems.append(f"{rel}: {n} new line(s) match; {HOW[rule]}")
             elif n > entry["count"]:
                 problems.append(f"{rel}: {n} matching lines, allowlist says {entry['count']}: a new one; {HOW[rule]}")
-            elif n < entry["count"]:
+            elif n < entry["count"] and rel not in ahead:
                 problems.append(f"{rel}: {n} matching lines, allowlist says {entry['count']}: lower the count in "
                                 f"tests/fleet-rule-allowlist.json (it only shrinks)")
         for rel, entry in sorted(allowed.items()):
             count = entry.get("count")
             if type(count) is not int or count < 1:
                 problems.append(f"{rel}: allowlist count must be a positive integer, not {count!r}")
-            if rel not in found:
+            if rel not in found and rel not in ahead:
                 problems.append(f"{rel}: allowlisted but no longer matches; remove its entry")
             if not str(entry.get("reason", "")).strip():
                 problems.append(f"{rel}: allowlist entry has no reason")
@@ -317,6 +330,15 @@ class Patterns(unittest.TestCase):
         self.assertEqual(big_red_lines("bigredundant"), 0)
         self.assertEqual(big_red_lines("a smaller green landing beats a big red one"), 0)
         self.assertTrue(prose("knowledge/x.md") and prose("docs/a.txt") and not prose("scripts/a.sh"))
+        self.assertFalse(prose("docs/tool.py") or prose("docs/run.sh"))
+
+    def test_pkill_counts_each_kill_once(self):
+        self.assertEqual(pkill_lines('pgrep -f worker | while read -r p; do\n  printf "%s\\n" "$p"\ndone'), 0)
+        self.assertEqual(pkill_lines('pgrep -f worker | while read -r p; do\n  kill "$p"\ndone'), 1)
+        self.assertEqual(pkill_lines('while read -r p; do kill "$p"; done < <(pgrep -f worker)'), 1)
+        self.assertEqual(pkill_lines('while read -r p; do\n  kill "$p"\ndone < <(pgrep -f worker)'), 1)
+        self.assertEqual(pkill_lines('pgrep -f worker |\n  while read -r p; do\n  kill "$p"\ndone'), 1)
+        self.assertEqual(pkill_lines('pgrep -f worker \\\n  | xargs kill'), 1)
 
 
 if __name__ == "__main__":
