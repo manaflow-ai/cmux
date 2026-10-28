@@ -309,7 +309,7 @@ public struct ControlCatalog: Sendable {
     /// `unavailable` before the handler runs.
     static func deferredToRegistry(byTargetKind kind: ActionTargetKind?) -> ActionContext {
         switch kind {
-        case .pane, .tab: [.agentPaneFocused, .canvasLayout]
+        case .pane, .tab: .decidedByPaneOrTabTarget
         default: []
         }
     }

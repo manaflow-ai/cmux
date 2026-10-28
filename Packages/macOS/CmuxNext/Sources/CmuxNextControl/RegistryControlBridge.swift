@@ -188,7 +188,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
         let invocation = Self.invocation(request)
-        guard registry.isAvailable(id, for: invocation) else { return .unavailable }
+        guard registry.isAvailable(id, forScript: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
@@ -198,14 +198,14 @@ public final class RegistryControlBridge: ControlActionExecutor {
     }
 
     /// The first of `requests` `performAction` would answer `.unavailable` now (its target's
-    /// live facts, `ActionRegistry.targetContext`, included). Requests refused for another
+    /// live facts, `ActionRegistry.isAvailable(_:forScript:)`, included). Requests refused for another
     /// reason (unknown, unbound, turned off, person only) answer that when they run.
     public func firstUnavailable(_ requests: [ControlActionRequest]) -> Int? {
         requests.firstIndex { request in
             let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
             guard registry.action(for: id) != nil, registry.disabledFeature(for: id) == nil,
                   registry.descriptor(for: id)?.isPersonOnly != true, registry.unavailableReason(for: id) == nil else { return false }
-            return !registry.isAvailable(id, for: Self.invocation(request))
+            return !registry.isAvailable(id, forScript: Self.invocation(request))
         }
     }
 

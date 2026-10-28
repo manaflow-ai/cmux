@@ -255,4 +255,31 @@ struct AgentChatTargetAppTests {
         #expect(value["ran"] == 2, "\(value)")
         #expect(rig.controller.sidebar.model.isHidden != hidden, "Toggle Sidebar did not apply")
     }
+
+    /// Another agent chat or a canvas has the keyboard (the global context has
+    /// `agentPaneFocused` and `canvasLayout`): a script's target still decides its own facts.
+    /// Set Agent Chat Model on the terminal pane, and Canvas Zoom In on a pane on no canvas,
+    /// are refused alone and in a batch with nothing applied; the chat pane still runs.
+    @Test func aFocusedChatOrCanvasElsewhereDoesNotStandInForTheTarget() async throws {
+        let rig = try await Rig()
+        defer { rig.tearDown() }
+        rig.services.registry.context.formUnion([.agentPaneFocused, .canvasLayout])
+        await expectRefusedAloneAndInABatch("pane:\(rig.terminal.paneKey)", rig, topology: nil)
+        await expectRefusedAloneAndInABatch("tab:\(rig.behindTab)", rig, topology: nil)
+
+        let hidden = rig.controller.sidebar.model.isHidden
+        let zoom = await rig.batchAfterToggleSidebar(["action": "canvasZoomIn", "target": .string("pane:\(rig.terminal.paneKey)")], topology: nil)
+        guard case .failure(let error) = zoom else {
+            Issue.record("a zoom on a pane on no canvas ran: \(zoom)")
+            return
+        }
+        #expect(error.code == "unavailable", "\(error)")
+        #expect(error.data?["not_run"] == true, "\(error)")
+        #expect(rig.controller.sidebar.model.isHidden == hidden, "Toggle Sidebar applied before the refused zoom")
+
+        guard case .success = await rig.setModel("pane:\(rig.chat.paneKey)", topology: nil) else {
+            Issue.record("the chat pane was refused with a chat focused")
+            return
+        }
+    }
 }

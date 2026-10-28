@@ -89,4 +89,8 @@ extension ActionContext {
         default: []
         }
     }
+
+    /// The facts a `pane:` or `tab:` target brings itself (`ActionRegistry.targetContext`):
+    /// whether it is an agent chat, and whether it sits on a canvas screen.
+    public nonisolated static let decidedByPaneOrTabTarget: ActionContext = [.agentPaneFocused, .canvasLayout]
 }
