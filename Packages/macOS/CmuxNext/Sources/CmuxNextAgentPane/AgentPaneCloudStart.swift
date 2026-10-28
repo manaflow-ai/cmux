@@ -1,20 +1,20 @@
 public import Foundation
 
-/// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send with Cloud picked
+/// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
 /// machine sized for the chat, copies the chat's folder there, starts the chat there with this
 /// prompt and shows it, with no machine, size or environment prompt (``AgentPaneModel/onCloudStartChat``).
 public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The person's first prompt (never logged).
     public var task: String
-    /// The chat's folder on this Mac, absolute.
-    public var cwd: String
+    /// The chat's folder on this Mac, absolute; nil: the tab's own folder.
+    public var cwd: String?
     public var harness: String?
     public var model: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
 
-    public init(task: String, cwd: String, harness: String? = nil, model: String? = nil, key: String) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
     }
 
@@ -27,10 +27,11 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         }
         guard let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
-              let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0"), cwd.count <= 4096,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model") else { return nil }
-        self.init(task: task, cwd: cwd, harness: harness, model: model, key: key)
+        let cwd = params?["cwd"]
+        if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
     }
 }
 

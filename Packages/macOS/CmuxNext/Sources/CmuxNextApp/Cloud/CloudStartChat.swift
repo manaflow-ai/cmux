@@ -56,12 +56,12 @@ struct CloudStartChat {
 
     /// The start; returns the machine's name.
     private func run(_ start: AgentPaneCloudStart, tab: TabModel) async throws -> String {
-        guard let folder = CloudMoveFolder(chat: start.cwd) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
+        guard let chat = start.cwd ?? tab.cwd, let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let move = CloudMove(services: services)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
-        let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: start.cwd, tab: tab) }
+        let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))

@@ -76,5 +76,7 @@ struct AgentPaneCloudStartTests {
         let reply = await model.respond(to: Self.start(Self.good))
         #expect(reply["ok"] as? Bool != true)
         #expect(AgentPaneCloudStart(params: ["task": "t", "cwd": "/a", "key": UUID().uuidString])?.harness == nil)
+        // No folder from the page: the tab's own folder, on the App side.
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString])?.cwd == nil)
     }
 }
