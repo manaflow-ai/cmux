@@ -7,13 +7,14 @@
 //! cloud downloads go through short-lived signed URLs kept here for reuse.
 
 use std::fs;
-use std::io::Read;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::{
     Attachments, MAX_UPLOADS, PendingPiece, Piece, Sink, StoredAttachment, UploadDeclaration,
     declared_record, hex_digest, refused,
 };
+use crate::cloud_conversations::PutBody;
 use crate::conversation_store::ConversationStore;
 
 /// A signed cloud download URL is reused this long (the owner signs for 10 minutes).
@@ -22,8 +23,8 @@ const URL_REUSE: Duration = Duration::from_secs(8 * 60);
 const MAX_URLS: usize = 1_024;
 
 /// A cloud upload whose bytes are complete and match their hashes, taken
-/// out of the store (its partial files are read with [`CloudUpload::bytes`]
-/// after the store lock is released).
+/// out of the store (its partial files are opened with
+/// [`CloudUpload::bodies`] after the store lock is released).
 pub(crate) struct CloudUpload {
     pub conversation: String,
     /// The owner's upload plan (its intent answer).
@@ -32,25 +33,35 @@ pub(crate) struct CloudUpload {
     pieces: Vec<PendingPiece>,
 }
 
+/// The partial files of a taken cloud upload, removed when this drops (after
+/// their bodies were sent, or when one could not be opened).
+pub(crate) struct PartialFiles(Vec<PathBuf>);
+
+impl Drop for PartialFiles {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 impl CloudUpload {
-    /// The verified bytes of each piece. Every partial file is removed, also
-    /// when a read fails.
-    pub(crate) fn bytes(self) -> anyhow::Result<Vec<(Piece, Vec<u8>)>> {
+    /// Each piece as an upload body. A partial file is opened for streaming,
+    /// never read whole, so an original of any size stays on disk.
+    pub(crate) fn bodies(self) -> anyhow::Result<(Vec<(Piece, PutBody)>, PartialFiles)> {
         let mut out = Vec::with_capacity(self.pieces.len());
+        let mut partial = PartialFiles(Vec::new());
         let mut failure = None;
         for piece in self.pieces {
             let kind = piece.piece;
             match piece.sink {
-                Sink::Memory(bytes) => out.push((kind, bytes)),
+                Sink::Memory(bytes) => out.push((kind, PutBody::Bytes(bytes))),
                 Sink::File { path, file } => {
                     drop(file);
-                    let mut bytes = Vec::new();
-                    let read =
-                        fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
-                    let _ = fs::remove_file(&path);
-                    match read {
-                        Ok(_) if failure.is_none() => out.push((kind, bytes)),
-                        Ok(_) => {}
+                    let opened = fs::File::open(&path);
+                    partial.0.push(path);
+                    match opened {
+                        Ok(file) => out.push((kind, PutBody::File { file, len: piece.byte_count })),
                         Err(error) => failure = failure.or(Some(error)),
                     }
                 }
@@ -58,7 +69,7 @@ impl CloudUpload {
         }
         match failure {
             Some(error) => Err(error.into()),
-            None => Ok(out),
+            None => Ok((out, partial)),
         }
     }
 }
