@@ -1,4 +1,4 @@
-import CmuxNextCompat
+@testable import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -31,14 +31,11 @@ struct QueuedEditDraftTests {
             try? FileManager.default.removeItem(at: directory)
             try? FileManager.default.removeItem(at: legacy)
         }
-        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
-        let store = AgentPaneQueuedEdits(directory: directory)
-        try await store.set(session: "session-a", prompt: "queue-a", value: draft("owned"))
-        try await store.clear(session: "session-a", prompt: "queue-a", revision: "owned")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let queueFile = directory.appending(path: AgentPaneQueuedEdits.fileName)
+        let current = JSONValue.object(["session-a": .object(["queue-a": draft("owned")])])
+        try Data(current.compactText.utf8).write(to: queueFile)
         let ownership = directory.appending(path: ".adopted-v1-\(AgentPaneQueuedEdits.fileName)")
-        #expect(!FileManager.default.fileExists(atPath: queueFile.path))
-        #expect(FileManager.default.fileExists(atPath: ownership.path))
         let legacyFile = legacy.appending(path: AgentPaneQueuedEdits.fileName)
         try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
         let old = ["session-a": ["queue-a": [
@@ -46,8 +43,29 @@ struct QueuedEditDraftTests {
             "text": "stale legacy edit", "droppedImages": ["image-a"],
         ]]] as [String: Any]
         try JSONSerialization.data(withJSONObject: old).write(to: legacyFile)
+        DraftStateMigration.adopt(from: [legacy], to: directory, renameItem: { _, _, _ in -1 }) {
+            try FileManager.checked.copyItem(at: $0, to: $1)
+        }
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: ".adopted-v1").path))
+        try await AgentPaneQueuedEdits(directory: directory).clear(session: "session-a", prompt: "queue-a", revision: "owned")
+        #expect(!FileManager.default.fileExists(atPath: queueFile.path))
+        #expect(FileManager.default.fileExists(atPath: ownership.path))
         DraftStateMigration.adopt(from: [legacy], to: directory)
         #expect(try await AgentPaneQueuedEdits(directory: directory).read(session: "session-a") == .object([:]))
+    }
+
+    @Test func markerFailureLeavesCurrentDraftIntact() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentPaneQueuedEdits(directory: directory)
+        try await store.set(session: "s", prompt: "p", value: draft("current"))
+        let marker = directory.appending(path: ".adopted-v1-\(AgentPaneQueuedEdits.fileName)")
+        try FileManager.default.removeItem(at: marker)
+        try FileManager.default.createDirectory(at: marker, withIntermediateDirectories: false)
+        await #expect(throws: (any Error).self) {
+            try await store.clear(session: "s", prompt: "p", revision: "current")
+        }
+        #expect(try await store.read(session: "s") == .object(["p": draft("current")]))
     }
 
     @Test func olderAcknowledgementCannotClearNewerTyping() async throws {

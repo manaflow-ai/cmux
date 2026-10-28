@@ -786,7 +786,6 @@ test("an edit pulled back while its images load, from a row that turned out a te
   expect(touched).toEqual([]);
 });
 
-// Each build gets a new page origin; only the native draft directory is shared.
 function draftHost(readDelay?: Promise<void>, rejectedWrites = 0, rejectText?: string) {
   const saved = new Map<string, Record<string, any>>();
   Object.assign(dom!.window, {
@@ -894,14 +893,11 @@ test("a refused native save retries once per swap or quit and keeps the newest e
   const kept = draftHost(undefined, 2, "retry the newest text");
   await startEdit(container, "p-1");
   await typeQueueEdit(container, "retry the newest text");
-  // The editor opens with a baseline saved. Typing is refused, leaving its newer text pending.
   expect(kept.size).toBe(1);
   expect([...kept.values()][0]?.text).toBe("first");
   expect(webSwapHold()).toBe("composer.queue-edit-unsaved");
   await settle();
-  // One refusal per ask: no background loop claims this is durable or spins until success.
   expect([...kept.values()][0]?.text).toBe("first");
-  // The quit flush retries the retained newest text once the host accepts writes again.
   await settleQueuedEditWrites();
   expect(kept.size).toBe(1);
   expect([...kept.values()][0]?.text).toBe("retry the newest text");
@@ -922,6 +918,32 @@ test("Escape after a refused newer save cannot revive the older durable edit", a
   await act(async () =>
     field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
   );
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(0);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector("textarea")).toBeNull();
+});
+
+test("Escape behind an in-flight older save clears the discarded revision before remount", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  const kept = draftHost();
+  const handler = dom!.window.webkit!.messageHandlers!.agentSession!;
+  const post = handler.postMessage.bind(handler);
+  let release: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  handler.postMessage = (message: any) =>
+    message.method === "chat.queuedEditDrafts.set" ? waiting.then(() => post(message)) : post(message);
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "discard behind the older request");
+  await act(async () =>
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  await act(async () => release());
   await settleQueuedEditWrites();
   expect(kept.size).toBe(0);
   await relaunchQueue(container, queue);
