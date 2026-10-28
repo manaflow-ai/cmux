@@ -36,7 +36,9 @@ import {
 import {
   PAYMENT_METHOD_RETURN_FLOW,
   PAYMENT_METHOD_UPDATE_FLOW,
+  isValidPaymentReturnToken,
   paymentMethodUpdatePortalSession,
+  paymentReturnToken,
   recoverFailedSubscriptionPayments,
   type PaymentRecoveryOutcome,
 } from "../../../../services/billing/paymentRecovery";
@@ -174,7 +176,7 @@ function paymentMethodFlow(raw: string | null): PaymentMethodFlow | null {
 }
 
 /** The dashboard banner for each recovery outcome; none when nothing changed. */
-const PAYMENT_RECOVERY_BANNER: Readonly<Record<PaymentRecoveryOutcome, string | null>> = {
+const PAYMENT_RECOVERY_BANNER: Readonly<Record<Exclude<PaymentRecoveryOutcome, "action_required">, string | null>> = {
   recovered: "payment_updated",
   payment_failed: "payment_failed",
   no_payment_method: null,
@@ -182,29 +184,48 @@ const PAYMENT_RECOVERY_BANNER: Readonly<Record<PaymentRecoveryOutcome, string | 
 };
 
 /**
- * `flow=payment_method_update` opens the portal on its card form and returns
- * to `flow=payment_method_return`, which settles any failed subscription with
- * the saved card and shows the result on the billing dashboard.
+ * `flow=payment_method_update` opens the portal on its card form. Saving a
+ * card returns to `flow=payment_method_return` with a signed token, which
+ * settles any failed subscription with the saved card and shows the result on
+ * the billing dashboard; leaving the portal returns to the dashboard and
+ * charges nothing.
  */
 async function paymentMethodFlowResponse(
   request: NextRequest,
   input: { readonly customerId: string; readonly teamId: string | null; readonly flow: PaymentMethodFlow },
 ): Promise<NextResponse> {
   const origin = requestOrigin(request);
-  if (input.flow === PAYMENT_METHOD_UPDATE_FLOW) {
-    const returnURL = new URL("/api/billing/portal", origin);
-    returnURL.searchParams.set("flow", PAYMENT_METHOD_RETURN_FLOW);
-    if (input.teamId) {
-      returnURL.searchParams.set("scope", "team");
-      returnURL.searchParams.set("teamId", input.teamId);
-    }
-    const session = await paymentMethodUpdatePortalSession({ customerId: input.customerId, returnURL: returnURL.toString() });
-    return NextResponse.redirect(session.url, 302);
-  }
-  const outcome = await recoverFailedSubscriptionPayments(input.customerId);
   const dashboard = new URL("/dashboard/billing", origin);
   if (input.teamId) dashboard.searchParams.set("team", input.teamId);
-  const banner = PAYMENT_RECOVERY_BANNER[outcome];
+  if (input.flow === PAYMENT_METHOD_UPDATE_FLOW) {
+    const token = paymentReturnToken(input.customerId);
+    if (!token) throw new Error("Stripe billing is not configured");
+    const completedURL = new URL("/api/billing/portal", origin);
+    completedURL.searchParams.set("flow", PAYMENT_METHOD_RETURN_FLOW);
+    if (input.teamId) {
+      completedURL.searchParams.set("scope", "team");
+      completedURL.searchParams.set("teamId", input.teamId);
+    }
+    completedURL.searchParams.set("token", token);
+    const session = await paymentMethodUpdatePortalSession({
+      customerId: input.customerId, completedURL: completedURL.toString(), cancelURL: dashboard.toString(),
+    });
+    return NextResponse.redirect(session.url, 302);
+  }
+  // Only the completion link of a portal session made for this customer may
+  // charge; any other request to the return flow just shows the dashboard.
+  if (!isValidPaymentReturnToken(request.nextUrl.searchParams.get("token"), input.customerId)) {
+    return NextResponse.redirect(dashboard, 302);
+  }
+  let banner: string | null;
+  try {
+    const result = await recoverFailedSubscriptionPayments(input.customerId);
+    if (result.outcome === "action_required") return NextResponse.redirect(result.hostedInvoiceURL, 302);
+    banner = PAYMENT_RECOVERY_BANNER[result.outcome];
+  } catch (error) {
+    captureBillingError(error, { route: "/api/billing/portal", operation: "payment_recovery", stackTeamId: input.teamId ?? undefined });
+    banner = "error";
+  }
   if (banner) dashboard.searchParams.set("billing", banner);
   return NextResponse.redirect(dashboard, 302);
 }

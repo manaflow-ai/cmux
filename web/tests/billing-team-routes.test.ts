@@ -19,6 +19,8 @@ const stripeModule = await import("../services/billing/stripe");
 let currentUser: ReturnType<typeof fixtureStackUser> | null = null;
 let dbRows: BillingDbRows = emptyBillingDbRows();
 const getUser = mock(async () => currentUser);
+// The payment method return token is signed with the Stripe secret.
+process.env.STRIPE_SECRET_KEY ??= "sk_test_unit";
 const createPortal = mock(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/team" }));
 const updateSubscription = mock(async (id: unknown, params: Record<string, unknown>) => ({
   id,
@@ -44,7 +46,8 @@ mock.module("../services/billing/stripe", () => ({
   isStripeBillingConfigured: () => true,
   stripe: () => ({
     billingPortal: { sessions: { create: createPortal } },
-    subscriptions: { update: updateSubscription },
+    customers: { retrieve: async () => ({ id: "cus_team_b", invoice_settings: { default_payment_method: "pm_new" } }) },
+    subscriptions: { update: updateSubscription, list: async () => ({ data: [] }) },
   }),
 }));
 
@@ -77,23 +80,30 @@ describe("team portal", () => {
     });
   });
 
-  test("opens the team's card form for its admin and returns to the team through recovery", async () => {
+  test("opens the team's card form for its admin; saving returns to the team through recovery", async () => {
     dbRows.customers = [{ id: "cus_team_b" }];
 
     const response = await portalGET(
       new NextRequest("https://cmux.test/api/billing/portal?scope=team&teamId=team-b&flow=payment_method_update"),
     );
 
-    const returnURL = "https://cmux.test/api/billing/portal?flow=payment_method_return&scope=team&teamId=team-b";
     expect(response.headers.get("location")).toBe("https://billing.stripe.com/p/team");
-    expect(createPortal).toHaveBeenCalledWith({
-      customer: "cus_team_b",
-      return_url: returnURL,
-      flow_data: {
-        type: "payment_method_update",
-        after_completion: { type: "redirect", redirect: { return_url: returnURL } },
-      },
-    });
+    const params = createPortal.mock.calls[0]?.[0] as {
+      customer: string;
+      return_url: string;
+      flow_data: { type: string; after_completion: { redirect: { return_url: string } } };
+    };
+    expect(params.customer).toBe("cus_team_b");
+    expect(params.return_url).toBe("https://cmux.test/dashboard/billing?team=team-b");
+    expect(params.flow_data.type).toBe("payment_method_update");
+    const completed = new URL(params.flow_data.after_completion.redirect.return_url);
+    expect(completed.searchParams.get("flow")).toBe("payment_method_return");
+    expect(completed.searchParams.get("scope")).toBe("team");
+    expect(completed.searchParams.get("teamId")).toBe("team-b");
+
+    // The team has nothing past due, so the return lands on its billing view.
+    const returned = await portalGET(new NextRequest(completed));
+    expect(returned.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b");
   });
 
   test("refuses a non-admin's payment method update for the team", async () => {
