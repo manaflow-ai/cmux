@@ -4,14 +4,14 @@ import type { SlashCommand } from "./slashCommands";
  * The command palette rows exposed by the composer's + menu.
  *
  * The registry owns labels, descriptions, icons and stable action ids. Hosts provide the live
- * rows for tools, sessions and tabs; the composer invokes the same action dispatcher used by the
- * native palette instead of implementing a second command handler.
+ * rows for tools, sessions and tabs; the composer routes these stable ids to its existing handlers
+ * rather than adding a second implementation of each action.
  */
 export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "sessions", "tabs", "files"] as const;
 export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
 export type ComposerPlusAction =
-  | { kind: "command"; id: string }
+  | { kind: "command"; id: string; modeId?: string }
   | { kind: "slash"; command: SlashCommand };
 
 export type ComposerPlusEntry = {
@@ -35,8 +35,6 @@ export type ComposerPlusRegistryOptions = {
   canCapture?: boolean;
   /** Whether this surface can select a project/cwd before sending. */
   canChooseProject?: boolean;
-  /** Whether this harness exposes a persistent goal command. */
-  canSetGoal?: boolean;
   /** Whether the composer can change its run mode from this menu. */
   planMode?: { id: string; name: string; description: string };
   /** Live rows from the command-palette registry for tools, sessions, tabs and file search. */
@@ -49,7 +47,8 @@ const COMMANDS = {
   attachWindow: "composer.attachWindow",
   chooseProject: "composer.chooseProject",
   planMode: "composer.planMode",
-  goal: "composer.goal",
+  mention: "composer.mention",
+  commands: "composer.commands",
   searchFiles: "searchFiles",
 } as const;
 
@@ -119,19 +118,20 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       description: options.planMode.description,
       icon: "mode.plan",
       keywords: ["plan", "mode", "read", "planning"],
-      action: { kind: "command", id: COMMANDS.planMode },
+      action: { kind: "command", id: COMMANDS.planMode, modeId: options.planMode.id },
     });
   }
 
-  if (options.canSetGoal) {
+  const goalCommand = options.commands?.find((command) => command.name.toLowerCase() === "goal");
+  if (goalCommand) {
     rows.push({
       id: "add.goal",
       section: "add",
       name: "Set a goal",
       description: "Keep pursuing a goal across turns",
-      icon: "goal",
+      icon: "agent.chat",
       keywords: ["goal", "objective", "task"],
-      action: { kind: "slash", command: { name: "goal", description: "Set the chat goal.", source: "cmux" } },
+      action: { kind: "slash", command: goalCommand },
     });
   }
 
@@ -140,15 +140,36 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     const name = command.name.trim();
     if (!name) continue;
     rows.push({
-      id: `add.skill.${name.toLocaleLowerCase()}`,
+      id: `add.skill.${name.toLowerCase()}`,
       section: "add",
       name: `/${name}`,
       description: command.description || "Run this skill in the current chat",
-      icon: "sparkles",
+      icon: "terminal",
       keywords: [name, command.description],
       action: { kind: "slash", command },
     });
   }
+
+  rows.push(
+    {
+      id: "add.mention",
+      section: "add",
+      name: "Mention",
+      description: "Reference a file or chat in the prompt",
+      icon: "composer.mention",
+      keywords: ["@", "mention", "file", "chat"],
+      action: { kind: "command", id: COMMANDS.mention },
+    },
+    {
+      id: "add.commands",
+      section: "add",
+      name: "Commands",
+      description: "Choose a command advertised by this harness",
+      icon: "terminal",
+      keywords: ["/", "slash", "commands"],
+      action: { kind: "command", id: COMMANDS.commands },
+    },
+  );
 
   rows.push({
     id: "files.search",
@@ -173,7 +194,9 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
 }
 
 /** Group entries without changing the registry's explicit section and row order. */
-export function composerPlusSections(entries: readonly ComposerPlusEntry[]): Map<ComposerPlusSection, ComposerPlusEntry[]> {
+export function composerPlusSections(
+  entries: readonly ComposerPlusEntry[],
+): Map<ComposerPlusSection, ComposerPlusEntry[]> {
   const sections = new Map<ComposerPlusSection, ComposerPlusEntry[]>(
     COMPOSER_PLUS_SECTIONS.map((section) => [section, []]),
   );
@@ -183,3 +206,20 @@ export function composerPlusSections(entries: readonly ComposerPlusEntry[]): Map
 
 /** The + menu is an instant command surface; it must never fade in. */
 export const COMPOSER_PLUS_MOTION = "none" as const;
+
+/** A single dispatch path for a + row. The composer supplies its existing action callbacks. */
+export function runComposerPlusAction(
+  action: ComposerPlusAction,
+  handlers: {
+    command(id: string, modeId?: string): void;
+    slash(command: SlashCommand): void;
+  },
+): boolean {
+  if (action.kind === "slash") {
+    handlers.slash(action.command);
+    return true;
+  }
+  if (!Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) return false;
+  handlers.command(action.id, action.modeId);
+  return true;
+}
