@@ -4,10 +4,14 @@
 // nothing reaches the user's sessions or app (no app socket, scrubbed env).
 import { execFile, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { gunzipSync } from "node:zlib";
+
+/** The app's action catalogue, captured from a real app (templates/app.json.gz). */
+const APP = JSON.parse(gunzipSync(readFileSync(new URL("./templates/app.json.gz", import.meta.url))).toString());
 
 const pexec = promisify(execFile);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -105,7 +109,8 @@ async function runSetup(cmux, setup, origin, work) {
 /**
  * The app's place-and-focus answers, without an app: `system.identify` names the
  * agent's own terminal (as the app does for a chat in it) and `snapshot.get` the
- * daemon's focus. Every other app method fails as an app that cannot do it would.
+ * daemon's focus. `action.list` and `system.capabilities` replay a real app's catalogue,
+ * so the app's tools are listed and searched as in the app. Every other app method fails as an app that cannot do it would.
  * The real app also answers `beside` (where an unplaced new tab goes); this one
  * does not, so the agent must place tabs itself.
  */
@@ -122,6 +127,7 @@ async function standInApp(path, cmux, origin) {
       const pane = (panes.items ?? panes).find((p) => p.focused);
       return { topology: { focus: { workspace: ws.id, pane: pane?.id } } };
     }
+    if (method === "action.list" || method === "system.capabilities") return APP[method];
     throw { code: "app.unavailable", message: `the cmux app does not answer ${method} in this session; workspace, pane, tab and terminal tools work` };
   };
   const server = createServer((socket) => {
