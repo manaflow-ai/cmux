@@ -123,15 +123,16 @@ actor CodexBrokerSession {
 
     private func consume(_ data: Data) {
         buffer.append(data)
-        // A chunk may hold several replies; the cap is on one reply line, not on a chunk.
-        defer {
-            if buffer.count > 64 * 1024 {
-                terminatePending()
-                if process.isRunning { process.terminate() }
-                buffer.removeAll(keepingCapacity: false)
-            }
+        // A chunk may hold several replies; the cap is on one reply line (a whole one, or the
+        // part of one still waiting for its newline), not on a chunk.
+        let limit = 64 * 1024
+        func overflow() {
+            terminatePending()
+            if process.isRunning { process.terminate() }
+            buffer.removeAll(keepingCapacity: false)
         }
         while let newline = buffer.firstIndex(of: 0x0A) {
+            guard newline - buffer.startIndex <= limit else { return overflow() }
             let line = buffer.prefix(upTo: newline)
             buffer.removeSubrange(...newline)
             guard let reply = try? JSONDecoder().decode(BrokerReply.self, from: line),
@@ -147,6 +148,7 @@ actor CodexBrokerSession {
                 continuation.resume(throwing: Error.invalidReply)
             }
         }
+        if buffer.count > limit { overflow() }
     }
 
     private func terminatePending() {
