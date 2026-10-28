@@ -18,7 +18,9 @@ from .errors import (
 
 
 DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024
-_SELECT_TIMEOUT_MAX = 1_000_000.0
+# Keep readiness waits within the signed 32-bit millisecond range used by
+# platform polling APIs. This caps one OS wait, never the request deadline.
+_SELECT_TIMEOUT_MAX = (2**31 - 1) / 1000
 
 
 class JsonLineConnection:
@@ -241,16 +243,13 @@ class JsonLineConnection:
                     raise CmuxConnectionError(
                         f"socket write readiness check failed: {error}"
                     ) from error
-                if not writable:
-                    raise _DispatchTimeoutError(
-                        "session socket write timed out",
-                        write_started=write_started,
-                    )
+                if not writable or time.monotonic() >= deadline:
+                    # A platform-sized wait may finish before a large caller
+                    # deadline, or scheduling may delay ready delivery past
+                    # it. Recheck the deadline before sending any bytes.
+                    continue
                 try:
-                    sent = self._socket.send(
-                        remaining_bytes,
-                        socket.MSG_DONTWAIT,
-                    )
+                    sent = self._socket.send(remaining_bytes)
                 except BlockingIOError:
                     continue
                 except socket.timeout as error:
