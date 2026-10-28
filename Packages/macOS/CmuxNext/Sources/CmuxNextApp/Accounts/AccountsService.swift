@@ -86,7 +86,7 @@ final class AccountsService: AccountsServices {
         if services.environment.authCaptureFixture {
             return DetectionEnvironment(home: URL(fileURLWithPath: "/cmux-auth-capture/providers", isDirectory: true),
                                         environment: [:], files: CaptureFixtureFiles(), keychain: NoKeychain(),
-                                        servers: NoLocalServerProbe(), labeler: labeler, savedKeys: [])
+                                        servers: NoLocalServerProbe(), labeler: labeler, savedKeys: saved)
         }
         #endif
         if let fixtureHome {

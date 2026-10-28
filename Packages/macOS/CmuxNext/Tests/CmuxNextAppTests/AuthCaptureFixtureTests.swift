@@ -34,6 +34,18 @@ struct AuthCaptureFixtureTests {
         #expect(services.accounts.keys.savedProviders().isEmpty)
     }
 
+    @Test func savedFixtureProviderKeyAppearsInRealDetection() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_AUTH_CAPTURE_FIXTURE": "1"]))
+        try services.accounts.keys.save("capture-openai", for: .openAI)
+
+        let environment = await services.accounts.detectionEnvironment()
+        #expect(environment.savedKeys.contains(.openAI))
+        let detection = ProviderDetector(environment: environment).detectLocal(.openAI)
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources.contains(.cmuxKeychain))
+    }
+
     @Test func cloudAuthFixtureUsesTheRealCoordinatorWithoutStoredCredentials() async {
         let configuration = CloudConfiguration.resolve(bundleID: "com.cmuxterm.capture", bundled: [:],
                                                         process: [:], isDebugBuild: true)
