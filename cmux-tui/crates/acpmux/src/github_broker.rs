@@ -27,8 +27,23 @@ const OUTPUT_MAX: usize = 64 * 1024;
 const STREAM_READ_MAX: u64 = 2 * OUTPUT_MAX as u64;
 /// A brokered `gh` is one bounded API call; it never waits for a person.
 pub const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-/// How many actions one peer may have running on the Mac at once.
+/// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
 pub const OWNER_SLOTS: usize = 4;
+
+/// The slots of the actions of the peer named `peer`: one budget per name for the life of this
+/// daemon, so a reconnect (a new peer while the old one's actions still run) starts none past
+/// `OWNER_SLOTS`. A name's entry goes once nothing holds it.
+pub fn owner_slots(peer: &str) -> Arc<tokio::sync::Semaphore> {
+    static SLOTS: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Semaphore>>>,
+    > = std::sync::LazyLock::new(Default::default);
+    let mut slots = SLOTS.lock().unwrap_or_else(|e| e.into_inner());
+    slots.retain(|_, s| Arc::strong_count(s) > 1 || s.available_permits() < OWNER_SLOTS);
+    slots
+        .entry(peer.to_owned())
+        .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(OWNER_SLOTS)))
+        .clone()
+}
 /// The Mac's daemon sets this on the `gh` it runs, and the shim refuses to run with it set, so
 /// the shim can never be the `gh` the Mac calls back into.
 pub const SHIM_REFUSAL_ENV: &str = "ACPMUX_GITHUB_BROKER_OWNER";

@@ -110,7 +110,8 @@ pub struct Peer {
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
     /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
-    /// `github_broker.rs`), and how many of its actions may run at once.
+    /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
+    /// (`owner_slots`), which a reconnect's new peer shares with the old one.
     github_broker: AtomicBool,
     github_slots: Arc<tokio::sync::Semaphore>,
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
@@ -197,7 +198,7 @@ impl Peer {
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
             github_broker: AtomicBool::new(false),
-            github_slots: Arc::new(tokio::sync::Semaphore::new(crate::github_broker::OWNER_SLOTS)),
+            github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
@@ -480,7 +481,8 @@ impl Peer {
         let me = self.clone();
         let epoch = self.link_epoch();
         // The slot is held until the answer is queued, within the request budget: at most
-        // `OWNER_SLOTS` of these tasks exist per peer, even when the link stops reading.
+        // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
+        // stops reading.
         tokio::spawn(async move {
             let reply = crate::github_broker::serve_owner(&me.name, params).await;
             let msg = match reply {
@@ -1431,6 +1433,23 @@ mod link_epoch_tests {
         .expect("a prompt on a dead link must not wait");
         assert!(answer.is_err());
         assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+
+    /// Review of #24797 at 30e24d1: each reconnect's new peer had slots of its own while the
+    /// old one's GitHub actions still ran, so reconnects started more than `OWNER_SLOTS` `gh`s.
+    #[tokio::test]
+    async fn a_reconnect_shares_its_github_slots_with_the_actions_still_running() {
+        let (tx, _rx) = mpsc::channel(8);
+        let old = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx.clone());
+        let running: Vec<_> = (0..crate::github_broker::OWNER_SLOTS)
+            .map(|_| crate::github_broker::admit_owner(&old.name, true, &old.github_slots).unwrap())
+            .collect();
+        old.stop();
+        let new = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx);
+        let e = crate::github_broker::admit_owner(&new.name, true, &new.github_slots).unwrap_err();
+        assert_eq!(e.data.unwrap()["reason"], "github.busy");
+        drop(running);
+        assert!(crate::github_broker::admit_owner(&new.name, true, &new.github_slots).is_ok());
     }
 }
 

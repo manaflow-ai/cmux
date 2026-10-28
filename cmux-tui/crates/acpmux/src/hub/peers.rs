@@ -273,6 +273,11 @@ impl Hub {
     /// config.json, and it ends with the connection that holds it
     /// (`peer_lease.rs`).
     pub async fn remove_peer(&self, name: &str) -> Result<(), RpcError> {
+        // The config lock first, held through the save: a reconnect (which holds it through its
+        // start) never starts the peer again between its stop and its removal from the config,
+        // so no peer that still lends GitHub outlives its removal (lock order: config,
+        // `peer_leases`, `remote_sessions`, then `peers`).
+        let mut cfg = self.config.write().await;
         let gone = {
             // Under the lease lock, so no save of the removed peer's sessions
             // lands after its cache is gone (`save_peer_cache`).
@@ -298,7 +303,6 @@ impl Hub {
         for summary in gone {
             self.announce_remote(name, summary, "purged");
         }
-        let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
             tracing::warn!("save config failed: {e}");
@@ -1042,6 +1046,36 @@ mod tests {
         let peer = hub.peers.lock().unwrap().get("m").cloned().unwrap();
         assert!(!peer.github_broker(), "the reconnect started what the change saved");
         peer.stop();
+    }
+
+    /// Review of #24797 at 30e24d1: a removal stopped the live peer before it took the config
+    /// lock, so a reconnect holding that lock started it again, still lending GitHub, after the
+    /// removal said it was gone. The removal now waits for the reconnect, and its stop is last.
+    #[tokio::test]
+    async fn a_removed_peer_is_never_started_again_by_a_reconnect_in_progress() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.add_peer_lending("m", "ws://127.0.0.1:9/m", None, None, Some(true), false)
+            .await
+            .unwrap();
+
+        // A reconnect in progress: it read the config and holds it through its start.
+        let held = hub.config.read().await;
+        let removing = {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.remove_peer("m").await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!removing.is_finished(), "the removal waits for the reconnect");
+        assert!(hub.peers.lock().unwrap().contains_key("m"), "and stops nothing before it");
+        let restarted = hub.start_peer("m", &held.peers["m"]);
+        drop((held, restarted));
+
+        removing.await.unwrap().unwrap();
+        assert!(!hub.peers.lock().unwrap().contains_key("m"), "no peer outlives its removal");
+        assert!(!hub.config.read().await.peers.contains_key("m"));
     }
 
     #[test]
