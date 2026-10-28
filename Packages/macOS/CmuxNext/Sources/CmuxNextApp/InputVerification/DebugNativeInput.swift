@@ -29,7 +29,8 @@ enum DebugNativeInput {
     ///   window (`CmuxApplication.sendEvent(_:deliveringTo:)`; tests: a fake).
     static func sendThroughApp(_ events: [NSEvent], to window: NSWindow,
                                entry: (NSEvent, NSWindow) -> Void = { (NSApp as? CmuxApplication)?.sendEvent($0, deliveringTo: $1) }) {
-        for event in events { window.sendEvent(event) }
+        SyntheticInput.register(events)
+        for event in events { entry(event, window) }
     }
 
     /// The agent panes' gesture monitors in `window`, on `event` (each pane decides by its own
