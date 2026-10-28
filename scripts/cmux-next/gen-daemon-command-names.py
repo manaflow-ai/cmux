@@ -17,6 +17,12 @@ spelling (aliases included) per table, and the routed prefixes:
     Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandName+Commands.swift
     Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandName+Resources.swift
 
+and a third with every method id's `MethodClass` (a command row's class, a
+resource operation's by request_spans.rs `resource_class`, a routed id's own),
+which the app's `daemon.unresponsive` count names (p09-observability task 109):
+
+    Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandName+Classes.swift
+
 The Rust test `request_spans_generated_swift_names_match_the_daemon`
 (server/request_spans_tests.rs) reads both files back and fails when a row,
 id, spelling or prefix differs from the daemon's, so a table change that
@@ -40,6 +46,7 @@ COMMAND_NAMES = CORE / "server/command_names.rs"
 REQUEST_SPANS = CORE / "server/request_spans.rs"
 RESOURCE_ENUM = CORE / "resource.rs"
 RESOURCE_NAMES = CORE / "resource/wire_name.rs"
+RESOURCE_CLASSES = CORE / "resource/class.rs"
 OUT_DIR = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection"
 
 FNV_OFFSET = 0xCBF29CE484222325
@@ -102,24 +109,29 @@ def routed() -> tuple[list[tuple[list[str], int]], int]:
     return out, routed_base + classes[fallback.group(1)]
 
 
-def commands() -> list[Row]:
-    """(row, wire name, aliases) for every `command_table!` row, in `COMMANDS` order."""
+def command_rows() -> list[tuple[str, str]]:
+    """(spellings, class) of every `command_table!` row, in `COMMANDS` order."""
     text = COMMAND_NAMES.read_text()
     start = text.index("command_table! {")
     table = text[start:text.index("\n}", start)]
-    rows = re.findall(r'^\s*([A-Z]\w*) => ((?:"[^"]+"\s*\|?\s*)+), \w+;', table, re.M)
+    rows = re.findall(r'^\s*[A-Z]\w* => ((?:"[^"]+"\s*\|?\s*)+), (\w+);', table, re.M)
     arms = [line for line in table.splitlines() if "=>" in line and not line.strip().startswith("//")]
     if not rows or len(rows) != len(arms):
         fail(f"read {len(rows)} of the {len(arms)} command_table! rows in {COMMAND_NAMES}: teach the row pattern")
+    return rows
+
+
+def commands() -> list[Row]:
+    """(row, wire name, aliases) for every `command_table!` row, in `COMMANDS` order."""
     out = []
-    for row, (_variant, spellings) in enumerate(rows):
+    for row, (spellings, _class) in enumerate(command_rows()):
         names = re.findall(r'"([^"]+)"', spellings)
         out.append((row, names[0], names[1:]))
     return out
 
 
-def resources() -> list[Row]:
-    """(method id, wire name, no aliases) for every `ResourceOperation`, by declaration index."""
+def resource_variants() -> list[tuple[str, str]]:
+    """(variant, wire name) of every `ResourceOperation`, by declaration index."""
     enum = re.search(r"pub enum ResourceOperation \{(.*?)\n\}", RESOURCE_ENUM.read_text(), re.S)
     if not enum:
         fail(f"no ResourceOperation enum in {RESOURCE_ENUM}")
@@ -128,8 +140,92 @@ def resources() -> list[Row]:
     missing = [v for v in variants if v not in spelled]
     if missing or len(spelled) != len(variants):
         fail(f"resource tables disagree: unspelled {missing}, {len(spelled)} names for {len(variants)} variants")
+    return [(variant, spelled[variant]) for variant in variants]
+
+
+def resources() -> list[Row]:
+    """(method id, wire name, no aliases) for every `ResourceOperation`, by declaration index."""
     resource_base = base("RESOURCE_BASE")
-    return [(resource_base + index, spelled[variant], []) for index, variant in enumerate(variants)]
+    return [(resource_base + index, wire, []) for index, (_variant, wire) in enumerate(resource_variants())]
+
+
+def operation_classes() -> tuple[dict[str, str], str]:
+    """resource/class.rs `ResourceOperation::class`: each listed variant's `OperationClass`, and the `else` arm's."""
+    text = RESOURCE_CLASSES.read_text()
+    body = re.search(r"pub const fn class\(self\) -> OperationClass \{(.*?)\n    \}", text, re.S)
+    if not body:
+        fail(f"no ResourceOperation::class in {RESOURCE_CLASSES}")
+    listed = re.findall(r"matches!\(\s*self,(.*?)\)\s*\{\s*OperationClass::(\w+)", body.group(1), re.S)
+    fallback = re.search(r"\} else \{\s*OperationClass::(\w+)\s*\}\s*$", body.group(1), re.S)
+    if not listed or not fallback:
+        fail("ResourceOperation::class is not `if matches!(self, ..) { class } else if .. else { class }`")
+    out: dict[str, str] = {}
+    for variants, cls in listed:
+        for variant in re.findall(r"Self::(\w+)", variants):
+            out.setdefault(variant, cls)
+    return out, fallback.group(1)
+
+
+def resource_classes() -> list[tuple[int, str]]:
+    """(method id, `MethodClass`) of every resource operation: request_spans.rs `resource_class`, read here."""
+    body = re.search(r"fn resource_class\(operation: ResourceOperation\) -> MethodClass \{(.*?)\n\}",
+                     REQUEST_SPANS.read_text(), re.S)
+    if not body:
+        fail(f"no resource_class in {REQUEST_SPANS}")
+    creates = re.search(r"if matches!\(\s*operation,(.*?)\)\s*\{\s*return MethodClass::(\w+);", body.group(1), re.S)
+    namespaces = re.search(r"match namespace \{(.*?)\n    \}", body.group(1), re.S)
+    if not creates or not namespaces:
+        fail("resource_class is not `if matches!(operation, ..) { return class; }` then `match namespace { .. }`")
+    created = set(re.findall(r"Op::(\w+)", creates.group(1)))
+    arms = [(pattern.strip(), cls) for pattern, cls in
+            re.findall(r"(.*?)=>\s*MethodClass::(\w+),", namespaces.group(1), re.S)]
+    read_guard = "_ if operation.class() == OperationClass::Read"
+    for pattern, _cls in arms:
+        if pattern not in ("_", read_guard) and re.sub(r'"\w+"|\||\s', "", pattern):
+            fail(f"a resource_class arm is not a namespace list, the read guard or `_`: {pattern}")
+    listed, unlisted = operation_classes()
+    resource_base = base("RESOURCE_BASE")
+    out = []
+    for index, (variant, wire) in enumerate(resource_variants()):
+        if variant in created:
+            out.append((resource_base + index, creates.group(2)))
+            continue
+        namespace = wire.split(".", 1)[0]
+        for pattern, cls in arms:
+            if pattern == "_":
+                matched = True
+            elif pattern == read_guard:
+                matched = listed.get(variant, unlisted) == "Read"
+            else:
+                matched = namespace in re.findall(r'"(\w+)"', pattern)
+            if matched:
+                out.append((resource_base + index, cls))
+                break
+        else:
+            fail(f"resource_class has no arm for {variant}")
+    return out
+
+
+def classes_file() -> list[str]:
+    """`DaemonCommandName+Classes.swift`: each method id's `MethodClass` position (`MethodClass::ALL` order)."""
+    positions = method_classes()
+    rows = [(row, cls) for row, (_spellings, cls) in enumerate(command_rows())] + resource_classes()
+    routed_base = base("ROUTED_BASE")
+    rows += [(routed_base + position, cls) for cls, position in positions.items()]
+    lines = [
+        "// Generated by scripts/cmux-next/gen-daemon-command-names.py from cmux-tui-core/src/server/command_names.rs,",
+        "// request_spans.rs and resource/class.rs. Do not edit: run the script after the daemon's tables change (the",
+        "// Rust test request_spans_generated_swift_classes_match_the_daemon fails until it does).",
+        "",
+        "extension DaemonCommandName {",
+        "    /// The daemon's `MethodClass` of method `id`, as its position in `MethodClass::ALL`: a `Command` row's class, a",
+        "    /// resource operation's (request_spans.rs `resource_class`) or a routed id's own. An id the daemon does not",
+        "    /// number is `Other`'s.",
+        "    static func methodClassPosition(id: UInt16) -> Int {",
+        "        switch id {",
+    ]
+    lines += [f"        case {method}: return {positions[cls]}" for method, cls in rows]
+    return lines + [f"        default: return {positions['Other']}", "        }", "    }", "}", ""]
 
 
 def header(source: str) -> list[str]:
@@ -187,6 +283,7 @@ def outputs() -> dict[Path, str]:
     return {
         OUT_DIR / "DaemonCommandName+Commands.swift": "\n".join(commands_file),
         OUT_DIR / "DaemonCommandName+Resources.swift": "\n".join(resources_file),
+        OUT_DIR / "DaemonCommandName+Classes.swift": "\n".join(classes_file()),
     }
 
 

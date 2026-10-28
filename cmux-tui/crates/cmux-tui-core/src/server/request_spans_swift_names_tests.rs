@@ -7,7 +7,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::super::command_names::COMMANDS;
+use super::super::command_names::{COMMANDS, MethodClass};
 use super::{Fnv1a, RequestMethod};
 use crate::resource::ResourceOperation;
 
@@ -138,4 +138,55 @@ fn request_spans_generated_swift_routed_ids_match_the_daemon() {
         );
     }
     assert_eq!(fallback, RequestMethod::routed(None).id);
+}
+
+/// The app's copy of each method's class (p09-observability task 109): its
+/// `daemon.unresponsive` count names the class of the last request it sent,
+/// as this daemon's `daemon.request` histograms do.
+#[test]
+fn request_spans_generated_swift_classes_match_the_daemon() {
+    let Some((path, text)) = generated("DaemonCommandName+Classes.swift") else { return };
+    let position = |class: MethodClass| {
+        MethodClass::ALL
+            .iter()
+            .position(|each| *each == class)
+            .expect("a class of MethodClass::ALL")
+    };
+    let mut got: Vec<(u16, usize)> = text
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("case "))
+        .map(|row| {
+            let (id, class) = row.split_once(": return ").expect("a class row");
+            (id.parse().expect("a decimal id"), class.parse().expect("a class position"))
+        })
+        .collect();
+    let mut want: Vec<(u16, usize)> = COMMANDS
+        .iter()
+        .enumerate()
+        .map(|(row, command)| {
+            (u16::try_from(row).expect("fewer than 2^16 commands"), position(command.class))
+        })
+        .chain(ResourceOperation::ALL.iter().map(|&operation| {
+            let method = RequestMethod::of_resource(operation);
+            (method.id, position(method.class))
+        }))
+        .chain(
+            MethodClass::ALL
+                .iter()
+                .map(|&class| (RequestMethod::ROUTED_BASE + class as u16, position(class))),
+        )
+        .collect();
+    got.sort_unstable();
+    want.sort_unstable();
+    assert_eq!(
+        got,
+        want,
+        "{}: a method's class differs; run scripts/cmux-next/gen-daemon-command-names.py",
+        path.display()
+    );
+    let fallback = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("default: return "))
+        .expect("a default class");
+    assert_eq!(fallback.parse::<usize>().expect("a class position"), position(MethodClass::Other));
 }

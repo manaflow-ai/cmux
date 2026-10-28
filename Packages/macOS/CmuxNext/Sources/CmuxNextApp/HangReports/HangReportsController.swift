@@ -105,6 +105,8 @@ final class HangReportsController {
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
     /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
     /// schema-3 report carries by hashed site id. `blackboxConsent` is told each decision of whether reports are on.
+    /// `stabilityLaunch` is counted into the metrics store when it starts, and the activity feed counts the active
+    /// seconds, while the wire schema carries field data (p09-observability-109).
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
@@ -113,6 +115,7 @@ final class HangReportsController {
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
                               blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
                               blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in },
+                              stabilityLaunch: StabilityCounters.Launch? = nil,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -132,7 +135,8 @@ final class HangReportsController {
         let metricsDirectory = HangReportFieldSources.appMetricsDirectory(bundleID: bundleID)
         let rings = ringFolders(bundleID: bundleID, environment: environment)
         if wireSchema.carriesFieldData {
-            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
+            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work,
+                                  launch: stabilityLaunch)
         }
         // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
         // turns reports off and drops what was recorded. UserDefaults is thread-safe; the record is
@@ -146,7 +150,8 @@ final class HangReportsController {
             }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings, features: features,
             blockingSites: blockingSites)
         let feed = service.mainThreadLedger.map {
-            MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
+            MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false,
+                                   stability: wireSchema.carriesFieldData ? StabilityCounters() : nil)
         }
         let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
                                               work: work)
@@ -262,6 +267,7 @@ final class HangReportsController {
 
     /// Quitting: the watchdog's findings wait on disk for the next launch's report.
     func applicationWillTerminate() {
+        activityFeed?.applicationWillTerminate()
         service?.saveForNextLaunch()
     }
 

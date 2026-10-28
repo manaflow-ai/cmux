@@ -5,6 +5,7 @@ import os
 import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMetrics
 import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
@@ -39,6 +40,14 @@ final class CrashRecoveryService {
     private let mainWork: MainWorkScheduler
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
+
+    /// This launch's stability counts (p09-observability-109): the launch, and the previous run's unclean end as the
+    /// run marker read it (a crash, a kill, a fatal hang, or a system shutdown when the boot changed). Nil without a
+    /// marker (tests, tools): that process is no app launch. The metrics store records it once, when it starts
+    /// (`MetricsStore.startApp`).
+    var stabilityLaunch: StabilityCounters.Launch? {
+        marker.map { StabilityCounters.Launch(previousExit: $0.previousExit) }
+    }
 
     /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
     /// which `main` orders before the settings read, so it has ended when the services are made; nil (tests, tools

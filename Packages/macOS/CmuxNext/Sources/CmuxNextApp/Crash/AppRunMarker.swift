@@ -150,10 +150,12 @@ final class AppRunMarker {
         let signalDescriptor: Int32, keysDescriptor: Int32
         /// The launch caches' crash-streak decision (``AppRunMarker/launchSafeMode(directory:now:bootSession:processStart:)``).
         var safeMode: LaunchSafeMode = .noStreak
+        /// Whether the previous run, killed in this boot, left its fatal-hang record (`FatalHangRecorder.hasRecord`).
+        var previousHung = false
         /// How this launch follows the previous run.
         var recovery: LaunchRecovery { LaunchRecovery.decide(previous: previous?.forRecovery(bootSession: bootSession)) }
         /// How the previous run ended when it did not quit as asked; nil after a normal or requested quit, or on a first launch.
-        var previousExit: HistogramID.UncleanExit? { previous?.uncleanExit(bootSession: bootSession) }
+        var previousExit: HistogramID.UncleanExit? { previous?.uncleanExit(bootSession: bootSession, hung: previousHung) }
         /// The previous run when no crash report covers its end (``PreviousRun/unreported(bootSession:)``).
         var previousUnreported: PreviousRun? { previous?.unreported(bootSession: bootSession) }
     }
@@ -345,17 +347,18 @@ final class AppRunMarker {
 extension PreviousRun {
     /// How this run ended, seen from a launch in boot `current`; nil when it quit as asked. A handler's record
     /// is a crash whatever the boot: the fault ended the run before any restart did. No handler and another
-    /// boot is a system shutdown (power loss, a kernel panic, a forced restart); no handler in this boot is a
-    /// kill (`kill -9`, jetsam, Force Quit).
+    /// boot is a system shutdown (power loss, a kernel panic, a forced restart), never a crash; no handler in this
+    /// boot is a fatal hang when the run was `hung` (its fatal-hang record was on disk, p09-observability-110: the
+    /// person or the system ended a stuck app), else a kill (`kill -9`, jetsam, Force Quit).
     ///
     /// Chrome's model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) says only that a run did
     /// not end cleanly; an unclean exit while the system session ended is counted apart
     /// (components/metrics/stability_metrics_provider.cc). Here the session is `kern.bootsessionuuid`.
-    nonisolated func uncleanExit(bootSession current: String?) -> HistogramID.UncleanExit? {
+    nonisolated func uncleanExit(bootSession current: String?, hung: Bool = false) -> HistogramID.UncleanExit? {
         if endedAsAsked { return nil }
         if crashed { return .crash }
         if let bootSession, let current, bootSession != current { return .systemShutdown }
-        return .killed
+        return hung ? .fatalHang : .killed
     }
 
     /// The run `LaunchRecovery` decides on from boot `current`: none when the machine's restart ended it, which
@@ -418,13 +421,18 @@ extension AppRunMarker {
         })).safeMode
         let previous = readPrevious(marker: markerURL, signal: signalURL, exception: directory.appending(path: "run.exception"))
         let previousKeys = readCrashKeys(directory.appending(path: "run.crashkeys"))
+        // A run killed while it hung left its fatal-hang record (read only here; WatchdogReporting reports it).
+        let hung = previous.map { run in
+            !run.endedAsAsked && !run.crashed && FatalHangRecorder.hasRecord(in: directory, of: (pid: run.pid, launched: run.launched))
+        } ?? false
         let marker = PreviousRun(pid: getpid(), launched: now,
                                  recovery: LaunchRecovery.watchesForLoop(previous: previous?.forRecovery(bootSession: bootSession)),
                                  survived: false, signal: nil, bootSession: bootSession, processStart: processStart,
                                  startupComplete: false, incompleteLaunches: safeMode.incompleteLaunches)
         func launch(failure: String?, signal: Int32 = -1, keys: Int32 = -1) -> Launch {
             Launch(directory: directory, bootSession: bootSession, previous: previous, previousCrashKeys: previousKeys,
-                   marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys, safeMode: safeMode)
+                   marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys, safeMode: safeMode,
+                   previousHung: hung)
         }
         do { try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) } catch {
             return launch(failure: String(describing: error))

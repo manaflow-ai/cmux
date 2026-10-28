@@ -1,6 +1,7 @@
 public import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
+import CmuxNextMetrics
 
 /// The liveness of a connection. A daemon that stops answering keeps its
 /// socket open (an owner stopped with SIGSTOP or wedged in its main loop;
@@ -29,6 +30,10 @@ import CmuxNextCompat
 /// after ``KeepaliveGate/reconnectDelay()``, so a bridge that died in the sleep closes within its
 /// misses. Chrome's GCM heartbeat stops on `OnSuspend` and checks the connection on `OnResume` the
 /// same way (google_apis/gcm/engine/heartbeat_manager.cc).
+///
+/// A close after the misses is one `daemon.unresponsive` sample (p09-observability-109) when the run counts
+/// stability, by the class of the last request the app sent the daemon (``noteRequest(_:)``): what it was asked
+/// before it stopped answering.
 public final class ConnectionHeartbeat: Sendable {
     /// One run's daemon: how to ask it, how to close it, and how long it has been quiet.
     struct Probe: Sendable {
@@ -43,18 +48,21 @@ public final class ConnectionHeartbeat: Sendable {
         /// The silence that asks while hidden and idle; nil asks nothing then.
         let hiddenInterval: Duration?
         let misses: Int
+        /// Where a close after the misses is counted; nil counts nothing (a bridge, a page relay).
+        let stability: StabilityCounters?
 
         /// - Parameter silence: By default the daemon was never heard: the run's own start and
         ///   answers bound the silence alone.
         init(ask: @escaping @Sendable (_ timeout: Duration) async -> Bool, close: @escaping @Sendable () -> Void,
              silence: @escaping @Sendable () -> Duration = { .seconds(Int64.max) },
-             interval: Duration, hiddenInterval: Duration? = nil, misses: Int) {
+             interval: Duration, hiddenInterval: Duration? = nil, misses: Int, stability: StabilityCounters? = nil) {
             self.ask = ask
             self.close = close
             self.silence = silence
             self.interval = interval
             self.hiddenInterval = hiddenInterval
             self.misses = misses
+            self.stability = stability
         }
     }
 
@@ -106,6 +114,8 @@ public final class ConnectionHeartbeat: Sendable {
     private let elapsed: @Sendable () -> Duration
     // concurrency-allow: the run's counters, its probe, gate and presence, read and written synchronously by the timer's ask and the policy's and presence's edges (lock carve-out: a few fields, no I/O; the timer is scheduled with no wait under it).
     private let state = Mutex(State())
+    /// The method id of the last request the app sent (``noteRequest(_:)``) plus one; 0 before one.
+    private let lastRequest = Atomic<UInt64>(0)
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         // timer-class-allow: off main: each ask runs on the connection's own probe (a request on its transport) and posts no main-thread job
@@ -162,15 +172,30 @@ public final class ConnectionHeartbeat: Sendable {
         if let run { schedule(.onSilence, run: run) }
     }
 
+    /// The app sent `command` to the daemon (not the heartbeat's own ask): an unresponsive daemon is counted by
+    /// its class. One relaxed store per request.
+    func noteRequest(_ command: DaemonCommandName) {
+        lastRequest.store(UInt64(truncatingIfNeeded: command.id) &+ 1, ordering: .relaxed)
+    }
+
+    /// The class of the last request ``noteRequest(_:)`` saw; nil before one.
+    var lastRequestClass: HistogramID.MethodClass? {
+        let stored = lastRequest.load(ordering: .relaxed)
+        guard stored > 0 else { return nil }
+        let position = DaemonCommandName.methodClassPosition(id: UInt16(truncatingIfNeeded: stored &- 1))
+        return HistogramID.MethodClass.allCases.dropFirst(position).first ?? .other
+    }
+
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
-    /// ends the earlier run, and a closed transport ends it after its misses.
-    func start(_ transport: LineTransport, every interval: Duration, hidden hiddenInterval: Duration?, misses limit: Int) {
+    /// ends the earlier run, and a closed transport ends it after its misses, counted in `stability` when given.
+    func start(_ transport: LineTransport, every interval: Duration, hidden hiddenInterval: Duration?, misses limit: Int,
+               stability: StabilityCounters? = nil) {
         start(Probe(ask: { timeout in
             (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout) { id in
                 try WireCoding.encodeRequest(IdentifyRequest(), id: id)
             }) != nil
         }, close: { transport.close() }, silence: { transport.inboundSilence },
-        interval: interval, hiddenInterval: hiddenInterval, misses: limit))
+        interval: interval, hiddenInterval: hiddenInterval, misses: limit, stability: stability))
     }
 
     /// Starts asking `probe`; ``start(_:every:hidden:misses:)`` with the transport left out (tests).
@@ -258,6 +283,7 @@ public final class ConnectionHeartbeat: Sendable {
         }
         guard let close else { return }
         if close {
+            probe.stability?.daemonUnresponsive(lastRequest: lastRequestClass)
             probe.close()
         } else {
             // After a miss the silence is past the cadence already: the next ask goes at once.

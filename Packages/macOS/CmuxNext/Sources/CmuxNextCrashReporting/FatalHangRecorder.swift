@@ -113,6 +113,16 @@ public final class FatalHangRecorder: Sendable {
         if unsafe blockingRename(temporary.path, file.path) != 0 { _ = unsafe blockingUnlink(temporary.path) }
     }
 
+    /// Whether the run `run` (its pid and launch time) left its record in `directory`: it ended while its main thread
+    /// hung (`stability.unclean_exit` `fatal_hang`, p09-observability-109). Reads only; ``takePrevious(in:run:currentPID:)``
+    /// reports and removes it later. Blocking file work: the launch read.
+    public static func hasRecord(in directory: URL, of run: (pid: Int32, launched: Date)) -> Bool {
+        let url = directory.appending(path: fileName(pid: run.pid))
+        guard let data = try? Data(blockingContentsOf: url),
+              let record = try? JSONDecoder().blockingDecode(FatalHangRecord.self, from: data) else { return false }
+        return record.version == FatalHangRecord.currentVersion && record.belongs(toRunOf: run.pid, launchedAt: run.launched)
+    }
+
     /// At launch: the record the previous run left in `directory`. `run` is that run's pid and launch time when it
     /// ended without being asked to and without a crash report of its own (the caller's run marker decides), else nil.
     /// Every record of another process is removed (a run that crashed or quit while it hung, an older run), so each

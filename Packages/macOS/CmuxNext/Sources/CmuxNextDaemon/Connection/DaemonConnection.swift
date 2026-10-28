@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 public import Foundation
 public import CmuxNextCompat
+public import CmuxNextMetrics
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import os
@@ -34,6 +35,10 @@ import os
 /// With ``DaemonConnectionConfiguration/reportsDiagnosticSites`` the reader decodes each
 /// `server-diagnostic-site` line once into its transport's relay and routes the event on as `unknown` with no
 /// payload; once the handshake names the daemon life, the sites reach ``diagnosticSites`` as sightings of it.
+///
+/// The app's main connection to its local daemon (``DaemonConnectionConfiguration/localHeartbeat``) counts the
+/// daemon's stability (p09-observability-109): each end of a ready connection as `stability.child_exit.daemon`
+/// (``daemonExit(_:)``) and each heartbeat close as `daemon.unresponsive`.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -61,6 +66,8 @@ public actor DaemonConnection {
 
     let configuration: Configuration
     private let endpointProvider: EndpointProvider
+    /// Where the local daemon's ends and stalls are counted (main connection only, ``countsStability``).
+    private let stability: StabilityCounters
     let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle {
@@ -106,10 +113,12 @@ public actor DaemonConnection {
     public init(
         configuration: Configuration = Configuration(),
         clock: any Clock<Duration> = ContinuousClock(),
+        stability: StabilityCounters = StabilityCounters(),
         endpointProvider: @escaping EndpointProvider
     ) {
         self.configuration = configuration
         self.clock = clock
+        self.stability = stability
         self.endpointProvider = endpointProvider
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
@@ -210,6 +219,7 @@ public actor DaemonConnection {
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try R.requireServed(by: ready.identity)
+        heartbeat.noteRequest(R.commandName)
         let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
@@ -237,7 +247,9 @@ public actor DaemonConnection {
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try onTransport(ready.transport)
-        let response = try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout ?? configuration.requestTimeout) { id in
+        let command = DaemonCommandName(wire: envelope(0).operation)
+        heartbeat.noteRequest(command)
+        let response = try await ready.transport.request(cmd: command, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).lineData()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response)
@@ -346,7 +358,8 @@ public actor DaemonConnection {
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             if endpoint.bridge != nil || configuration.localHeartbeat {
                 heartbeat.start(transport, every: configuration.heartbeat,
-                                hidden: endpoint.bridge != nil ? configuration.hiddenHeartbeat : nil, misses: configuration.heartbeatMisses)
+                                hidden: endpoint.bridge != nil ? configuration.hiddenHeartbeat : nil, misses: configuration.heartbeatMisses,
+                                stability: countsStability ? stability : nil)
             }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)
@@ -363,6 +376,21 @@ public actor DaemonConnection {
 
     var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
 
+    /// Whether this connection counts its daemon's stability: the app's main connection (the one with the local
+    /// heartbeat) to a daemon on this Mac. A bridge's server is another machine's; a page relay shares the daemon.
+    private var countsStability: Bool { configuration.localHeartbeat && endpoint?.bridge == nil }
+
+    /// How a ready connection's end says its daemon ended: a `daemon-shutdown` first is a clean exit; an end
+    /// without it is a signal (the app is not the daemon's parent, so no exit status says more); the app's own
+    /// close is no daemon exit.
+    static func daemonExit(_ reason: TransportCloseReason) -> HistogramID.ChildExit? {
+        switch reason {
+        case .closedByClient: nil
+        case .daemonShutdown: .clean
+        case .lost: .signal
+        }
+    }
+
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
@@ -370,6 +398,7 @@ public actor DaemonConnection {
         #if DEBUG || CMUX_BENCH_HOOKS
         if case .ready = phase, case .lost = reason { droppedWithoutShutdown += 1 }
         #endif
+        if case .ready = phase, countsStability, let exit = Self.daemonExit(reason) { stability.childExited(.daemon, exit) }
         phase = .waiting
         healthy.cancel()
         let detail: String = switch reason {
