@@ -14,7 +14,9 @@ import CmuxNextIcons
 /// an agent's mark takes the icon slot and the tab's own status sits on the trailing column.
 final class SidebarTabRowView: SidebarRowView {
     private let icon = DecorativeImageView() // the row's label names the tab
-    private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// A tab title can share its row with a detail line and trailing status. Keep
+    /// the frame stable and fade its clipped tail, as workspace titles do.
+    private let title = MarqueeLabel(gate: Motion.sidebar)
     private let detail = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The tab's own status, on the trailing column as a workspace row's (the tab bar's dot).
     private let activity: StatusIndicatorView = {
@@ -83,13 +85,14 @@ final class SidebarTabRowView: SidebarRowView {
         guard needsConfigure(content) else { return }
         isFocusedTab = focused
         let line = SidebarTabLine.make(tab, look: look, terminalName: Strings.untitledTerminal)
-        title.setString(line.name)
+        title.stringValue = line.name
         detail.setString(line.detail ?? "")
         detail.isHidden = line.detail == nil
         // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14). The workspace's focused tab
         // is marked by a quiet fill (Leo 2026-10-27: "it should also just slightly demarcate, you know, which pane
         // you're focused on, right? Like which tab within your workspace").
-        title.setFont(SidebarStyle.subtitleFont)
+        title.font = SidebarStyle.subtitleFont
+        title.fadeWidth = SidebarStyle.titleFadeWidth
         // A page's favicon draws as is; with the marks on, an agent's mark where there is no favicon.
         let side = SidebarStyle.tabIconSize
         let mark = look.drawsMarks && tab.favicon == nil ? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) } : nil
@@ -120,7 +123,7 @@ final class SidebarTabRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.setColor(Palette.textPrimary)
+            title.textColor = Palette.textPrimary
             detail.setColor(Palette.textTertiary)
             icon.contentTintColor = iconIsMark ? Palette.textSecondary : nil
             paintFill(isHovered ? Palette.hoverFill : isFocusedTab ? Self.focusFill : nil)
@@ -175,7 +178,7 @@ final class SidebarTabRowView: SidebarRowView {
         }
         // The name first, then the detail in what is left; a long name leaves the detail a third of the room.
         let room = max(0, trailing - textX)
-        let (titleNeeds, detailNeeds) = (ceil(title.naturalSize.width), ceil(detail.naturalSize.width))
+        let (titleNeeds, detailNeeds) = (ceil(title.intrinsicContentSize.width), ceil(detail.naturalSize.width))
         title.frame = NSRect(x: textX, y: y, width: min(titleNeeds, room - min(detailNeeds, room / 3)), height: height)
         detail.frame = NSRect(x: title.frame.maxX, y: y, width: max(0, min(detailNeeds, trailing - title.frame.maxX)), height: height)
     }
