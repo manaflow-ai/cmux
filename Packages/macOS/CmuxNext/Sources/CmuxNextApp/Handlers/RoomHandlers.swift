@@ -18,6 +18,7 @@ enum RoomHandlers {
             })
         }
         bind("space.new") { try create(invocation: $0, context) }
+        bind("space.newIncognito") { try create(invocation: $0, context, action: "space.newIncognito", incognito: true) }
         bind("space.newWindow") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows
@@ -165,18 +166,23 @@ enum RoomHandlers {
     /// strip's New Space button: `enter` (Open Link in New Space) or
     /// `startNewSpace`, which shows the space only when the
     /// run may change the view.
+    /// `incognito` (New Incognito Space, spaces-overhaul-DESIGN.md rule 2): named Incognito with the eyeglasses
+    /// icon, shown in a new incognito window (`WindowManager.newIncognitoWindow(space:)`), which deletes it when
+    /// it closes; it starts on the default browser profile, as an incognito window's pages never use another.
     static func create(invocation: ActionInvocation, _ context: AppActionContext, action: ActionID = "space.new",
-                       inNewWindow: Bool = false, enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
+                       inNewWindow: Bool = false, incognito: Bool = false,
+                       enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
         let store = context.services.machines.local.store
-        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? RoomStrings.defaultName(store.profileIDs.count + 1)
+        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            ?? (incognito ? RoomStrings.incognitoName : RoomStrings.defaultName(store.profileIDs.count + 1))
         let used = Set(store.profiles.compactMap(\.color))
         let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
             ?? GroupColor.automatic(used: used) ?? .grey
-        let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? (incognito ? "eyeglasses" : nil)
         let active = context.activeWindow?.state
         // A new room shares the current room's browser profile, so logins
         // keep working (data-model.md 5).
-        let browser = active.flatMap { store.profile($0.profileID)?.browserProfileID }
+        let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
         services.registry.track(Task {
@@ -188,7 +194,9 @@ enum RoomHandlers {
                 // files the new workspace unpinned (so in `default`) and
                 // the window falls back as from a deleted room (cx-d8x5).
                 await services.machines.local.store.mirrored(profile: id)
-                if let enter, let active, let state = services.windows.states[active.id] {
+                if incognito {
+                    services.windows.newIncognitoWindow(space: id)
+                } else if let enter, let active, let state = services.windows.states[active.id] {
                     enter(id, state)
                 } else {
                     try await startNewSpace(id, from: inNewWindow ? nil : active?.id, windows: services.windows,

@@ -20,6 +20,15 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
                 cliName: "space new-window", mainMenu: .file
             ),
+            // Incognito space (spaces-overhaul-DESIGN.md rule 2): a new space shown in a new incognito window; it keeps
+            // nothing (off-the-record pages, no restore) and is deleted when that window closes or the app quits.
+            ActionDescriptor(
+                id: "space.newIncognito",
+                title: String(localized: "action.space.newIncognito", defaultValue: "New Incognito Space", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "space", "incognito", "private", "off the record"], category: .workspace, symbol: "eyeglasses",
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [CatalogArgument.nameString.optional],
+                cliName: "space new-incognito", mainMenu: .window
+            ),
             // Open Space in New Window (spaces-overhaul-DESIGN.md rule 4): a new window shows the space and the
             // window it came from keeps it. The space's right-click menu, a dot dragged out of the switcher,
             // the palette, the CLI and MCP run it.
