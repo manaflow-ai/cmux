@@ -32,7 +32,7 @@ test("a refused mirror clear stays authoritative across an unavailable daemon re
   let available = true;
   let mirror = "stale native draft";
   let release!: () => void;
-  let started!: () => void;
+  const started = Promise.withResolvers<void>();
   const refusal = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -43,7 +43,7 @@ test("a refused mirror clear stays authoritative across an unavailable daemon re
     },
     async (method, params) => {
       if (method === "chat.draftText.set" && params.text === "") {
-        started();
+        started.resolve();
         await refusal;
         throw new Error("native mirror refused");
       }
@@ -51,7 +51,7 @@ test("a refused mirror clear stays authoritative across an unavailable daemon re
     },
   );
   const first = actions["chat.readDraft"]({ sessionId });
-  await started;
+  await started.promise;
   available = false;
   const second = actions["chat.readDraft"]({ sessionId });
   release();
