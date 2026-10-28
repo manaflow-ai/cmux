@@ -20,6 +20,7 @@
 //! goes to the room (`pending_room_ops`, retried until acknowledged). Without one a share is
 //! `active` from its create and `url` is null.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -140,6 +141,9 @@ pub(in crate::server) struct LinkShares {
     armed: Mutex<Option<(TimerId, u64)>>,
     /// Shares (`None`) and guests that ended since the last `settle`, whose connections close.
     ended: Mutex<Vec<(String, Option<String>)>>,
+    /// Room DELETE workers currently dispatched, one per share. Expiry can race a worker that is
+    /// still waiting for the room's response; do not start a second worker for the same record.
+    room_deletes: Mutex<HashSet<String>>,
     /// The daemon the timer's job runs for (set by the first verb or bind).
     mux: Mutex<Weak<Mux>>,
     /// The hosted room each share is bridged to.
@@ -323,6 +327,14 @@ impl LinkShares {
         directory.map(|d| save(d, FILE, &shares))
     }
 
+    pub(super) fn claim_room_delete(&self, share_id: &str) -> bool {
+        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).insert(share_id.to_owned())
+    }
+
+    pub(super) fn release_room_delete(&self, share_id: &str) {
+        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
+    }
+
     /// Queues what was live in `start` and is not in `now`.
     fn note_ended(&self, start: &[LinkShare], now: &[LinkShare]) {
         let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
@@ -475,14 +487,21 @@ impl LinkShares {
 
     /// Revokes a share (`guest_id: None`) or kicks one guest of it.
     fn end(&self, directory: Option<&Path>, p: &Named) -> Result<Value, &'static str> {
-        self.with(directory, |shares, _| {
+        let mut schedule_delete = false;
+        let answer = self.with(directory, |shares, _| {
             let share = find(shares, &p.share_id)?;
             let Some(guest_id) = &p.guest_id else {
+                let was_live = share.live().is_ok();
                 let changed = share.state != ShareState::Revoked;
                 share.state = ShareState::Revoked;
-                if changed && share.room.is_some() {
+                if changed
+                    && share.room.is_some()
+                    && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
+                {
                     share.pending_room_ops.push(json!({"op": "delete"}));
                 }
+                schedule_delete = !was_live
+                    && share.pending_room_ops.iter().any(|o| o["op"] == "delete");
                 return Ok((json!({"share_id": share.share_id, "state": share.state}), changed));
             };
             let guest =
@@ -493,7 +512,14 @@ impl LinkShares {
                 json!({"share_id": share.share_id, "guest_id": guest_id, "state": guest.state}),
                 changed,
             ))
-        })
+        });
+        if answer.is_ok() && schedule_delete {
+            let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
+            if !ended.iter().any(|(share, guest)| share == &p.share_id && guest.is_none()) {
+                ended.push((p.share_id.clone(), None));
+            }
+        }
+        answer
     }
 
     /// The chat a live guest reaches: its share's session and surface, and the guest's author.
@@ -515,15 +541,21 @@ impl LinkShares {
         })
     }
 
-    /// Arms the one timer at the next active share's expiry (cancelling an earlier one). The
-    /// expiry is read and the timer replaced under the shares lock, so two callers never leave a
-    /// timer that does not match the shares.
+    /// Arms the one timer at the next active share or pending room operation's expiry (cancelling
+    /// an earlier one). The expiry is read and the timer replaced under the shares lock, so two
+    /// callers never leave a timer that does not match the shares.
     fn rearm(&self) {
+        let room_deletes = self.room_deletes.lock().unwrap_or_else(|e| e.into_inner());
         let shares = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        let now = self.now();
         let next = shares
             .iter()
             .flatten()
-            .filter(|s| s.state == ShareState::Active)
+            .filter(|s| {
+                !room_deletes.contains(&s.share_id)
+                    && s.expires_at > now
+                    && (s.state == ShareState::Active || !s.pending_room_ops.is_empty())
+            })
             .map(|s| s.expires_at)
             .min();
         let mut armed = self.armed.lock().unwrap_or_else(|e| e.into_inner());
@@ -558,6 +590,7 @@ impl LinkShares {
         }
         let directory = mux.session_state_directory();
         let _ = self.with(directory.as_deref(), |_, _| Ok(((), false)));
+        room::expired(self);
         self.settle(mux);
     }
 }

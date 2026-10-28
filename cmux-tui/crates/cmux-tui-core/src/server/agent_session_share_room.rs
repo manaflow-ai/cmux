@@ -364,11 +364,43 @@ enum Held {
 /// all (the owner's token, lost to a restart) it stays queued until the share's expiry, when the
 /// room's own alarm has ended it.
 fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
-    let bridge = &shares(mux).bridge;
-    let Some(runtime) = bridge.runtime() else { return };
+    let link_shares = shares(mux);
+    if !link_shares.claim_room_delete(share_id) {
+        if let Some(Held::Host(url, token)) = &held {
+            // A late PUT may carry the only host token while another cleanup worker is in
+            // flight. Preserve it in the record so that worker can use it before it exits.
+            let _ = retire(mux, share_id, url, token);
+        }
+        return;
+    }
+    // Remove this share's expiry from the timer before the worker starts. The worker owns the
+    // operation now and will re-arm if it exits while the queued operation remains.
+    link_shares.rearm();
+    let bridge = &link_shares.bridge;
+    let Some(runtime) = bridge.runtime() else {
+        link_shares.release_room_delete(share_id);
+        link_shares.rearm();
+        return;
+    };
     let (timing, weak, id) = (bridge.timing(), Arc::downgrade(mux), share_id.to_owned());
     let fallback = bridge.room().map(|room| room.url);
     runtime.spawn(async move {
+        struct DeleteGuard {
+            mux: Weak<Mux>,
+            share_id: String,
+        }
+
+        impl Drop for DeleteGuard {
+            fn drop(&mut self) {
+                if let Some(mux) = self.mux.upgrade() {
+                    let shares = shares(&mux);
+                    shares.release_room_delete(&self.share_id);
+                    shares.rearm();
+                }
+            }
+        }
+
+        let _guard = DeleteGuard { mux: weak.clone(), share_id: id.clone() };
         let op = json!({"op": "delete"});
         let mut wait = timing.backoff_min;
         let mut attempted = false;
@@ -432,6 +464,36 @@ pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     }
 }
 
+/// Starts cleanup for queued room operations that reached the share's expiry without a
+/// credential. The daemon's expiry timer covers revoked and failed provisioning records too, so
+/// they cannot occupy the share cap forever after a restart.
+pub(super) fn expired(shares: &LinkShares) {
+    let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
+    let now = shares.now();
+    let ids = {
+        let slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
+        slot.iter()
+            .flatten()
+            .filter(|share| {
+                share.expires_at <= now
+                    && share.pending_room_ops.iter().any(|op| op["op"] == "delete")
+            })
+            .map(|share| share.share_id.clone())
+            .collect::<Vec<_>>()
+    };
+    for id in ids {
+        let Some(v) = view(&mux, &id) else { continue };
+        if v.host_token.is_none() {
+            // A restart may have lost the owner's token. Once the room's expiry has passed, the
+            // room has already ended this share; settle the local operation without spawning a
+            // task that can only wake again at the same elapsed deadline.
+            done(&mux, &id, &json!({"op": "delete"}));
+        } else {
+            delete(&mux, &id, None);
+        }
+    }
+}
+
 /// Configures the room new links are provisioned in (`CMUX_SHARE_ROOM_URL`, else the build's
 /// default) and resumes every queued `DELETE` of before a restart. A share a restart left
 /// provisioning never answered its create: it is revoked (a room it made without answering ends
@@ -450,7 +512,10 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
             abandon_share(share, bridged);
             changed = true;
         }
-        let ids = all.iter().filter(|s| s.room.is_some()).map(|s| s.share_id.clone());
+        let ids = all
+            .iter()
+            .filter(|s| s.pending_room_ops.iter().any(|o| o["op"] == "delete"))
+            .map(|s| s.share_id.clone());
         Ok((ids.collect::<Vec<_>>(), changed))
     });
     for id in bridged.unwrap_or_default() {
@@ -458,6 +523,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
             delete(mux, &id, None);
         }
     }
+    expired(shares);
     shares.settle(mux);
 }
 
