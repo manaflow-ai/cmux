@@ -328,7 +328,7 @@ async fn mint(
         let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
         let code = known_code(code);
         // A credential that happens to spell a known code is still never printed.
-        let code = if code == credential { "" } else { code };
+        let code = if code.contains(credential) { "" } else { code };
         return Err(format!("the cmux API refused the client session: {status} {code}"));
     }
     let session: Session =
@@ -348,6 +348,20 @@ pub(super) fn checked_session(
     let bad = |what: &str| Err(format!("the cmux API's answer has an unusable {what}"));
     if session.machine != machine {
         return bad("machine");
+    }
+    // Neither secret is in any field this command prints, and the token is not the credential.
+    let secret_free = |v: &str| !v.contains(session.token.as_str()) && !v.contains(credential);
+    let mut printed = vec![
+        session.machine.as_str(),
+        session.vm_id.as_str(),
+        session.linux_user.as_str(),
+        session.api_base_url.as_str(),
+    ];
+    if let Some(ssh) = &session.ssh {
+        printed.extend([ssh.host.as_str(), ssh.user.as_str()]);
+    }
+    if session.token.contains(credential) || !printed.into_iter().all(secret_free) {
+        return bad("token");
     }
     let plain = |v: &str, extra: &[u8], max: usize| {
         !v.is_empty()

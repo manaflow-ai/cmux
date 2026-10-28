@@ -278,6 +278,12 @@ fn printed_fields_are_plain_and_never_carry_a_secret() {
     );
     assert!(checked_session(with("ssh", Value::Null), VM, "cred").is_ok());
     assert!(checked_session(with("token", json!("")), VM, "cred").is_err());
+    // The token is never the credential, and neither secret is in a printed field.
+    assert!(checked_session(with("token", json!("xx-cred-xx")), VM, "cred").is_err());
+    assert!(checked_session(with("token", json!(VM)), VM, "cred").is_err());
+    assert!(checked_session(with("token", json!("fsvm-1+cmux")), VM, "cred").is_err());
+    assert!(checked_session(with("token", json!("https://api.freestyle.sh")), VM, "cred").is_err());
+    assert!(checked_session(session("https://api.freestyle.sh"), VM, VM).is_err());
 }
 
 #[test]
@@ -292,14 +298,9 @@ fn a_credential_that_spells_a_known_code_is_not_printed() {
         let _ = stream.write_all(format!("HTTP/1.1 403 Forbidden\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
     });
     let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
-    let error = run(
-        &command,
-        &origin,
-        "auth.forbidden",
-        OutputMode::Human,
-        &mut Vec::new(),
-        &mut Vec::new(),
-    )
-    .unwrap_err();
-    assert!(!error.contains("auth.forbidden"), "{error}");
+    let error =
+        run(&command, &origin, "forbidden", OutputMode::Human, &mut Vec::new(), &mut Vec::new())
+            .unwrap_err();
+    // A credential inside a known code blanks the code.
+    assert!(!error.contains("forbidden"), "{error}");
 }
