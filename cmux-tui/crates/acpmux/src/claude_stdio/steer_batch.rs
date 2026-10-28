@@ -12,8 +12,15 @@
 //! it was sent, oldest first, under a line naming its sender. Nothing is dropped, cut or
 //! summarized. Each steer keeps its own request: the line's echo answers every one `steered`.
 //! When Claude Code read the line first (`cancelled: false`) or cannot drop it, the line stands
-//! and the new messages go in as the next line. Messages that come while the drop is on its way
-//! wait for its answer, then go in the line written after it.
+//! and the new messages go in as the next line. One line is written again at a time: messages
+//! that come while its drop is on its way wait for the answer, then go in the line written after
+//! it, so the lines reach Claude Code in the order their messages came.
+//!
+//! A dropped line is always written again with at least the messages it held, so Claude Code
+//! always has a line to echo: a turn whose result came while the line waited (it runs the line as
+//! one more turn, `inbound.rs`) still ends. So a withdraw of one message of a batched line, or of
+//! one held for one, takes nothing back (`withdrawn: false`), as for a message Claude Code read
+//! first; the person's steers, the ones withdraws are for, are never batched.
 //!
 //! The person's steers, one read now (`steerNow`) and anything the hub did not mark are written at
 //! once, as before, never held. A turn that ends before a held message was written answers it
@@ -34,22 +41,14 @@ pub(super) struct Part {
     pub(super) content: Vec<Value>,
 }
 
-/// A line Claude Code is asked to drop so it is written again (`rebatch-<uuid>`).
-#[derive(Debug, Default)]
-pub(super) struct Rewrite {
-    /// Messages that came meanwhile, oldest first: they go in the line written next.
-    held: Vec<Part>,
-    /// Withdraws asked meanwhile (`MUX_STEER_WITHDRAW`): the promptId and the withdraw's ACP id.
-    drops: Vec<(String, String)>,
-}
-
 /// The lines of other sessions' messages Claude Code has not read.
 #[derive(Debug, Default)]
 pub(super) struct Batches {
     /// By line uuid: its messages, oldest first.
     lines: HashMap<String, Vec<Part>>,
-    /// By the uuid of the line being dropped.
-    rewrites: HashMap<String, Rewrite>,
+    /// The one line asked to be dropped to be written again (`rebatch-<uuid>`), and the messages
+    /// that came meanwhile, oldest first, which go in the line written next.
+    rewrite: Option<(String, Vec<Part>)>,
     /// Claude Code refused a drop (one without `cancel_async_message`): each line stands.
     no_drop: bool,
 }
@@ -97,7 +96,7 @@ fn drop_request(uuid: &str) -> Value {
 impl Translator {
     /// A steer of the hub's (`session/prompt` with `_meta.steer`) during a turn: its line for
     /// Claude Code, another session's message joined to the newest waiting line of them, or held
-    /// while that line is dropped to be written again.
+    /// while a line is dropped to be written again.
     pub(super) async fn write_steer(&self, id: &Id, p: &Value, content: Vec<Value>) -> Outbound {
         let prompt_id = p.pointer("/_meta/promptId").and_then(Value::as_str).map(str::to_owned);
         let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool) == Some(true);
@@ -107,24 +106,22 @@ impl Translator {
             Part { id: id.to_string(), prompt_id, from: from.unwrap_or("").to_owned(), content };
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
-        // The turn ended since `outbound` looked (its result sets `in_turn` before it fails what
+        // The turn ended since `outbound` looked (its result clears `in_turn` before it fails what
         // waits, under these locks): nothing would ever answer this steer, so the hub queues it.
         if !self.in_turn.load(Ordering::SeqCst) {
-            return Outbound::Reply(Message::err(
-                id.clone(),
-                RpcError::invalid_params(STEER_NO_TURN),
-            ));
+            let no_turn = RpcError::invalid_params(STEER_NO_TURN);
+            return Outbound::Reply(Message::err(id.clone(), no_turn));
         }
         if from.is_some() {
             // One line is written again at a time: while one is, every other session's message
             // waits with it, so the lines go to Claude Code in the order their messages came.
-            if let Some(rewrite) = batches.rewrites.values_mut().next() {
-                rewrite.held.push(part);
+            if let Some((_, held)) = batches.rewrite.as_mut() {
+                held.push(part);
                 return Outbound::Lines(Vec::new());
             }
             let last = steers.back().map(|(uuid, _)| uuid.clone());
             if let Some(last) = last.filter(|l| !batches.no_drop && batches.lines.contains_key(l)) {
-                batches.rewrites.insert(last.clone(), Rewrite { held: vec![part], drops: vec![] });
+                batches.rewrite = Some((last.clone(), vec![part]));
                 return Outbound::Lines(vec![drop_request(&last)]);
             }
         }
@@ -169,48 +166,33 @@ impl Translator {
         (uuid, line)
     }
 
-    /// `MUX_STEER_WITHDRAW` of a message in a line of several, or in one being written again:
-    /// dropped there (`rebatched`). `None` when it is a line of its own (`withdraw_steer`).
-    pub(super) async fn withdraw_batched(
-        &self,
-        batches: &mut Batches,
-        id: &Id,
+    /// Whether `MUX_STEER_WITHDRAW` of `prompt_id` names a message batched with others (line
+    /// `uuid` holds more than one), in the line being written again, or held for it: it is not
+    /// taken back.
+    pub(super) fn batched(
+        batches: &Batches,
         prompt_id: &str,
         uuid: Option<&str>,
         steers: &std::collections::VecDeque<(String, String)>,
-    ) -> Option<Outbound> {
-        let held = |r: &Rewrite| r.held.iter().any(|p| p.prompt_id.as_deref() == Some(prompt_id));
-        let rewriting = uuid
-            .filter(|u| batches.rewrites.contains_key(*u))
-            .map(str::to_owned)
-            .or_else(|| batches.rewrites.iter().find(|(_, r)| held(r)).map(|(u, _)| u.clone()));
-        let asked = (prompt_id.to_owned(), id.to_string());
-        let out = if let Some(u) = rewriting {
-            batches.rewrites.get_mut(&u)?.drops.push(asked);
-            Outbound::Lines(Vec::new())
-        } else {
-            let uuid = uuid?;
-            if steers.iter().filter(|(u, _)| u == uuid).count() < 2 {
-                return None;
-            }
-            // Another line is being written again: this one is not dropped too (one at a time),
-            // and the message stays, as one Claude Code read first does.
-            if !batches.rewrites.is_empty() {
-                return Some(Outbound::Reply(Message::ok(id.clone(), json!({"withdrawn": false}))));
-            }
-            batches.rewrites.insert(uuid.to_owned(), Rewrite { held: vec![], drops: vec![asked] });
-            Outbound::Lines(vec![drop_request(uuid)])
-        };
-        self.pending.lock().await.insert(id.to_string(), Pending::Withdraw);
-        Some(out)
+    ) -> bool {
+        let held = batches.rewrite.as_ref().is_some_and(|(line, held)| {
+            uuid == Some(line.as_str())
+                || held.iter().any(|p| p.prompt_id.as_deref() == Some(prompt_id))
+        });
+        held || uuid.is_some_and(|u| {
+            batches.lines.contains_key(u) && steers.iter().filter(|(s, _)| s == u).count() > 1
+        })
     }
 
     /// Claude Code's answer to `drop_request` for line `uuid`: dropped, its messages and those
-    /// held for it go in one new line, less any withdrawn meanwhile; read first (or the drop
-    /// refused), it stands and only the held ones go in.
+    /// held for it go in one new line; read first (or the drop refused), it stands and only the
+    /// held ones go in. The answer to a drop no longer asked (the turn ended) changes nothing.
     pub(super) async fn rebatched(&self, uuid: &str, ok: bool, inner: &Value) -> Vec<Message> {
         let mut batches = self.batches.lock().await;
-        let Some(rewrite) = batches.rewrites.remove(uuid) else { return Vec::new() };
+        if batches.rewrite.as_ref().is_none_or(|(u, _)| u != uuid) {
+            return Vec::new();
+        }
+        let Some((_, held)) = batches.rewrite.take() else { return Vec::new() };
         batches.no_drop |= !ok;
         let mut steers = self.steers.lock().await;
         let cancelled = ok
@@ -221,66 +203,25 @@ impl Translator {
             steers.retain(|(u, _)| u != uuid);
             parts = batches.lines.remove(uuid).unwrap_or_default();
         }
-        parts.extend(rewrite.held);
-        let mut out = Vec::new();
-        let mut withdrawn = HashSet::new();
-        parts.retain(|part| {
-            let asked = rewrite.drops.iter().find(|(p, _)| part.prompt_id.as_ref() == Some(p));
-            let Some((_, withdraw)) = asked else { return true };
-            withdrawn.insert(withdraw.clone());
-            out.push(Message::err(acp_id(&part.id), RpcError::internal(STEER_WITHDRAWN)));
-            false
-        });
-        if !parts.is_empty() {
-            if self.in_turn.load(Ordering::SeqCst) {
-                let (new, line) = self.steer_line(&mut steers, &parts).await;
-                batches.lines.insert(new, parts);
-                self.stdin_replies.lock().await.push(line);
-            } else {
-                out.extend(parts.iter().map(|part| {
-                    Message::err(acp_id(&part.id), RpcError::invalid_params(STEER_NO_TURN))
-                }));
-            }
-        }
+        parts.extend(held);
+        // Never empty: a rewrite holds the message that asked for it.
+        let (new, line) = self.steer_line(&mut steers, &parts).await;
+        batches.lines.insert(new, parts);
         drop(steers);
         drop(batches);
-        for (_, withdraw) in rewrite.drops {
-            if self.pending.lock().await.remove(&withdraw).is_some() {
-                let taken = withdrawn.contains(&withdraw);
-                out.push(Message::ok(acp_id(&withdraw), json!({"withdrawn": taken})));
-            }
-        }
-        out
+        self.stdin_replies.lock().await.push(line);
+        Vec::new()
     }
 
     /// At a turn's end or a lost answer, with `batches` locked (before `steers`): the lines'
     /// records go, and the messages held for a line being written again, which never reached
-    /// Claude Code, are answered `message` (one withdrawn meanwhile `STEER_WITHDRAWN`). A withdraw
-    /// still in `pending` is answered here.
-    pub(super) async fn end_batches(&self, batches: &mut Batches, message: &str) -> Vec<Message> {
+    /// Claude Code, are answered `message`.
+    pub(super) fn end_batches(batches: &mut Batches, message: &str) -> Vec<Message> {
         batches.lines.clear();
-        let mut out = Vec::new();
-        for (_, rewrite) in batches.rewrites.drain() {
-            let mut withdrawn = HashSet::new();
-            for part in rewrite.held {
-                let asked = rewrite.drops.iter().find(|(p, _)| part.prompt_id.as_ref() == Some(p));
-                let why = match asked {
-                    Some((_, withdraw)) => {
-                        withdrawn.insert(withdraw.clone());
-                        RpcError::internal(STEER_WITHDRAWN)
-                    }
-                    None => RpcError::internal(message),
-                };
-                out.push(Message::err(acp_id(&part.id), why));
-            }
-            for (_, withdraw) in rewrite.drops {
-                if self.pending.lock().await.remove(&withdraw).is_some() {
-                    let taken = withdrawn.contains(&withdraw);
-                    out.push(Message::ok(acp_id(&withdraw), json!({"withdrawn": taken})));
-                }
-            }
-        }
-        out
+        let held = batches.rewrite.take().map(|(_, held)| held).unwrap_or_default();
+        held.iter()
+            .map(|part| Message::err(acp_id(&part.id), RpcError::internal(message)))
+            .collect()
     }
 
     /// The records of line `uuid` once Claude Code read it or dropped it.

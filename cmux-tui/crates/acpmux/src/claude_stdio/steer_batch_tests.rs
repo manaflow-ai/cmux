@@ -180,35 +180,55 @@ async fn a_line_read_first_stands_and_the_new_message_goes_next() {
     assert!(answer(&read, 2).is_none(), "the first answered twice");
 }
 
-/// The X on one message of a line of several: the line goes and the others are written again;
-/// the withdrawn one answers `STEER_WITHDRAWN`, never `steered`.
+/// The X on one message of a line of several, or on one held for a line written again: nothing
+/// is taken back (`withdrawn: false`), as for a message Claude Code read first, and every message
+/// still goes in the one line.
 #[tokio::test]
-async fn withdrawing_one_message_of_a_line_writes_the_others_again() {
+async fn a_withdraw_of_a_batched_message_takes_nothing_back() {
     let (t, mut q) = stepping().await;
-    for (id, sender) in [(2, "lane-a"), (3, "lane-b"), (4, "lane-c")] {
+    for (id, sender) in [(2, "lane-a"), (3, "lane-b")] {
         write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
     }
     q.settle(&t).await;
+    write(&t, &mut q, &from(4, "lane-c", "text 4")).await;
+    for (n, prompt_id) in [(8, "p3"), (9, "p4")] {
+        let withdraw = Message::request(
+            n,
+            method::MUX_STEER_WITHDRAW,
+            json!({"sessionId": "acp-1", "promptId": prompt_id}),
+        );
+        let Outbound::Reply(reply) = t.outbound(&withdraw).await else {
+            panic!("{prompt_id}: asked Claude Code to drop a batched message")
+        };
+        assert_eq!(answer(&[reply], n).unwrap().unwrap()["withdrawn"], false, "{prompt_id}");
+    }
+    assert!(q.settle(&t).await.is_empty());
     assert_eq!(q.waiting.len(), 1);
-    let withdraw = Message::request(
-        9,
-        method::MUX_STEER_WITHDRAW,
-        json!({"sessionId": "acp-1", "promptId": "p3"}),
-    );
-    write(&t, &mut q, &withdraw).await;
-    let answers = q.settle(&t).await;
-    assert_eq!(answer(&answers, 9).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
-    assert!(answer(&answers, 3).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN));
-    assert_eq!(q.waiting.len(), 1);
-    let text = text_of(&q.waiting[0]);
-    assert!(text.starts_with("2 messages from 2 sessions"), "{text}");
-    assert!(
-        text.contains("text 2") && text.contains("text 4") && !text.contains("text 3"),
-        "{text}"
-    );
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in 2..=4 {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+    }
+}
+
+/// The turn's result came while a line's drop was on its way (review 2 of #26707): the result
+/// waits for that unread line, as for any steer; the drop goes through, and the line written in
+/// its place, which Claude Code runs as one more turn, is echoed and its result ends the turn.
+#[tokio::test]
+async fn a_result_before_the_drop_answer_still_ends_the_turn() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "first")).await;
+    write(&t, &mut q, &from(3, "lane-b", "second")).await;
+    let result = json!({"type": "result", "subtype": "success", "result": "done", "num_turns": 1, "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}});
+    let early = t.inbound(&result).await;
+    assert!(answer(&early, 1).is_none(), "the turn ended with a line unread: {early:?}");
+    assert!(q.settle(&t).await.is_empty());
+    assert_eq!(q.waiting.len(), 1, "{:?}", q.waiting);
+    assert!(text_of(&q.waiting[0]).starts_with("2 messages from 2 sessions"));
     let read = t.inbound(&echo(&q.waiting[0])).await;
     assert_eq!(answer(&read, 2).unwrap().unwrap()["stopReason"], "steered");
-    assert_eq!(answer(&read, 4).unwrap().unwrap()["stopReason"], "steered");
+    assert_eq!(answer(&read, 3).unwrap().unwrap()["stopReason"], "steered");
+    let ended = t.inbound(&result).await;
+    assert_eq!(answer(&ended, 1).unwrap().unwrap()["stopReason"], "end_turn", "{ended:?}");
 }
 
 /// A Claude Code that cannot drop a line: the line stands, the held message goes next, and the

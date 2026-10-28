@@ -599,7 +599,7 @@ impl Translator {
         // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
         // records or waits until the stale index has been cleared.
         let mut steers = self.steers.lock().await;
-        let mut held = self.end_batches(&mut batches, message).await;
+        let mut held = Self::end_batches(&mut batches, message);
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
@@ -618,7 +618,7 @@ impl Translator {
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
         // Held for a line being written again, never written: they go in the next turn.
-        let held = self.end_batches(&mut batches, STEER_NO_TURN).await;
+        let held = Self::end_batches(&mut batches, STEER_NO_TURN);
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
         drop(steers);
