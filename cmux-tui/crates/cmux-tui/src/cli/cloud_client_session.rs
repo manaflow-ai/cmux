@@ -177,11 +177,20 @@ pub(super) fn resolve(
 }
 
 /// `https://…`, or `http://` only to this machine (a local API in development); no trailing slash.
+/// Errors never echo the URL (it could hold a secret someone pasted into it).
 fn secure_origin(raw: &str) -> Result<String, String> {
-    let url = reqwest::Url::parse(raw).map_err(|_| format!("{raw:?} is not a URL"))?;
+    let url = reqwest::Url::parse(raw).map_err(|_| "the cmux API is not a URL".to_owned())?;
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("the cmux API URL must have a host and no user, query or fragment".into());
+    }
     let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
     if url.scheme() != "https" && !(url.scheme() == "http" && local) {
-        return Err(format!("{raw:?} is not https: a credential never goes over plain http"));
+        return Err("the cmux API is not https: a credential never goes over plain http".into());
     }
     Ok(raw.trim_end_matches('/').to_owned())
 }

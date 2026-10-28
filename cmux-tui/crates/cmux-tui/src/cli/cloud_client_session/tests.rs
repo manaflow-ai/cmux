@@ -304,3 +304,17 @@ fn a_credential_that_spells_a_known_code_is_not_printed() {
     // A credential inside a known code blanks the code.
     assert!(!error.contains("forbidden"), "{error}");
 }
+
+#[test]
+fn the_configured_api_url_carries_no_secret_and_is_never_echoed() {
+    for bad in [
+        "https://api.example/?token=s3cret",
+        "https://u:s3cret@api.example",
+        "https://api.example/#s3cret",
+        "http://api.example/s3cret",
+    ] {
+        let error = secure_origin(bad).unwrap_err();
+        assert!(!error.contains("s3cret"), "{error}");
+    }
+    assert_eq!(secure_origin("https://api.example/"), Ok("https://api.example".to_owned()));
+}
