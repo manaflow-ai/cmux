@@ -40,9 +40,35 @@ import Testing
         #expect(!options.enableMetricKit)
         #expect(!options.enableLogs)
         #expect(!options.enableCaptureFailedRequests)
-        // The two macOS swizzles the app uses: NSApplication reportException: and URLSession breadcrumbs.
+        // The one macOS swizzle the app uses: NSApplication reportException:.
         #expect(options.enableSwizzling)
-        #expect(options.enableNetworkBreadcrumbs)
+    }
+
+    /// Audit 17: no request address reaches Sentry. The SDK's URLSession breadcrumb holds every request's
+    /// address, query and fragment: the omnibox suggest request (`q=` what the person typed, private profiles
+    /// too), a page saved or probed in the browser, the weather lookup's place. A query key such as `q` names
+    /// no secret, so the scrubber kept the value. The breadcrumb is off, and an http breadcrumb that still
+    /// reaches the scrubber loses its query and fragment.
+    @Test(arguments: [CrashReporter.HangTracking.sentry, .watchdog])
+    func noRequestAddressReachesSentry(_ hangTracking: CrashReporter.HangTracking) throws {
+        let options = Self.reporter(hangTracking).options()
+        #expect(!options.enableNetworkBreadcrumbs, "URLSession breadcrumbs carry each request's address")
+        let crumb = Breadcrumb(level: .info, category: "http")
+        crumb.type = "http"
+        crumb.data = [
+            "url": "https://suggestqueries.google.com/complete/search",
+            "method": "GET",
+            "status_code": 200,
+            "http.query": "client=firefox&q=ssh%20prod-db%20private%20words",
+            "http.fragment": "private-fragment",
+        ]
+        let before = try #require(options.beforeBreadcrumb)
+        let sent = try #require(before(crumb))
+        let data = sent.data ?? [:]
+        #expect(data["http.query"] == nil, "the typed query left in the breadcrumb")
+        #expect(data["http.fragment"] == nil)
+        #expect(!String(describing: data).contains("private"))
+        #expect(data["method"] as? String == "GET")
     }
 
     /// Each switch the CLI policy sets is the same here, or kept on for a reason the app has and a CLI run has not.
