@@ -77,10 +77,15 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
         const folderViewport = popup.locator(".ui-combobox-viewport");
-        const folderMetrics = await folderViewport.evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
+        const folderMetrics = await folderViewport.evaluate((node) => ({
+          client: node.clientHeight,
+          scroll: node.scrollHeight,
+        }));
         expect(folderMetrics.scroll).toBeGreaterThanOrEqual(folderMetrics.client);
         await contained(page, popup);
-        expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
+        expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe(
+          "true",
+        );
       } finally {
         await page.close();
       }
@@ -101,7 +106,9 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         expect(await gpu.count()).toBe(1);
         expect(await gpu.locator('[data-connected="true"]').count()).toBe(1);
         expect(await gpu.locator("kbd").innerText()).toBe("⌥⌘2");
-        const envMetrics = await popup.locator(".acpmux-location-folders").evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
+        const envMetrics = await popup
+          .locator(".acpmux-location-folders")
+          .evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
         expect(envMetrics.scroll).toBeGreaterThanOrEqual(envMetrics.client);
         await contained(page, popup);
       } finally {
@@ -125,9 +132,10 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
           element.style.top = top;
           element.style.bottom = "auto";
         });
-        const trigger = typeof triggerName === "string"
-          ? page.getByRole("button", { name: triggerName, exact: true })
-          : page.getByRole("button", { name: triggerName });
+        const trigger =
+          typeof triggerName === "string"
+            ? page.getByRole("button", { name: triggerName, exact: true })
+            : page.getByRole("button", { name: triggerName });
         await trigger.locator("..").evaluate((node) => {
           const rect = node.getBoundingClientRect();
           Object.defineProperty(node, "getBoundingClientRect", {

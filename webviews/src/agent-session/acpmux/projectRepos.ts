@@ -189,7 +189,9 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   // Keep the current project at the top while preserving the host's recency order for the rest.
   if (!current) return result;
   const currentIndex = result.findIndex((group) => group.members.some((member) => member.id === current));
-  return currentIndex > 0 ? [result[currentIndex]!, ...result.slice(0, currentIndex), ...result.slice(currentIndex + 1)] : result;
+  return currentIndex > 0
+    ? [result[currentIndex]!, ...result.slice(0, currentIndex), ...result.slice(currentIndex + 1)]
+    : result;
 }
 
 /// One project per repository for a picker that lists no worktrees (the New Tab hero and
@@ -260,7 +262,9 @@ export function shownRepoRows<T extends RepoFolder>(
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0)
     return groups
-      .filter((group) => !group.lead.scratch || group.lead.id === current || group.members.some((member) => !member.scratch))
+      .filter(
+        (group) => !group.lead.scratch || group.lead.id === current || group.members.some((member) => !member.scratch),
+      )
       .map((group) => ({
         group,
         worktrees: expanded.has(group.key) ? group.members.filter((member) => member !== group.lead) : [],
