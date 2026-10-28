@@ -59,8 +59,10 @@ After (`SplitArrival.fade`, the default; Debug Settings `motion.split.arrival` =
   theme background in that turn (over a see-through window the window's sheet shows through it), so the fade starts
   at once. Its content fades in when it first draws (`LayoutPaneContentProvider.paneArrived`,
   `PaneController.contentArrives`): a terminal's surface (text and cursor) is held at 0 on the render server until
-  its first frame after the shell's first output, then fades in; a page from its first paint. The hold has a 1 s
-  ceiling (a shell slow to print), done by one Core Animation keyframe animation, no timer.
+  its first frame after its first content (the daemon's snapshot or the shell's output), then fades in; a page from
+  its first paint. Content that drew already (a handoff's chat, a page) is not held. The hold ends at most 1 s after
+  the pane arrived (a shell slow to print), done by one Core Animation keyframe animation, no timer. Cost: the first
+  prompt or echo shows about two display ticks after it is parsed (the first-frame rule) and fades in over 120 ms.
 - Why not "first frame within one frame of the split": the text is the new shell's output. The daemon creates the PTY
   and the shell only after the split request (about 80 to 110 ms reply), and a shell such as oh-my-zsh then takes
   30 to 260 ms more to print (first-seconds-lag-result.md). No app-side change makes that text exist in one frame;

@@ -163,25 +163,37 @@ extension PaneController: LaunchWindowPane {
 
     /// A split's new pane arrived (`LayoutPaneContentProvider.paneArrived`): the pane fades in on its own background,
     /// and the content it shows, or the first content it will show, fades in when it first draws (a terminal's first
-    /// frame after its shell's first output, a page's first paint; `TabContent.arrival`), so its text never pops in
-    /// after the pane. Content that drew already shows as it is.
+    /// frame after its first content, the daemon's snapshot or the shell's output; a page's first paint;
+    /// `TabContent.arrival`), so its text never pops in after the pane. Content that drew already shows as it is, and
+    /// so does content that shows only after the pane's ``firstContentWait`` ran out.
     func contentArrives() {
         cancelContentArrival()
+        let arrived = CACurrentMediaTime()
         guard let content = currentContent else {
-            contentShownWait = { [weak self] content in self?.fadeContentIn(content) }
+            contentShownWait = { [weak self] content in self?.fadeContentIn(content, arrived: arrived) }
             return
         }
-        fadeContentIn(content)
+        fadeContentIn(content, arrived: arrived)
     }
 
-    /// Holds `content`'s layer at 0 until it first draws, at most ``firstContentWait``, then fades it in.
-    private func fadeContentIn(_ content: TabContent) {
-        guard let arrival = content.arrival,
-              let wait = Motion.panes.fadeIn(.fadeIn, layers: [arrival.layer], in: arrival.view, waitingUpTo: Self.firstContentWait,
-                                             ended: { [weak self] wait in self?.contentArrivalEnded(wait) }) else { return }
-        contentArrival = (wait, nil)
-        let cancelFrame = arrival.whenDrawn { [weak wait] in wait?.contentDrawn() }
-        if contentArrival?.wait === wait { contentArrival?.cancelFrame = cancelFrame } else { cancelFrame?() }
+    /// Holds `content`'s layer at 0 until it first draws, at most until ``firstContentWait`` after the pane `arrived`,
+    /// then fades it in. Content that drew already (its first-frame report comes in this call) is not touched.
+    private func fadeContentIn(_ content: TabContent, arrived: CFTimeInterval) {
+        let left = Self.firstContentWait - (CACurrentMediaTime() - arrived)
+        guard left > 0, let arrival = content.arrival else { return }
+        // The frame wait first: a report in this call means the content drew already, and nothing is held.
+        final class Drawn { var now = false; weak var wait: FadeInWait? }
+        let drawn = Drawn()
+        let cancelFrame = arrival.whenDrawn { [drawn] in
+            if let wait = drawn.wait { wait.contentDrawn() } else { drawn.now = true }
+        }
+        guard !drawn.now, let wait = Motion.panes.fadeIn(.fadeIn, layers: [arrival.layer], in: arrival.view, waitingUpTo: left,
+                                                          ended: { [weak self] wait in self?.contentArrivalEnded(wait) }) else {
+            cancelFrame?()
+            return
+        }
+        drawn.wait = wait
+        contentArrival = (wait, cancelFrame)
     }
 
     /// The hold of `wait` is over: its frame wait stops.

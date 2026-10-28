@@ -60,8 +60,9 @@ public final class FadeInWait {
         let total = holdSeconds + fadeSeconds
         let now = CACurrentMediaTime()
         holdEnds = now + holdSeconds
-        // Only the fade is motion (`MotionActivity`, the late-commit telemetry); the hold shows nothing moving.
-        MotionActivity.began(seconds: fadeSeconds)
+        // The whole hold counts as motion in flight (`MotionActivity`, the late-commit telemetry): its fade can start
+        // at any point of it (the content's first frame), or at its end.
+        MotionActivity.began(seconds: total)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Runs when every hold ended or was removed (the content's fade replaced it): the layers are at rest then

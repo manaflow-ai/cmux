@@ -100,9 +100,10 @@ enum TabContent {
     }
 
     /// Where this content draws and how it reports its first drawn content, for a split's content fade
-    /// (`PaneController.contentArrives`); nil when it drew already. A terminal fades its surface (text and cursor)
-    /// over its host's theme background from its first frame after its shell's first output; other content fades its
-    /// view from its first paint.
+    /// (`PaneController.contentArrives`); nil when a terminal has content already (other content that drew reports
+    /// its first frame at once, and is not held). A terminal fades its surface (text and cursor) over its host's theme
+    /// background from its first frame after its first content (the daemon's snapshot or the shell's output); other
+    /// content fades its view from its first paint.
     @MainActor var arrival: (layer: CALayer, view: NSView,
                              whenDrawn: (@escaping @MainActor () -> Void) -> (@MainActor () -> Void)?)? {
         switch self {
