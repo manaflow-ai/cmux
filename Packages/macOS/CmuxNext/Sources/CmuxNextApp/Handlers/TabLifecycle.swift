@@ -260,6 +260,7 @@ enum TabLifecycle {
         // there it opens unselected in the chat's pane and moves into a new one (AgentBesidePlacement).
         let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil
         if invocation.besideCaller {
+            if let url, let beside, ctx.services.linkOpener.selectExistingWeb(url, from: beside) { return }
             agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)
         }
         // An agent never swaps out the page the person is working in: its tab opens unselected in the
