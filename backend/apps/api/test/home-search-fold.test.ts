@@ -91,6 +91,17 @@ describe("home.search highlight under folding", () => {
     expect(foldedMatch("a\u0301", "a")).toEqual({ start: 0, length: 2 })
   })
 
+  it("finds the first folded match across the points where folding checks and stops", () => {
+    // Folding checks every 1024 folded units; these matches straddle or follow those points.
+    for (const n of [509, 510, 511, 512, 1022, 1023, 2000]) {
+      const body = `${"éa".repeat(n)}éb${"éa".repeat(600)}éb`
+      expect(foldedMatch(body, "aeb")).toEqual({ start: 2 * n - 1, length: 3 })
+    }
+    expect(foldedMatch(`${"x".repeat(5000)}é`, "xe")).toEqual({ start: 4999, length: 2 })
+    expect(foldedMatch(`${"x".repeat(5000)}é`, "xé")).toEqual({ start: 4999, length: 2 })
+    expect(foldedMatch(`${"é".repeat(5000)}`, "eex")).toBeNull()
+  })
+
   it("returns no range when nothing matches, with the snippet unchanged", () => {
     const h = hitOf(row("plan B"), "zzz")
     expect(h.ranges).toEqual([])

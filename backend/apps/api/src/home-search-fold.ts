@@ -82,6 +82,7 @@ const countAtMost = (xs: ReadonlyArray<number>, v: number) => {
  * the base of a grapheme (`e` and a combining accent, a digit and a keycap mark).
  */
 const ASCII_RUN = /[\x00-\x7f]+/g
+const CHECK_EVERY = 1024
 
 /**
  * The first match of `query` in `text` under folding, as a code-point range of `text` covering
@@ -90,43 +91,54 @@ const ASCII_RUN = /[\x00-\x7f]+/g
  *
  * Cost is linear in the text: ASCII runs fold with one toLowerCase each and map back one to one
  * (a "linear" piece); only non-ASCII stretches go through Intl.Segmenter, one piece per grapheme.
- * One indexOf finds the match and binary searches over the pieces map its ends back.
+ * Folding stops shortly after the first match, and binary searches over the pieces map its ends back.
  */
 export const foldedMatch = (text: string, query: string): { readonly start: number; readonly length: number } | null => {
   const needle = foldGraphemes(query)
   if (needle.length === 0) return null
-  const parts: Array<string> = []
   // Per piece, plus one past the end: where it starts in the folded text (UTF-16) and in `text` (code points).
   const foldAt: Array<number> = []
   const codeAt: Array<number> = []
   const linear: Array<boolean> = []
-  let folded = 0
+  let folded = ""
   let code = 0
+  // Folding stops at the first match: it is looked for every CHECK_EVERY folded units, from just
+  // before the part not yet searched, and once more at the end.
+  let searched = 0
+  let at = -1
+  const look = () => {
+    at = folded.indexOf(needle, Math.max(0, searched - needle.length + 1))
+    searched = folded.length
+    return at >= 0
+  }
   const piece = (f: string, codePoints: number, isLinear: boolean) => {
-    foldAt.push(folded)
+    foldAt.push(folded.length)
     codeAt.push(code)
     linear.push(isLinear)
-    parts.push(f)
-    folded += f.length
+    folded += f
     code += codePoints
+    return folded.length - searched >= CHECK_EVERY && look()
   }
   const nonAscii = (from: number, to: number) => {
-    if (to <= from) return
-    for (const { segment } of graphemes.segment(text.slice(from, to))) piece(foldGrapheme(segment), segment.length === 1 ? 1 : [...segment].length, false)
+    if (to <= from) return false
+    for (const { segment } of graphemes.segment(text.slice(from, to))) if (piece(foldGrapheme(segment), segment.length === 1 ? 1 : [...segment].length, false)) return true
+    return false
   }
-  let next = 0
-  for (const m of text.matchAll(ASCII_RUN)) {
-    const start = m.index ?? 0
-    // Keep the run's last character for the non-ASCII text after it, if any.
-    const end = start + m[0].length - (start + m[0].length < text.length ? 1 : 0)
-    nonAscii(next, start)
-    if (end > start) piece(text.slice(start, end).toLowerCase(), end - start, true)
-    next = end
+  const scan = () => {
+    let next = 0
+    for (const m of text.matchAll(ASCII_RUN)) {
+      const start = m.index ?? 0
+      // Keep the run's last character for the non-ASCII text after it, if any.
+      const end = start + m[0].length - (start + m[0].length < text.length ? 1 : 0)
+      if (nonAscii(next, start)) return
+      if (end > start && piece(text.slice(start, end).toLowerCase(), end - start, true)) return
+      next = end
+    }
+    if (!nonAscii(next, text.length)) look()
   }
-  nonAscii(next, text.length)
-  foldAt.push(folded)
+  scan()
+  foldAt.push(folded.length)
   codeAt.push(code)
-  const at = parts.join("").indexOf(needle)
   if (at < 0) return null
   const last = at + needle.length - 1
   // Start: the last piece whose fold starts at or before `at` (graphemes folding to nothing share
