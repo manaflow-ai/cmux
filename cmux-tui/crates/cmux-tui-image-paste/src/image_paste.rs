@@ -1,4 +1,6 @@
-//! Bounded temporary image ownership for the authenticated terminal control channel.
+//! Temporary image ownership for the authenticated terminal control channel.
+//! Images of any size are accepted: bytes stream to a private file in bounded
+//! chunks, and only the number of uploads is limited, never their size.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
@@ -8,11 +10,11 @@ use crate::image_paste_file::ImagePasteFile;
 use base64::Engine;
 
 pub const CAPABILITY: &str = "terminal-image-paste-v1";
-pub(crate) const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 pub(crate) const MAX_CHUNK_BYTES: usize = 48 * 1024;
-const MAX_RETAINED_BYTES: usize = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 32;
 pub(crate) const IMAGE_TTL: Duration = Duration::from_secs(600);
+/// How long an upload may go without an accepted chunk before it expires.
+/// Each chunk restarts it, so a large image on a slow link still finishes.
 const UPLOAD_TTL: Duration = Duration::from_secs(120);
 
 #[derive(Clone, PartialEq, Eq)]
@@ -124,7 +126,7 @@ impl ImagePasteStore {
         size: usize,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(valid_id(id), "image-invalid-request");
-        anyhow::ensure!((1..=MAX_IMAGE_BYTES).contains(&size), "image-size-limit");
+        anyhow::ensure!(size > 0, "image-size-limit");
         let extension = extension(mime).ok_or_else(|| anyhow::anyhow!("image-type-rejected"))?;
         let mut state = self.shared.state.lock().unwrap();
         Self::reap(&mut state, Instant::now());
@@ -137,12 +139,6 @@ impl ImagePasteStore {
             recovered.is_none_or(|recovery| recovery.ready),
             "image-storage-unavailable"
         );
-        let reserved: usize = state
-            .uploads
-            .values()
-            .map(|upload| upload.size)
-            .sum::<usize>()
-            .saturating_add(recovered.map_or(0, |recovery| recovery.retained_bytes));
         let client_count =
             state.uploads.values().filter(|upload| upload.owner.client == owner.client).count();
         anyhow::ensure!(
@@ -151,8 +147,7 @@ impl ImagePasteStore {
                 .len()
                 .saturating_add(recovered.map_or(0, |recovery| recovery.retained_count))
                 < MAX_ENTRIES
-                && client_count < 8
-                && reserved.saturating_add(size) <= MAX_RETAINED_BYTES,
+                && client_count < 8,
             "image-capacity-limit"
         );
         let file = ImagePasteFile::create(extension)
@@ -195,6 +190,7 @@ impl ImagePasteStore {
         anyhow::ensure!(bytes.len() <= upload.size - upload.received, "image-size-limit");
         upload.file.append(&bytes).map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         upload.received += bytes.len();
+        upload.deadline = Instant::now() + UPLOAD_TTL;
         Ok(())
     }
 

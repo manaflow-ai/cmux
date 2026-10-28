@@ -9109,7 +9109,7 @@ exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
 
 | `op` | Additional fields | Effect |
 | --- | --- | --- |
-| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `begin` | `mime`, `size` | Reserve an upload slot and create a private daemon-owned file. |
 | `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
 | `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
 | `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
@@ -9121,9 +9121,9 @@ destination path is accepted and no image path or content is returned in an
 acknowledgement. Stable error codes begin with `image-`; clients must treat a
 lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 
-The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
-32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
-two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+The policy is PNG/JPEG/GIF/WebP images of any size, eight images per connection
+and 32 retained uploads per daemon, with no byte budget. A pending upload expires
+two minutes after its last accepted chunk; committed uploads expire in ten minutes. Ownership receipts permit
 restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See

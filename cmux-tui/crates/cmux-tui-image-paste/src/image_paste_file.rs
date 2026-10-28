@@ -256,7 +256,6 @@ impl ImagePasteFile {
                 (stat.is_file()
                     && stat.dev() == record.file_device
                     && stat.ino() == record.file_inode
-                    && stat.len() <= crate::image_paste::MAX_IMAGE_BYTES as u64
                     && crate::image_paste_ownership::ImagePasteOwnership::matches(
                         &file,
                         &record.ownership,
@@ -277,10 +276,6 @@ impl ImagePasteFile {
     pub(crate) fn abandon_for_test(mut self) {
         // Model a crashed process: close descriptors without unlinking files.
         self.cleanup = false;
-    }
-
-    pub(crate) fn size(&self) -> usize {
-        self.file.metadata().map_or(0, |m| m.len() as usize)
     }
 
     fn cleanup_entry(&self, name: &CStr, expected: &File) -> bool {

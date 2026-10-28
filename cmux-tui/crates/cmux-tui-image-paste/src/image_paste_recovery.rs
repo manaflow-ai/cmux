@@ -12,9 +12,7 @@ use crate::image_paste_storage::ImagePasteStorage;
 pub(crate) struct ImagePasteRecovery {
     storage: Option<ImagePasteStorage>,
     entries: Option<ReadDir>,
-    scanning_bytes: usize,
     scanning_count: usize,
-    pub retained_bytes: usize,
     pub retained_count: usize,
     pub ready: bool,
 }
@@ -22,7 +20,6 @@ pub(crate) struct ImagePasteRecovery {
 impl ImagePasteRecovery {
     pub(crate) fn scan(&mut self, active: &HashSet<PathBuf>) -> Duration {
         if self.entries.is_none() {
-            self.scanning_bytes = 0;
             self.scanning_count = 0;
             if self.storage.is_none() {
                 self.storage = ImagePasteStorage::open().ok();
@@ -50,14 +47,12 @@ impl ImagePasteRecovery {
                     if let Some((deadline, file)) = ImagePasteFile::recover_one(entry.path())
                         && (deadline > Instant::now() || !file.remove_owned())
                     {
-                        self.scanning_bytes = self.scanning_bytes.saturating_add(file.size());
                         self.scanning_count = self.scanning_count.saturating_add(1);
                     }
                 }
                 Some(Err(_)) => continue,
                 None => {
                     self.entries = None;
-                    self.retained_bytes = self.scanning_bytes;
                     self.retained_count = self.scanning_count;
                     self.ready = true;
                     return Duration::from_secs(30);

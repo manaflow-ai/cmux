@@ -31,16 +31,17 @@ rollout. Reconnect after updating so capabilities belong to the new connection.
 ## Limits and ownership
 
 - PNG, JPEG, GIF, and WebP only, checked by content signatures on both sides.
-  Each image is limited to 20 MiB. Filesystem reads run off the Mac's main actor;
+  An image of any size is accepted; there is no size cap. Filesystem reads run off the Mac's main actor;
   cancellation is checked before and after the bounded regular-file read.
-- One acknowledged 48 KiB chunk at a time, with a 120-second transfer deadline.
+- One acknowledged 48 KiB chunk at a time. An upload expires after 120 seconds
+  without an accepted chunk; each chunk restarts that deadline.
   The existing activity indicator and Cancel button show transfer progress. A
   single outstanding chunk trades throughput on high-latency links for bounded
   memory and explicit ordering. Uploads use the transport's bulk lane; commit shares the ordered keyboard lane.
-- At most eight images per connection, 32 retained uploads, and 128 MiB reserved
-  on a daemon. Pending uploads reserve their entire declared size before bytes
-  arrive. Recovered files count against the same storage limits. Failed deletion
-  keeps the reservation charged and the upload retired until a safe retry succeeds.
+- At most eight images per connection and 32 retained uploads on a daemon, with
+  no byte budget: bytes stream to the private file on disk, never to memory.
+  Recovered files count against the same upload limits. Failed deletion keeps
+  the upload counted and retired until a safe retry succeeds.
 - The daemon chooses a random, private `cmux-image-…` directory below its temporary
   directory inside a verified private per-UID namespace, mode 0700, and a
   `clipboard.<extension>` file, mode 0600. Unsafe writable ancestors are refused. The terminal
