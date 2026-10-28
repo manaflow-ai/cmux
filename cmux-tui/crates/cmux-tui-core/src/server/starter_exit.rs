@@ -89,7 +89,7 @@ pub fn exit_with_process(mux: &Arc<Mux>, starter: Starter) -> std::io::Result<()
             }
             drop(mux);
             #[cfg(test)]
-            REFUSED_STOPS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            REFUSED_STOPS.fetch_add(1, Ordering::SeqCst);
             std::thread::sleep(HANDOFF_RETRY);
         }
     })?;
