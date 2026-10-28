@@ -10,9 +10,16 @@
 
 /** Combining diacritical marks (the accents NFKD splits off Latin, Greek and Cyrillic letters). */
 const DIACRITICS = /[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/gu
-/** Letters the collation treats as a base letter (or two) that have no Unicode decomposition. */
-const LETTERS: Readonly<Record<string, string>> = { "ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l", "ς": "σ" }
-const LETTER = /[ßæœøđłς]/gu
+/**
+ * Letters with no Unicode decomposition that the collation still weighs as a base letter (or two)
+ * plus an accent-level difference: expansions, the stroke and bar letters, and final sigma.
+ * Best effort: a letter missing here only loses its highlight, never the hit.
+ */
+const LETTERS: Readonly<Record<string, string>> = {
+  "ß": "ss", "æ": "ae", "œ": "oe", "ĳ": "ij", "ø": "o", "đ": "d", "ð": "d", "ł": "l", "ħ": "h", "ŧ": "t",
+  "ƀ": "b", "ǥ": "g", "ɨ": "i", "ʉ": "u", "ɍ": "r", "ɉ": "j", "ƶ": "z", "ς": "σ"
+}
+const LETTER = new RegExp(`[${Object.keys(LETTERS).join("")}]`, "gu")
 
 /**
  * One grapheme (or any text) folded: compatibility forms decomposed (ligatures, full-width), accents

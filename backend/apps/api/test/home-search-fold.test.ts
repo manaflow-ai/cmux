@@ -53,6 +53,17 @@ describe("home.search highlight under folding", () => {
     expect(foldText("한국어 計画 がぎ")).toBe("한국어 計画 がぎ")
   })
 
+  it("prefers the plain match, as Postgres ILIKE matched it, and folds only without one", () => {
+    expect(hitOf(row("café or cafe"), "cafe").ranges).toEqual([{ start: 8, length: 4 }])
+    expect(hitOf(row("café or cafe"), "café").ranges).toEqual([{ start: 0, length: 4 }])
+  })
+
+  it("folds stroke letters and eth as the collation does", () => {
+    expect(shown(hitOf(row("Vel ðu Øresund Łódź Ħamrun"), "lodz"))).toBe("Łódź")
+    expect(shown(hitOf(row("Vel ðu Øresund Łódź Ħamrun"), "hamrun"))).toBe("Ħamrun")
+    expect(shown(hitOf(row("Vel ðu Øresund Łódź Ħamrun"), "du oresund"))).toBe("ðu Øresund")
+  })
+
   it("returns no range when nothing matches, with the snippet unchanged", () => {
     const h = hitOf(row("plan B"), "zzz")
     expect(h.ranges).toEqual([])

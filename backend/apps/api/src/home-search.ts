@@ -61,21 +61,22 @@ const findMatch = (chars: ReadonlyArray<string>, needle: ReadonlyArray<string>) 
 
 /**
  * The hit for one row: snippet (120 code points around the match) and the match range inside it.
- * The match folds case and accents as the MySQL collation does (home-search-fold.ts), so a row that
- * matched only through folding still gets its range; a query that folds to nothing (only combining
- * marks) falls back to the plain lower-case match.
+ * The plain case-insensitive match comes first (what Postgres ILIKE matched, and the cheap path);
+ * only when it finds nothing does the match fold accents as the MySQL collation does
+ * (home-search-fold.ts), so a row that matched only through folding still gets its range.
  */
 export const hitOf = (row: { conversation_id: string; title: string | null; seq: string | number; message_id: string; author_id: string; created_at: Date | string; body: string }, q: string): SearchHit => {
   const needle = [...q.toLowerCase()]
-  const plain = () => {
-    const at = findMatch([...row.body], needle)
-    return at < 0 ? null : { start: at, length: needle.length }
-  }
-  const match = foldedMatch(row.body, q) ?? plain()
+  const chars = [...row.body]
+  const at = findMatch(chars, needle)
+  // A plain match ending before combining marks (`cafe` in a decomposed `café`) covers them too.
+  let end = at + needle.length
+  while (at >= 0 && end < chars.length && /^\p{M}$/u.test(chars[end]!)) end++
+  const match = at >= 0 ? { start: at, length: end - at } : foldedMatch(row.body, q)
   const { snippet, from, to, lead } = homeConversation.snippetWindow(row.body, match?.start ?? 0, match?.length ?? needle.length)
   // The part of the match the snippet shows, in snippet offsets.
-  const start = match ? Math.max(match.start, from) : 0
-  const end = match ? Math.min(match.start + match.length, to) : 0
+  const shownStart = match ? Math.max(match.start, from) : 0
+  const shownEnd = match ? Math.min(match.start + match.length, to) : 0
   return {
     conversation: row.conversation_id,
     title: row.title,
@@ -84,7 +85,7 @@ export const hitOf = (row: { conversation_id: string; title: string | null; seq:
     author: row.author_id,
     created_at: new Date(row.created_at).toISOString(),
     snippet,
-    ranges: end > start ? [{ start: start - from + lead, length: end - start }] : []
+    ranges: shownEnd > shownStart ? [{ start: shownStart - from + lead, length: shownEnd - shownStart }] : []
   }
 }
 
