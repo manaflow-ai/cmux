@@ -67,7 +67,7 @@ export function useWorkflowTranscript(
         ? [
             {
               id: `${id}:notice`,
-              version: reader?.failed ? 2 : 1,
+              version: revision,
               at: 0,
               kind: "notice",
               text: notice,

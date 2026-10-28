@@ -3,6 +3,7 @@
 // activity rows, and the subagents it spawned between two pieces of its text draw as one group
 // row, so nesting reads the same at every level.
 import { appendThought, mergeToolItem, textFromContent } from "../direct";
+import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { hiddenCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
@@ -39,7 +40,18 @@ export function childRows(
     }
     const kind = update?.sessionUpdate;
     const text = textFromContent(update?.content);
-    if (kind === "user_message_chunk" && text) {
+    if (kind === "omitted") {
+      rows.set(`${id}:omitted-${event.seq}`, {
+        id: `${id}:omitted-${event.seq}`,
+        version,
+        at: event.at,
+        kind: "notice",
+        text: translate("workflow.contentOmitted"),
+      });
+      reply = undefined;
+      activity = undefined;
+      group = undefined;
+    } else if (kind === "user_message_chunk" && text) {
       rows.set(`${id}:user-${event.seq}`, {
         id: `${id}:user-${event.seq}`,
         version,
