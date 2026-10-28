@@ -199,17 +199,20 @@ export function parseAutosizeRequest(value: unknown): { readonly taskKind: Autos
     return `\`autosize.taskKind\` must be one of ${AUTOSIZE_TASK_KINDS.join(", ")}.`;
   }
   if (v.gpu !== undefined && typeof v.gpu !== "boolean") return "`autosize.gpu` must be a boolean.";
-  let repo: AutosizeInput["repo"];
-  if (v.repo !== undefined) {
-    if (v.repo === null || typeof v.repo !== "object" || Array.isArray(v.repo)) return "`autosize.repo` must be an object.";
-    const r = v.repo as Record<string, unknown>;
-    if (r.sizeMb !== undefined && (typeof r.sizeMb !== "number" || !Number.isFinite(r.sizeMb) || r.sizeMb < 0 || r.sizeMb > 16 * 1024 * 1024)) {
-      return "`autosize.repo.sizeMb` must be a non-negative number of MiB.";
-    }
-    if (r.rootFiles !== undefined && (!Array.isArray(r.rootFiles) || r.rootFiles.length > 500 || r.rootFiles.some((f) => typeof f !== "string" || f.length > 255))) {
-      return "`autosize.repo.rootFiles` must be at most 500 file names.";
-    }
-    repo = { sizeMb: r.sizeMb as number | undefined, rootFiles: r.rootFiles as string[] | undefined };
-  }
+  const repo = parseAutosizeRepo(v.repo);
+  if (typeof repo === "string") return repo;
   return { taskKind: taskKind as AutosizeTaskKind, repo, gpu: v.gpu === true };
+}
+
+const validRepoSizeMb = (value: unknown) => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 16 * 1024 * 1024);
+const validRootFiles = (value: unknown) =>
+  value === undefined || (Array.isArray(value) && value.length <= 500 && value.every((f) => typeof f === "string" && f.length <= 255));
+
+function parseAutosizeRepo(value: unknown): AutosizeInput["repo"] | string {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return "`autosize.repo` must be an object.";
+  const r = value as Record<string, unknown>;
+  if (!validRepoSizeMb(r.sizeMb)) return "`autosize.repo.sizeMb` must be a non-negative number of MiB.";
+  if (!validRootFiles(r.rootFiles)) return "`autosize.repo.rootFiles` must be at most 500 file names.";
+  return { sizeMb: r.sizeMb as number | undefined, rootFiles: r.rootFiles as string[] | undefined };
 }

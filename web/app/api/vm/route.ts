@@ -406,10 +406,7 @@ export async function POST(request: Request): Promise<Response> {
       // provider-specific image ids without a provider field, and the
       // deployment default must not reroute them under the wrong provider.
       const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
-      const autosize = resolveCreateAutosize(span, candidate, provider, entitlements.planId);
-      if (!autosize.ok) return autosize.response;
-      const requestedMemoryMb = (candidate.memoryMb as number | undefined) ?? autosize.pick?.size.memoryMb;
-      const memory = await resolveCreateMemory(span, entitlements.planId, requestedMemoryMb, request, !!idempotencyKey);
+      const memory = await resolveCreateSize(span, entitlements.planId, candidate, provider, request, !!idempotencyKey);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -518,8 +515,7 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
-        // The auto-size pick, in the hand-off's size fields; only when the server picked the size.
-        ...(autosize.pick && memoryMb === autosize.pick.size.memoryMb ? { sizePick: sizePickFields(autosize.pick) } : {}),
+        ...sizePickFields(memory.pick, memoryMb),
       });
     },
   );
@@ -567,8 +563,26 @@ function resolveCreateAutosize(
   return { ok: true, pick: result };
 }
 
-function sizePickFields(pick: AutosizePick) {
-  return { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason };
+/** The machine's memory: the caller's `memoryMb` (the override), else the auto-size pick, else the plan default. */
+async function resolveCreateSize(
+  span: Span,
+  planId: string,
+  candidate: Record<string, unknown>,
+  provider: ProviderId,
+  request: Request,
+  deferLockedPlanCheck: boolean,
+): Promise<{ readonly ok: true; readonly memoryMb: number; readonly pick: AutosizePick | null } | { readonly ok: false; readonly response: Response }> {
+  const autosize = resolveCreateAutosize(span, candidate, provider, planId);
+  if (!autosize.ok) return autosize;
+  const requestedMemoryMb = (candidate.memoryMb as number | undefined) ?? autosize.pick?.size.memoryMb;
+  const memory = await resolveCreateMemory(span, planId, requestedMemoryMb, request, deferLockedPlanCheck);
+  return memory.ok ? { ...memory, pick: autosize.pick } : memory;
+}
+
+/** The auto-size pick in the hand-off's size fields; only when the server picked the size the machine got. */
+function sizePickFields(pick: AutosizePick | null, memoryMb: number) {
+  if (!pick || pick.size.memoryMb !== memoryMb) return {};
+  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
 }
 
 /**
