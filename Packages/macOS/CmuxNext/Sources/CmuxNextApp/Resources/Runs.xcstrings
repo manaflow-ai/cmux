@@ -1910,7 +1910,7 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokretanju je isteklo vrijeme"
+            "value": "Isteklo je vrijeme pokretanja"
           }
         },
         "da": {
@@ -1976,7 +1976,7 @@
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chạy đã hết thời gian"
+            "value": "Lượt chạy đã hết thời gian"
           }
         }
       }
