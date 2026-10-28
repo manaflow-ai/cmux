@@ -436,4 +436,28 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it("aborts every open upload under a key prefix, parts and record, and leaves other prefixes' uploads and stored objects alone", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const gone = [await bucket.createMultipartUpload("home/v1/conv_a/one"), await bucket.createMultipartUpload("home/v1/conv_a/two")]
+      for (const upload of gone) await upload.uploadPart(1, "a part")
+      const kept = await bucket.createMultipartUpload("home/v1/conv_b/one")
+      const keptPart = await kept.uploadPart(1, "b part")
+      // A prefix match is by key, not by path segment: conv_ab is not under conv_a/.
+      const sibling = await bucket.createMultipartUpload("home/v1/conv_ab/one")
+      await sibling.uploadPart(1, "ab part")
+      await bucket.put("home/v1/conv_a/stored", "stored")
+      expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(2)
+      expect(readdirSync(join(root, ".multipart")).sort()).toEqual([kept.uploadId, `${kept.uploadId}.json`, sibling.uploadId, `${sibling.uploadId}.json`].sort())
+      for (const upload of gone) await expect(upload.uploadPart(2, "late")).rejects.toThrow(/NoSuchUpload/)
+      expect(await new Response((await bucket.get("home/v1/conv_a/stored"))!.body!).text()).toBe("stored")
+      await kept.complete([keptPart])
+      expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
+      // A bucket that never had an upload has nothing to abort.
+      expect(await new FsBucket(join(root, "fresh")).abortMultipartUploads("home/")).toBe(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
