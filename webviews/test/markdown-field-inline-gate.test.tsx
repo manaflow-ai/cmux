@@ -283,7 +283,6 @@ test("undo after a draft is read back leaves its attachment placed", async () =>
   expect(editor.textContent).toBe("see  here");
 });
 
-
 test("an attachment inserts at the caret and Backspace deletes it in one press", async () => {
   const editor = await render(() => {}, { value: "before after" });
   await act(async () => {
@@ -293,7 +292,9 @@ test("an attachment inserts at the caret and Backspace deletes it in one press",
   expect(handle.current!.value()).toBe(`before ${inlineToken("image")}after`);
   expect(editor.querySelector("[data-inline-attachment]")?.getAttribute("draggable")).toBe("true");
   await act(async () => {
-    editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+    editor.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+    );
   });
   expect(handle.current!.value()).toBe("before after");
   expect(editor.querySelector("[data-inline-attachment]")).toBeNull();

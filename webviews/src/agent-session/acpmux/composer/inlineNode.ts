@@ -7,6 +7,7 @@
 // attachments.ts inlineCopyId). The node draws nothing itself: the composer draws each
 // attachment's chip into the node's element (composer/inlineAttachments.tsx), which `InlineViews`
 // hands it.
+import { closeHistory } from "@milkdown/kit/prose/history";
 import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
 import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
@@ -154,7 +155,7 @@ export function inlinePlugin(views: InlineViews) {
             const adjacent = backward ? selection.$from.nodeBefore : selection.$from.nodeAfter;
             if (adjacent?.type.name !== INLINE_NODE) return false;
             const from = selection.from - (backward ? 1 : 0);
-            view.dispatch(view.state.tr.delete(from, from + 1).scrollIntoView());
+            view.dispatch(closeHistory(view.state.tr).delete(from, from + 1).scrollIntoView());
             return true;
           },
         },
