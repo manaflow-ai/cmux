@@ -198,7 +198,7 @@ test("kindless observational MCP calls preserve recorded bodies without trusting
     }
   }
   for (const fields of [
-    ...["write_readme", "update_read_file", "thread_read", "readwrite_file", "run"].map((name) => ({
+    ...["write_readme", "update_read_file", "thread_read", "readwrite_file", "read_and_write", "search_and_delete", "run"].map((name) => ({
       title: `mcp__fs__${name}`,
     })),
     { title: "mcp__fs__read_file", kind: "edit" },
