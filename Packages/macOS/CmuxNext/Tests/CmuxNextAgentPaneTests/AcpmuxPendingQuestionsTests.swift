@@ -112,6 +112,36 @@ struct AcpmuxPendingQuestionsTests {
         #expect(ledger.isCurrent(next))
     }
 
+    @Test func optionOrPreviewReissueWithEqualKeysRevokesAndRetainsExactRequest() throws {
+        let ledger = ledger()
+        func choice(_ label: String, preview: String) -> [String: Any] {
+            ["permissionId": "p", "decisionNonce": Self.nonce, "personInstance": Self.instance,
+             "request": ["options": [["optionId": "yes", "kind": "allow_once"]],
+                         "toolCall": ["toolCallId": "call", "_meta": ["acpmux": ["question":
+                             ["harness": "claude", "items": [["id": "q", "prompt": "Which?", "allowsOther": true,
+                                 "options": [["id": "choice", "label": label,
+                                              "preview": ["text": preview, "format": "html"]]]]]]]]]]]
+        }
+        let firstRequest = choice("Glass", preview: "<b>old</b>")
+        ledger.observe(Self.live(firstRequest), replyTo: nil, connection: 1)
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        let secondRequest = choice("Paper", preview: "<i>new</i>")
+        ledger.observe(Self.live(secondRequest, seq: 11), replyTo: nil, connection: 1)
+        let second = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        #expect(first.answerKeys == second.answerKeys)
+        #expect(first.allowOnce == second.allowOnce)
+        #expect(first.decisionNonce == second.decisionNonce)
+        #expect(!ledger.isCurrent(first))
+        #expect(ledger.isCurrent(second))
+        #expect(first.generation != second.generation)
+        #expect(first.requestDigest != second.requestDigest)
+        // The native snapshot retains full options/previews, not a later page-supplied body.
+        #expect(first.requestJSON == AcpmuxSecretKey.canonicalJSON(firstRequest["request"] as Any))
+        #expect(second.requestJSON == AcpmuxSecretKey.canonicalJSON(secondRequest["request"] as Any))
+        let decoded = try #require(try JSONSerialization.jsonObject(with: Data(second.requestJSON.utf8)) as? [String: Any])
+        #expect(AcpmuxSecretKey.canonicalDigest(decoded) == second.requestDigest)
+    }
+
     @Test func sameSequenceConflictingRequestFailsClosed() throws {
         let ledger = ledger()
         ledger.observe(Self.live(), replyTo: nil, connection: 1)
