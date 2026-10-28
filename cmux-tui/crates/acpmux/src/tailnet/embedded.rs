@@ -229,10 +229,17 @@ impl Controller {
     }
 
     pub(crate) async fn listener_failed(&self, failed: &Arc<Node>) {
+        self.listener_failed_inner(Some(failed)).await;
+    }
+
+    async fn listener_failed_inner(&self, failed: Option<&Arc<Node>>) {
+        // Retire the failed identity before waiting for a request (login or
+        // logout) that may hold the lifecycle lock for a long LocalAPI call.
+        // The supervisor timeout may cancel the close, but it must never
+        // cancel this state transition and allow an automatic restart.
+        let node = self.retire_node(failed, "stopped");
         let _lifecycle = self.lifecycle.lock().await;
-        let Some(node) = self.retire_node(Some(failed), "stopped") else {
-            return;
-        };
+        let Some(node) = node else { return };
         let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
             .await
             .map_err(|error| error.to_string());
@@ -536,9 +543,14 @@ fn logout_and_close(
 
 /// libtailscale owns a background runtime. Never let its final `Arc<Node>`
 /// drop on a Tokio worker or request task.
+fn release_on_background<T: Send + 'static>(value: T) {
+    let _ = std::thread::Builder::new()
+        .name("acpmux-tailnet-release".into())
+        .spawn(move || drop(value));
+}
+
 pub(crate) fn release_node(node: Arc<Node>) {
-    let _ =
-        std::thread::Builder::new().name("acpmux-tailnet-release".into()).spawn(move || drop(node));
+    release_on_background(node);
 }
 
 pub fn state_dir(home: &Path) -> PathBuf {
@@ -750,17 +762,38 @@ mod tests {
     async fn listener_failure_retires_state_before_a_slow_close() {
         let controller = Controller::new("/nonexistent/cmux-tailnet-test", "test");
         controller.update(|snapshot| snapshot.state = "running");
+        let lifecycle = controller.lifecycle.lock().await;
 
-        // A close can outlive the supervisor's three-second bound. The
-        // controller must already report a stopped, node-less state before
-        // that wait, so the next explicit start cannot reuse stale identity.
-        let _ = tokio::time::timeout(std::time::Duration::from_millis(10), async {
-            let _ = controller.retire_node(None, "stopped");
-            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-        })
-        .await;
+        // A login/logout request can hold the lifecycle lock longer than the
+        // supervisor's three-second close bound. Retirement must happen before
+        // the cleanup task waits for that lock, so cancellation cannot restart
+        // this node automatically.
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(10),
+                controller.listener_failed_inner(None),
+            )
+            .await
+            .is_err()
+        );
         assert_eq!(controller.snapshot().state, "stopped");
         assert!(controller.node().is_none());
+        drop(lifecycle);
+    }
+
+    #[test]
+    fn release_on_background_drops_after_the_caller_thread() {
+        let caller = std::thread::current().id();
+        let (dropped, received) = std::sync::mpsc::channel();
+        struct Probe(std::sync::mpsc::Sender<std::thread::ThreadId>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                let _ = self.0.send(std::thread::current().id());
+            }
+        }
+        release_on_background(Probe(dropped));
+        let dropper = received.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+        assert_ne!(dropper, caller);
     }
 
     #[tokio::test]
