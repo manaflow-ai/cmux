@@ -56,4 +56,3 @@
 .acpmux-workflow-side-tab__table-row > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .acpmux-workflow-side-tab__table-row .acpmux-workflow-agent { min-width: 0; }
 .acpmux-workflow-side-tab[data-layout="table"] .acpmux-workflow-side-tab__body { padding-inline: 6px; }
-

@@ -154,4 +154,3 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
     </aside>
   );
 }
-
