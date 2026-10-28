@@ -32,7 +32,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     private var boxes: [UIView] = []
     private var separators: [UIView] = []
     private var scrollers: [ChatLineScroller] = []
-    private var hits: [(frame: CGRect, hit: ChatNativeLayout.Hit)] = []
+    private var hits: [ChatNativeLayout.HitArea] = []
     private var moreButton: UIButton?
     private var copiedReset: Task<Void, Never>?
     private let rule = UIView()
@@ -48,6 +48,10 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         rule.backgroundColor = .separator
         rule.isHidden = true
         contentView.addSubview(rule)
+        // A layer's border color is a resolved CGColor: re-resolve it when light and dark switch.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: ChatNativeRowCell, _: UITraitCollection) in
+            cell.updateBorderColors()
+        }
         contentView.addInteraction(UIContextMenuInteraction(delegate: self))
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.cancelsTouchesInView = false
@@ -66,6 +70,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         moreButton?.isHidden = true
         isAccessibilityElement = false
         accessibilityLabel = nil
+        accessibilityElements = nil
         codeCard?.isHidden = true
         table?.isHidden = true
         rule.isHidden = true
@@ -78,7 +83,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 view.backgroundColor = box.fill
                 view.layer.cornerRadius = box.radius
                 view.layer.borderWidth = box.bordered ? 0.5 : 0
-                view.layer.borderColor = UIColor.separator.withAlphaComponent(0.5).resolvedColor(with: traitCollection).cgColor
+                view.layer.borderColor = Self.borderColor(traitCollection)
                 view.isHidden = false
             }
             for line in drawn.separators {
@@ -124,12 +129,17 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 view.image = UIImage(systemName: "checkmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13))
                 view.tintColor = .cmuxMobileSuccess
             }
-            hits = drawn.hits.map { ($0.frame.offsetBy(dx: margin, dy: 0), $0.hit) }
+            hits = drawn.hits.map { area in
+                var area = area
+                area.frame = area.frame.offsetBy(dx: margin, dy: 0)
+                return area
+            }
             if let frame = drawn.menuButton, let more = actions.moreMenu {
                 let button = moreButton ?? {
                     let button = UIButton(type: .custom)
                     button.showsMenuAsPrimaryAction = true
                     button.accessibilityLabel = "More"
+                    button.accessibilityTraits = .button
                     contentView.addSubview(button)
                     moreButton = button
                     return button
@@ -139,11 +149,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion([more()]) }])
                 button.isHidden = false
             }
-            if let label = drawn.accessibilityLabel {
-                isAccessibilityElement = true
-                accessibilityLabel = label
-                accessibilityTraits = .button
-            }
+            accessibilityElements = accessibilityTree(usedLabels: usedLabels)
         case .code(let code):
             let card = codeCard ?? {
                 let card = ChatCodeCardView()
@@ -154,6 +160,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             card.frame = CGRect(x: margin, y: 0, width: contentView.bounds.width - margin * 2, height: code.cardHeight)
             card.apply(code) { [weak self] in self?.actions.showAll() }
             card.isHidden = false
+            accessibilityElements = [card]
         case .table(let layout):
             let view = table ?? {
                 let view = ChatTableView()
@@ -165,6 +172,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             view.frame = CGRect(x: 0, y: 0, width: contentView.bounds.width, height: layout.contentSize.height)
             view.apply(layout, inset: margin - 8)
             view.isHidden = false
+            accessibilityElements = [view]
         }
         for index in usedBoxes..<boxes.count { boxes[index].isHidden = true }
         for index in usedSeparators..<separators.count { separators[index].isHidden = true }
@@ -242,19 +250,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
         let location = tap.location(in: contentView)
         if let match = hits.last(where: { $0.frame.contains(location) }) {
-            if case .copyAnswer(let index) = match.hit, index < symbols.count {
-                let view = symbols[index]
-                let original = view.image
-                view.image = UIImage(systemName: "checkmark", withConfiguration: view.image?.symbolConfiguration)
-                UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
-                copiedReset?.cancel()
-                copiedReset = Task { @MainActor [weak view] in
-                    try? await Task.sleep(for: .seconds(1.5))
-                    guard !Task.isCancelled else { return }
-                    view?.image = original
-                }
-            }
-            actions.hit(match.hit)
+            perform(match.hit)
             return
         }
         for label in labels where !label.isHidden {
@@ -264,6 +260,105 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             return
         }
     }
+
+    /// A tap region's action, from a tap or an assistive technology's activation.
+    fileprivate func perform(_ hit: ChatNativeLayout.Hit) {
+        if case .copyAnswer(let index) = hit, index < symbols.count {
+            let view = symbols[index]
+            let original = view.image
+            view.image = UIImage(systemName: "checkmark", withConfiguration: view.image?.symbolConfiguration)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+            UIAccessibility.post(notification: .announcement, argument: "Copied")
+            copiedReset?.cancel()
+            copiedReset = Task { @MainActor [weak view] in
+                try? await Task.sleep(for: .seconds(1.5))
+                guard !Task.isCancelled else { return }
+                view?.image = original
+            }
+        }
+        actions.hit(hit)
+    }
+
+    // MARK: Accessibility
+
+    /// What assistive technologies reach in a drawn row, in reading order: each text run not
+    /// covered by a tap region (with its links as custom actions), each tap region as a button
+    /// with its label, and the More menu.
+    private func accessibilityTree(usedLabels: Int) -> [Any] {
+        var items: [(frame: CGRect, element: Any)] = []
+        for label in labels.prefix(usedLabels) {
+            // A list's marker ("•", "3.") is not read on its own; its item is.
+            let marker = label.attributedText.map { Self.isListMarker($0.string) } ?? false
+            let covered = marker || hits.contains { $0.frame.contains(CGPoint(x: label.frame.midX, y: label.frame.midY)) }
+            label.isAccessibilityElement = !covered
+            label.accessibilityLabel = label.attributedText?.string
+            label.accessibilityCustomActions = covered ? nil : linkActions(label)
+            label.accessibilityTraits = (label.accessibilityCustomActions?.isEmpty ?? true) ? .staticText : [.staticText, .link]
+            if !covered { items.append((label.frame, label)) }
+        }
+        for (index, area) in hits.enumerated() {
+            let element = ChatHitElement(accessibilityContainer: self)
+            element.accessibilityFrameInContainerSpace = area.frame
+            var label = area.label
+            if let file = area.file, actions.viewed.contains(file) { label += ", viewed" }
+            element.accessibilityLabel = label
+            element.accessibilityTraits = .button
+            if area.isDisclosure { element.accessibilityHint = "Shows details" }
+            element.activate = { [weak self] in
+                guard let self, index < self.hits.count else { return }
+                self.perform(self.hits[index].hit)
+            }
+            items.append((area.frame, element))
+        }
+        if let more = moreButton, !more.isHidden { items.append((more.frame, more)) }
+        return items.sorted { $0.frame.minY != $1.frame.minY ? $0.frame.minY < $1.frame.minY : $0.frame.minX < $1.frame.minX }.map(\.element)
+    }
+
+    /// "Open <link text>" for each link in the label's text.
+    private func linkActions(_ label: UILabel) -> [UIAccessibilityCustomAction]? {
+        guard let text = label.attributedText, text.length > 0 else { return nil }
+        var actions: [UIAccessibilityCustomAction] = []
+        text.enumerateAttribute(NativeMarkdownLayout.linkKey, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let url = value as? URL else { return }
+            let name = (text.string as NSString).substring(with: range).trimmingCharacters(in: .whitespaces)
+            actions.append(UIAccessibilityCustomAction(name: "Open \(name)") { [weak self] _ in
+                self?.actions.openLink(url)
+                return true
+            })
+        }
+        return actions.isEmpty ? nil : actions
+    }
+
+    static func isListMarker(_ text: String) -> Bool {
+        text == "•" || text == "◦" || (text.hasSuffix(".") && !text.dropLast().isEmpty && text.dropLast().allSatisfy(\.isNumber))
+    }
+
+    private static func borderColor(_ traits: UITraitCollection) -> CGColor {
+        UIColor.separator.withAlphaComponent(0.5).resolvedColor(with: traits).cgColor
+    }
+
+    private func updateBorderColors() {
+        for box in boxes where box.layer.borderWidth > 0 { box.layer.borderColor = Self.borderColor(traitCollection) }
+    }
+
+    #if DEBUG
+    /// The accessibility tree as text (the rig's `CMUX_MOBILE_CHAT_AXLOG=1` check).
+    func accessibilityDescription() -> String {
+        func flatten(_ items: [Any]) -> [Any] {
+            items.flatMap { item -> [Any] in
+                if let container = item as? NSObject, let inner = container.accessibilityElements, !inner.isEmpty { return flatten(inner) }
+                return [item]
+            }
+        }
+        let elements = flatten(accessibilityElements ?? [])
+        return elements.map { item -> String in
+            guard let element = item as? NSObject else { return "?" }
+            let actions = element.accessibilityCustomActions?.map(\.name).joined(separator: ",") ?? ""
+            let traits = element.accessibilityTraits.contains(.button) ? "button" : (element.accessibilityTraits.contains(.link) ? "link" : "text")
+            return "[\(traits)] \(element.accessibilityLabel ?? "")" + (actions.isEmpty ? "" : " {\(actions)}")
+        }.joined(separator: " | ")
+    }
+    #endif
 
     // MARK: Menu
 
@@ -363,6 +458,17 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
         scroll.contentOffset = .zero
         capView.isHidden = !layout.capped
         showAll.setAttributedTitle(layout.showAll, for: .normal)
+        // Explicit labels and traits: what assistive technologies reach does not depend on
+        // UIKit filling them in.
+        title.accessibilityLabel = layout.title.string
+        title.accessibilityTraits = .header
+        body.isAccessibilityElement = true
+        body.accessibilityLabel = layout.code
+        body.accessibilityTraits = .staticText
+        copy.accessibilityTraits = .button
+        showAll.accessibilityLabel = layout.showAll.string
+        showAll.accessibilityTraits = .button
+        accessibilityElements = [title, body, copy] + (layout.capped ? [showAll] : [])
         setNeedsLayout()
     }
 
@@ -458,9 +564,12 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
                 labels.append(label)
             }
             label.attributedText = cell.text
+            label.accessibilityLabel = cell.text.string
+            label.accessibilityTraits = .staticText
             label.frame = cell.frame.offsetBy(dx: inset, dy: 0)
             label.isHidden = false
         }
+        accessibilityElements = Array(labels.prefix(table.cells.count))
         for index in table.cells.count..<labels.count { labels[index].isHidden = true }
         for (index, frame) in table.rules.enumerated() {
             let rule: UIView
@@ -550,6 +659,19 @@ final class ChatLineScroller: UIScrollView, UIScrollViewDelegate {
         fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, (more ? UIColor.clear : UIColor.black).cgColor]
         fade.locations = [0, NSNumber(value: Double(1 - 16 / width)), 1]
         CATransaction.commit()
+    }
+}
+#endif
+
+#if os(iOS)
+/// A tap region of a drawn row as an accessibility button.
+final class ChatHitElement: UIAccessibilityElement {
+    var activate: (@MainActor () -> Void)?
+
+    override func accessibilityActivate() -> Bool {
+        guard let activate else { return false }
+        MainActor.assumeIsolated { activate() }
+        return true
     }
 }
 #endif

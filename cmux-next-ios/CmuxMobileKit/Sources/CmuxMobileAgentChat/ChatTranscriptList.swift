@@ -93,6 +93,11 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 
     func row(of id: String) -> Int? { index[id] }
 
+    /// Drops heights of rows no longer in the transcript.
+    func retainMeasured(_ ids: Set<String>) {
+        measured = measured.filter { ids.contains($0.key) }
+    }
+
     /// The height a cell measured for this row's current revision at this width, if any:
     /// a cell showing it again needs no SwiftUI sizing pass.
     func knownHeight(of id: String) -> (height: CGFloat, width: CGFloat)? {
@@ -218,15 +223,8 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 @MainActor
 final class ChatTranscriptCollectionView: UICollectionView {
     var didLayout: (() -> Void)?
-    /// The width or the text size changed: native rows are laid out again.
-    var environmentChanged: (() -> Void)?
-    private var laidOutWidth: CGFloat = 0
 
     override func layoutSubviews() {
-        if bounds.width != laidOutWidth {
-            laidOutWidth = bounds.width
-            environmentChanged?()
-        }
         super.layoutSubviews()
         didLayout?()
     }
@@ -259,6 +257,19 @@ final class ChatRowCell: UICollectionViewCell {
 }
 
 #if DEBUG
+/// `CMUX_MOBILE_CHAT_AXLOG=1`: the accessibility tree of the first native cell of each kind,
+/// logged for the list rig (a check that does not need VoiceOver running).
+@MainActor
+enum ChatAccessibilityLog {
+    static let isEnabled = ProcessInfo.processInfo.environment["CMUX_MOBILE_CHAT_AXLOG"] == "1"
+    private static var logged: Set<String> = []
+
+    static func log(kind: String, cell: ChatNativeRowCell) {
+        guard isEnabled, logged.insert(kind).inserted else { return }
+        Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG list-stress axtree \(kind, privacy: .public): \(cell.accessibilityDescription(), privacy: .public)")
+    }
+}
+
 /// `CMUX_MOBILE_CHAT_ROWCOST=1`: main-thread time per transcript row kind (measure, layout,
 /// configure), logged every 300 samples for the list rig.
 @MainActor
@@ -303,7 +314,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         get { lookup.rows }
         set { lookup.rows = newValue }
     }
-    private var revisions: [String: Int] {
+    private var revisions: ChatRowRevisions {
         get { lookup.revisions }
         set { lookup.revisions = newValue }
     }
@@ -350,7 +361,6 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         super.init()
         lookup.showAll = { [weak self] id in self?.showAll(id) }
         collectionView.prefetchDataSource = self
-        collectionView.environmentChanged = { [weak self] in self?.environmentChanged() }
         layout.followsBottom = { [weak surface] in surface?.following ?? true }
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
@@ -370,7 +380,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lookup.context = ChatRowContext(store: store, surface: surface)
         builder = ChatTranscriptBuilder(diffs: store.diffs)
         rows = [:]
-        revisions = [:]
+        revisions.removeAll()
         lookup.layouts.reset()
         lookup.shownNative = [:]
         lookup.shownPool = [:]
@@ -427,6 +437,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         guard !turns.isEmpty else { return }
         for turn in turns { shownTurns[turn] = nil }
         reload()
+    }
+
+    /// The controller laid out the transcript's frame (its own layout pass, before the collection
+    /// view's): a new width lays the native rows out again. Never from inside the collection
+    /// view's `layoutSubviews`, where a snapshot apply would re-enter its layout.
+    func boundsMayHaveChanged() {
+        environmentChanged()
     }
 
     private func environmentChanged() {
@@ -523,12 +540,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // and the streaming answer's changed block. Everything else is laid out off the main thread.
         let runningTurn = store.isRunning ? turns.last?.id : nil
         var missing: [String] = []
-        var syncBudget = primed || lookup.layouts.environment == nil ? 0 : 24
-        if syncBudget > 0 { primed = true }
-        for turn in built.reversed() where syncBudget > 0 {
-            for row in turn.rows.reversed() where syncBudget > 0 && lookup.eligible(row) {
-                syncBudget -= 1
-                lookup.layouts.makeNow(row, revision: (revisions[row.id] ?? 0) + (rows[row.id] == row ? 0 : 1), expanded: lookup.expanded(row.id))
+        // The newest rows on the first reload with a width: laid out as their revision is set below.
+        var prime = Set<String>()
+        if !primed, lookup.layouts.environment != nil {
+            primed = true
+            for turn in built.reversed() where prime.count < 24 {
+                for row in turn.rows.reversed() where prime.count < 24 && lookup.eligible(row) { prime.insert(row.id) }
             }
         }
         for turn in built {
@@ -550,13 +567,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     seen.insert(row.id)
                 }
                 if rows[row.id] != row {
-                    if rows[row.id] != nil { changed.append(row.id) }
-                    revisions[row.id, default: 0] += 1
+                    let isNew = rows[row.id] == nil
+                    if !isNew { changed.append(row.id) }
+                    revisions.bump(row.id)
                     rows[row.id] = row
-                    if loaded, revisions[row.id] == 1, !store.isReplayed(Self.storeID(row)) { fadeIn.insert(row.id) }
+                    if loaded, isNew, !store.isReplayed(Self.storeID(row)) { fadeIn.insert(row.id) }
                     if loaded, row.turnID == runningTurn, lookup.eligible(row) {
                         lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id))
                     }
+                }
+                if prime.contains(row.id) {
+                    lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id))
                 }
                 if forced.remove(row.id) != nil, !changed.contains(row.id) { changed.append(row.id) }
                 let revision = revisions[row.id] ?? 0
@@ -581,8 +602,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if ids.count < rows.count {
             let live = Set(ids)
             rows = rows.filter { live.contains($0.key) }
-            revisions = revisions.filter { live.contains($0.key) }
+            revisions.retain(live)
             lookup.layouts.retain(live)
+            layout.retainMeasured(live)
             lookup.shownNative = lookup.shownNative.filter { live.contains($0.key) }
             lookup.shownPool = lookup.shownPool.filter { live.contains($0.key) }
             let turnIDs = Set(turns.map(\.id))
@@ -686,7 +708,7 @@ final class ChatHostedRegistrations {
 @MainActor
 final class ChatRowLookup {
     var rows: [String: ChatRow] = [:]
-    var revisions: [String: Int] = [:]
+    var revisions = ChatRowRevisions()
     var context: ChatRowContext
     weak var layout: ChatTranscriptLayout?
     let layouts = ChatNativeLayouts()
@@ -717,13 +739,9 @@ final class ChatRowLookup {
     /// Drawn natively: a native kind in its resting state (an open tool row, group or thought
     /// shows its SwiftUI view).
     func eligible(_ row: ChatRow) -> Bool {
-        guard row.isNativeCandidate else { return false }
         let disclosures = context.surface.disclosures
-        switch row.kind {
-        case .tool(let call): return disclosures.isOpen("tool-\(call.id)") != true
-        case .toolGroup(let calls, _): return disclosures.isOpen("group-\(calls.first?.id ?? "")") != true
-        case .thought: return disclosures.isOpen("thought-\(row.id)") == nil
-        default: return true
+        return ChatNativeEligibility.drawsNatively(row, accessibilitySize: layouts.environment?.category.isAccessibilityCategory ?? false) {
+            disclosures.isOpen($0)
         }
     }
 
@@ -761,6 +779,9 @@ final class ChatRowLookup {
         ChatNativeRowActions.configure(&actions, row: row, context: context)
         if case .editedFiles(let changes) = row.kind { viewedShown[id] = actions.viewed }
         cell.apply(native, actions: actions)
+        #if DEBUG
+        ChatAccessibilityLog.log(kind: row.hostedReuseKey == "block" ? row.nativeReuseKey : row.hostedReuseKey, cell: cell)
+        #endif
     }
 
     init(context: ChatRowContext) {
@@ -792,13 +813,7 @@ final class ChatRowLookup {
 
 extension ChatRow {
     /// Drawn by `ChatNativeRowCell` when its block has no math.
-    var isNativeCandidate: Bool {
-        switch kind {
-        case .sessionStart, .prompt, .thought, .tool, .toolGroup, .edit, .editedFiles, .actions: true
-        case .block(_, let block): if case .math = block.kind { false } else { true }
-        default: false
-        }
-    }
+    var isNativeCandidate: Bool { ChatNativeEligibility.isCandidate(kind) }
 
     static let nativeReuseKeys = ["n-code", "n-table", "n-list", "n-text"] + hostedReuseKeys.map { "n-" + $0 }
 

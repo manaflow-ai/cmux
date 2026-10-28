@@ -119,7 +119,9 @@ struct ChatNativeWidgets {
         var mark = chevron
         mark.frame.origin = CGPoint(x: width - mark.frame.width, y: (height - mark.frame.height) / 2)
         drawn.symbols.append(mark)
-        if let key { drawn.hits.append((CGRect(x: 0, y: -6, width: width, height: height + 12), .toggle(key))) }
+        if let key {
+            drawn.hits.append(.init(frame: CGRect(x: 0, y: -6, width: width, height: height + 12), hit: .toggle(key), label: title, isDisclosure: true))
+        }
         drawn.accessibilityLabel = title
         return Layout(content: .drawn(drawn), height: height)
     }
@@ -171,8 +173,9 @@ struct ChatNativeWidgets {
         var mark = chevron
         mark.frame.origin = CGPoint(x: width - mark.frame.width, y: midY - mark.frame.height / 2)
         drawn.symbols.append(mark)
-        drawn.hits.append((CGRect(x: 0, y: -6, width: width, height: height + 12), .toggle("tool-\(call.id)")))
-        drawn.accessibilityLabel = [verb, object].compactMap { $0 }.joined(separator: " ")
+        let label = ([verb, object].compactMap { $0 } + (exit.map { [$0.string] } ?? [])).joined(separator: " ")
+        drawn.hits.append(.init(frame: CGRect(x: 0, y: -6, width: width, height: height + 12), hit: .toggle("tool-\(call.id)"), label: label, isDisclosure: true))
+        drawn.accessibilityLabel = label
         return Layout(content: .drawn(drawn), height: height)
     }
 
@@ -204,8 +207,10 @@ struct ChatNativeWidgets {
                                                                     width: durationSize.width, height: durationSize.height)))
         }
         drawn.symbols.append(mark)
-        drawn.hits.append((CGRect(x: 0, y: -6, width: width, height: height + 12), .toggle("group-\(calls.first?.id ?? "")")))
-        drawn.accessibilityLabel = wording.summary(calls)
+        let label = [wording.summary(calls), duration?.string].compactMap { $0 }.joined(separator: ", ")
+        drawn.hits.append(.init(frame: CGRect(x: 0, y: -6, width: width, height: height + 12), hit: .toggle("group-\(calls.first?.id ?? "")"),
+                                label: label, isDisclosure: true))
+        drawn.accessibilityLabel = label
         return Layout(content: .drawn(drawn), height: height)
     }
 
@@ -243,7 +248,8 @@ struct ChatNativeWidgets {
             drawn.texts.append(.init(text: countText, frame: CGRect(x: x, y: mid - countSize.height / 2, width: countSize.width, height: countSize.height)))
             drawn.symbols.append(.init(name: "arrow.up.right", font: arrowFont, color: .secondaryLabel,
                                        frame: CGRect(x: width - 16 - arrow.width, y: mid - arrow.height / 2, width: arrow.width, height: arrow.height)))
-            drawn.hits.append((CGRect(x: 0, y: top, width: width, height: 44), .openDiff(fileID: file.id)))
+            drawn.hits.append(.init(frame: CGRect(x: 0, y: top, width: width, height: 44), hit: .openDiff(fileID: file.id),
+                                    label: "\(file.status == .added ? "Created" : "Edited") \(file.fileName), \(file.additions) additions, \(file.deletions) deletions. Open diff"))
             y += 44
             // Lines: a 14 pt marker column, then the line, unwrapped.
             let preview = expanded ? edit.long : edit.short
@@ -271,7 +277,7 @@ struct ChatNativeWidgets {
                                 UIFont.systemFont(ofSize: footnote.pointSize, weight: .semibold), .label)
                 let moreSize = size(more)
                 drawn.texts.append(.init(text: more, frame: CGRect(x: 16, y: y + 22 - moreSize.height / 2, width: moreSize.width, height: moreSize.height)))
-                drawn.hits.append((CGRect(x: 0, y: y, width: width, height: 44), .toggle("diff-\(call.id)")))
+                drawn.hits.append(.init(frame: CGRect(x: 0, y: y, width: width, height: 44), hit: .toggle("diff-\(call.id)"), label: more.string))
                 y += 44 + 2
             }
             drawn.boxes.append(.init(frame: CGRect(x: 0, y: top, width: width, height: y - top), fill: .cmuxMobileCodeBackground, radius: 20, bordered: true))
@@ -303,7 +309,8 @@ struct ChatNativeWidgets {
         let reviewSize = size(review)
         drawn.texts.append(.init(text: review, frame: CGRect(x: chevron.frame.minX - 8 - reviewSize.width, y: mid - reviewSize.height / 2,
                                                               width: reviewSize.width, height: reviewSize.height)))
-        drawn.hits.append((CGRect(x: 0, y: 0, width: width, height: 48), .openDiff(fileID: nil)))
+        drawn.hits.append(.init(frame: CGRect(x: 0, y: 0, width: width, height: 48), hit: .openDiff(fileID: nil),
+                                label: "\(title.string), \(changes.additions) additions, \(changes.deletions) deletions. Review"))
         drawn.separators.append(CGRect(x: 16, y: 48, width: width - 16, height: 1 / 3.0))
         var y: CGFloat = 48 + 1 / 3.0
         let mono = UIFont.monospacedSystemFont(ofSize: subheadline.pointSize, weight: .regular)
@@ -330,7 +337,8 @@ struct ChatNativeWidgets {
             }
             drawn.texts.append(.init(text: rowCounts, frame: CGRect(x: width - 16 - rowCountSize.width, y: rowMid - rowCountSize.height / 2,
                                                                      width: rowCountSize.width, height: rowCountSize.height)))
-            drawn.hits.append((CGRect(x: 0, y: y, width: width, height: 44), .openDiff(fileID: file.id)))
+            drawn.hits.append(.init(frame: CGRect(x: 0, y: y, width: width, height: 44), hit: .openDiff(fileID: file.id),
+                                    label: "\(file.fileName), \(file.additions) additions, \(file.deletions) deletions", file: fileIndex))
             y += 44
         }
         drawn.boxes.insert(.init(frame: CGRect(x: 0, y: 0, width: width, height: y), fill: .cmuxMobileCard, radius: 20), at: 0)
@@ -352,7 +360,7 @@ struct ChatNativeWidgets {
         for (index, name) in names.enumerated() {
             placeSymbol(&drawn, name, glyphFont, .secondaryLabel, x: x, width: target, midY: target / 2)
             let hit: ChatNativeLayout.Hit = index == 0 ? .copyAnswer(symbol: drawn.symbols.count - 1) : (index == 1 ? .shareAnswer : .retry)
-            drawn.hits.append((CGRect(x: x, y: 0, width: target, height: target), hit))
+            drawn.hits.append(.init(frame: CGRect(x: x, y: 0, width: target, height: target), hit: hit, label: ["Copy", "Share", "Retry"][index]))
             x += target
         }
         placeSymbol(&drawn, "ellipsis", glyphFont, .secondaryLabel, x: x, width: target, midY: target / 2)

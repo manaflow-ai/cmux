@@ -326,6 +326,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        list.boundsMayHaveChanged()
         if let pin = keyboardPin, !Self.layoutGuideStalls, pin.isActive != keyboardPinApplies {
             pin.isActive = keyboardPinApplies
             view.setNeedsLayout()

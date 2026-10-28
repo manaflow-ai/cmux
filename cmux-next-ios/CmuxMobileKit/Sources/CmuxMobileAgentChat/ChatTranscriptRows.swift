@@ -207,3 +207,58 @@ final class ChatTranscriptBuilder {
         return (rows, waits)
     }
 }
+
+/// Which transcript rows UIKit draws (`ChatNativeLayout`); the rest stay SwiftUI.
+enum ChatNativeEligibility {
+    /// A kind with a native layout (math blocks need the web renderer).
+    static func isCandidate(_ kind: ChatRow.Kind) -> Bool {
+        switch kind {
+        case .sessionStart, .prompt, .thought, .tool, .toolGroup, .edit, .editedFiles, .actions: true
+        case .block(_, let block): if case .math = block.kind { false } else { true }
+        default: false
+        }
+    }
+
+    /// Drawn natively: a native kind in its resting state at a standard text size. At
+    /// accessibility sizes every row is SwiftUI (its views stack and wrap there); an open tool
+    /// row, group or thought shows its SwiftUI view. `isOpen` reads a disclosure by key.
+    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, isOpen: (String) -> Bool?) -> Bool {
+        guard !accessibilitySize, isCandidate(row.kind) else { return false }
+        switch row.kind {
+        case .tool(let call): return isOpen("tool-\(call.id)") != true
+        case .toolGroup(let calls, _): return isOpen("group-\(calls.first?.id ?? "")") != true
+        case .thought: return isOpen("thought-\(row.id)") == nil
+        default: return true
+        }
+    }
+}
+
+/// Each row's content revision, from one counter that only goes up: a row that leaves the
+/// transcript and comes back (a turn's working label) gets a revision it never had, so a
+/// height measured for its old content is never taken for the new.
+struct ChatRowRevisions {
+    private(set) var values: [String: Int] = [:]
+    private var counter = 0
+
+    subscript(id: String) -> Int? { values[id] }
+
+    /// A new revision for `id` (its content changed or it is new).
+    @discardableResult
+    mutating func bump(_ id: String) -> Int {
+        counter += 1
+        values[id] = counter
+        return counter
+    }
+
+    /// The revision the next `bump` will hand out.
+    var next: Int { counter + 1 }
+
+    mutating func retain(_ ids: Set<String>) {
+        values = values.filter { ids.contains($0.key) }
+    }
+
+    /// A new transcript (the counter keeps going).
+    mutating func removeAll() {
+        values = [:]
+    }
+}
