@@ -18,13 +18,8 @@ use tokio::sync::mpsc;
 /// harness ended and its exit was logged.
 pub fn main() -> Result<()> {
     drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::AgentHost));
-    // The host must not die when a controller or the bootstrap parent goes
-    // away mid-write.
-    // SAFETY: setting a signal disposition has no memory-safety preconditions.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
-        libc::signal(libc::SIGHUP, libc::SIG_IGN);
-    }
+    // Signal dispositions and the panic log (host_process).
+    host_process::start();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(run())
 }
@@ -43,7 +38,7 @@ async fn run() -> Result<()> {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
                 .await?;
-            detach_stdio();
+            host_process::detach_stdio();
             // The host's own work (its harness's pipes, its socket): a panic in it ends the
             // host, and its daemon sees the host gone.
             started.serve(spec, &supervised::embedded()).await
@@ -52,21 +47,6 @@ async fn run() -> Result<()> {
             let message = format!("{e:#}");
             let _ = write_frame(&mut stdout, &BootstrapReply::SpawnFailed { message }).await;
             Err(e)
-        }
-    }
-}
-
-/// Point stdin and stdout at /dev/null so the bootstrap pipes close.
-fn detach_stdio() {
-    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
-    let opened = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
-        std::fs::OpenOptions::new().read(true).write(true).open("/dev/null")
-    });
-    if let Ok(null) = opened {
-        // SAFETY: dup2 onto the standard descriptors of this process.
-        unsafe {
-            libc::dup2(null.as_raw_fd(), 0);
-            libc::dup2(null.as_raw_fd(), 1);
         }
     }
 }

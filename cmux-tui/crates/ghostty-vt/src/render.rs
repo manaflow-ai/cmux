@@ -434,13 +434,12 @@ impl RenderState {
 
     /// Current palette entry for this frame, including OSC 4 overrides.
     pub fn palette_color(&self, idx: u8) -> Rgb {
-        self.palette[idx as usize]
+        palette_entry(&self.palette, idx)
     }
 
     /// Whether this frame's palette entry differs from the terminal default.
     pub fn palette_overridden(&self, idx: u8) -> bool {
-        let idx = idx as usize;
-        self.palette[idx] != self.default_palette[idx]
+        palette_entry(&self.palette, idx) != palette_entry(&self.default_palette, idx)
     }
 
     /// Cursor state, or `None` when the cursor is invisible or outside the
@@ -571,11 +570,13 @@ impl RenderState {
             let mut col = 0usize;
             // SAFETY: `self.cells` is live and was filled for this row above.
             while unsafe { sys::ghostty_render_state_row_cells_next(self.cells) } {
-                if self.row_buf.len() <= col {
-                    self.row_buf.push(Cell::default());
+                if let Some(cell) = self.row_buf.get_mut(col) {
+                    fill_cell(self.cells, cell, &mut self.grapheme_buf);
+                } else {
+                    let mut cell = Cell::default();
+                    fill_cell(self.cells, &mut cell, &mut self.grapheme_buf);
+                    self.row_buf.push(cell);
                 }
-                let cell = &mut self.row_buf[col];
-                fill_cell(self.cells, cell, &mut self.grapheme_buf);
                 col += 1;
             }
             self.row_buf.truncate(col);
@@ -873,10 +874,16 @@ fn render_cell_color(
     (result == sys::GHOSTTY_SUCCESS).then(|| Rgb::from(rgb))
 }
 
+/// The palette entry for `index`.
+#[allow(clippy::indexing_slicing, reason = "INVARIANT: every u8 indexes a 256-entry palette")]
+fn palette_entry(palette: &[Rgb; 256], index: u8) -> Rgb {
+    palette[usize::from(index)]
+}
+
 fn resolve_color_spec(spec: ColorSpec, palette: &[Rgb; 256]) -> Option<Rgb> {
     match spec {
         ColorSpec::Default => None,
-        ColorSpec::Palette(index) => Some(palette[index as usize]),
+        ColorSpec::Palette(index) => Some(palette_entry(palette, index)),
         ColorSpec::Rgb(rgb) => Some(rgb),
     }
 }

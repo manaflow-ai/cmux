@@ -19,6 +19,10 @@
 
 #[cfg(unix)]
 pub mod host;
+#[cfg(unix)]
+mod host_process;
+#[cfg(unix)]
+pub use host_process::PANIC_LOG_ENV;
 /// Windows port: the agent host process comes in a later landing.
 #[cfg(not(unix))]
 pub mod host {
@@ -261,6 +265,12 @@ pub struct UnreadableRecord {
 /// Hosts directory of this acpmux home.
 pub fn hosts_dir() -> PathBuf {
     crate::config::home().join("hosts")
+}
+
+/// The agent hosts' panic log, `$ACPMUX_HOME/agent-host-panics.jsonl`,
+/// beside the daemon's `panics.jsonl`; every host of this home appends to it.
+pub fn panic_log_path() -> PathBuf {
+    crate::config::home().join("agent-host-panics.jsonl")
 }
 
 pub fn record_path(dir: &Path, session_id: &str) -> PathBuf {
