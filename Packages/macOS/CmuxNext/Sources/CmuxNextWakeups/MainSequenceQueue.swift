@@ -12,7 +12,7 @@
 /// The queue owns its tasks. When its owner releases it they are dropped and their closures
 /// released at once; the selector keeps only a weak reference.
 ///
-/// Step S2a: nothing in the app posts here yet; S2b moves the scheduler's class queues onto it. In
+/// Since step S2b, ``MainWorkScheduler``'s class queues are these (MainWorkScheduler+Batch.swift). In
 /// S2c, when today's per-node `MainTaskQueue` pump layer is removed and a node's queue becomes one
 /// of these, this type takes the name `MainTaskQueue`.
 ///
@@ -41,6 +41,10 @@ public final class MainSequenceQueue {
         var fenceOrder: UInt64
         /// When it was posted, on the selector's clock.
         let enqueuedAt: Duration
+        /// The task's own owner, when it is not the queue's (a shared queue's post names its owner).
+        var owner: MainTaskOwner?
+        /// Where, when and in which node state it was posted, for the board's ledger (nil: the queue's own record).
+        var posted: MainTaskPost?
     }
 
     /// The queue's type: its priority and the rule between queues of that priority.
@@ -77,7 +81,12 @@ public final class MainSequenceQueue {
     ///   - line: The posting line (leave the default).
     ///   - body: The task. The queue holds it until it runs or the queue is released.
     public func post(file: StaticString = #fileID, line: UInt = #line, _ body: @escaping @MainActor () -> Void) {
-        guard let item = selector?.item(body, site: MainPostSite(file: file, line: line)) else { return }
+        post(site: MainPostSite(file: file, line: line), owner: nil, posted: nil, body)
+    }
+
+    /// ``post(file:line:_:)`` at `site`, as `owner` (nil: the queue's) with its ledger record `posted`.
+    func post(site: MainPostSite, owner: MainTaskOwner?, posted: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
+        guard let item = selector?.item(body, site: site, owner: owner, posted: posted) else { return }
         pending.append(item)
     }
 
@@ -157,6 +166,10 @@ public final class MainSequenceQueue {
 
     /// Whether the next task may be taken now: one is pending, every voter enables the queue and no fence holds it.
     var isRunnable: Bool { head < pending.count && voters.isEnabled && !isBlockedByFence }
+
+    /// ``isRunnable``, for a task posted at or before the enqueue order `horizon` (a batch takes only the work
+    /// posted before it began).
+    func hasRunnableTask(postedUpTo horizon: UInt64) -> Bool { isRunnable && pending[head].order <= horizon }
 
     /// Whether this queue goes before `other`, a queue of the same priority, by its type's rule.
     func ranksBefore(_ other: MainSequenceQueue) -> Bool {

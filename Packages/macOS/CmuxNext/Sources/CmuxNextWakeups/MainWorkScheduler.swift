@@ -95,6 +95,9 @@ public final class MainWorkScheduler {
     private var otherLinksSubscription: FrameLinksSubscription?
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
+    /// The sequence manager's queues of the posted work (MainWorkScheduler+Batch.swift): enqueue order and waits,
+    /// on the scheduler's clock.
+    let selector: MainTaskSelector
     /// Classed visible, automation and background work held until the input's frame commits
     /// (MainWorkScheduler+Classed.swift).
     var classedHold = ClassedHold()
@@ -134,7 +137,7 @@ public final class MainWorkScheduler {
                             wakeUps: MainWakeUpQueue? = nil) {
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
                   startup: startup, idleTimer: MainRunLoopPreciseTimer(), ledger: .shared, otherLinks: displays.unbudgetedLinks,
-                  measuresRenderPasses: true, sharedWakeUps: wakeUps)
+                  measuresRenderPasses: true, clock: ContinuousClock(), sharedWakeUps: wakeUps)
     }
 
     /// A scheduler on a display clock of its own (tests and fixtures; the app passes its one clock),
@@ -144,9 +147,11 @@ public final class MainWorkScheduler {
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, startup: StartupPhase, idleTimer: any IdlePeriodTimer,
-                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool, sharedWakeUps: MainWakeUpQueue? = nil) {
+                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool, clock: any Clock<Duration>,
+                 sharedWakeUps: MainWakeUpQueue? = nil) {
         self.budget = budget
         board = budget.board
+        selector = MainTaskSelector(clock: clock)
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
@@ -234,7 +239,7 @@ public final class MainWorkScheduler {
                                                                                     mediaTime: mediaTime, budget: budget,
                                                                                     makeLink: makeLink),
                                      startup: startup, idleTimer: idleTimer, ledger: ledger, otherLinks: otherLinks,
-                                     measuresRenderPasses: false)
+                                     measuresRenderPasses: false, clock: clock)
         if let performTurn { work.posting.performTurn = performTurn }
         work.budgetTurns = budgetTurns
         return work

@@ -2753,6 +2753,41 @@ RULES += RAW_CONTINUATION_RULES
 # ---------------------------------------------------------------- end of raw-continuation
 
 
+# ---------------------------------------------------------------- main-work-batch (sequence-manager S2b)
+# MainWorkScheduler's posted work lives on the sequence manager's queues: one `MainSequenceQueue` per budgeted class
+# (and one for its continuations) on the scheduler's `MainTaskSelector`, run by that class's frame client in the tick
+# and by the batch source's turn (plans/cmux-next/sequence-manager-DESIGN.md 2.1 and 2.3, step S2b; Chrome's
+# `TaskQueueImpl`s under one `TaskQueueSelector`, base/task/sequence_manager/). S2b deleted the second queue layer, a
+# `FrameBatchQueue` per class inside the scheduler: a `FrameBatchQueue(` or `FrameBatcher(` in the scheduler's own files
+# brings back a FIFO the selector cannot see. Closed scope: CmuxNextWakeups/MainWorkScheduler*.swift. No escape
+# comment. Pre-push only (local_only), never CI.
+# The block owns its lines from here to `RULES += MAIN_WORK_BATCH_RULES`.
+MAIN_WORK_BATCH = re.compile(r"\b(?:FrameBatchQueue|FrameBatcher)\(")
+
+
+def main_work_batch_judged(path: str) -> bool:
+    """PATH is one of MainWorkScheduler's own files: CmuxNextWakeups/MainWorkScheduler*.swift."""
+    name = path[len(WAKEUPS):] if path.startswith(WAKEUPS) else ""
+    return name.startswith("MainWorkScheduler") and name.endswith(".swift") and "/" not in name
+
+
+MAIN_WORK_BATCH_RULES = (
+    Rule("main-work-batch", "A `FrameBatchQueue(` or `FrameBatcher(` in MainWorkScheduler's own files "
+         "(CmuxNextWakeups/MainWorkScheduler*.swift)",
+         "the scheduler's posted work has one queue per class on its `MainTaskSelector` (sequence-manager-DESIGN.md "
+         "2.3, S2b deleted the per-class FrameBatchQueue); a frame batch queue inside it is a second FIFO the selector "
+         "and every later step (runners, node queues, fences) cannot see",
+         "post on the scheduler's class queues (`post(_:owner:)`, `postContinuation(_:owner:)`, `enqueue` in "
+         "MainWorkScheduler+Post.swift) or add a `MainSequenceQueue` with `selector.queue(_:owner:)`; frame batches of "
+         "other owners stay in those owners' files",
+         None,
+         scoped_to(Matcher(MAIN_WORK_BATCH, None), main_work_batch_judged),
+         local_only=True),
+)
+RULES += MAIN_WORK_BATCH_RULES
+# ---------------------------------------------------------------- end of main-work-batch (sequence-manager S2b)
+
+
 # ---------------------------------------------------------------- invariant-site
 # Invariant.check traps in every build (Chromium's CHECK) and Invariant.dumpWillBeCheck reports for ever
 # (DUMP_WILL_BE_CHECK; base/check.h, docs/checks.md): each site is a reviewed decision, as Chromium reviews each new

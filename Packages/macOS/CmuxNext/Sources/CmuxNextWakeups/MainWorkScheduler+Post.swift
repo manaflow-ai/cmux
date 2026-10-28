@@ -23,13 +23,15 @@ public struct MainPostSite: Sendable {
 /// "Posting API"): Chrome's typed task runners (`content/browser/scheduler/browser_task_queues.h`,
 /// `base/task/sequence_manager/task_queue_selector.h`) on the main thread.
 ///
-/// Each budgeted class has one FIFO queue, built on its first post: a ``FrameBatchQueue`` on this
-/// scheduler, so posted work runs in class order, one task at a time, while ``MainFrameBudget``
-/// lets its class run, and yields to a person's pending input. Every task names its owner and its
-/// posting site, which the board shows while it runs (the stall watchdog's record names both).
+/// Each budgeted class has one FIFO queue, built on its first post: a ``ClassQueue`` on the
+/// sequence manager's queues (``MainSequenceQueue`` on ``selector``), so posted work runs in class
+/// order, one task at a time, while ``MainFrameBudget`` lets its class run, and yields to a person's
+/// pending input. Every task names its owner and its posting site, which the board shows while it
+/// runs (the stall watchdog's record names both).
 ///
 /// The first post after idle (no display link, no turn queued) runs on the next main run loop
-/// turn when its class may run then, without waiting for a frame; work left after that turn, and
+/// turn (the ``MainWorkBatchSource``'s callout, in the common modes) when its class may run then,
+/// without waiting for a frame; work left after that turn, and
 /// work posted while frames run, waits for the next frame. userBlocking and automation work also run
 /// on the next turn while frames run: a person waits on the rest of their action, an agent's or the
 /// CLI's request and reply are sequential, and Chrome's
@@ -46,7 +48,7 @@ public struct MainPostSite: Sendable {
 extension MainWorkScheduler {
     /// The posting state: the class queues, ordered by class, and whether a turn is queued.
     struct Posting {
-        var queues: [FrameBatchQueue] = []
+        var queues: [ClassQueue] = []
         var turnQueued = false
         /// Owner names interned on the board once each, so a post on main takes no lock after the first.
         var owners: [String: MainTaskOwner] = [:]
@@ -54,8 +56,10 @@ extension MainWorkScheduler {
         /// takes the ledger's lock only for a name's first instance.
         var observationOwners: [String: ObservationLedger.Owner] = [:]
         var hiddenWake: HiddenWake?
-        /// Queues one turn (``MainRunLoopBlock`` in the app; a test's own queue in tests).
-        var performTurn: TurnPerformer = { turn in MainRunLoopBlock.perform(turn) }
+        /// A test's own turns; nil: the main run loop's (the posted turn is the batch source's callout).
+        var performTurn: TurnPerformer?
+        /// The posted turn's run loop source, made on the first turn the scheduler asks for.
+        var batchSource: MainWorkBatchSource?
     }
 
     /// Queues one call of `turn` on a later main run loop turn, never inline.
@@ -122,7 +126,7 @@ extension MainWorkScheduler {
     public func postContinuation(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, file: StaticString = #fileID, line: UInt = #line,
                                  _ body: @escaping @MainActor () -> Void) {
         let post = MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: budget.nowNanos)
-        classQueue(workClass).appendContinuation(owner: owner, post: post, body)
+        classQueue(workClass).postContinuation(owner: owner, post: post, body)
     }
 
     /// ``postContinuation(_:owner:file:line:_:)`` with an owner name, interned on the board once per scheduler.
@@ -225,7 +229,7 @@ extension MainWorkScheduler {
     /// Appends `body` to its class queue, for the next turn or frame; never runs it inline.
     func enqueue(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
-        queue.append(owner: owner, post: post, body)
+        queue.post(owner: owner, post: post, body)
         if frames.hasLink {
             // The next frame runs it if the turn does not (the turn holds it, or a frame comes first).
             queue.activate()
@@ -233,7 +237,23 @@ extension MainWorkScheduler {
         }
         if posting.turnQueued { return }
         posting.turnQueued = true
-        posting.performTurn { [weak self] in self?.runPostedTurn() }
+        guard let performTurn = posting.performTurn else { return batchSource().signal() }
+        performTurn { [weak self] in self?.runPostedTurn() }
+    }
+
+    /// Queues one call of `turn` on a later main run loop turn, never inline: a test's own turns, or a common-modes
+    /// run-loop block (MainWorkScheduler+Classed.swift's input and frame work).
+    func performTurn(_ turn: @escaping @MainActor () -> Void) {
+        guard let performTurn = posting.performTurn else { return MainRunLoopBlock.perform(turn) }
+        performTurn(turn)
+    }
+
+    /// The posted turn's source, made on first use (a scheduler that never posts adds nothing to the run loop).
+    private func batchSource() -> MainWorkBatchSource {
+        if let source = posting.batchSource { return source }
+        let source = MainWorkBatchSource { [weak self] in self?.runPostedTurn() }
+        posting.batchSource = source
+        return source
     }
 
     /// Reads the enqueue time here, on the posting thread (Chrome sets `PendingTask::queue_time` at
@@ -259,7 +279,7 @@ extension MainWorkScheduler {
     func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost, _ body: @escaping @MainActor () -> Void) {
         if holdClassed(workClass, owner: owner, post: post, followsGate: false, body) { return }
         let queue = classQueue(workClass)
-        queue.append(owner: owner, post: post, body)
+        queue.post(owner: owner, post: post, body)
         if frames.hasLink {
             if Self.runsOnNextTurn(queue.workClass) { runNow(queue) } else { queue.activate() }
             return
@@ -284,8 +304,8 @@ extension MainWorkScheduler {
     /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames. After a
     /// tick whose batch waits for its own turn (after-commit placement), that turn runs it: right after
     /// the tick's commit, so the tick's turn holds no budgeted task.
-    private func runNow(_ queue: FrameBatchQueue) {
-        if !isBudgetTurnPending, startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
+    private func runNow(_ queue: ClassQueue) {
+        if !isBudgetTurnPending, startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drain(limit: queue.count) }
         queue.activate()
     }
 
@@ -298,10 +318,10 @@ extension MainWorkScheduler {
     }
 
     /// The class's queue, built on its first post.
-    private func classQueue(_ workClass: BudgetedWorkClass) -> FrameBatchQueue {
+    private func classQueue(_ workClass: BudgetedWorkClass) -> ClassQueue {
         let mainClass = workClass.workClass
         if let queue = posting.queues.first(where: { $0.workClass == mainClass }) { return queue }
-        let queue = FrameBatchQueue(owner: "MainWork.\(mainClass)", budgeted: workClass, on: self)
+        let queue = ClassQueue(workClass, on: self)
         let index = posting.queues.firstIndex { $0.workClass > mainClass } ?? posting.queues.count
         posting.queues.insert(queue, at: index)
         return queue

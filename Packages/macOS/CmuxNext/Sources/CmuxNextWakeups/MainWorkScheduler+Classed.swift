@@ -87,7 +87,7 @@ extension MainWorkScheduler {
             idle.post(owner: owner, site: site, maxDelay: nil, node: nil) { _ in body() }
         } else {
             if workClass == .input { board.inputQueued() }
-            posting.performTurn { [board, budget] in
+            performTurn { [board, budget] in
                 if workClass == .input { board.inputDone() }
                 Self.runUnbudgeted(workClass, owner: owner, post: post, budget: budget, body)
             }

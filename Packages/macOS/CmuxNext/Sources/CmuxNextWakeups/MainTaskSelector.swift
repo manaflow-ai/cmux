@@ -14,8 +14,8 @@
 /// queue non-monotonic, and the rule never assumes they are. Enqueue times come from the injected
 /// clock, never a wall clock read of its own.
 ///
-/// Step S2a: nothing in the app uses it yet; S2b runs ``MainWorkScheduler``'s batch from it, with the
-/// budget pools and voters of the manager as the `admitting` predicate.
+/// Since step S2b, ``MainWorkScheduler``'s class queues are on its selector, and each class's batch takes its
+/// tasks from it with the budget (``MainFrameBudget/mayRun(_:)``) as the admission (MainWorkScheduler+Batch.swift).
 ///
 /// ```swift
 /// let selector = MainTaskSelector(clock: clock)
@@ -29,10 +29,12 @@ public final class MainTaskSelector {
     public struct Selected {
         /// The type of the queue it came from.
         public let type: MainQueueType
-        /// The owner of that queue.
+        /// Its owner: the one its post named, else its queue's.
         public let owner: MainTaskOwner
         /// Where it was posted.
         public let site: MainPostSite
+        /// Its post's record for the board's ledger (site, enqueue time, node state), when its post gave one.
+        public let posted: MainTaskPost?
         /// Its place in the enqueue order across all queues.
         public let order: UInt64
         /// How long it waited from its post until it was taken, on the selector's clock.
@@ -88,10 +90,16 @@ public final class MainTaskSelector {
     /// voters per type); nil when none may run.
     public func takeNext(admitting admits: (MainQueueType) -> Bool = { _ in true }) -> Selected? {
         guard let queue = select(admitting: admits) else { return nil }
+        return take(from: queue)
+    }
+
+    /// Takes the next task of `queue`, which the caller found runnable, and gives `queue` this turn of the round robin
+    /// (a class batch of ``MainWorkScheduler`` picks its own two queues: its continuations first).
+    func take(from queue: MainSequenceQueue) -> Selected {
         let item = queue.take()
         turn += 1
         queue.lastTurn = turn
-        return Selected(type: queue.type, owner: queue.owner, site: item.site, order: item.order,
+        return Selected(type: queue.type, owner: item.owner ?? queue.owner, site: item.site, posted: item.posted, order: item.order,
                         waited: elapsed() - item.enqueuedAt, body: item.body, fenceOrder: item.fenceOrder, queue: queue)
     }
 
@@ -104,9 +112,11 @@ public final class MainTaskSelector {
     }
 
     /// A queue's new task: the next enqueue order and the time now.
-    func item(_ body: @escaping @MainActor () -> Void, site: MainPostSite) -> MainSequenceQueue.Item {
+    func item(_ body: @escaping @MainActor () -> Void, site: MainPostSite, owner: MainTaskOwner? = nil,
+              posted: MainTaskPost? = nil) -> MainSequenceQueue.Item {
         lastOrder += 1
-        return MainSequenceQueue.Item(body: body, site: site, order: lastOrder, fenceOrder: lastOrder, enqueuedAt: elapsed())
+        return MainSequenceQueue.Item(body: body, site: site, order: lastOrder, fenceOrder: lastOrder, enqueuedAt: elapsed(),
+                                      owner: owner, posted: posted)
     }
 
     /// Reports a continuation posted while no task of its queue runs.

@@ -37,18 +37,12 @@ public final class FrameBatchQueue {
     public let workClass: MainWorkClass
     /// The budget, class, interned owner and frame scheduler (``MainWorkScheduler/frames``, which
     /// ticks the queue's person and frontend work with the frame clients) of a budgeted queue; nil
-    /// for a frame queue. The queue holds these, not the ``MainWorkScheduler``, so the scheduler can
-    /// own queues of its own (``MainWorkScheduler/post(_:owner:file:line:_:)``) without a retain cycle.
+    /// for a frame queue. The queue holds these, not the ``MainWorkScheduler``.
     private let budgeted: (budget: MainFrameBudget, workClass: MainWorkClass, owner: MainTaskOwner, frames: FrameScheduler)?
     /// Queued work from ``head`` on (a run slot is cleared so its captures go at once); the
     /// array is compacted when it empties, or when the run prefix is most of it.
-    private var pending: [Item] = []
+    private var pending: [(@MainActor () -> Void)?] = []
     private var head = 0
-    /// Posted continuations from ``continuationHead`` on (``appendContinuation(owner:post:_:)``): they run before
-    /// ``pending``, in the order they were posted, as Blink runs a `scheduler.yield()` continuation queue ahead of the
-    /// task queue of its priority (third_party/blink/renderer/platform/scheduler/public/web_scheduling_queue_type.h).
-    private var continuations: [Item] = []
-    private var continuationHead = 0
     private let client: FrameClient
     /// A budgeted queue's person and frontend work that the input-response pass did not take, in
     /// order: it runs whole on the next frame (``unbudgetedClient``), never under the class budget.
@@ -56,16 +50,6 @@ public final class FrameBatchQueue {
     /// Ticks ``unbudgeted`` as frame work on the budgeted queue's scheduler; made with the first such
     /// work, so a queue that never gets any has one client.
     private var unbudgetedClient: FrameClient?
-
-    /// One queued task: posted work names its own owner and post (site, enqueue time, node state),
-    /// ``enqueue(_:)`` work runs as the queue's owner.
-    private struct Item {
-        var work: (@MainActor () -> Void)?
-        var owner: MainTaskOwner?
-        var post: MainTaskPost?
-        /// A continuation's frame (``MainFrameBudget/frameSerial`` when it was posted): it runs in a later one.
-        var frame: UInt64 = 0
-    }
 
     /// Lets the client's tick reach the queue before `self` exists (the client is built in init).
     @MainActor private final class Target {
@@ -110,7 +94,7 @@ public final class FrameBatchQueue {
     /// Queues `work` for the next display frame (after work queued before it). Its cause is
     /// ``ObservationCause/program``: in a budgeted queue it keeps the class budget.
     public func enqueue(_ work: @escaping @MainActor () -> Void) {
-        pending.append(Item(work: work))
+        pending.append(work)
         client.activate()
     }
 
@@ -131,7 +115,7 @@ public final class FrameBatchQueue {
     }
 
     /// Work queued and not run yet (both kinds; not what the input-response pass took).
-    public var count: Int { pending.count - head + continuations.count - continuationHead + unbudgeted.count }
+    public var count: Int { pending.count - head + unbudgeted.count }
 
     /// Person and frontend work waiting for the next frame in a budgeted queue.
     package var unbudgetedCount: Int { unbudgeted.count }
@@ -159,91 +143,44 @@ public final class FrameBatchQueue {
         return !unbudgeted.isEmpty
     }
 
-    // MARK: Posted work (MainWorkScheduler.post)
-
-    /// Queues posted work as `owner`, recorded on the board and its ledger as `post` (nil: the work
-    /// names its post when it runs), without waking the frame: the scheduler runs it on the next
-    /// turn or calls ``activate()``.
-    func append(owner: MainTaskOwner, post: MainTaskPost?, _ work: @escaping @MainActor () -> Void) {
-        pending.append(Item(work: work, owner: owner, post: post))
-    }
-
-    /// Queues posted work as `owner` ahead of every task ``append(owner:post:_:)`` queued, after the continuations
-    /// queued before it, and ticks on the next frame. It is stamped with the budget's frame and no drain runs it, tick
-    /// or turn, until a later frame opened: the rest of a task that yielded never runs in the frame it yielded in.
-    func appendContinuation(owner: MainTaskOwner, post: MainTaskPost?, _ work: @escaping @MainActor () -> Void) {
-        continuations.append(Item(work: work, owner: owner, post: post, frame: budgeted?.budget.frameSerial ?? 0))
-        client.activate()
-    }
-
-    /// Ticks on the next frame while work is queued (no effect while ticking).
-    func activate() {
-        guard pending.count > head || continuations.count > continuationHead else { return }
-        client.activate()
-    }
-
-    /// Whether the queue ticks on frames now.
-    var isActive: Bool { client.isActive }
-
-    /// Runs at most `limit` of the queued tasks outside a tick, as a tick would (the caller checked
-    /// ``MainFrameBudget/mayRun(_:)`` for the first one); true while work is left.
-    func drainNow(limit: Int) -> Bool {
-        drainBudgeted(limit: limit)
-    }
-
     /// Runs the work queued before this frame, from the front, while the class may run (the
-    /// scheduler let the first task start): first the continuations posted in an earlier frame,
-    /// then posted tasks. The rest stays in place, ahead of work queued meanwhile, which waits for
-    /// the next frame. No copy and no re-insert: a backlog of N costs O(N) over all its frames.
-    /// True while work is left.
-    private func drainBudgeted(limit: Int = .max) -> Bool {
+    /// scheduler let the first task start). The rest stays in place, ahead of work queued meanwhile,
+    /// which waits for the next frame. No copy and no re-insert: a backlog of N costs O(N) over all
+    /// its frames. True while work is left.
+    private func drainBudgeted() -> Bool {
         guard let budgeted else { return drainAll() }
         let budget = budgeted.budget, mainClass = budgeted.workClass
         let end = pending.count
         var ran = 0
-        while ran < limit {
-            let continues = continuationHead < continuations.count && continuations[continuationHead].frame < budget.frameSerial
-            guard continues || head < end else { break }
+        while head < end {
             if ran > 0, !budget.mayRun(mainClass) { break }
-            let item = continues ? takeContinuation() : takeHead()
-            budget.run(mainClass, owner: item.owner ?? budgeted.owner, posted: item.post) { item.work?() }
+            let work = takeHead()
+            budget.run(mainClass, owner: budgeted.owner) { work?() }
             ran += 1
         }
         compact()
-        return head < pending.count || continuationHead < continuations.count
+        return head < pending.count
     }
 
     /// Runs everything queued before this frame (a frame queue); true while more arrived during it.
     private func drainAll() -> Bool {
         let end = pending.count
-        while head < end { takeHead().work?() }
+        while head < end { takeHead()?() }
         compact()
         return head < pending.count
     }
 
-    /// The item at ``head``, its slot cleared.
-    private func takeHead() -> Item {
-        let item = pending[head]
-        pending[head] = Item()
+    /// The work at ``head``, its slot cleared.
+    private func takeHead() -> (@MainActor () -> Void)? {
+        let work = pending[head]
+        pending[head] = nil
         head += 1
-        return item
-    }
-
-    /// The continuation at ``continuationHead``, its slot cleared.
-    private func takeContinuation() -> Item {
-        let item = continuations[continuationHead]
-        continuations[continuationHead] = Item()
-        continuationHead += 1
-        return item
+        return work
     }
 
     /// Drops the run prefix: all of it, keeping the buffer, once the queue is empty; otherwise
     /// once it is most of the array (amortized O(1) per item under a standing backlog).
     private func compact() {
-        if continuationHead == continuations.count {
-            continuations.removeAll(keepingCapacity: true)
-            continuationHead = 0
-        }
         if head == pending.count {
             pending.removeAll(keepingCapacity: true)
             head = 0
