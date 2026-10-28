@@ -142,7 +142,7 @@ run("projection full compare", () => {
     for (const t of done.skipped as Array<string>) expect(table(t)).toMatchObject({ outcome: "skipped", level: "error" })
     expect(Number(done.rows_read)).toBeLessThanOrEqual(20)
     const late = await pass({ wallMs: 0 })
-    expect(late.done).toMatchObject({ complete: false, rows_read: 0 })
+    expect(late.done).toMatchObject({ complete: false, rows_checked: 0 })
   }, 60_000)
 
   it("a 16-digit numeric key (text from Postgres, a number from MySQL) compares equal", async () => {
