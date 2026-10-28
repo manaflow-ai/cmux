@@ -76,10 +76,13 @@ function extensionKey(entry: ComposerPlusEntry): string {
  * section field keeps rows interoperable with the native command-palette section ordering.
  */
 export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}): ComposerPlusEntry[] {
-  const label = (key: Parameters<Translate>[0], fallback: string) => options.translate?.(key) ?? fallback;
+  const text = (key: Parameters<Translate>[0], fallback: string) => options.translate?.(key) ?? fallback;
+  const label = text;
+  const description = text;
   const rows: ComposerPlusEntry[] = staticRows.map((row) => ({
     ...row,
     name: label("composer.menu.attachFiles", row.name),
+    description: description("summary.sources.attach", row.description),
   }));
 
   if (options.canCapture !== false) {
@@ -88,7 +91,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
         id: "add.screenshot",
         section: "add",
         name: label("composer.attachScreenshot", "Attach a screenshot"),
-        description: "Capture the screen and attach it",
+        description: description("composer.attachScreenshot", "Capture the screen and attach it"),
         icon: "site.permission.camera",
         keywords: ["capture", "screen", "image"],
         action: { kind: "command", id: COMMANDS.attachScreenshot },
@@ -97,7 +100,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
         id: "add.window",
         section: "add",
         name: label("composer.attachWindow", "Attach a window"),
-        description: "Capture a window and attach it",
+        description: description("composer.attachWindow", "Capture a window and attach it"),
         icon: "site.permission.windowmanagement",
         keywords: ["capture", "window", "image"],
         action: { kind: "command", id: COMMANDS.attachWindow },
@@ -110,7 +113,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.project",
       section: "add",
       name: label("project.choose", "Choose a project"),
-      description: "Pick the folder or cwd for this chat",
+      description: description("project.choose", "Pick the folder or cwd for this chat"),
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],
       action: { kind: "command", id: COMMANDS.chooseProject },
@@ -135,7 +138,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.goal",
       section: "add",
       name: label("goal.label", "Set a goal"),
-      description: "Keep pursuing a goal across turns",
+      description: description("goal.label", "Keep pursuing a goal across turns"),
       icon: "agent.chat",
       keywords: ["goal", "objective", "task"],
       action: { kind: "slash", command: goalCommand },
@@ -150,7 +153,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: `add.skill.${name.toLowerCase()}`,
       section: "add",
       name: `/${name}`,
-      description: command.description || "Run this skill in the current chat",
+      description: command.description || description("composer.slashSkill", "Run this skill in the current chat"),
       icon: "terminal",
       keywords: [name, command.description],
       action: { kind: "slash", command },
@@ -162,7 +165,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.mention",
       section: "add",
       name: label("composer.mention", "Mention"),
-      description: "Reference a file or chat in the prompt",
+      description: description("composer.mention", "Reference a file or chat in the prompt"),
       icon: "composer.mention",
       keywords: ["@", "mention", "file", "chat"],
       action: { kind: "command", id: COMMANDS.mention },
@@ -171,7 +174,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.commands",
       section: "add",
       name: label("composer.commands", "Commands"),
-      description: "Choose a command advertised by this harness",
+      description: description("composer.commands", "Choose a command advertised by this harness"),
       icon: "terminal",
       keywords: ["/", "slash", "commands"],
       action: { kind: "command", id: COMMANDS.commands },
@@ -182,7 +185,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     id: "files.search",
     section: "files",
     name: label("files.search", "Files and chats"),
-    description: "Search files or chats to attach as context",
+    description: description("files.search", "Search files or chats to attach as context"),
     icon: "search",
     keywords: ["files", "chats", "search", "context"],
     action: { kind: "command", id: COMMANDS.searchFiles },
@@ -219,6 +222,8 @@ export function runComposerPlusAction(
   action: ComposerPlusAction,
   handlers: {
     command(id: string, modeId?: string): void;
+    /** Dispatches a host-provided command-palette ID, such as palette.openBrowser. */
+    extension?(id: string): void;
     slash(command: SlashCommand): void;
   },
 ): boolean {
@@ -226,7 +231,11 @@ export function runComposerPlusAction(
     handlers.slash(action.command);
     return true;
   }
-  if (!Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) return false;
-  handlers.command(action.id, action.modeId);
+  if (Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) {
+    handlers.command(action.id, action.modeId);
+    return true;
+  }
+  if (!handlers.extension) return false;
+  handlers.extension(action.id);
   return true;
 }

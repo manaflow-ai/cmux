@@ -75,7 +75,14 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, headerCwd?: string, onMode?: (id: string) => void, draft?: string) {
+async function render(
+  snapshot: AcpmuxSnapshot,
+  headerCwd?: string,
+  onMode?: (id: string) => void,
+  draft?: string,
+  plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
+  onPlusCommand?: (id: string) => void,
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -93,6 +100,8 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string, onMode?: (id
         onStop={() => {}}
         onMode={onMode}
         draft={draft}
+        plusExtensions={plusExtensions}
+        onPlusCommand={onPlusCommand}
         onProject={() => {}}
         onNewChat={() => {}}
         localName="studio"
@@ -375,8 +384,42 @@ test("the + menu uses the current pane language for existing actions", async () 
     await act(async () => plus.click());
     expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe("Dateien anhängen …");
     expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')?.textContent).toBe(
+      "Dateien oder Ordner anhängen",
+    );
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')?.textContent).toBe(
+      "Projekt auswählen",
+    );
   } finally {
     await act(async () => setPaneLanguage("en"));
     globalThis.__cmuxPaneStrings = prior;
   }
+});
+
+test("the + menu renders and dispatches host command-palette extensions", async () => {
+  const called: string[] = [];
+  await render(
+    fresh([]),
+    undefined,
+    undefined,
+    undefined,
+    [
+      {
+        id: "browser",
+        section: "tools",
+        name: "Browser",
+        description: "Control the in-app browser",
+        icon: "browser",
+        keywords: ["web"],
+        action: { kind: "command", id: "palette.openBrowser" },
+      },
+    ],
+    (id) => called.push(id),
+  );
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  expect(host.querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(called).toEqual(["palette.openBrowser"]);
 });
