@@ -320,12 +320,11 @@ export function losesNumbers(printed: string): boolean {
 /// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
 const MARKDOWN =
   /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
-const LOG_LINE = new RegExp(
-  String.raw`^\s*(?:\[[^\]]+\]\s*)?` +
-    String.raw`(?:(?:\[(?:debug|info|warn|error|trace)\]|(?:debug|info|warn|error|trace)\b)|` +
-    String.raw`(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)`,
-  "i",
-);
+const LOG_LINE = [
+  /^\s*\[(?:debug|info|warn|error|trace)\]\b/i,
+  /^\s*(?:\[[^\]]+\]\s*)?(?:debug|info|warn|error|trace)\b/i,
+  /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i,
+];
 const CODE_DECLARATION = new RegExp(
   String.raw`^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|` +
     String.raw`try|except|async|await|export)\b`,
@@ -339,7 +338,7 @@ const MAX_MARKDOWN_CHARS = 20_000;
 function isMarkdownText(text: string, web = false): boolean {
   if (text.length > MAX_MARKDOWN_CHARS) return false;
   const lines = text.split("\n").filter(Boolean);
-  if (!lines.length || lines.every((line) => LOG_LINE.test(line))) return false;
+  if (!lines.length || lines.every((line) => LOG_LINE.some((pattern) => pattern.test(line)))) return false;
   if (CODE_DECLARATION.test(text) || CODE_ASSIGNMENT.test(text) || DUNDER.test(text)) return false;
   return web || MARKDOWN.test(text);
 }
