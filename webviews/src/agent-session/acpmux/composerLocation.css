@@ -1397,6 +1397,8 @@
 .acpmux-link-mark[data-link="attention"] { color: var(--agent-warning, var(--agent-muted)); }
 /* In the strip the mark sits between the name and the chevron, at the name's own gap. */
 .acpmux-location-button .acpmux-link-mark { margin-left: 4px; margin-right: 2px; }
+/* In the plain Computer menu it follows the machine's name on its line. */
+.acpmux-location-name > .acpmux-link-mark { margin-left: 6px; vertical-align: middle; }
 /* A machine a chat cannot start on yet (still connecting, reconnecting, offline): greyed, its state
    in words where the shortcut would be. */
 .acpmux-env-row[data-ready="false"],

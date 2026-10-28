@@ -89,10 +89,14 @@ const WORDS: Record<MachineLink, StringKey> = {
   attention: "composer.envNotConnected",
 };
 
+/// The link in words ("Connected", "Reconnecting…"): `words` when the App gave them (this pane's
+/// own machine), else the strip's own.
+export const linkWords = (link: MachineLink, words?: string): string => words || t(WORDS[link]);
+
 /// The link as one mark: a dot in its color, or the turning ring while the machine is on its way.
 /// `words` names it for VoiceOver (the App's words for this pane's own machine).
 export function MachineLinkMark({ link, words }: { link: MachineLink; words?: string }) {
-  const label = words || t(WORDS[link]);
+  const label = linkWords(link, words);
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a CSS dot or the ring, named as one image
     <span className="acpmux-link-mark" data-link={link} role="img" aria-label={label}>

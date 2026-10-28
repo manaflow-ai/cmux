@@ -790,6 +790,8 @@ test("previews off: the plain Computer menu lists the same machines, in the same
   ).toEqual([t("composer.thisMac"), t("composer.envMine"), t("composer.envFleet")]);
   const offline = items[4]!;
   expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
+  // Its red mark after its name, as in the strip.
+  expect(offline.querySelector(".acpmux-link-mark")?.getAttribute("data-link")).toBe("offline");
   await act(async () => offline.click());
   expect(reconnects).toEqual(["gpu-box"]);
   expect(computers).toEqual(["gpu-box"]);
