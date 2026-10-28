@@ -80,7 +80,8 @@ fn report(v: Value) -> Result<HandoffReport, String> {
 
 fn handoff(turn: u64, status: &str) -> Value {
     json!({ "id": handoff_id(USER, "acp_s1"), "sessionId": "acp_s1", "machine": "vm_m0000000000000000004",
-            "turn": turn, "state": "open", "status": status, "summary": "secret-ish summary", "version": 3 })
+            "turn": turn, "state": "open", "status": status, "summary": "secret-ish summary", "version": 3,
+            "statusAt": "2026-10-28T10:00:00.000Z" })
 }
 
 /// The store's own id: `ho_` + sha256(owner NUL session)[:20]
@@ -109,7 +110,7 @@ fn reports_to_the_hand_off_route_as_the_vm_install() {
     let reply = reply_for(&answer);
     assert_eq!(
         reply,
-        json!({ "ok": true, "handoff": { "id": id, "turn": 2, "state": "open", "status": "done" } }),
+        json!({ "ok": true, "handoff": { "id": id, "turn": 2, "state": "open", "status": "done", "statusAt": "2026-10-28T10:00:00.000Z" } }),
         "the reply carries the turn and state, never the summary"
     );
     let st = fake.0.lock().unwrap();
@@ -135,7 +136,7 @@ fn a_refusal_passes_the_code_and_the_current_turn_through() {
         reply,
         json!({ "ok": false, "status": 409,
                 "error": { "code": "handoff.stale", "message": "turn 1 is over; the current turn is 2" },
-                "handoff": { "id": id, "turn": 2, "state": "open", "status": "starting" } })
+                "handoff": { "id": id, "turn": 2, "state": "open", "status": "starting", "statusAt": "2026-10-28T10:00:00.000Z" } })
     );
     assert_eq!(
         note_for(&id, &r, &reply),

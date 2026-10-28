@@ -10,8 +10,9 @@
 //! hand-off and its report answers 404. The store accepts a VM install bound
 //! to the hand-off's machine, so the machine needs no other credential, and
 //! the bearer stays in the agent as it does for GitHub tokens (`github.rs`).
-//! The reply carries the hand-off's turn and state (never its summary), so
-//! acpmux learns the current turn from a `handoff.stale` refusal.
+//! The reply carries the hand-off's turn, state, status and `statusAt`
+//! (never its summary), so acpmux learns the current turn, and when the owner
+//! opened it, from a `handoff.stale` refusal.
 
 use crate::json::JsonField;
 use serde_json::{Map, Value, json};
@@ -104,13 +105,18 @@ impl HandoffReport {
     }
 }
 
-/// The hand-off fields a reply carries: who it is and where its turn is.
+/// The hand-off fields a reply carries: who it is and where its turn is (its status and when
+/// that status was set: for a turn not begun, when the owner opened it).
 fn brief(handoff: &Value) -> Option<Value> {
     let id = handoff.field("id").as_str()?;
     let turn = handoff.field("turn").as_u64()?;
     let state = handoff.field("state").as_str()?;
     let status = handoff.field("status").as_str()?;
-    Some(json!({ "id": id, "turn": turn, "state": state, "status": status }))
+    let mut out = json!({ "id": id, "turn": turn, "state": state, "status": status });
+    if let Some(at) = handoff.field("statusAt").as_str().filter(|at| at.len() <= 40) {
+        out["statusAt"] = json!(at);
+    }
+    Some(out)
 }
 
 /// A refusal reply (`ok: false`) with an error code and message.
