@@ -575,17 +575,17 @@ fn daemon_locks_caller_class_follows_the_connection_origin() {
     use crate::request_origin::HelloRole;
     let (mux, cli, cli_writer, _) = request_path_mux("daemon-locks-origin");
     assert_eq!(cli_writer.lock_caller.get(), LockCaller::Automation);
-    assert!(set_hello(&mux, cli, HelloRole::Main, None, false, None));
+    assert!(set_hello(&mux, cli, HelloRole::Main, None, false, None, false));
     assert_eq!(cli_writer.lock_caller.get(), LockCaller::Automation);
     assert!(set_install_proved(&mux, cli, "install"));
     assert_eq!(cli_writer.lock_caller.get(), LockCaller::Frontend);
 
     let signed = writer();
     let app = mux.control_clients.register(ClientTransport::Unix, signed.clone());
-    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None));
+    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None, false));
     assert_eq!(signed.lock_caller.get(), LockCaller::Frontend);
     let relay_writer = writer();
     let relay = mux.control_clients.register(ClientTransport::Unix, relay_writer.clone());
-    assert!(set_hello(&mux, relay, HelloRole::PageRelay, None, true, None));
+    assert!(set_hello(&mux, relay, HelloRole::PageRelay, None, true, None, false));
     assert_eq!(relay_writer.lock_caller.get(), LockCaller::Automation);
 }

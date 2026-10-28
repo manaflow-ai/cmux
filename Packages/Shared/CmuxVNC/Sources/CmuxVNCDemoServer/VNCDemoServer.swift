@@ -35,7 +35,7 @@ public final class VNCDemoServer: @unchecked Sendable {
     }
 
     public let configuration: Configuration
-    private let queue = DispatchQueue(label: "cmux.vnc.demo-server")
+    private let queue = DispatchQueue(label: "cmux.vnc.demo-server", qos: .utility)
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: DemoConnection] = [:]
     private var timer: (any DispatchSourceTimer)?
