@@ -12,7 +12,9 @@ import importlib.util
 import re
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -92,6 +94,49 @@ class Plan(unittest.TestCase):
             plan = shards.plan(root / "Tests", root / "Package.swift", "all", 8)
         self.assertEqual(len(plan), 1)
         self.assertEqual(matching(plan, "BTests.XTests/a()"), ["shard 1"])
+
+
+FAKE_SWIFT_TEST = """#!/usr/bin/env bash
+# A stand-in for swift-test-with-hang-sampler.sh: records when it opened the build database and when its
+# helper started, and fails like SwiftPM when another start holds the database.
+dir="$FAKE_DIR"; name="$(echo "$*" | tr -c 'A-Za-z0-9' _ | cut -c1-60)"
+if { [ -n "${FAKE_LOCK_ONCE:-}" ] && [ ! -e "$dir/locked-$name" ]; } || ! mkdir "$dir/db" 2>/dev/null; then
+  touch "$dir/locked-$name"
+  echo "error: unable to attach DB: database is locked"; exit 1
+fi
+sleep 1; rmdir "$dir/db"
+echo "◇ Test run started."
+echo "$name" >> "$dir/ran"
+sleep 1
+echo "✔ Test run with 1 test in 1 suite passed after 1 seconds."
+"""
+
+
+class Run(unittest.TestCase):
+    def run_shards(self, count: int, at_once: int, lock_once: bool = False) -> tuple[int, list[str], Path]:
+        tmp = Path(tempfile.mkdtemp())
+        wrapper = tmp / "fake.sh"
+        wrapper.write_text(FAKE_SWIFT_TEST)
+        wrapper.chmod(0o755)
+        plan = [{"name": f"shard {i}", "filter": f"^(T{i}\\.)", "tests": 1, "skip": []} for i in range(1, count + 1)]
+        env = {"FAKE_DIR": str(tmp), "GITHUB_STEP_SUMMARY": ""}
+        if lock_once:
+            env["FAKE_LOCK_ONCE"] = "1"
+        with mock.patch.dict("os.environ", env), mock.patch("sys.stdout"):
+            status = shards.run(plan, at_once, str(wrapper), [], time.time() + 600)
+        ran = (tmp / "ran").read_text().split() if (tmp / "ran").exists() else []
+        return status, ran, tmp
+
+    def test_two_starts_never_hold_the_build_database_at_once(self) -> None:
+        # Run 40734897241: three shards started together lost .build/build.db and ran no test.
+        status, ran, _ = self.run_shards(3, 3)
+        self.assertEqual(status, 0)
+        self.assertEqual(len(ran), 3)
+
+    def test_a_shard_that_lost_the_database_before_any_test_runs_again_once(self) -> None:
+        status, ran, _ = self.run_shards(2, 2, lock_once=True)
+        self.assertEqual(status, 0)
+        self.assertEqual(len(ran), 2)
 
 
 class Width(unittest.TestCase):

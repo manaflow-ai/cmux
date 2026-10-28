@@ -132,6 +132,24 @@ def runner_width() -> int:
     return width(cores, memory_gb, os.environ.get("CMUX_NEXT_SWIFT_TEST_WIDTH", ""))
 
 
+LOCKED = "database is locked"
+# The test helper is running: Swift Testing or XCTest has printed its first line.
+RAN = re.compile(r"^(?:[◇✔✘↪━] Test |Test Suite ')", re.M)
+# How long a shard may take to get its helper running before the next one starts anyway.
+START_SECONDS = 180
+
+
+def starting(item: tuple) -> bool:
+    """Whether a just-started shard's `swift test` may still be reading the build database."""
+    _, proc, log, began = item
+    if proc.poll() is not None or time.time() - began > START_SECONDS:
+        return False
+    try:
+        return not RAN.search(log.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return True
+
+
 def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadline: float) -> int:
     """Runs every shard, at most `at_once` at a time, largest first. Each shard's hang limit is the time left to
     `deadline` when it starts; a shard with less than a minute left still starts, so its stacks are sampled."""
@@ -139,9 +157,13 @@ def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadli
     running: list[tuple[dict, subprocess.Popen, Path, float]] = []
     failed: list[str] = []
     rows: list[str] = []
+    retried: set[str] = set()
     with tempfile.TemporaryDirectory(prefix="swift-test-shards-", dir=os.environ.get("RUNNER_TEMP")) as tmp:
         while pending or running:
-            while pending and len(running) < at_once:
+            # One SwiftPM start at a time: each `swift test` opens .build/build.db before it runs the test
+            # helper, and two at once fail with "database is locked" and run no test (run 40734897241).
+            # The next shard starts once the last one's helper is running (or the last one ended).
+            while pending and len(running) < at_once and not (running and starting(running[-1])):
                 shard = pending.pop(0)
                 log = Path(tmp) / f"{shard['name'].replace(' ', '-')}.log"
                 env = dict(os.environ, CMUX_NEXT_TEST_HANG_SECONDS=str(max(60, int(deadline - time.time()))))
@@ -159,6 +181,14 @@ def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadli
                 print(f"::group::{shard['name']}: exit {proc.returncode} after {seconds:.0f} s", flush=True)
                 sys.stdout.write(log.read_text(encoding="utf-8", errors="replace"))
                 print("::endgroup::", flush=True)
+                text = log.read_text(encoding="utf-8", errors="replace")
+                if proc.returncode != 0 and shard["name"] not in retried and LOCKED in text and not RAN.search(text):
+                    # Lost the build database to another SwiftPM before any test ran: run it again, once.
+                    retried.add(shard["name"])
+                    pending.insert(0, shard)
+                    print(f"{shard['name']}: the build database was locked before any test ran; starting it again",
+                          flush=True)
+                    continue
                 rows.append(f"| {shard['name']} | {shard['tests']} | {seconds:.0f} | {proc.returncode} |")
                 if proc.returncode != 0:
                     failed.append(shard["name"])
