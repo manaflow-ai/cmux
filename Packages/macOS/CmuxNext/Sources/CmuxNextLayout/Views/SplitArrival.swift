@@ -1,6 +1,7 @@
 public import CmuxNextDesign
 
-/// How the pane a split adds comes in (Cmd-D, Cmd-Shift-D, a split of the New Tab page). Debug Settings
+/// How a split's new pane comes in (Cmd-D, Cmd-Shift-D, a split of the New Tab page) and how a pane close lays out
+/// (Cmd-W on a pane's last tab, Close Pane). Debug Settings
 /// `motion.split.arrival` (``LayoutTunables/splitArrival``) picks it; the layout reads it in each change turn
 /// (`LayoutViewContext.splitArrival`).
 ///

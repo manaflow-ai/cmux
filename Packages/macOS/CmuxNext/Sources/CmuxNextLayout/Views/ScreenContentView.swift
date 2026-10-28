@@ -66,6 +66,9 @@ final class ScreenContentView: NSView {
         }
     }
     var motionState: ScreenPaneMotionState
+    /// The last structural change was a close laid out at once (``SplitArrival/fade``): the camera sync after it in
+    /// the same change turn rests the camera too (``syncScroll``).
+    var closedAtOnce = false
     /// Split panes fading in at their rest (``SplitArrival/fade``, `ScreenContentView+SplitFade.swift`).
     var splitFades = SplitFades()
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
@@ -311,6 +314,10 @@ final class ScreenContentView: NSView {
         // The grow choice keeps the close spring; a zoom is not a close.
         let closesAtOnce = !zooming && context.splitArrival() == .fade
         let departing = (zooming ? animate : splits && !closesAtOnce) && structural && arrivals.isEmpty
+            && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
+        // Its camera (the strip's or a row column's, pulled back after the last column or row closed) goes to rest in
+        // the same pass (``syncScroll``): no frame shows the closed pane's slot as a hole.
+        closedAtOnce = splits && closesAtOnce && structural && arrivals.isEmpty
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
         let returning = animate && structural && unzooming

@@ -24,12 +24,13 @@ struct ColumnCloseScrollMotionTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(_ layout: ScreenLayout, focused: PaneID, reduceMotion: Bool = false) {
+        /// `arrival`: the pane layout motion (``SplitArrival``); nil keeps the app's default (fade: one layout pass).
+        init(_ layout: ScreenLayout, focused: PaneID, reduceMotion: Bool = false, arrival: SplitArrival? = .grow) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
             model.rowsEnabledOverride = true
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // This suite measures the close spring: the Debug choice `motion.split.arrival` = grow (a close lays out once by default).
-            root.context.splitArrival = { .grow }
+            if let arrival { root.context.splitArrival = { arrival } }
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -89,6 +90,19 @@ struct ColumnCloseScrollMotionTests {
     }
 
     // MARK: Columns
+
+    /// With the default choice (fade) closing the focused last column, scrolled to the end, is one layout: the camera
+    /// rests at its new offset in the same change, so no frame shows the closed column's slot as a hole, and nothing
+    /// asks for frames after it (review of 8f005054047: the camera still slid back on the scroll spring).
+    @Test func closingTheLastColumnLandsTheCameraWithTheCloseByDefault() throws {
+        let strip = Strip(Self.columns(3), focused: "p3", arrival: nil)
+        #expect(strip.screen.scroll.value > 100, "three half-width columns scroll to the end for p3")
+        strip.close(to: Self.columns(2), focus: "p2")
+        #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) < 0.01, "the camera did not rest with the close")
+        #expect(abs(strip.screen.scroll.target) < 0.5)
+        #expect(abs(strip.screen.bounds.maxX - strip.shown("p2").maxX) < 1, "a hole shows right of the last column")
+        #expect(!strip.step(), "the close asked for display frames")
+    }
 
     /// Closing the focused last column, scrolled to the end: the frame that drops it already shows
     /// the strip shifting, every frame after is the close spring's, and it lands with the strip

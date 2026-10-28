@@ -254,7 +254,8 @@ extension PaneMotionPlan {
         }
         // `ScreenContentView.reconcile`'s `animateFrames`: what it does not carry snaps. A close with the fade choice is
         // set at rest too (one layout, no frame moves a pane).
-        let closesAtOnce = kind == .close && splitArrival == .fade
+        // As there, a close that lands while panes still spring keeps springing (it is in flight).
+        let closesAtOnce = kind == .close && splitArrival == .fade && !inFlight
         let springs = fadesIn.isEmpty && !closesAtOnce && (!structural || kind != .move || inFlight)
         let frameToken: MotionSpring = switch kind {
         case .split: variant.splitSpring
@@ -339,6 +340,8 @@ extension PaneMotionPlan {
         }
 
         plan.camera = Self.camera(previous, start, after, token: kind == .close ? frameToken : .scroll)
+        // A close set at rest sets its camera at rest too (``ScreenContentView/syncScroll``).
+        if closesAtOnce { plan.camera = Self.atRest(plan.camera) }
         return plan
     }
 
@@ -396,6 +399,17 @@ extension PaneMotionPlan {
         }
         change.rows = travels(start.camera.rowOffsets, after.camera.rowOffsets)
         change.areas = travels(start.camera.areaOffsets, after.camera.areaOffsets)
+        return change
+    }
+
+    /// `change` with every travel set at its rest (`from == to`): the camera lands with the change, no spring.
+    private static func atRest(_ change: CameraChange) -> CameraChange {
+        func rest(_ travel: Travel<CGFloat>) -> Travel<CGFloat> { Travel(from: travel.to, to: travel.to) }
+        var change = change
+        change.stripMinX = change.stripMinX.map(rest)
+        change.stripOffset = change.stripOffset.map(rest)
+        change.rows = change.rows.mapValues(rest)
+        change.areas = change.areas.mapValues(rest)
         return change
     }
 

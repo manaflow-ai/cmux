@@ -20,7 +20,10 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
-        let animate = animated && !context.reduceMotion && bounds.width > 0
+        // A close laid out at once takes its camera to rest with it (one layout, no hole showing); read once.
+        let closedAtOnce = self.closedAtOnce
+        self.closedAtOnce = false
+        let animate = animated && !closedAtOnce && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
         let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames

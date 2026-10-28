@@ -21,6 +21,10 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
 - **Close Pane.** The same, from the `close-pane` command.
 - **Window.** No motion: `performClose` closed the window in the same turn.
 
+Since 2026-10-28 (motion-first-principles.md, Part 2 item 2) the default `motion.split.arrival` = fade lays a pane
+close out once in the key's turn: the neighbours and the camera take their final layout at once, nothing springs.
+What follows describes the close spring, which the Debug choice `grow` keeps.
+
 ## Principles
 
 1. **The key answers in its frame.** The person closed the pane; the window shows it gone in the

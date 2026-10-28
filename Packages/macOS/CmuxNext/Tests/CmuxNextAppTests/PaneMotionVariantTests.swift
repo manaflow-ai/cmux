@@ -21,6 +21,9 @@ struct PaneMotionVariantTests {
                                     activeScreenID: "s", focusedPane: "p1")
             context = LayoutViewContext(model: model, provider: panes)
             context.reduceMotionOverride = reduceMotion
+            // The variants change the close and expand springs: the Debug choice `motion.split.arrival` = grow
+            // (a close lays out once by default).
+            context.splitArrival = { .grow }
             context.livePanes = Set(tree.panes)
             view = ScreenContentView(screenID: "s", layout: .splits(tree), context: context, paneMotionVariant: { variant })
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
