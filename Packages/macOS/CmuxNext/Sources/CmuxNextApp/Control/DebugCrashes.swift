@@ -6,10 +6,11 @@ import Foundation
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
 /// CEF, helper processes from the child monitor), the Chromium Host's ends
 /// in host mode (`chromium_host`: signal or exit code, CEF version, fork API
-/// and its log's last lines, p01-process-085), how this launch follows
-/// the previous run (restart, safe restart), the previous run's crash
-/// report paths, the restart notice on screen, and the crash report
-/// folder. No page content.
+/// and its log's last lines, p01-process-085), the Chromium Host's and its
+/// helpers' Crashpad dumps with their symbolicated stacks (`chromium_dumps`,
+/// p01-process-226), how this launch follows the previous run (restart, safe
+/// restart), the previous run's crash report paths, the restart notice on
+/// screen, and the crash report folder. No page content.
 @MainActor
 enum DebugCrashes {
     static func report(_ services: AppServices) -> JSONValue {
@@ -41,6 +42,8 @@ enum DebugCrashes {
             "launch": .object(launch),
             "chromium_total": .number(Double(log.total)),
             "chromium": .array(log.records.map(record)),
+            "chromium_dumps_total": .number(Double(crash.chromiumDumps?.total ?? 0)),
+            "chromium_dumps": .array(crash.chromiumDumps?.reports.compactMap { JSONValue(foundation: $0.jsonObject) } ?? []),
             "report_dir": .string(crash.writer.directory.path),
         ]
         #if DEBUG || CMUX_BENCH_HOOKS
