@@ -11,26 +11,28 @@ type Props = { grouped: boolean; long?: boolean; multiple?: boolean };
 // fire after the card header but before Pierre has painted its shadow DOM, leaving captures with
 // only the file/count row. Wait for every rendered block and for the final edit text before marking
 // each approval variant ready (including both blocks of MultiEdit).
-const renderedDiffs: Play = async (ctx) => {
-  await ctx.waitFor(
-    () => {
+const renderedDiffs =
+  (multiple = false, long = false): Play =>
+  async (ctx) => {
+    const expected = [
+      ...(multiple ? [["attempt=0", "attempt=1"]] : []),
+      [
+        "exit 1",
+        ...(long ? Array.from({ length: 24 }, (_, index) => `echo step ${index + 1}`) : ["echo done"]),
+        "exit 0",
+      ],
+    ];
+    await ctx.waitFor(() => {
       const containers = [...ctx.document.querySelectorAll<HTMLElement>(".cv-edit-diff__body diffs-container")];
-      if (!containers.length) return false;
-      const rendered = containers.every((container) => {
-        const shadow = container.shadowRoot;
-        return Boolean(shadow?.querySelector("[data-line]") && shadow.textContent);
+      if (containers.length !== expected.length) return false;
+      return containers.every((container, index) => {
+        const lines = [...(container.shadowRoot?.querySelectorAll("[data-line]") ?? [])].map((line) =>
+          line.textContent?.trimEnd(),
+        );
+        return expected[index]!.every((line) => lines.includes(line));
       });
-      return (
-        rendered &&
-        containers
-          .map((container) => container.shadowRoot?.textContent ?? "")
-          .join("\n")
-          .includes("exit 0")
-      );
-    },
-    { capMs: 10_000 },
-  );
-};
+    });
+  };
 
 function ApprovalEdits({ grouped, long, multiple }: Props) {
   const edits = [
@@ -112,11 +114,11 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 640,
   variants: {
-    single: { props: { grouped: false }, play: renderedDiffs },
-    grouped: { props: { grouped: true }, play: renderedDiffs },
-    "single-multiedit": { props: { grouped: false, multiple: true }, play: renderedDiffs },
-    "grouped-multiedit": { props: { grouped: true, multiple: true }, play: renderedDiffs },
-    "single-long": { props: { grouped: false, long: true }, play: renderedDiffs },
-    "grouped-long": { props: { grouped: true, long: true }, play: renderedDiffs },
+    single: { props: { grouped: false }, play: renderedDiffs() },
+    grouped: { props: { grouped: true }, play: renderedDiffs() },
+    "single-multiedit": { props: { grouped: false, multiple: true }, play: renderedDiffs(true) },
+    "grouped-multiedit": { props: { grouped: true, multiple: true }, play: renderedDiffs(true) },
+    "single-long": { props: { grouped: false, long: true }, play: renderedDiffs(false, true) },
+    "grouped-long": { props: { grouped: true, long: true }, play: renderedDiffs(false, true) },
   },
 });
