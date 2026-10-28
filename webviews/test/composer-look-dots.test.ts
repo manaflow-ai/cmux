@@ -246,9 +246,10 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await open(page, "agent-pane.composer", "quiet-chips");
     await pickDot(page, ".acpmux-composer", "codex");
     await page.waitForSelector('.acpmux-composer[data-composer-look="codex"]');
-    await page.locator('.acpmux-composer [contenteditable="true"]').first().fill(
-      Array.from({ length: 20 }, (_, i) => `Long draft line ${i + 1} in a short pane.`).join("\n"),
-    );
+    await page
+      .locator('.acpmux-composer [contenteditable="true"]')
+      .first()
+      .fill(Array.from({ length: 20 }, (_, i) => `Long draft line ${i + 1} in a short pane.`).join("\n"));
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const bounds = await page.$eval(".acpmux-main", (main) => {
       const footer = main.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();

@@ -183,7 +183,7 @@
   padding-bottom: 0;
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(~ .acpmux-composer-under) {
-  padding-bottom: 24px;
+  padding-bottom: var(--ds-space-5);
 }
 .acpmux-composer-under {
   position: relative;
@@ -201,7 +201,7 @@
    overlay on the box's dead-space edge, instead of at the bottom of that footer. */
 .acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-foot) > .acpmux-composer-under {
   bottom: 64px;
-  height: 24px;
+  height: var(--ds-space-5);
 }
 .acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
   height: 16px;

@@ -209,7 +209,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     expect(before.look).toBe("");
     expect(after.look).toBe("plain");
     expect(problems).toEqual([]);
-    expect(after.boxes.every((box) => box.left >= after.content.left - 0.5 && box.right <= after.content.right + 0.5)).toBe(true);
+    expect(
+      after.boxes.every((box) => box.left >= after.content.left - 0.5 && box.right <= after.content.right + 0.5),
+    ).toBe(true);
   });
 
   test("off after mount, the footer still fits as the pane narrows", async () => {

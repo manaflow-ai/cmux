@@ -165,8 +165,8 @@
 .acpmux-newtab-kind.is-selected{background:var(--acpmux-composer-bg);color:var(--agent-text);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-1)}
 .acpmux-newtab kbd{font:11.5px/1 var(--font-ui);color:var(--acpmux-composer-dim)}
 .acpmux-newtab-kind kbd{margin-left:2px;opacity:.85}
-.acpmux-newtab-under{display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
-.acpmux-newtab-foot{display:flex;align-items:center;min-height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
+.acpmux-newtab-under,.acpmux-newtab-foot{display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
+.acpmux-newtab-foot{height:auto}
 .acpmux-newtab-foot .acpmux-composer-foot{flex:1 1 auto;min-width:0}
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}

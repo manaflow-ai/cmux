@@ -52,11 +52,14 @@ await requireBrowserLane("new-tab-no-entry-classic.test.ts", async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "idle" })}`);
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 60_000 });
-      const observed = () => page.evaluate(() => (window as typeof window & { __cmuxFooterFitObserves: number }).__cmuxFooterFitObserves);
+      const observed = () =>
+        page.evaluate(() => (window as typeof window & { __cmuxFooterFitObserves: number }).__cmuxFooterFitObserves);
       const before = await observed();
       expect(before).toBeGreaterThan(0);
       await page.click('.acpmux-newtab-kind[title*="Terminal"]');
-      await page.waitForFunction(() => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal");
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal",
+      );
       await page.click('.acpmux-newtab-kind[title*="Agent"]');
       await page.waitForFunction(() => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent");
       expect(await observed()).toBeGreaterThan(before);

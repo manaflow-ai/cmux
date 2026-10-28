@@ -508,7 +508,8 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
+    useComposerSettings();
   // Both looks put the model in the footer. Claude keeps its draft-sensitive Send and Stop layout;
   // Codex keeps its action behavior even though the model moved.
   const look = useComposerLook();
