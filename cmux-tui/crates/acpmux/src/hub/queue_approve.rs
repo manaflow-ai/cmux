@@ -53,6 +53,17 @@ pub(super) fn held_cap(session: &Session, provenance: Option<&Value>) -> Result<
     Err(refused(-32602, "queue.too_many_held", &msg, data))
 }
 
+/// `queue.awaiting_owner` for a prompt whose every version waits for the owner, approved or
+/// not: moved, sent now or interrupted for, it would run out of its place or before the owner said
+/// so. Checked under the queue lock that would change it (`queue_edit.rs`, `put_next`).
+pub(in crate::hub) fn released(q: &QueuedPrompt) -> Result<(), RpcError> {
+    if q.awaiting_owner || crate::author::awaits_owner(q.run.provenance.as_ref()) {
+        let msg = "this prompt runs only in its place, once the chat's owner approves it";
+        return Err(refused(-32602, "queue.awaiting_owner", msg, json!({})));
+    }
+    Ok(())
+}
+
 fn refused(code: i64, reason: &str, message: &str, mut data: Value) -> RpcError {
     data["reason"] = json!(reason);
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
@@ -81,7 +92,8 @@ impl Hub {
                 let data = json!({"promptId": prompt_id, "revision": q.revision});
                 return Err(refused(-32602, "queue.stale", msg, data));
             }
-            q.awaiting_owner = false;
+            // It runs in its place, never as a steer, whatever flag a race left on it.
+            (q.awaiting_owner, q.steer) = (false, false);
             let msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "revision": revision,
                              "approvedAt": now_ms()});
             // The session summary's queue changed (`awaitingOwner`), as a `queue_order` changes it.
@@ -156,26 +168,6 @@ impl Hub {
             data["decided"] = json!(decided);
         }
         refused(-32002, "queue.not_found", "no prompt waits for the owner under this id", data)
-    }
-
-    /// `queue.awaiting_owner` when the person moves, sends now or interrupts for a prompt whose
-    /// every version waits for the owner (`queue_edit.rs`): only the owner's approval lets it
-    /// run, and then in its place.
-    pub(in crate::hub) fn refuse_awaiting_owner(
-        &self,
-        session: &Session,
-        prompt_id: &str,
-    ) -> Result<(), RpcError> {
-        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let waits = queue.iter().any(|q| {
-            q.prompt_id == prompt_id
-                && (q.awaiting_owner || crate::author::awaits_owner(q.run.provenance.as_ref()))
-        });
-        if waits {
-            let msg = "this prompt runs only in its place, once the chat's owner approves it";
-            return Err(refused(-32602, "queue.awaiting_owner", msg, json!({})));
-        }
-        Ok(())
     }
 }
 

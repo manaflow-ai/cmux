@@ -19,7 +19,7 @@ mod queue_waiting;
 // `_acpmux/queue_approve` and `_acpmux/queue_decline`: a person's prompt waits for the owner.
 #[path = "queue_approve.rs"]
 mod queue_approve;
-pub(super) use queue_approve::approved_error;
+pub(super) use queue_approve::{approved_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]
@@ -314,9 +314,17 @@ impl Hub {
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let guard = loop {
+        loop {
             match self.queue_turn(session, &turn_id, &withdraw).await {
-                Wait::Turn(guard) => break guard,
+                // A lane's report queued behind a turn its parent's close then ended is refused
+                // before its turn starts (`turns.rs`), so it never reopens the parent. One that
+                // still waits for the owner is not taken, whatever let it out (`queue_approve.rs`).
+                Wait::Turn(guard) => {
+                    match self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)? {
+                        Some(run) => return Ok((turn_id, true, guard, run)),
+                        None => drop(guard),
+                    }
+                }
                 // Gone in with an earlier agent message's turn (`digest.rs`): that turn's answer.
                 // A failed one put it back in the queue (`requeue_joined`): it waits again.
                 Wait::Withdrawn => {
@@ -334,7 +342,8 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
-                    let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                    let taken = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                    let Some(run) = taken else { continue };
                     let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
                     if let Err(e) = &answer {
@@ -344,11 +353,7 @@ impl Hub {
                     return Err(answer);
                 }
             }
-        };
-        // A lane's report queued behind a turn its parent's close then ended is refused before
-        // its turn starts (`turns.rs`), so it never reopens the parent.
-        let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
-        Ok((turn_id, true, guard, run))
+        }
     }
 
     /// Runs a queued prompt sent now (`queue_edit.rs` `send_now`) as a steer under its own prompt
@@ -522,7 +527,7 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .iter()
-                .any(|q| q.turn_id == turn_id && q.steer);
+                .any(|q| q.turn_id == turn_id && q.steer && !q.awaiting_owner);
             // A chat being moved sends nothing into its turn; an abort lets it steer again.
             if steer && session.moving().is_none() {
                 return Wait::Steer;
@@ -651,6 +656,8 @@ impl Hub {
                 return Ok(false);
             };
             crate::author::may_change(editor, queue[from].sender())?;
+            // Checked under the lock that moves it (`queue_approve.rs`).
+            released(&queue[from])?;
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
@@ -666,18 +673,24 @@ impl Hub {
 
     /// With the turn lock held, takes a queued prompt out of the queue for its turn, with what it
     /// runs. A prompt `remove_queued` withdrew just as the lock freed (and counted off) gets no
-    /// turn: the reply its `session/prompt` answers instead.
+    /// turn: the reply its `session/prompt` answers instead. One that still waits for the owner
+    /// stays (`None`), whatever flag let its task out (`queue_approve.rs`): it never runs.
     pub(super) fn take_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
-    ) -> Result<Arc<PromptRun>, Value> {
+    ) -> Result<Option<Arc<PromptRun>>, Value> {
         let run = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.turn_id == turn_id) else {
                 return Err(withdrawn_reply(prompt_id, turn_id));
             };
+            if queue[i].awaiting_owner {
+                // Its steer flag goes: once approved it runs in its place, never as a steer.
+                queue[i].steer = false;
+                return Ok(None);
+            }
             session.queued.fetch_sub(1, Ordering::SeqCst);
             queue.remove(i).run
         };
@@ -688,7 +701,7 @@ impl Hub {
             "dequeued",
             json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
         );
-        Ok(run)
+        Ok(Some(run))
     }
 
     /// `_acpmux/queue_remove`: `remove_queued`, refused while the chat is being moved.
