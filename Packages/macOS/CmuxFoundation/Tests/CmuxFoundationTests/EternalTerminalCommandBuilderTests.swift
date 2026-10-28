@@ -66,6 +66,33 @@ struct EternalTerminalCommandBuilderTests {
 
             #expect(result.status == 0)
             #expect(result.stderr.isEmpty)
+            // ET's own SSH hop only searches the non-interactive PATH, so the
+            // probed location must reach et as --terminal-path.
+            let arguments = try lines(directory, "et.args")
+            let resolvedPath = directory.appendingPathComponent("remote-home/.local/bin/etterminal").path
+            #expect(Array(arguments.prefix(2)) == ["--terminal-path", resolvedPath])
+        }
+    }
+
+    @Test("treats probe output that is not an absolute path as a failed probe")
+    func nonAbsoluteProbeOutputFallsBack() throws {
+        try withFakeCommands(remoteTerminalPath: "etterminal") { directory, environment in
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"), environment: environment)
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote probe failed\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("leaves etserver reachability to ET behind a ProxyJump host")
+    func proxyJumpSkipsServerProbe() throws {
+        try withFakeCommands(serverReachable: false, proxyJump: "bastion") { directory, environment in
+            let result = try run(builder(), environment: environment)
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            #expect(!fileExists(directory, "nc.args"))
             #expect(fileExists(directory, "et.args"))
         }
     }
@@ -95,11 +122,11 @@ struct EternalTerminalCommandBuilderTests {
 
     @Test("passes ET options, SSH options, agent forwarding and the remote command to et")
     func supportedEternalTerminalPreservesArguments() throws {
-        try withFakeCommands { directory, environment in
+        try withFakeCommands(remoteTerminalPath: "/opt/et/etterminal") { directory, environment in
             let options = try #require(EternalTerminalOptions(
                 serverPort: 2400,
                 terminalPath: "/opt/et/etterminal",
-                tunnels: ["8080:80"],
+                tunnels: ["8080:80", "8443:443"],
                 reverseTunnels: ["9090:90"]
             ))
             let result = try run(
@@ -108,10 +135,11 @@ struct EternalTerminalCommandBuilderTests {
             )
 
             #expect(result.status == 0)
+            // ET keeps only the last --tunnel, so repeated values are joined.
             #expect(try lines(directory, "et.args") == [
-                "--port", "2400",
                 "--terminal-path", "/opt/et/etterminal",
-                "--tunnel", "8080:80",
+                "--port", "2400",
+                "--tunnel", "8080:80,8443:443",
                 "--reversetunnel", "9090:90",
                 "--forward-ssh-agent",
                 "--ssh-socket", "/tmp/agent.sock",
@@ -132,7 +160,7 @@ struct EternalTerminalCommandBuilderTests {
             let arguments = try lines(directory, "et.args")
             #expect(!arguments.contains("--command"))
             #expect(arguments.last == "user@example.com")
-            #expect(Array(arguments.prefix(2)) == ["--port", "2022"])
+            #expect(Array(arguments.prefix(4)) == ["--terminal-path", "/usr/bin/etterminal", "--port", "2022"])
         }
     }
 
@@ -195,6 +223,8 @@ struct EternalTerminalCommandBuilderTests {
         #expect(EternalTerminalOptions(serverPort: 0) == nil)
         #expect(EternalTerminalOptions(serverPort: 65_536) == nil)
         #expect(EternalTerminalOptions(terminalPath: " ") == nil)
+        #expect(EternalTerminalOptions(terminalPath: "~/bin/etterminal") == nil)
+        #expect(EternalTerminalOptions(terminalPath: "bin/etterminal") == nil)
         #expect(EternalTerminalOptions(tunnels: ["80\n:80"]) == nil)
         #expect(EternalTerminalOptions(tunnels: [" 80:80\n"])?.tunnels == ["80:80"])
         #expect(EternalTerminalOptions.default.clientArguments == ["--port", "2022"])
@@ -231,6 +261,7 @@ struct EternalTerminalCommandBuilderTests {
             capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
             sessionSSHOptions: ["RemoteCommand=none", "Port=2222"],
             localEternalTerminalExecutableName: localExecutableName,
+            localServerProbeExecutableName: "nc",
             destination: "user@example.com",
             options: options,
             forwardsSSHAgent: forwardsSSHAgent,
@@ -260,6 +291,8 @@ struct EternalTerminalCommandBuilderTests {
         serverReachable: Bool = true,
         executeRemoteCommand: Bool = false,
         installRemoteTerminal: RemoteTerminalInstall = .none,
+        remoteTerminalPath: String = "/usr/bin/etterminal",
+        proxyJump: String? = nil,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -271,13 +304,20 @@ struct EternalTerminalCommandBuilderTests {
             #!/bin/sh
             printf '%s\\n' "$@" >> "$SSH_ARGS_FILE"
             for cmux_arg in "$@"; do
-              if [ "$cmux_arg" = "-G" ]; then printf '%s\\n' 'user user' 'hostname resolved.example.com' 'port 22'; exit 0; fi
+              if [ "$cmux_arg" = "-G" ]; then
+                printf '%s\\n' 'user user' 'hostname resolved.example.com' 'port 22'
+                if [ -n "$FAKE_PROXY_JUMP" ]; then printf 'proxyjump %s\\n' "$FAKE_PROXY_JUMP"; fi
+                exit 0
+              fi
             done
             cmux_remote_command=
             for cmux_arg in "$@"; do cmux_remote_command=$cmux_arg; done
             if [ "$FAKE_SSH_EXEC_REMOTE" = "1" ]; then
               HOME="$FAKE_REMOTE_HOME" PATH=/usr/bin:/bin /bin/sh -c "$cmux_remote_command"
               exit $?
+            fi
+            if [ "$FAKE_SSH_STATUS" = "0" ]; then
+              printf '%s\\n' 'remote shell startup noise' "$FAKE_REMOTE_TERMINAL_PATH"
             fi
             exit "$FAKE_SSH_STATUS"
             """, in: directory)
@@ -314,6 +354,8 @@ struct EternalTerminalCommandBuilderTests {
             "FAKE_SSH_STATUS": String(sshStatus),
             "FAKE_SSH_EXEC_REMOTE": executeRemoteCommand ? "1" : "0",
             "FAKE_REMOTE_HOME": remoteHome.path,
+            "FAKE_REMOTE_TERMINAL_PATH": remoteTerminalPath,
+            "FAKE_PROXY_JUMP": proxyJump ?? "",
             "FAKE_NC_STATUS": serverReachable ? "0" : "1",
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
             "NC_ARGS_FILE": directory.appendingPathComponent("nc.args").path,
