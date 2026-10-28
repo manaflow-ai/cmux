@@ -47,12 +47,13 @@ export function retryModelSections(
   _harness = "",
   top?: readonly string[],
 ): RetrySections {
-  const unique = uniqueRetryModels(models, current).filter((model) => model.id === current || !model.unavailable);
+  const isCurrent = (model: RetryModel) => model.id === current || model.release === current;
+  const unique = uniqueRetryModels(models, current).filter((model) => isCurrent(model) || !model.unavailable);
   // A running model can be temporarily unavailable to the probe while still being the only
   // valid checked choice for this turn. Treat just that row as available for grouping; App.tsx
   // filters unavailable alternatives before constructing this list.
   const candidates = unique.map((model) =>
-    model.id === current && model.unavailable ? { ...model, unavailable: undefined } : model,
+    isCurrent(model) && model.unavailable ? { ...model, unavailable: undefined } : model,
   );
   const { shown, more } = relevantModelSections(candidates, top);
   const original = new Map(unique.map((model) => [model.id, model]));
