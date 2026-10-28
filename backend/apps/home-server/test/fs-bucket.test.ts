@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
@@ -307,6 +307,118 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it("never follows a symbolic link out of the bucket: a linked directory, a linked file or a dangling link", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      const meta = JSON.stringify({ etag: "e", size: 6, uploaded: 0 })
+      writeFileSync(join(outside, "secret"), "secret")
+      writeFileSync(join(outside, "secret.meta.json"), meta)
+      const before = () => readdirSync(outside).sort()
+      const kept = before()
+      const root = join(parent, "bucket")
+      const bucket = new FsBucket(root)
+
+      // A directory under the root that links outside it: no route reads, writes, creates or deletes through it.
+      symlinkSync(outside, join(root, "linked"))
+      await expect(bucket.put("linked/new", "x")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.put("linked/deep/new", "x")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.get("linked/secret")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.head("linked/secret")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.delete("linked/secret")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.createMultipartUpload("linked/up")).rejects.toThrow(/symbolic link/)
+      // A link that appears after the upload opened is caught when the upload completes.
+      const late = await bucket.createMultipartUpload("later/up")
+      const latePart = await late.uploadPart(1, "late")
+      symlinkSync(outside, join(root, "later"))
+      await expect(late.complete([latePart])).rejects.toThrow(/symbolic link/)
+      expect(before()).toEqual(kept)
+
+      // A linked object file or metadata file is not read through.
+      symlinkSync(join(outside, "secret"), join(root, "file"))
+      writeFileSync(join(root, "file.meta.json"), meta)
+      await expect(bucket.get("file")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.head("file")).rejects.toThrow(/symbolic link/)
+      writeFileSync(join(root, "metalink"), "secret")
+      symlinkSync(join(outside, "secret.meta.json"), join(root, "metalink.meta.json"))
+      await expect(bucket.head("metalink")).rejects.toThrow(/symbolic link/)
+      await expect(bucket.get("metalink")).rejects.toThrow(/symbolic link/)
+      // A put over a linked file replaces the link and leaves its target alone.
+      await bucket.put("file", "mine")
+      expect(lstatSync(join(root, "file")).isSymbolicLink()).toBe(false)
+      expect(await new Response((await bucket.get("file"))!.body!).text()).toBe("mine")
+      await bucket.put("metalink", "mine too")
+      expect(readFileSync(join(outside, "secret"), "utf8")).toBe("secret")
+      expect(readFileSync(join(outside, "secret.meta.json"), "utf8")).toBe(meta)
+
+      // An open upload's parts directory, or the .multipart directory itself, linked outside.
+      const planted = await bucket.createMultipartUpload("home/v1/planted")
+      symlinkSync(outside, join(root, ".multipart", planted.uploadId))
+      await expect(planted.uploadPart(1, "x")).rejects.toThrow(/symbolic link/)
+      const linkedRoot = join(parent, "linked-multipart")
+      mkdirSync(linkedRoot)
+      symlinkSync(outside, join(linkedRoot, ".multipart"))
+      await expect(new FsBucket(linkedRoot).createMultipartUpload("home/v1/x")).rejects.toThrow(/symbolic link/)
+      expect(before()).toEqual(kept)
+
+      // list skips links, dangling or not, and never walks out of the root.
+      await bucket.put("home/v1/real", "real")
+      symlinkSync(join(parent, "missing"), join(root, "dangling"))
+      symlinkSync(join(parent, "missing"), join(root, "home", "v1", "dangling"))
+      writeFileSync(join(root, "home", "v1", "dangling.meta.json"), meta)
+      symlinkSync(outside, join(root, "home", "v1", "away"))
+      expect((await bucket.list()).objects.map((o) => o.key)).toEqual(["file", "home/v1/real", "metalink"])
+      await expect(bucket.get("home/v1/dangling")).rejects.toThrow(/symbolic link/)
+      expect(before()).toEqual(kept)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+  it("accepts a root that is itself a symbolic link, and stores in the directory it names", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const real = join(parent, "real")
+      mkdirSync(real)
+      symlinkSync(real, join(parent, "root"))
+      const bucket = new FsBucket(join(parent, "root"))
+      await bucket.put("home/v1/a", "a")
+      const upload = await bucket.createMultipartUpload("home/v1/b")
+      await upload.complete([await upload.uploadPart(1, "b")])
+      expect(await new Response((await bucket.get("home/v1/a"))!.body!).text()).toBe("a")
+      expect((await bucket.head("home/v1/b"))?.size).toBe(1)
+      expect((await bucket.list()).objects.map((o) => o.key)).toEqual(["home/v1/a", "home/v1/b"])
+      expect(readFileSync(join(real, "home", "v1", "b"), "utf8")).toBe("b")
+      await bucket.delete(["home/v1/a", "home/v1/b"])
+      expect((await bucket.list()).objects).toEqual([])
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+  it("refuses a list limit outside 1 to 1,000 as R2 does (InvalidMaxKeys), and pages with any limit inside it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      for (const limit of [0, -1, 1001, 1.5, Number.NaN, "2" as unknown as number]) {
+        const error = await bucket.list({ limit }).catch((e: unknown) => e)
+        expect(error, String(limit)).toBeInstanceOf(FsBucketError)
+        expect((error as FsBucketError).code).toBe("InvalidMaxKeys")
+      }
+      await bucket.put("a", "a")
+      await bucket.put("b", "b")
+      for (const limit of [0, -1, 1001]) await expect(bucket.list({ limit })).rejects.toThrow(/InvalidMaxKeys/)
+      const first = await bucket.list({ limit: 1 })
+      expect(first.objects.map((o) => o.key)).toEqual(["a"])
+      expect(first.truncated).toBe(true)
+      const second = await bucket.list({ limit: 1, cursor: first.cursor })
+      expect(second.objects.map((o) => o.key)).toEqual(["b"])
+      expect(second.truncated).toBe(false)
+      expect((await bucket.list({ limit: 1000 })).objects).toHaveLength(2)
+      expect((await bucket.list()).objects).toHaveLength(2)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
   it("keeps an upload's custom metadata on the object it completes, as R2 does, so a caller can recognise its own completed upload", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
@@ -344,6 +456,21 @@ describe("self-hosted attachment bucket", () => {
       expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
       // A bucket that never had an upload has nothing to abort.
       expect(await new FsBucket(join(root, "fresh")).abortMultipartUploads("home/")).toBe(0)
+      // Never through a link: a record planted as a link is not an upload, and a linked .multipart is refused.
+      const outside = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-outside-"))
+      try {
+        writeFileSync(join(outside, "record.json"), JSON.stringify({ key: "home/v1/conv_a/planted" }))
+        symlinkSync(join(outside, "record.json"), join(root, ".multipart", `${"e".repeat(32)}.json`))
+        expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
+        expect(existsSync(join(outside, "record.json"))).toBe(true)
+        const linked = join(root, "linked")
+        mkdirSync(linked)
+        symlinkSync(outside, join(linked, ".multipart"))
+        await expect(new FsBucket(linked).abortMultipartUploads("home/")).rejects.toThrow(/symbolic link/)
+        expect(existsSync(join(outside, "record.json"))).toBe(true)
+      } finally {
+        rmSync(outside, { recursive: true, force: true })
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
