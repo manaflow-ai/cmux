@@ -37029,7 +37029,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -37080,7 +37080,7 @@
       "accepts" : [
 
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
