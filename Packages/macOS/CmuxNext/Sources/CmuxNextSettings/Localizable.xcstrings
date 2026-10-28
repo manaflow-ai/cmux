@@ -179938,6 +179938,268 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
       }
+    },
+    "settings.app.showMenuBarIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Menu Bar Icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أيقونة شريط القوائم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ikonu na traci menija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikon på menulinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol in der Menüleiste zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar icono en la barra de menús"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’icône dans la barre des menus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra icona nella barra dei menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーにアイコンを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញរូបតំណាងនៅរបារម៉ឺនុយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대에 아이콘 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ikon i menylinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż ikonę na pasku menu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar ícone na barra de menus"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать значок в строке меню"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงไอคอนในแถบเมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü çubuğunda simgeyi göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати значок у рядку меню"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị biểu tượng trên thanh menu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在菜单栏中显示图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在選單列中顯示圖像"
+          }
+        }
+      }
+    },
+    "settings.app.showMenuBarIcon.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنصر cmux في شريط القوائم: فتح cmux وحسابك والوكلاء العاملون والمساعدة وDiscord والتحديثات والسجلات والإنهاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stavka cmux na traci menija: otvori cmux, tvoj račun, agenti koji rade, pomoć, Discord, ažuriranja, zapisnici i Izlaz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et cmux-element på menulinjen: åbn cmux, din konto, agenter i arbejde, hjælp, Discord, opdateringer, logfiler og Afslut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein cmux-Eintrag in der Menüleiste: cmux öffnen, dein Konto, aktive Agenten, Hilfe, Discord, Updates, Protokolle und Beenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un elemento de cmux en la barra de menús: abrir cmux, tu cuenta, agentes trabajando, ayuda, Discord, actualizaciones, registros y Salir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un élément cmux dans la barre des menus : ouvrir cmux, votre compte, les agents au travail, l’aide, Discord, les mises à jour, les journaux et Quitter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un elemento cmux nella barra dei menu: apri cmux, il tuo account, agenti al lavoro, aiuto, Discord, aggiornamenti, log ed Esci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーの cmux 項目: cmux を開く、アカウント、作業中のエージェント、ヘルプ、Discord、アップデート、ログ、終了。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុ cmux នៅរបារម៉ឺនុយ៖ បើក cmux គណនីរបស់អ្នក ភ្នាក់ងារកំពុងធ្វើការ ជំនួយ Discord បច្ចុប្បន្នភាព កំណត់ហេតុ និងចាកចេញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대의 cmux 항목: cmux 열기, 계정, 작업 중인 에이전트, 도움말, Discord, 업데이트, 로그, 종료."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et cmux-element i menylinjen: åpne cmux, kontoen din, agenter i arbeid, hjelp, Discord, oppdateringer, logger og Avslutt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element cmux na pasku menu: otwórz cmux, twoje konto, pracujący agenci, pomoc, Discord, aktualizacje, logi i Zakończ."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um item do cmux na barra de menus: abrir o cmux, sua conta, agentes trabalhando, ajuda, Discord, atualizações, registros e Sair."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пункт cmux в строке меню: открыть cmux, ваш аккаунт, работающие агенты, справка, Discord, обновления, журналы и выход."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายการ cmux ในแถบเมนู: เปิด cmux บัญชีของคุณ เอเจนต์ที่กำลังทำงาน ความช่วยเหลือ Discord การอัปเดต บันทึก และออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü çubuğunda bir cmux öğesi: cmux'ı aç, hesabın, çalışan ajanlar, yardım, Discord, güncellemeler, günlükler ve Çık."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пункт cmux у рядку меню: відкрити cmux, ваш обліковий запис, агенти, що працюють, довідка, Discord, оновлення, журнали й вихід."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một mục cmux trên thanh menu: mở cmux, tài khoản của bạn, tác nhân đang làm việc, trợ giúp, Discord, cập nhật, nhật ký và Thoát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏中的 cmux 项目：打开 cmux、你的账户、正在工作的代理、帮助、Discord、更新、日志和退出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單列中的 cmux 項目：打開 cmux、你的帳號、正在工作的代理程式、輔助說明、Discord、更新、記錄和結束。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

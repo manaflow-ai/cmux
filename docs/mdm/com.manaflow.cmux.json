@@ -4851,6 +4851,20 @@
       "title" : "Name Workspaces from Tabs",
       "type" : "boolean"
     },
+    "workspaces.hibernation.enabled" : {
+      "default" : true,
+      "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
+      "title" : "Hibernate Idle Workspaces",
+      "type" : "boolean"
+    },
+    "workspaces.hibernation.idleMinutes" : {
+      "default" : 60,
+      "description" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 10080,
+      "minimum" : 5,
+      "title" : "Hibernate After",
+      "type" : "number"
+    },
     "workspaces.newPlacement" : {
       "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",

@@ -28,9 +28,10 @@ extension SidebarViewComponents {
         // Top items: the bands above and below the list, and document blocks drawn as list rows.
         for region in bandRegions + list.blockRegions where !region.isHiddenOrHasHiddenAncestor && region.alphaValue > 0.5 {
             for (id, view) in region.itemViews where !view.isHiddenOrHasHiddenAncestor && view.alphaValue > 0.5 {
-                // Fully shown only: a tile scrolled half out of its band or the list gets no chip.
-                let visible = view.visibleRect
-                guard visible.width >= view.bounds.width - 0.5, visible.height >= view.bounds.height - 0.5, view.bounds.width > 1 else { continue }
+                // Fully shown only: a tile scrolled half out of its band or the list gets no chip. A band row runs
+                // past the sidebar's edge by the row trim (`rowEdgeGap`), which is not scrolled out.
+                let visible = view.visibleRect, overhang = max(0, -SidebarStyle.rowTrailingTrim)
+                guard visible.width >= view.bounds.width - overhang - 0.5, visible.height >= view.bounds.height - 0.5, view.bounds.width > 1 else { continue }
                 result[.topItem(id)] = view.convert(view.bounds, to: self)
             }
         }

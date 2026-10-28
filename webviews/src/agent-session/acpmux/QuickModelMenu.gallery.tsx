@@ -167,6 +167,22 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "roomy-more-models": {
+      height: 1000,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
+    "short-more-models": {
+      height: 320,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },

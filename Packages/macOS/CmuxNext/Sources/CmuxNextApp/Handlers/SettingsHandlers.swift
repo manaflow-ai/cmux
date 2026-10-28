@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -33,6 +35,11 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(StaticURL.feedback.url) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
+        // The menu bar menu's and the Help menu's community and support links (user 2026-10-27).
+        let links: [(ActionID, StaticURL)] = [("help.troubleshooting", .support), ("help.discord", .discord), ("help.followOnX", .x), ("help.github", .github)]
+        for (id, link) in links { registry.bindEffect(id, effect: { _ in openEffect(link.url, context) }) }
+        registry.bindEffect("help.revealLogs", effect: { _ in revealLogs(context) })
+        registry.bindEffect("help.copyLogs", effect: { _ in copyLogs(context) })
         HangReportsHandlers.bind(into: registry, context: context)
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
@@ -73,6 +80,44 @@ enum SettingsHandlers {
             try FeatureFlagsPage(services: services).open(invocation)
         })
         UpgradeToPro.bind(into: registry, context: context)
+    }
+
+    private static func openEffect(_ url: URL, _ context: AppActionContext) -> ActionEffect {
+        do { try context.open(url) } catch { return .refused(RefusalStrings.describe(error)) }
+        return .done
+    }
+
+    /// This build's error journal folder in Finder: every log it harvests (the app's, acpmux's, the Chief's, crashes).
+    private static func revealLogs(_ context: AppActionContext) -> ActionEffect {
+        NSWorkspace.shared.revealInBackground([logsDirectory(context)])
+        return .done
+    }
+
+    /// The build, the system and the journal's problems of the last 3 days, as text on the clipboard (ErrorJournalReport).
+    private static func copyLogs(_ context: AppActionContext) -> ActionEffect {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let header = [
+            "cmux \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?")) \(Bundle.main.bundleIdentifier ?? "?")",
+            "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "Logs: \(logsDirectory(context).path)",
+        ]
+        guard let errors = context.services.errorJournal else {
+            context.copy(ErrorJournalReport(header: header, entries: []).text())
+            return .done
+        }
+        let journal = errors.journal, sources = errors.sources
+        // action-wait-allow: the text exists only after the journal reads the logs and its entries off the main actor
+        return .waiting(.fileSystem) {
+            _ = await journal.harvest(sources)
+            let entries = await journal.entries(ErrorQuery(since: Date().addingTimeInterval(-3 * 86_400), limit: 200))
+            context.copy(ErrorJournalReport(header: header, entries: entries).text())
+            return nil
+        }
+    }
+
+    private static func logsDirectory(_ context: AppActionContext) -> URL {
+        context.services.errorJournal?.journal.directory
+            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {
