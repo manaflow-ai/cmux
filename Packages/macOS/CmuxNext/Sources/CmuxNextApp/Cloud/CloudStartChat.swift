@@ -22,7 +22,9 @@ struct CloudStartChat {
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
         { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key) else {
+            // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
+            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
+                  services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
             return await CloudStartChat(services: services).reply(start, tab: tab)

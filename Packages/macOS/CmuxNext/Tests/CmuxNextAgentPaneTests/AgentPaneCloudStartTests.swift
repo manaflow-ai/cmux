@@ -56,7 +56,7 @@ struct AgentPaneCloudStartTests {
         #expect(model.transport.replacements.beginSandbox())
     }
 
-    @Test func noGestureAStartedChatOrABadRequestStartsNothing() async {
+    @Test func noGestureAStartedOrRemoteChatOrABadRequestStartsNothing() async {
         let starts = Starts()
         _ = await Self.pane(starts).respond(to: Self.start(Self.good))
         let started = Self.pane(starts, sessionId: "chat")
@@ -66,6 +66,11 @@ struct AgentPaneCloudStartTests {
         starting.transport.gestures.record()
         starting.transport.replacements.set(waiting: 1)
         _ = await starting.respond(to: Self.start(Self.good))
+        // A chat on another machine names its own paths, never a folder on this Mac to copy.
+        let remote = Self.pane(starts)
+        remote.remoteChat = true
+        remote.transport.gestures.record()
+        #expect(await remote.respond(to: Self.start(Self.good))["ok"] as? Bool != true)
         for bad: [String: Any] in [
             Self.good.merging(["task": "  "]) { $1 }, Self.good.merging(["cwd": "relative/path"]) { $1 },
             Self.good.merging(["key": "not-a-uuid"]) { $1 }, Self.good.merging(["harness": 3]) { $1 },

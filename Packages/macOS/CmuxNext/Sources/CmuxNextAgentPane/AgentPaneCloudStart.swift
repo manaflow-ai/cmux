@@ -54,7 +54,8 @@ struct AgentPaneHandOff {
     }
 
     func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
-        guard let run = model.onCloudStartChat else { return AgentPaneModel.unsupported("cloud.startChat") }
+        // The folder is a path on this Mac: a chat on another machine never names one to copy.
+        guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
         return await held("cloud.startChat") { replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
