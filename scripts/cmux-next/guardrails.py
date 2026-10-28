@@ -2908,6 +2908,36 @@ RULES += TRAP_API_RULES
 # ---------------------------------------------------------------- end of trap-api (p10-stability-092, 097, 098)
 
 
+# ---------------------------------------------------------------- window-visibility-source
+# One visibility source per window (audit-findings-2 D7): a window's occlusion and minimize notices are observed
+# once, by its WindowVisibilitySource (through the window's WindowEvents) and the occlusion checker; a view, page or
+# controller follows the window's VisibilityNode (`node.subscribe`, `VisibleObservation`) instead, as Chrome derives a
+# WebContents' visibility from one place (-[WebContentsViewCocoa updateWebContentsVisibility]). Reading
+# `window.occlusionState` stays allowed: it is a read, not a second source of flips. A count ratchet on added lines.
+WINDOW_VISIBILITY_NOTICE = re.compile(
+    r"\b(?:NSWindow\.)?(?:didChangeOcclusionStateNotification|didMiniaturizeNotification|didDeminiaturizeNotification)\b")
+WINDOW_VISIBILITY_OWNERS = (SOURCES + "CmuxNextDesign/Windows/WindowVisibilitySource.swift",
+                            SOURCES + "CmuxNextDesign/Windows/WindowOcclusionChecker.swift",
+                            SOURCES + "CmuxNextWakeups/WindowEvents.swift")
+
+WINDOW_VISIBILITY_RULES = (
+    Rule("window-visibility-source", "A new observation of a window's occlusion or minimize notice "
+         "(`didChangeOcclusionStateNotification`, `didMiniaturizeNotification`, `didDeminiaturizeNotification`) "
+         "outside the window's WindowVisibilitySource",
+         "each reader that observes the notice itself is one more visibility source: they disagree in the turn the "
+         "window changes (a family flip, an app hide), and every reader repeats the same walk (99 visibility types, "
+         "15 files observing the notice before this rule)",
+         "follow the window's node: `WindowVisibilitySource.of(window).node.subscribe(owner:)`, or a "
+         "`VisibleObservation` on a node under it; a view's own node goes under the window's (`attach(to:)`)",
+         "// visibility-source-allow: <why this reader needs the raw notice (a debug recorder of the notice itself)>",
+         scoped_to(Matcher(WINDOW_VISIBILITY_NOTICE, allow_marker("visibility-source")),
+                   lambda path: path not in WINDOW_VISIBILITY_OWNERS),
+         local_only=True),
+)
+RULES += WINDOW_VISIBILITY_RULES
+# ---------------------------------------------------------------- end of window-visibility-source
+
+
 # ---------------------------------------------------------------- Rust stability rules (p10-stability-102)
 # Syntax rules on the Rust a push adds in the shipped crates' src, run with the pinned ast-grep (lint-tools.lock;
 # the rules are ast-grep/rules/*.yml beside this file). No cargo build: the person's Mac never builds Rust. They are
