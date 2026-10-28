@@ -69,10 +69,11 @@ import Testing
         #expect(buffer == Array("k\n".utf8))
     }
 
-    /// A terminal attach's writer drains on its view's input queue (p04-input-058): while that queue runs
-    /// nothing, nothing reaches the socket; once it runs, the bytes do. So a key written from the input queue
-    /// goes to `write(2)` on that serial queue, not after a second hop to a writer queue of its own.
-    @Test func aWriterWithATargetDrainsOnIt() throws {
+    /// A terminal attach's writer drains on its view's input queue (p04-input-058): a write that waits behind
+    /// a queued one reaches the socket only once that queue runs, on that serial queue, not after a second hop
+    /// to a writer queue of its own. The first write comes from the main thread, which always queues
+    /// (p05-ipc-140), so the second, from a worker thread, finds a message waiting and queues behind it.
+    @Test func aQueuedWriteDrainsOnTheWritersTarget() async throws {
         var fds: [Int32] = [-1, -1]
         try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
         defer { fds.forEach { Darwin.close($0) } }
@@ -85,14 +86,49 @@ import Testing
                                   qos: DaemonWireStats.Role.terminalAttach.writerQoS, target: target)
         defer { writer.close() }
         target.suspend()
+        let first = await MainActor.run { [writer] in writer.write(Data("m\n".utf8)) }
+        #expect(first == nil)
         #expect(writer.write(Data("k\n".utf8)) == nil)
 
         var ready = pollfd(fd: fds[1], events: Int16(POLLIN), revents: 0)
         #expect(poll(&ready, 1, 100) == 0, "the writer sent while its target queue ran nothing")
+        #expect(writer.queuedBytes == 4)
         target.resume()
+        var received: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 4)
+        while received.count < 4 {
+            // A read bounded by SO_RCVTIMEO on the test's own socket.
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(fds[1], $0.baseAddress, 4 - received.count) }
+            guard count > 0 else { break }
+            received += buffer[0 ..< count]
+        }
+        #expect(received == Array("m\nk\n".utf8), "the writer delivered too little within 2 s of its target running")
+        #expect(writer.queueHops == 1)
+    }
+
+    /// An idle writer sends a worker thread's write on that thread (p05-ipc-140): the bytes reach the socket
+    /// while the target queue runs nothing, and the drain queue is never woken. So a key written from the
+    /// attach input queue goes to the socket in that queue's turn.
+    @Test func anIdleWriteFromAWorkerThreadNeedsNoTarget() throws {
+        var fds: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        defer { fds.forEach { Darwin.close($0) } }
+        var timeout = timeval(tv_sec: 2, tv_usec: 0)
+        try #require(setsockopt(fds[1], SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0)
+
+        // qos-allow: a test queue standing for the attach input queue, which runs at this class
+        let target = DispatchQueue(label: "com.cmuxterm.next.test.attach-input", qos: .userInteractive)
+        let writer = SocketWriter(fd: fds[0], label: "com.cmuxterm.next.daemon.write",
+                                  qos: DaemonWireStats.Role.terminalAttach.writerQoS, target: target)
+        defer { writer.close() }
+        target.suspend()
+        defer { target.resume() }
+        #expect(writer.write(Data("k\n".utf8)) == nil)
+
         var buffer = [UInt8](repeating: 0, count: 2)
         let count = buffer.withUnsafeMutableBytes { Darwin.read(fds[1], $0.baseAddress, 2) }
-        #expect(count == 2, "the writer delivered nothing within 2 s of its target running (errno \(errno))")
+        #expect(count == 2, "an idle write waited for the suspended target (errno \(errno))")
         #expect(buffer == Array("k\n".utf8))
+        #expect(writer.queueHops == 0, "an idle write woke the drain queue")
     }
 }
