@@ -77,6 +77,24 @@ const curated: ModelPickerProps = {
     })),
 };
 
+/// Provider-family recommendation states: the selected family is first while each harness keeps
+/// its own curated lineup; older releases stay reachable from More models. These fixtures make the
+/// per-harness ordering visible for Claude and Codex without coupling the gallery to model names.
+const familyRecommendationsClaude: ModelPickerProps = {
+  ...curated,
+  harness: "claude",
+  model: "claude-sonnet-5-5",
+  label: "Sonnet 5.5",
+};
+
+const familyRecommendationsCodex: ModelPickerProps = {
+  ...curated,
+  harness: "codex",
+  model: "gpt-6.1-sol",
+  label: "GPT-6.1 Sol",
+  harnessFixed: true,
+};
+
 /// A machine with many agents installed (Lawrence 2026-10-13: the picker grew to the window's
 /// height): each is its own harness profile, several of one brand (Claude Code, Claude Agent,
 /// the subrouter and CodeRouter Claude routes).
@@ -421,6 +439,11 @@ export default componentEntry<GalleryProps>({
       },
     },
     curated: { props: curated, play: openModels },
+    // Current-family recommendation order: Claude's selected Sonnet family remains first while
+    // the remaining curated families stay in the provider's order (older releases under More).
+    "family-recommendations-claude": { props: familyRecommendationsClaude, play: openModels },
+    // Codex uses the same rule with its selected Sol family and its own curated lineup.
+    "family-recommendations-codex": { props: familyRecommendationsCodex, play: openModels },
     // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
     // Codex's models and More models, with no harness rail and no Add harness….
     "started-chat": {
