@@ -338,6 +338,8 @@ struct CaseRun<'a> {
     system: String,
     model: Model,
     spawned: Mutex<u32>,
+    /// The subagents this run spawned (id, title), for `control status`.
+    running: Mutex<Vec<(String, String)>>,
     frozen: Mutex<Option<optchat_core::Frozen>>,
     /// The running turn's tail, and whether stop or sleep ended it.
     tail: Mutex<String>,
@@ -478,6 +480,10 @@ impl CaseRun<'_> {
                         short_hash(cwd),
                         short_hash(&format!("{id}{title}"))
                     );
+                    self.running
+                        .lock()
+                        .unwrap()
+                        .push((id.clone(), title.to_owned()));
                     out.push(format!(
                         "{id} spawned in {cwd}, workspace \"{title}\" ({ws})"
                     ));
@@ -521,7 +527,19 @@ impl CaseRun<'_> {
                     Err(e) => (e, true),
                 }
             }
-            "control" => ("outcome: done. No subagents in the last 2 h.".into(), false),
+            // The subagents this run started are running (none: the old answer).
+            "control" => {
+                let running = self.running.lock().unwrap();
+                if running.is_empty() {
+                    ("outcome: done. No subagents in the last 2 h.".into(), false)
+                } else {
+                    let lines: Vec<String> = running
+                        .iter()
+                        .map(|(id, title)| format!("- {id} [running] {title}: working"))
+                        .collect();
+                    (format!("outcome: done.\n{}", lines.join("\n")), false)
+                }
+            }
             "sleep" | "stop" if !self.opts.ledger_pre && self.open.lock().unwrap().is_some() => {
                 let (id, preview) = self.open.lock().unwrap().clone().unwrap();
                 (
@@ -1041,6 +1059,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         system,
         model: Model::new(&opts.base_url, opts.key.clone()),
         spawned: Mutex::new(0),
+        running: Mutex::new(Vec::new()),
         frozen: Mutex::new(None),
         tail: Mutex::new(String::new()),
         ended: Mutex::new(false),
