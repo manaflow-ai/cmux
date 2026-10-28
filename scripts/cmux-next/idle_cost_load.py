@@ -32,6 +32,7 @@ import glob
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -228,12 +229,24 @@ class PeerDaemon:
         return found
 
     def stop(self):
+        """Ends the daemon and every agent host it started. A plain stop (SIGTERM) leaves hosted
+        agents running for a next daemon (hub/shutdown.rs), and they run outside the app bundle,
+        where bench_memory.end_bundle never looks: `daemon shutdown --end-agents` ends them, then
+        sweeps any host still running. Whatever it left under the daemon is killed last."""
         if self.process and self.process.poll() is None:
-            self.process.terminate()
+            left = self.pids()
             try:
+                done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
+                if done.returncode != 0:
+                    print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:300]}", file=sys.stderr)
                 self.process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+            for pid in left - {self.process.pid}:
+                try:
+                    os.kill(pid, signal.SIGKILL)  # this run's own peer processes only
+                except ProcessLookupError:
+                    pass
         shutil.rmtree(self.socket_dir, ignore_errors=True)
 
 
@@ -269,21 +282,26 @@ def open_workspace(app: bm.App, session: str) -> str | None:
     return created[0]
 
 
-def remote_rows(app_socket: str, want: set[str], seconds: float = 90) -> list[str]:
-    """The ids the app's daemon lists for the peer's chats `want`, once it lists them all."""
-    deadline, ids = time.monotonic() + seconds, []
+def remote_rows(app_socket: str, want: set[str], seconds: float = 90) -> list[tuple[str, str]]:
+    """(mirrored id, the peer's own id) for each of the peer's chats `want` the app's daemon
+    lists, once it lists them all (or `seconds` pass: the report counts what opened)."""
+    deadline, pairs = time.monotonic() + seconds, []
     while time.monotonic() < deadline:
         try:
             rows = (rpc(app_socket, "_acpmux/sessions", {"peer": PEER, "limit": 1000}) or {}).get("sessions") or []
         except (OSError, RuntimeError) as error:
             print(f"   _acpmux/sessions: {error}", file=sys.stderr)
             rows = []
-        ids = [row.get("sessionId") for row in rows if row.get("peer") == PEER and (
-            row.get("sessionId") in want or str(row.get("qualifiedSessionId") or "").split("/")[-1] in want)]
-        if len(ids) >= len(want):
+        pairs = []
+        for row in rows:
+            mirrored = row.get("sessionId")
+            own = next((value for value in (mirrored, str(row.get("qualifiedSessionId") or "").split("/")[-1]) if value in want), None)
+            if row.get("peer") == PEER and mirrored and own:
+                pairs.append((mirrored, own))
+        if len(pairs) >= len(want):
             break
         time.sleep(2)  # test script: waiting for the peer's chats to reach the app's daemon
-    return [value for value in ids if value]
+    return pairs
 
 
 def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, counts: dict,
@@ -298,11 +316,13 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
         made = [s for s in (peer.new_chat(f"remote chat {i}") for i in range(counts["remote"])) if s]
         rpc(app_socket, "_acpmux/peer_add", peer.entry, timeout=120)
         reached["peer"] = True
-        for session in remote_rows(app_socket, set(made)):
-            if open_workspace(app, session):
-                reached["remote_chats"] += 1
-        # One remote chat streams on its own machine (the app mirrors it); the rest stream here.
-        if streaming_left and made and stream([peer.binary], peer.env, made[0], stream_s, counts["rate"]):
+        opened = []  # (the peer's own id, the mirrored id the app opened)
+        for mirrored, own in remote_rows(app_socket, set(made)):
+            if open_workspace(app, mirrored):
+                opened.append((own, mirrored))
+        reached["remote_chats"] = len(opened)
+        # One opened remote chat streams on its own machine (the app mirrors it); the rest stream here.
+        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"]):
             reached["streaming"] += 1
             streaming_left -= 1
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
