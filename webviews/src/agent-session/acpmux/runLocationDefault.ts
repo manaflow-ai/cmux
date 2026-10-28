@@ -11,7 +11,7 @@
 /// (CmuxNextCloud CloudMoveFolder `remoteName` and `remote(under:)`, under CloudMoveSetup
 /// `workRoots`). The page can't see which folder holds `.git`, so every folder from the chat's up to
 /// the disk's root is a candidate; only one is the copy's name.
-import type { AcpmuxSessionEntry } from "./sessionList";
+import { listed, type AcpmuxSessionEntry } from "./sessionList";
 
 export type RunLocation = "local" | "cloud";
 
@@ -72,8 +72,8 @@ function placeOf(session: AcpmuxSessionEntry, peerKinds: Peers): RunLocation | u
 /// When a chat began, for "newest": its creation, else its last activity, else its last write.
 const startedAt = (session: AcpmuxSessionEntry) => session.createdAt ?? session.activityAt ?? session.updatedAt ?? 0;
 
-/// Where `folder`'s newest chat ran (undefined: the folder has none, or no folder). Side chats
-/// follow their chat and count for nothing.
+/// Where `folder`'s newest chat ran (undefined: the folder has none, or no folder). Only chats the
+/// lists show count (`listed`): a side chat follows its chat, and an archived chat is put away.
 export function folderRunLocation(
   folder: string | undefined,
   sessions: readonly AcpmuxSessionEntry[],
@@ -84,7 +84,7 @@ export function folderRunLocation(
   const remote = cloudFolders(local);
   let newest: { at: number; where: RunLocation } | undefined;
   for (const session of sessions) {
-    if (session.side) continue;
+    if (!listed(session)) continue;
     const where = placeOf(session, peerKinds);
     const cwd = normalizedFolder(session.cwd);
     if (!where || !cwd) continue;

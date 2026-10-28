@@ -5906,6 +5906,8 @@ function AcpmuxPane() {
   /// The person picked where this new chat runs (a Run as row, Cloud, or a machine): their pick
   /// holds for this chat, and the folder's default (below) no longer changes it.
   const runModePicked = useRef(false);
+  /// Cloud is this new chat's mode by default, not by the person's pick: the folder may undo it.
+  const cloudByDefault = useRef(false);
   const sandboxModeRows = {
     mode: sandbox.mode,
     onMode: (mode: RunMode) => {
@@ -5949,7 +5951,10 @@ function AcpmuxPane() {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
+    // A new chat: Cloud carried over from the chat before (picked there) is only a default here,
+    // which this folder's history may undo (the folder default, below).
     runModePicked.current = false;
+    if (sandbox.mode === "cloud") cloudByDefault.current = true;
   }, [snapshot.sessionId, newTabGeneration]);
   /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
   /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
@@ -6717,7 +6722,6 @@ function AcpmuxPane() {
         : undefined,
     [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
   );
-  const cloudByDefault = useRef(false);
   useEffect(() => {
     if (runModePicked.current || snapshot.sessionId) return;
     if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
@@ -6727,7 +6731,7 @@ function AcpmuxPane() {
       cloudByDefault.current = false;
       sandbox.setMode("persistent");
     }
-  }, [folderRunDefault, snapshot.sessionId, sandbox, sandbox.mode]);
+  }, [folderRunDefault, snapshot.sessionId, newTabGeneration, sandbox, sandbox.mode]);
   /// A fresh chat's first prompt went: the commands it ran join the session it gets.
   const claimShellRuns = useRef(false);
   useEffect(() => {

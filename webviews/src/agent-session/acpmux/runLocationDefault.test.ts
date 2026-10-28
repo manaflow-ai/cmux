@@ -59,7 +59,7 @@ test("the folder's newest chat says where: Cloud when it went to a machine from 
   expect(folderRunLocation(folder, [cloud("/home/cmux/work/src-75be44/paint", 3), local(folder, 2)])).toBe("cloud");
 });
 
-test("another folder's copy, an SSH machine's chat and side chats are not this folder's history", () => {
+test("another folder's copy, an SSH machine's chat, side chats and archived chats are not this folder's history", () => {
   const folder = "/Users/me/src/paint";
   // Same name, another folder's hash.
   expect(folderRunLocation(folder, [local(folder, 1), cloud("/home/cmux/work/paint-000000", 2)])).toBe("local");
@@ -67,6 +67,8 @@ test("another folder's copy, an SSH machine's chat and side chats are not this f
   expect(folderRunLocation(folder, [local(folder, 1), ssh], { "gpu-box": "ssh" })).toBe("local");
   const side: AcpmuxSessionEntry = { ...cloud("/home/cmux/work/paint-33f597", 9), side: true };
   expect(folderRunLocation(folder, [local(folder, 1), side])).toBe("local");
+  const archived: AcpmuxSessionEntry = { ...cloud("/home/cmux/work/paint-33f597", 9), archived: true };
+  expect(folderRunLocation(folder, [local(folder, 1), archived])).toBe("local");
 });
 
 test("a peer acpmux names a Cloud peer counts as Cloud without a host kind", () => {
