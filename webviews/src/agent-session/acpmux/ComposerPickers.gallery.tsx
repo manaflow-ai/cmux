@@ -255,7 +255,7 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
 }
 
 // The model button opens its one menu (Leo 2026-10-20): numbered models, then Effort, More models
-// and Fast mode. The full picker (the search) is its More models row.
+// and Fast mode. The full picker (the search) is its More models row; Fast is always a toggle row.
 const MODEL = { role: "button", name: "Model" } as const;
 const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 
@@ -473,7 +473,7 @@ export default componentEntry<Props>({
       props: {},
     },
     "model-menu": {
-      note: "The model button opens its one menu: this harness's models, numbered, then Effort and More models; the free Fast bolt stays beside the model name.",
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and the Fast mode toggle.",
       props: {},
       play: openModel,
     },
@@ -525,7 +525,7 @@ export default componentEntry<Props>({
       play: openEffort,
     },
     "fast-mode": {
-      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked.",
       props: {},
       play: fastMode,
     },

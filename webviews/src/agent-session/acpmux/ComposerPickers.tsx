@@ -14,6 +14,7 @@ import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
+import { fastModeIsOn } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -889,7 +890,7 @@ export function ComposerPickers({
   const quickFast: QuickMenuExtras["fast"] =
     fastMode && fastOffered
       ? {
-          checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
+          checked: fastModeIsOn(fastMode),
           onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
         }
       : undefined;
