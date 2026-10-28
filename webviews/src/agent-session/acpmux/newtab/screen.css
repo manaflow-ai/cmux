@@ -11,7 +11,7 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{position:relative;display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
+.nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) up to eight lines,
@@ -67,9 +67,15 @@
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* Shell mode on the new tab field (`!` first): a `!` glyph in the theme's magenta before a
    monospace command, inside the same box. */
+.nt-field-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
 .nt-input-glyph {
   position: absolute;
-  inset-inline-start: 18px;
+  inset-inline-start: 0;
   top: 16px;
   width: 1ch;
   height: var(--text-content--line-height);
@@ -81,12 +87,13 @@
 .nt-shell-glyph {
   color: var(--agent-ansi-5, #d670d6);
 }
-.nt-shell-glyph-placeholder {
-  visibility: hidden;
+/* Visible shell and Console prefixes use an inner inset; their arrival never resizes or moves
+   the textarea itself, and a Console prompt never paints over the text. */
+.nt-field-slot[data-prefix] .nt-field {
+  padding-inline-start: calc(1ch + 10px);
 }
 .nt-screen[data-shell] .nt-field {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  padding-inline-start: calc(1ch + 10px);
   caret-color: var(--agent-ansi-5, #d670d6); /* caret-color: the shell mode's color, as its glyph */
 }
 /* The card's bar, the agent composer's (Leo 2026-10-13): the agent's model, effort and speed chip,
