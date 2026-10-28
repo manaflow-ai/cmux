@@ -28,6 +28,7 @@ use std::fmt;
 use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, Message, ReaderLimits};
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::connection_scheduler::connection_qos::ReaderClass;
 use super::*;
@@ -78,19 +79,25 @@ pub(super) fn spawn_connection_reader<S: 'static>(
     name: &str,
     setup: impl FnOnce() -> S + Send + 'static,
     serve: impl FnOnce(S) + Send + 'static,
-) -> std::io::Result<JoinHandle<()>> {
-    cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
-        let accepted = setup();
-        // Each frame it reads is one hang-watch scope (connection_frame.rs);
-        // the read itself is outside every scope.
-        let thread = std::thread::current();
-        let _hang_watch = cmux_hang_watch::register_thread(
-            cmux_hang_watch::ThreadKind::Io,
-            thread.name().unwrap_or("mux-conn"),
-        );
-        cmux_threads::disallow_blocking();
-        serve(accepted);
-    })
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_at(
+        name,
+        CONNECTION_READER_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let accepted = setup();
+            // Each frame it reads is one hang-watch scope (connection_frame.rs);
+            // the read itself is outside every scope.
+            let thread = std::thread::current();
+            let _hang_watch = cmux_hang_watch::register_thread(
+                cmux_hang_watch::ThreadKind::Io,
+                thread.name().unwrap_or("mux-conn"),
+            );
+            cmux_threads::disallow_blocking();
+            serve(accepted);
+        },
+    )
 }
 
 /// One JSON line per message, and frames once granted. `admission` sees

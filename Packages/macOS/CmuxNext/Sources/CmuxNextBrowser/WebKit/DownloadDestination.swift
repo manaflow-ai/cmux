@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Chooses where a download is written.
 public nonisolated enum DownloadDestination {
@@ -67,7 +68,7 @@ public nonisolated enum DownloadDestination {
         var info = stat()
         // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; lstat writes
         // one `stat` into the local `info`, which outlives it.
-        return unsafe lstat(url.path(percentEncoded: false), &info) == 0 || errno != ENOENT
+        return unsafe blockingLstat(url.path(percentEncoded: false), &info) == 0 || errno != ENOENT
     }
 
     /// The last path component, without control or format characters

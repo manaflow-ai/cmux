@@ -47,6 +47,7 @@
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -85,7 +86,6 @@ use std::sync::Arc;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::thread::JoinHandle;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -106,12 +106,12 @@ pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 /// The thread is registered with the release hang watch for its life; each
 /// request it runs is one scope at its class deadline
 /// (server/request_hang_watch.rs).
-pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<JoinHandle<T>>
+pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<SupervisedThread<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    cmux_threads::spawn(name, REQUEST_THREAD_QOS, move || {
+    supervised::spawn_at(name, REQUEST_THREAD_QOS, Fatal, ShutdownBehavior::Continue, move || {
         let thread = std::thread::current();
         let _hang_watch = cmux_hang_watch::register_thread(
             cmux_hang_watch::ThreadKind::Control,

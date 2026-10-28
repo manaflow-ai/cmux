@@ -77,7 +77,7 @@ public final class FrameScheduler: NSObject {
     /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
     /// in this order, and a client that ran moves to the back, so one saturating client never
     /// keeps the others of its class from ticking (round-robin).
-    private var budgetedOrder: [ObjectIdentifier] = []
+    var budgetedOrder: [ObjectIdentifier] = []
     /// The clock this scheduler subscribes to.
     public let displayClock: DisplayClock
     /// The display this scheduler last subscribed to (kept after it leaves, for its stall stats);
@@ -104,6 +104,9 @@ public final class FrameScheduler: NSObject {
     /// ``MainWorkScheduler``: a short idle period may follow the frame's render pass, until one
     /// millisecond before the next vsync). Stall-deadline ticks have no vsync and are not reported.
     var onLinkFrame: (@MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void)?
+    /// Takes each tick's budgeted batch out of the tick (the ``MainWorkScheduler``'s after-commit
+    /// placement), which runs it in a turn of its own (``runBudgeted(_:)``); nil: it runs in the tick.
+    var defersBudgeted: (@MainActor (FrameTick) -> Void)?
     /// The link frame this scheduler ticks in now, reported when its part of the frame ends.
     private var linkFrame: (timestamp: CFTimeInterval, refreshInterval: Double)?
     private let ledger: WakeupLedger
@@ -411,26 +414,6 @@ public final class FrameScheduler: NSObject {
         }
     }
 
-    /// Only on the scheduler that holds the budget, after every other scheduler on its display: the
-    /// budgeted batches in class order, each only while its class may run (a held one stays active
-    /// and ticks next frame: input pending, or the class's budget spent).
-    func deliverBudgeted(_ tick: FrameTick) {
-        guard let budget else { return }
-        let order = budgetedOrder
-        for workClass in MainWorkClass.budgeted {
-            for id in order {
-                guard let client = clients[id], client.workClass == workClass, client.isActive else { continue }
-                guard budget.mayRun(workClass) else { break }
-                fire(client, tick)
-                // It ran: the clients of its class that did not get to run go first next frame.
-                if clients[id] != nil {
-                    budgetedOrder.removeAll { $0 == id }
-                    budgetedOrder.append(id)
-                }
-            }
-        }
-    }
-
     /// Ends this scheduler's part of a frame: reports a link frame (``onLinkFrame``, and for ``app``
     /// and the windows their clock's ``DisplayClock/unbudgetedLinks``), then with no client left it
     /// leaves the display.
@@ -445,7 +428,7 @@ public final class FrameScheduler: NSObject {
 
     /// Ticks `client` and records its wakeup, unless an earlier tick of this frame stopped or parked it
     /// (it left ``clients``): a client that does not run is not counted.
-    private func fire(_ client: FrameClient, _ tick: FrameTick) {
+    func fire(_ client: FrameClient, _ tick: FrameTick) {
         let id = ObjectIdentifier(client)
         guard clients[id] === client, client.isActive else { return }
         ledger.record(client.owner, reason: "frame")
