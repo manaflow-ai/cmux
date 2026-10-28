@@ -80,17 +80,25 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
-test("nested completion invalidates the parent summary revision", () => {
+test("nested renaming and completion invalidate the parent summary revision", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Parent" }] });
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "b", parent: "a", name: "Child" }] });
   const before = sessionSummary(fold.views().a!, "acme/app");
   expect(before.subagents).toEqual([{ id: "b", title: "Child", state: "running" }]);
+  feed(
+    fold,
+    { sessionUpdate: "subagent_state_update" },
+    { subagents: [{ id: "b", name: "Renamed", state: "running" }] },
+  );
+  expect(sessionSummary(fold.views().a!, "acme/app").subagents).toEqual([
+    { id: "b", title: "Renamed", state: "running" },
+  ]);
 
   feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "b", state: "completed" }] });
   const after = sessionSummary(fold.views().a!, "acme/app");
   expect(after).not.toBe(before);
-  expect(after.subagents).toEqual([{ id: "b", title: "Child", state: "done" }]);
+  expect(after.subagents).toEqual([{ id: "b", title: "Renamed", state: "done" }]);
 });
 
 test("mixed child activity and nested streams reuse summaries until completion", () => {

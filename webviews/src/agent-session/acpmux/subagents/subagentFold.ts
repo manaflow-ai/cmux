@@ -135,7 +135,7 @@ export class SubagentFold {
   /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
   private readonly own = new Map<string, ChildEntry[]>();
   private readonly viewRevisions = new Map<string, ViewRevisions>();
-  private readonly settledViews = new Map<string, string>();
+  private readonly settledViews = new Map<string, { state: string; name: string }>();
   private readonly viewTools = new Map<string, Map<string, boolean>>();
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
@@ -588,8 +588,9 @@ export class SubagentFold {
   }
 
   private settleView(agent: Subagent): boolean {
-    if (this.settledViews.get(agent.id) === agent.state) return false;
-    this.settledViews.set(agent.id, agent.state);
+    const previous = this.settledViews.get(agent.id);
+    if (previous?.state === agent.state && previous.name === agent.name) return false;
+    this.settledViews.set(agent.id, { state: agent.state, name: agent.name });
     const last = this.own.get(agent.id)?.at(-1);
     if (last && agent.state !== "running") last.settled = true;
     this.bumpViewRevision(agent.id);
@@ -749,9 +750,9 @@ export class SubagentFold {
   }
 
   private touch(agent: Subagent): void {
-    const stateChanged = this.settleView(agent);
+    const summaryChanged = this.settleView(agent);
     if (agent.parent !== null) {
-      if (stateChanged) this.bumpParentViews(agent.parent);
+      if (summaryChanged) this.bumpParentViews(agent.parent);
       else this.bump(agent.parent);
     }
     const group = this.groupOf.get(agent.id);

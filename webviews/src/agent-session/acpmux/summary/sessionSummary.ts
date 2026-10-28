@@ -124,7 +124,7 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
   return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
 }
 
-/// Pages, files, MCP calls and read-only PR/issue references, in the order first encountered.
+/// Read-only PR/issue references, then tool sources, then settled reply URLs; each appears once.
 function sources(
   rows: readonly AcpmuxRow[],
   all: readonly Tool[],
