@@ -39,7 +39,10 @@ struct QuitAlertContent: Equatable {
         // Statuses only, no explanation of what quitting does.
         var lines: [String] = []
         if prompt.runningPrograms > 0 { lines.append(QuitStrings.programsRunning(prompt.runningPrograms)) }
-        if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsWorking(prompt.agentsInTurn)) }
+        // A Home Chief turn counts as an agent working: with "dirty-only" it
+        // can be the only reason the dialog opens.
+        let agentsWorking = prompt.agentsInTurn + (prompt.chiefKeepsRunning ? 1 : 0)
+        if agentsWorking > 0 { lines.append(QuitStrings.agentsWorking(agentsWorking)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
         return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything],
                                 showsSuppression: true)

@@ -40,10 +40,11 @@ struct QuitConfirmPolicyTests {
     }
 
     /// The census reports a Home Chief turn apart from `inTurn`; a Chief that
-    /// is the only agent in a turn still asks, and the dialog says it keeps running.
-    @Test func dirtyOnlyAsksWhileOnlyTheChiefIsInATurn() {
-        let prompt = asks(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .dirtyOnly, facts: Self.chiefWorking))
-        #expect(prompt?.chiefKeepsRunning == true)
+    /// is the only agent in a turn still asks, and the dialog counts it as working.
+    @Test func dirtyOnlyAsksWhileOnlyTheChiefIsInATurn() throws {
+        let prompt = try #require(asks(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .dirtyOnly, facts: Self.chiefWorking)))
+        #expect(prompt.chiefKeepsRunning)
+        #expect(QuitAlertContent.main(prompt).lines == [QuitStrings.agentsWorking(1)])
     }
 
     @Test func onlyAnInteractiveQuitAsks() {
