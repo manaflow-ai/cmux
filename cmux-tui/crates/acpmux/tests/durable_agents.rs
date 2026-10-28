@@ -6,10 +6,16 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "durable_agents/grant_cleared.rs"]
+mod grant_cleared;
+#[path = "durable_agents/idle_adopted.rs"]
+mod idle_adopted;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/restart_fence.rs"]
+mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
 mod restart_reattach;
 #[path = "durable_agents/stalled_turn.rs"]
@@ -892,10 +898,9 @@ async fn gated_turn(daemon: &Daemon) -> (String, Value, Rpc) {
     (session, host, client)
 }
 
-/// "Quit Everything" in the app (plans/cmux-next/quit-persistence.md 4.3):
-/// `_acpmux/shutdown {endAgents: true}` ends every hosted agent and its host,
-/// records the turn in progress as cancelled, and the next daemon adopts
-/// nothing.
+/// "Quit Everything" in the app (plans/cmux-next/quit-persistence.md 4.3): `_acpmux/shutdown
+/// {endAgents: true}` ends every hosted agent and its host, records the turn in progress as
+/// cancelled, and the next daemon adopts nothing.
 #[tokio::test]
 async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_turn() {
     let mut daemon = Daemon::new("endq", "approve-all");
@@ -953,10 +958,9 @@ fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
         .expect("run acpmux daemon shutdown")
 }
 
-/// `acpmux daemon shutdown --end-agents` does what its help says: it stops
-/// the daemon and every agent process, hosted agents and their hosts
-/// included. On cmux-lawrence (2026-10-06) it reported success against the
-/// brain's acpmux and left the "rollback-throwaway" session's agent host
+/// `acpmux daemon shutdown --end-agents` does what its help says: it stops the daemon and every
+/// agent process, hosted agents and their hosts included. On cmux-lawrence (2026-10-06) it reported
+/// success against the brain's acpmux and left the "rollback-throwaway" session's agent host
 /// running.
 #[tokio::test]
 async fn the_cli_shutdown_with_end_agents_ends_every_agent_and_its_host() {
@@ -2405,9 +2409,8 @@ async fn a_turn_ending_as_mdm_ends_its_agent_leaves_its_chat_idle() {
 
 /// Review 3 of #26055: a daemon that starts while the host records cannot be read
 /// (`ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`) adopts no host, so what a host a restart left kept in its
-/// buffer is in no log. Under MDM's off that host counts as full access while the records cannot be
-/// read, though its log asks: its end is tried and fails, and once the records can be read again
-/// the next off push ends it.
+/// buffer is in no log. That host may also still write a family line the previous daemon handed
+/// it (#26241's residual risk), so an off push waits until the records can be read, then ends it.
 #[tokio::test]
 async fn a_host_left_while_the_host_records_cannot_be_read_ends_once_they_can() {
     let flag = std::env::temp_dir().join(format!("amd-recunknown-{}", std::process::id()));
@@ -2425,12 +2428,12 @@ async fn a_host_left_while_the_host_records_cannot_be_read_ends_once_they_can() 
     std::fs::write(&flag, "").unwrap();
     daemon.start();
     let mut rpc = daemon.rpc().await;
-    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
-    assert_eq!(pushed["applied"], true, "{pushed}");
-    let tried = daemon.events(&session).iter().any(|e| e["kind"] == "full_access_end_failed");
+    let push = tokio::spawn(async move { rpc.call("_acpmux/chat_settings", mdm_off_push()).await });
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!push.is_finished(), "an off push returned while a host the records hid ran on");
+    assert!(alive(harness_pid), "the agent ended while the records could not be read");
     std::fs::remove_file(&flag).unwrap();
-    assert!(tried, "a host the records could not show was judged by its log alone");
-    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    let pushed = tokio::time::timeout(Duration::from_secs(30), push).await.unwrap().unwrap();
     assert_eq!(pushed["applied"], true, "{pushed}");
     assert!(
         gone_within(harness_pid, Duration::from_secs(10)),

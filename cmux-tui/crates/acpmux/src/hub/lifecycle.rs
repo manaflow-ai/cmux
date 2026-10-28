@@ -25,6 +25,7 @@ impl Hub {
             effort,
             adopt,
             remote,
+            vm_boundary,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -66,8 +67,7 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // `${model}` in argv or env: the model is a spawn parameter, not a
-        // set_model call.
+        // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
         // What a new chat starts on when nothing pins it (start_defaults.rs):
@@ -152,6 +152,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.tools
@@ -230,6 +231,8 @@ impl Hub {
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
+            // A list built meanwhile showed it (`list_guard.rs`).
+            self.events.changed();
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -241,6 +244,7 @@ impl Hub {
             {
                 self.sessions.lock().unwrap().remove(&id);
                 self.child_tags.forget(&id);
+                self.events.changed();
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
@@ -458,7 +462,9 @@ impl Hub {
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
         // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started.
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
         let _spawning = session.spawn_lock.lock().await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
@@ -531,6 +537,7 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        self.refuse_cleared_host(session).await?;
         // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
         // ends here and is never reached again; the start below asks, or refuses a pinned profile.
         // A host whose end failed may still run in it: the chat is refused until it ends (review 51).

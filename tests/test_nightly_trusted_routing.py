@@ -155,7 +155,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                         {'github.ref': 'refs/heads/other'}):
             with self.subTest(changes=changes):
                 self.assertEqual(helper(**changes), 'blacksmith-6vcpu-macos-26')
-        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'ubuntu-24.04')
+        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
         self.assertEqual(helper(**{'github.repository_owner': 'someone'}), 'macos-26')
         self.assertNotIn('macos-15', WORKFLOW_FILE.read_text())
 

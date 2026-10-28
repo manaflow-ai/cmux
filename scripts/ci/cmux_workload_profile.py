@@ -807,7 +807,7 @@ def settle_process_group(
     # once and mark the semantic result ambiguous.
     try:
         os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return True, "complete"
     return False, "forced"
 
@@ -1001,14 +1001,14 @@ def run_profile(args: argparse.Namespace) -> int:
             timed_out = True
             try:
                 os.killpg(child.pid, signal.SIGTERM)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
             try:
                 exit_code = wait_child_unreaped(child.pid, 5)
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     pass
                 wait_child_unreaped(child.pid, None)
                 exit_code = 124

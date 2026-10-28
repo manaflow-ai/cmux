@@ -880,7 +880,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
-acpmux host vm-host [HOST] [on|off]    # a dedicated agent VM: off until attested (Cloud VMs sandbox too)
+acpmux host vm-host [HOST] [on|off]    # off: never the owner's VM boundary here (only the owner's app turns it on)
 acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
@@ -1303,8 +1303,10 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 - `errorKind`: `disk.full` (a write hit a full disk or quota), `disk.low` (`daemon status`:
   under `diskLowBytes`, 1 GiB by default, free on acpmux's disk), `peer.unreachable` (the peer
   did not answer; the request was not sent), `daemon.restarting` (the daemon is
-  shutting down), `spawn.failed` (the harness's program or folder is missing) or `agent.exited`
-  (the agent's process ended mid-turn). A client treats a kind it does not know as a plain error.
+  shutting down), `spawn.failed` (the harness's program or folder is missing), `agent.exited`
+  (the agent's process ended mid-turn), `auth.signed_out` (the agent said it is not signed in)
+  or `auth.expired` (it said its sign-in expired). A connection error is never an `auth.*`
+  kind. A client treats a kind it does not know as a plain error.
 - `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
   holds /home/me/.acpmux: 0.9 GB free of 252 GB. acpmux's chats in /home/me/.acpmux/sessions
   use 3.0 GB; `acpmux session stop <session> --purge` removes a chat you no longer need."

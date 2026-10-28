@@ -177,7 +177,7 @@ struct AppEnvironment: Sendable {
     nonisolated static func captureShellHome(_ environment: [String: String],
                                              isFolder: (String) -> Bool = { path in
                                                  var folder: ObjCBool = false
-                                                 return FileManager.default.fileExists(atPath: path, isDirectory: &folder)
+                                                 return FileManager.checked.fileExists(atPath: path, isDirectory: &folder)
                                                      && folder.boolValue
                                              }) -> String? {
         guard let path = environment["CMUX_CAPTURE_SHELL_HOME"], path.hasPrefix("/"), isFolder(path) else { return nil }
