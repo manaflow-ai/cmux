@@ -5,9 +5,11 @@
 //! `leo` in group `leo`, no one else in it) and set umask 002, so the user's
 //! own folders are group-writable by default. Group write on such a folder
 //! adds no writer, so the path check accepts it. Any other group, a group it
-//! cannot look up, or world write stays refused.
+//! cannot look up, an access control list (whose mask the group bits then
+//! are), or world write stays refused.
 
 use std::ffi::CStr;
+use std::path::Path;
 
 /// An account entry: its name, its uid and its primary group.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +58,34 @@ pub(super) fn private_group(uid: u32, gid: u32, accounts: &dyn Accounts) -> Resu
         local.iter().filter(|a| a.gid == gid && a.uid != uid).map(|a| a.name.as_str()).collect();
     if !others.is_empty() {
         return Err(not_private(format!("it is the primary group of {}", others.join(", "))));
+    }
+    Ok(())
+}
+
+/// The extended attributes that hold an access control list: POSIX ACLs and
+/// NFSv4 ACLs (on NFS and some other filesystems).
+const ACL_XATTRS: [&CStr; 2] = [c"system.posix_acl_access", c"system.nfs4_acl"];
+
+/// Ok when `path` (not followed if a link) has no access control list, or
+/// its filesystem supports none. An ACL, or a failed check, is the reason it
+/// does not count as private.
+pub(super) fn no_extended_acl(path: &Path) -> Result<(), String> {
+    let text = std::ffi::CString::new(path.as_os_str().as_encoded_bytes())
+        .map_err(|_| "its path has a NUL byte".to_owned())?;
+    for name in ACL_XATTRS {
+        // SAFETY: NUL-terminated strings; a null buffer of size 0 asks only for the size.
+        let rc = unsafe { libc::lgetxattr(text.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
+        if rc >= 0 {
+            return Err(format!(
+                "has an access control list ({}), which can let others write",
+                name.to_string_lossy()
+            ));
+        }
+        let error = std::io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::ENODATA) | Some(libc::EOPNOTSUPP) => {}
+            _ => return Err(format!("its access control list cannot be checked: {error}")),
+        }
     }
     Ok(())
 }
@@ -203,6 +233,54 @@ pub(super) mod tests {
         fn local_accounts(&self) -> Result<Vec<Account>, String> {
             self.local.clone().ok_or("/etc/passwd lookup failed".into())
         }
+    }
+
+    /// Give `path` an access ACL with one named entry (`tag` 2 = user,
+    /// 8 = group) for `id` with rwx, mask rwx. None when the filesystem has no ACLs.
+    pub(in crate::hub::remote_sandbox) fn set_acl(path: &Path, tag: u16, id: u32) -> Option<()> {
+        const UNDEFINED: u32 = u32::MAX;
+        let mut entries = [
+            (1u16, 7u16, UNDEFINED),
+            (tag, 7, id),
+            (4, 7, UNDEFINED),
+            (0x10, 7, UNDEFINED),
+            (0x20, 5, UNDEFINED),
+        ];
+        // The kernel takes entries only in tag order.
+        entries.sort_by_key(|e| e.0);
+        let mut blob = 2u32.to_le_bytes().to_vec();
+        for (tag, perm, id) in entries {
+            blob.extend(tag.to_le_bytes());
+            blob.extend(perm.to_le_bytes());
+            blob.extend(id.to_le_bytes());
+        }
+        let text = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: NUL-terminated strings and a buffer of its own length.
+        let rc = unsafe {
+            libc::setxattr(
+                text.as_ptr(),
+                c"system.posix_acl_access".as_ptr(),
+                blob.as_ptr().cast(),
+                blob.len(),
+                0,
+            )
+        };
+        if rc == 0 {
+            return Some(());
+        }
+        let error = std::io::Error::last_os_error();
+        assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP), "setxattr: {error}");
+        None
+    }
+
+    #[test]
+    fn a_folder_without_an_acl_has_none_and_a_missing_one_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("acpmux-acl-none-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(no_extended_acl(&dir), Ok(()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let error = no_extended_acl(&dir).unwrap_err();
+        assert!(error.contains("cannot be checked"), "{error}");
     }
 
     #[test]

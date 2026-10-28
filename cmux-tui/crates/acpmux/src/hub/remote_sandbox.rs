@@ -518,6 +518,10 @@ fn linux_secure_path_with(
             }
             accounts::private_group(uid, metadata.gid(), accounts)
                 .map_err(|why| format!("{} is group-writable and {why}", ancestor.display()))?;
+            // With an ACL the group bits are its mask, which can let named
+            // users or groups write.
+            accounts::no_extended_acl(ancestor)
+                .map_err(|why| format!("{} is group-writable and {why}", ancestor.display()))?;
         }
         if ancestor == boundary {
             reached = true;
@@ -1911,6 +1915,23 @@ mod endpoint_tests {
         assert!(error.ends_with("is world-writable"), "{error}");
         let tree = ModeTree::new("world-only", 0o757);
         assert!(tree.check(&tree.private()).unwrap_err().ends_with("is world-writable"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_with_an_acl_is_refused() {
+        // A named user (nobody, 65534) and then a named group with write: the
+        // mode still reads 0775, but the ACL lets them write.
+        for named in [2u16, 8] {
+            let tree = ModeTree::new(&format!("acl-{named}"), 0o775);
+            let Some(()) = accounts::tests::set_acl(&tree.root, named, 65534) else {
+                eprintln!("skipped: this filesystem has no POSIX ACLs");
+                return;
+            };
+            assert_eq!(std::fs::metadata(&tree.root).unwrap().mode() & 0o777, 0o775);
+            let error = tree.check(&tree.private()).unwrap_err();
+            assert!(error.contains("has an access control list"), "{error}");
+        }
     }
 
     #[cfg(target_os = "linux")]
