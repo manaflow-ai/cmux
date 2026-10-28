@@ -191,6 +191,31 @@ fn a_video_over_the_old_50_mb_limit_is_sent() {
     assert_eq!(h.owner.lock().unwrap().uploads.len(), 1);
 }
 
+/// Review of #26518: a reply waited at most 60 s (MEDIA_HOLD) for its uploads, then went as text
+/// without them, so a large picture or video never arrived. It waits for its upload however long.
+#[test]
+fn a_reply_waits_for_its_upload_however_long_it_takes() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = dir.path().join("long.mp4");
+    std::fs::write(&clip, b"\0\0\0\x18ftypmp42 a long video").unwrap();
+    let (release, hold) = std::sync::mpsc::channel();
+    let mut h = Harness::new(reply_script(format!("![long]({})", clip.display())));
+    h.owner.lock().unwrap().upload_hold = Some(hold);
+    h.connect();
+    h.say("user_local", "send me the video");
+    h.settle();
+    // Held for its upload: no deadline is armed that would send it without the file.
+    assert!(
+        h.brain.next_timer().is_none(),
+        "a timer would send the reply without its upload: {:?}",
+        h.brain.next_timer()
+    );
+    release.send(()).unwrap();
+    let parts = sent_reply(&mut h);
+    let files: Vec<_> = parts.iter().filter_map(attachment).collect();
+    assert_eq!(files.len(), 1, "{parts:?}");
+}
+
 #[test]
 fn a_missing_or_non_media_file_stays_text_and_is_never_read() {
     let dir = tempfile::tempdir().unwrap();

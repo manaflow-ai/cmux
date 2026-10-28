@@ -145,6 +145,8 @@ pub struct Owner {
     pub runs: Vec<Value>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// An attachment upload waits for a message here first (a slow upload).
+    pub upload_hold: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -267,6 +269,10 @@ impl PreviewPort for FakeUploader {
         use sha2::Digest;
         if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
             return Err(OpError::Rejected(code));
+        }
+        let hold = self.0.lock().unwrap().upload_hold.take();
+        if let Some(hold) = hold {
+            let _ = hold.recv();
         }
         // Streamed like the real upload: a large test file is never read whole.
         let mut hasher = sha2::Sha256::new();
