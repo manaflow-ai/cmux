@@ -31,6 +31,12 @@ export type AcpmuxSessionEntry = {
   host?: string;
   /** The acpmux peer name for a remote daemon. */
   peer?: string;
+  /** Explicit session area (or its `area` tag); never inferred from its name or folder. */
+  area?: string;
+  /** The mesh producer's explicit state, when supplied alongside the acpmux lane/status. */
+  trackingState?: string;
+  /** Why the producer reports this session stuck; absent on older daemons. */
+  stuckReason?: string;
   hostKind?: "local" | "cloud";
   branch?: string;
   /** Set only when the session runs in a git worktree: the worktree's path. */
@@ -216,6 +222,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
     host: text(session.host),
     peer: text(session.peer),
+    area: text(session.area)?.trim() || text(session.tags?.area)?.trim() || undefined,
+    trackingState: text(session.state)?.trim() || undefined,
+    stuckReason: text(session.stuckReason)?.trim() || undefined,
     hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
