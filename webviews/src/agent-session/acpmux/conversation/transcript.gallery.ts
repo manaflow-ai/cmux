@@ -1690,7 +1690,7 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
-      note: "A live Claude turn says its generated output after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M out, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -1706,9 +1706,47 @@ export default agentPaneEntry({
           ),
           assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
         ],
+        {
+          isWorking: true,
+          turnTokens: 12_400,
+          turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
+        },
+      ),
+      play: runningLineStill(/^Thinking/, true),
+    },
+    "working-tokens-total": {
+      note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity([tool("Search for parseError", "search", "completed")], 5.85),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
       play: runningLineStill(/^Thinking/, true),
+    },
+    "worked-tokens": {
+      note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",
+      snapshot: chat([
+        user(prompt, 5.9),
+        activity(
+          [
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+            tool("Search for parseError", "search", "completed"),
+          ],
+          5.85,
+        ),
+        assistant("The parser now keeps the status code and retries only on 5xx.", 4.6),
+        summary(4.6, {
+          status: "completed",
+          toolCount: 2,
+          durationMs: 78_000,
+          tokens: { output: 9_800, input: 12_000, cacheRead: 1_360_000, cacheWrite: 31_000 },
+        }),
+      ]),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
