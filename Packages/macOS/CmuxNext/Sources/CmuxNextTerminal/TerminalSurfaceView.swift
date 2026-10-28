@@ -121,6 +121,12 @@ public final class TerminalSurfaceView: NSView {
     private var lastFocus: Bool?
     /// Its window's notices while shown, by its tab node (``TerminalWindowWatch``).
     private let windowWatch: TerminalWindowWatch
+    /// It watches its window's notices now (shown in it); `debug.surfaces` `pause_record`.
+    var isWatchingWindow: Bool { windowWatch.isWatching }
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The last pause computations (``TerminalPauseRecord``); record only.
+    var pauseRecord = TerminalPauseRecord()
+    #endif
     /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
     private var occlusionWatch: WindowOcclusionSubscription?
     /// The backing scale and display last given to the surface (`updateContentScale`).
@@ -419,7 +425,7 @@ public final class TerminalSurfaceView: NSView {
         Self.windowStateUpdates &+= 1
         switch change {
         case .occlusion:
-            updateOcclusion()
+            updateOcclusion(caller: "window occlusion notice")
         case .screen:
             updateContentScale()
             updateSurfaceSize()

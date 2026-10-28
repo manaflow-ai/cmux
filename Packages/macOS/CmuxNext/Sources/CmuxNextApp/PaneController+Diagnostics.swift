@@ -113,9 +113,27 @@ struct PaneSurfaceStatus {
                 "hidden": .bool(terminal.hidden),
                 "view_size": .string("\(Int(terminal.viewSize.width))x\(Int(terminal.viewSize.height))"),
                 "layer_size": .string("\(Int(terminal.layerSize.width))x\(Int(terminal.layerSize.height))"),
+                // The last draw-pause computations (caller, inputs) and what the inputs give now (Debug and bench;
+                // record only): a stale pause is `stale: true` (handoff/v224-gate-triage.md).
+                "pause_record": terminal.pauseRecord.map(Self.pauseRecordJSON) ?? .null,
             ]
         }
         return .object(object)
+    }
+}
+
+extension PaneSurfaceStatus {
+    /// `pause_record` of `debug.surfaces`.
+    static func pauseRecordJSON(_ record: TerminalPauseRecordReport) -> JSONValue {
+        func one(_ c: TerminalPauseComputation) -> JSONValue {
+            .object(["at_ns": .number(Double(c.atNanos)), "caller": .string(c.caller), "pause": c.pause.map(JSONValue.string) ?? .null,
+                     "in_window": .bool(c.inputs.inWindow), "window_visible": .bool(c.inputs.windowVisible),
+                     "family_occluded": c.familyOccluded.map(JSONValue.bool) ?? .null, "hidden": .bool(c.inputs.hidden),
+                     "parked": .bool(c.inputs.parked), "suspended": .bool(c.inputs.suspended), "forced": .bool(c.inputs.forced),
+                     "draws_when_occluded": .bool(c.inputs.drawWhenOccluded), "shown": .bool(c.shown),
+                     "watching_window": .bool(c.watchingWindow)])
+        }
+        return .object(["computations": .array(record.computations.map(one)), "now": one(record.now), "stale": .bool(record.stale)])
     }
 }
 
