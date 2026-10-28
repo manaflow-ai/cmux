@@ -84,11 +84,12 @@ extension SidebarBridge {
         let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
         let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
         let home = services.machines.local
+        // The queue settles a placement that did not apply; `commit` leaves it.
         services.personalPlacements.enqueue(on: home, failed: failed) { [weak self] in
+            guard let connection = home.connection else { return .failed }
             guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
-                  let connection = home.connection,
                   ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
-                  let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return false }
+                  let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
             // `sections` retains this intent's neighbors. The planner now reads
             // personal order containing every successful preceding write.
             let regroup = statePersonal ? plan.regroup : []
@@ -102,7 +103,7 @@ extension SidebarBridge {
                     done.resume(returning: ok)
                 }
                 life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
-                            failed: { failed() }, completed: { finish($0) }) { sending in
+                            failed: {}, completed: { finish($0) }) { sending in
                     guard sending === connection else { throw DaemonError.notConnected }
                     for step in plan.steps {
                         try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
@@ -114,9 +115,9 @@ extension SidebarBridge {
                     for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
                 }
             }
-            guard sent, await home.appliedThroughReply(on: connection, after: "personal placement") else { return false }
+            guard sent, await home.appliedThroughReply(on: connection, after: "personal placement") else { return .failed }
             applied?()
-            return true
+            return .applied
         }
     }
 

@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -65,10 +66,15 @@ struct PlacementWriteOrderTests {
                     #expect(captured.order == ["k1", "k2", "k3", "k4"])
                     #expect(captured.writes.map(\.workspace_key) == ["k2", "k3", "k4"])
                     #expect(captured.writes.map(\.index) == [3, 3, 3])
+                } else if mode == "closed" {
+                    // Every placement skips its closed window; a skip is not a failure.
+                    #expect(scope.failures.isEmpty)
+                    #expect(captured.order == ["k4", "k3", "k2", "k1"])
+                    #expect(captured.attempts == 0)
                 } else {
                     #expect(!scope.failures.isEmpty)
                     #expect(captured.order == ["k4", "k3", "k2", "k1"])
-                    #expect(captured.attempts == (mode == "closed" ? 0 : 1), "dependent writes stop after the first failure")
+                    #expect(captured.attempts == 1, "dependent writes stop after the first failure")
                 }
             }
             await connection.close()
@@ -86,5 +92,30 @@ struct PlacementWriteOrderTests {
     @Test(arguments: ["fail", "disconnect", "closed"])
     func failedOrAbandonedPlacementReleasesTheQueuedCommands(mode: String) async throws {
         try await Self.burst(mixed: false, mode: mode)
+    }
+
+    /// A placement that skips (its window closed, its workspace deleted
+    /// before its turn) lets the ones queued after it run; a failed write
+    /// stops them. Each one that did not apply settles its pending edit once.
+    @Test(arguments: [PersonalPlacementQueue.Outcome.skipped, .failed])
+    func onlyAFailedPlacementStopsTheOnesQueuedAfterIt(first: PersonalPlacementQueue.Outcome) async {
+        @MainActor final class Log { var ran: [String] = [], settled: [String] = [] }
+        let queue = PersonalPlacementQueue(), home = DaemonService(), scope = DaemonCommandScope(), log = Log()
+        DaemonCommandScope.$current.withValue(scope) {
+            let order: [(String, PersonalPlacementQueue.Outcome)] = [("k2", first), ("k3", .applied), ("k4", .applied)]
+            for (id, outcome) in order {
+                queue.enqueue(on: home, failed: { log.settled.append(id) }) { log.ran.append(id); return outcome }
+            }
+        }
+        await scope.waitUntilIdle()
+        if first == .skipped {
+            #expect(log.ran == ["k2", "k3", "k4"])
+            #expect(log.settled == ["k2"])
+            #expect(scope.failures.isEmpty)
+        } else {
+            #expect(log.ran == ["k2"])
+            #expect(log.settled == ["k2", "k3", "k4"])
+            #expect(scope.failures.count == 3)
+        }
     }
 }
