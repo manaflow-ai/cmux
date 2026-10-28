@@ -175,7 +175,12 @@ public final class DictationAudioRecording: Sendable {
         await withCheckedContinuation { continuation in
             // Enqueued under the lock, after every write a tap took before it (see `append`).
             state.withLock { state in
-                guard !state.finished else { return continuation.resume(returning: nil) }
+                // Ended already (a discard, an earlier finish): answer after what it queued, so the
+                // caller sees its file gone once this returns.
+                guard !state.finished else {
+                    writer.async { continuation.resume(returning: nil) }
+                    return
+                }
                 state.finished = true
                 let (rest, total, omitted) = (state.pending, state.written + state.pending.count, state.omitted)
                 state.pending = []
@@ -187,7 +192,8 @@ public final class DictationAudioRecording: Sendable {
         }
     }
 
-    /// Removes the file (a cancelled or superseded session).
+    /// Removes the file (a cancelled or superseded session), on the writer queue after what came
+    /// before it. A ``finish()`` after this answers nil once the file is gone.
     public func discard() {
         state.withLock { $0.finished = true }
         // A write or finish enqueued before this runs first; this one ends the file for good.
