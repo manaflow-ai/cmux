@@ -485,7 +485,8 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-      recordMeasuredRun(memory, imageSelection.size, user.id, created);
+      const pickedShape = pickedShapeOf(memory.pick, imageSelection.size, created.resourceReservation);
+      recordMeasuredRun(pickedShape ? memory.tag : null, user.id, created);
       const attach = createAttachBlock({
         entry: created,
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
@@ -518,7 +519,7 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
-        ...sizePickFields(memory.pick, imageSelection.size, created.resourceReservation),
+        ...(pickedShape ? { sizePick: { vcpus: pickedShape.vcpus, memoryGb: pickedShape.memoryGb, pick: pickedShape.pick, reason: pickedShape.reason } } : {}),
       });
     },
   );
@@ -592,30 +593,24 @@ async function resolveCreateSize(
  * Tags the new machine as a measured run of its pick after the answer, so its
  * peaks count for the next pick.
  */
-function recordMeasuredRun(
-  sized: { readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null },
-  booted: { readonly name: string } | null | undefined,
-  userId: string,
-  vm: { readonly provider: string; readonly providerVmId: string },
-): void {
-  // Only a machine that boots at the picked shape is a run of the pick.
-  const tag = sized.tag;
-  if (!tag || !sized.pick || booted?.name !== sized.pick.pick) return;
+function recordMeasuredRun(tag: AutosizeTag | null, userId: string, vm: { readonly provider: string; readonly providerVmId: string }): void {
+  if (!tag) return;
   runAfterResponse(() => runVmWorkflow(tagMeasuredRun({ userId, provider: vm.provider, providerVmId: vm.providerVmId, tag })).then(() => undefined));
 }
 
 /**
- * The auto-size pick in the hand-off's size fields; only when the machine
- * boots at the picked shape's snapshot and the machine answered has that
- * shape (an idempotent retry answers the machine the first request made).
+ * The auto-size pick, when the machine answered has its shape: it boots at the
+ * picked shape's snapshot and holds that shape (an idempotent retry answers
+ * the machine the first request made). Only then is it the answer's
+ * `sizePick` (the hand-off's size fields) and a measured run of the pick.
  */
-function sizePickFields(
+function pickedShapeOf(
   pick: AutosizePick | null,
   booted: { readonly name: string } | null | undefined,
   machine: { readonly vcpus: number; readonly memoryMb: number } | null | undefined,
-) {
-  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return {};
-  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
+): AutosizePick | null {
+  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return null;
+  return pick;
 }
 
 /**
