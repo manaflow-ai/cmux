@@ -280,6 +280,39 @@ def vmmap_summary(pid):
     return parse_vmmap_summary(run.stdout)
 
 
+def vm_tag_labels():
+    """{vmmap region name: VM tag} for the application tags 240..255, measured: this process maps (tag - 239) MB of
+    dirty anonymous memory under each tag (mmap's fd VM_MAKE_TAG(tag) = tag << 24 on Darwin) and reads its own
+    `vmmap -summary`; each name's dirty size names its tag. So "App-Specific Tag 14" in a person's vmmap is a number,
+    not a guess (Chromium's PartitionAlloc PageTag 253, kChromium 254, V8 255, Blink GC 252)."""
+    if sys.platform != "darwin":
+        return {}
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.mmap.restype = ctypes.c_void_p
+    libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
+    prot, flags = 0x1 | 0x2, 0x1000 | 0x0002  # PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE
+    maps = []
+    for tag in range(240, 256):
+        size = (tag - 239) * 1048576
+        address = libc.mmap(None, size, prot, flags, tag << 24, 0)
+        if address in (None, ctypes.c_void_p(-1).value):
+            continue
+        ctypes.memset(address, 1, size)
+        maps.append((tag, address, size))
+    summary = vmmap_summary(os.getpid())
+    labels = {}
+    if isinstance(summary, dict):
+        for name, row in summary.items():
+            dirty = row.get("dirty_mb") or 0
+            for tag, _address, size in maps:
+                if abs(dirty - size / 1048576) < 0.5:
+                    labels[name] = tag
+    libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+    for _tag, address, size in maps:
+        libc.munmap(address, size)
+    return labels
+
+
 # ---------------------------------------------------------------- the run
 
 class Harness:
@@ -693,6 +726,9 @@ class Harness:
 
     def run(self):
         self.initial_workspaces = {w["id"] for w in self.stress.workspaces()}
+        labels = vm_tag_labels()
+        self.report["vm_tag_labels"] = labels
+        self.log(f"LEAK-HARNESS-VMTAGS {json.dumps(labels, sort_keys=True)}")
         self.quiet()
         self.report["start"] = self.sample("start", vmmap=True)
         if self.opts.resource_bench:
