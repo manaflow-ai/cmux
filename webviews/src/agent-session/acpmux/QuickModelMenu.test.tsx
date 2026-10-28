@@ -204,3 +204,80 @@ test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", 
   expect(fast.getAttribute("role")).toBe("menuitemcheckbox");
   expect(fast.getAttribute("aria-checked")).toBe("false");
 });
+
+test("inline effort picks a different model and its level together; model names keep effort", async () => {
+  const container = installDom();
+  const picks: { id: string; effort?: string }[] = [];
+  function InlineHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          models: [],
+          current: "a",
+          onModel() {},
+          effort: {
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
+            current: "high",
+            onPick() {},
+          },
+          families: {
+            current: "claude",
+            onPick: (row) => picks.push(row),
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [
+                  { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"] },
+                  { id: "b", name: "Model B", family: "claude", efforts: ["low"] },
+                  { id: "c", name: "Model C", family: "claude", efforts: [] },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<InlineHarness />);
+  });
+  const open = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+    await settle();
+  };
+  await open();
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
+  expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
+  await act(async () => (document.querySelector('[aria-label="Model B · Low"]') as HTMLElement).click());
+  expect(picks.map(({ id, effort }) => ({ id, effort }))).toEqual([{ id: "b", effort: "low" }]);
+  await settle();
+  await open();
+  await act(async () => {
+    const name = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-item")].find((row) =>
+      row.textContent?.includes("Model B"),
+    );
+    name!.click();
+  });
+  expect(picks.at(-1)?.id).toBe("b");
+  expect(picks.at(-1)?.effort).toBeUndefined();
+  await settle();
+  await open();
+  await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
+  expect(picks.at(-1)?.id).toBe("a");
+  expect(picks.at(-1)?.effort).toBe("low");
+});
