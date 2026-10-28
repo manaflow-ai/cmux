@@ -902,6 +902,24 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   vertical-align: middle;
   margin: 0 2px;
 }
+.nt-headline-machine-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+.nt-headline-machine-picker .acpmux-location-button {
+  max-width: 240px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.nt-headline-machine-label {
+  display: inline-flex;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .nt-headline-choose .acpmux-project-button {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);

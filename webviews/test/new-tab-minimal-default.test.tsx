@@ -13,6 +13,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import type { SavedEnvironmentHost } from "../src/agent-session/acpmux/environments";
 import {
   DEFAULT_NEW_TAB_TEMPLATE,
   PAGE_STYLES,
@@ -82,6 +84,10 @@ type RenderOptions = {
   projects?: { cwd: string; label: string }[];
   onAsk?: (...args: unknown[]) => void;
   headlineOff?: boolean;
+  machineName?: string;
+  snapshot?: AcpmuxSnapshot;
+  environments?: boolean;
+  savedEnvironments?: SavedEnvironmentHost;
 };
 
 async function render(
@@ -89,17 +95,18 @@ async function render(
   widgets: readonly PageWidget[] | undefined,
   startCwd?: string,
   options: RenderOptions = {},
+  existing?: Root,
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const root: Root = createRoot(host);
+  const root: Root = existing ?? createRoot(host);
   await act(async () =>
     root.render(
       <NewTabScreen
         template={template}
         pageWidgets={shownPageWidgets(template, widgets)}
         now={MORNING}
-        snapshot={noChat(manySessions(12))}
+        snapshot={options.snapshot ?? noChat(manySessions(12))}
         lastAgent="claude"
         cwd="/Users/you/src/atlas"
         {...(startCwd ? { startCwd } : {})}
@@ -109,6 +116,9 @@ async function render(
         onCreate={noop}
         onAsk={options.onAsk ?? noop}
         {...(options.headlineOff ? { headlineOff: true } : {})}
+        {...(options.machineName ? { machineName: options.machineName } : {})}
+        {...(options.environments ? { environments: true } : {})}
+        {...(options.savedEnvironments ? { savedEnvironments: options.savedEnvironments } : {})}
         onOpen={noop}
         onSearch={noop}
         onShell={noop}
@@ -180,6 +190,201 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   }
 });
 
+test("a machine-scoped headline keeps the project suggestions on that machine", async () => {
+  const root = await render("minimal", ["greeting"], undefined, {
+    machineName: "studio",
+    projects: [
+      { cwd: "/Users/you/src/atlas", label: "atlas" },
+      { cwd: "/Users/you/src/cmux", label: "cmux" },
+    ],
+  });
+  try {
+    expect(parts().headline).toBe("What should we work on on studio?");
+    const picker = host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: studio"]');
+    expect(picker).not.toBeNull();
+    expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe("studio");
+    expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose .acpmux-project-button")!.click());
+    const options = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.textContent);
+    expect(options).toContain("atlas");
+    expect(options).toContain("cmux");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("switching the headline machine scopes projects and routes the first prompt", async () => {
+  const snapshot = noChat([
+    {
+      sessionId: "remote-project",
+      cwd: "/home/dev/api",
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: Date.now(),
+      peer: "devbox",
+      host: "devbox",
+    },
+  ]);
+  snapshot.peers = ["devbox"];
+  snapshot.peerKinds = { devbox: "ssh" };
+  const asked: unknown[][] = [];
+  const root = await render("minimal", ["greeting"], undefined, {
+    machineName: "studio",
+    snapshot,
+    projects: [{ cwd: "/Users/you/src/atlas", label: "atlas" }],
+    onAsk: (...args) => asked.push(args),
+  });
+  try {
+    const machine = host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: studio"]');
+    expect(machine).not.toBeNull();
+    await act(async () => machine!.click());
+    const row = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find((candidate) =>
+      candidate.textContent?.includes("devbox"),
+    );
+    expect(row).not.toBeNull();
+    await act(async () => row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    expect(parts().headline).toBe("What should we work on on devbox?");
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "check the machine");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toEqual({ peer: "devbox" });
+    const project = host.querySelector<HTMLButtonElement>(".nt-headline-choose .acpmux-project-button");
+    await act(async () => project!.click());
+    expect(window.document.body.textContent).toContain("api");
+    const projectRow = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find((candidate) =>
+      candidate.textContent?.includes("api"),
+    );
+    expect(projectRow).not.toBeNull();
+    await act(async () => projectRow!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    await act(async () => {
+      setValue.call(field, "check the api");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[1]?.[6]).toEqual({ peer: "devbox" });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a removed headline peer falls back to the live local machine", async () => {
+  const snapshot = noChat([
+    {
+      sessionId: "remote-project",
+      cwd: "/home/dev/api",
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: Date.now(),
+      peer: "devbox",
+      host: "devbox",
+    },
+  ]);
+  snapshot.peers = ["devbox"];
+  snapshot.peerKinds = { devbox: "ssh" };
+  const asked: unknown[][] = [];
+  const root = await render("minimal", ["greeting"], undefined, {
+    machineName: "studio",
+    snapshot,
+    onAsk: (...args) => asked.push(args),
+  });
+  try {
+    const machine = host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: studio"]');
+    await act(async () => machine!.click());
+    const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((candidate) =>
+      candidate.textContent?.includes("devbox"),
+    );
+    await act(async () => row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    const removed = { ...snapshot, peers: [], peerKinds: {}, sessions: [] };
+    await render(
+      "minimal",
+      ["greeting"],
+      undefined,
+      { machineName: "studio", snapshot: removed, onAsk: (...args) => asked.push(args) },
+      root,
+    );
+    expect(
+      host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: studio"]'),
+    ).not.toBeNull();
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "use local");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("switching machines clears a picked saved environment", async () => {
+  const snapshot = noChat([
+    {
+      sessionId: "remote-project",
+      cwd: "/home/dev/api",
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: Date.now(),
+      peer: "devbox",
+      host: "devbox",
+    },
+  ]);
+  snapshot.peers = ["devbox", "oldbox"];
+  snapshot.peerKinds = { devbox: "ssh", oldbox: "ssh" };
+  const asked: unknown[][] = [];
+  const savedEnvironments: SavedEnvironmentHost = {
+    list: async () => [{ id: "old", name: "Old box", kind: "ssh", host: "oldbox", folder: "/old", updatedAt: 1 }],
+    save: async (draft) => ({ ...draft, id: "new", updatedAt: 2 }),
+    remove: async () => undefined,
+  };
+  const root = await render("minimal", ["greeting"], undefined, {
+    machineName: "studio",
+    snapshot,
+    environments: true,
+    savedEnvironments,
+    onAsk: (...args) => asked.push(args),
+  });
+  try {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const computers = [
+      ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
+    ];
+    const computer = computers.at(-1);
+    expect(computer).not.toBeNull();
+    await act(async () => computer!.click());
+    const saved = [...window.document.querySelectorAll<HTMLElement>(".acpmux-menu-label")].find((row) =>
+      row.textContent?.includes("Old box"),
+    );
+    expect(saved).not.toBeNull();
+    await act(async () => saved!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    const machine = host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: studio"]');
+    await act(async () => machine!.click());
+    const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((candidate) =>
+      candidate.textContent?.includes("devbox"),
+    );
+    await act(async () => row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "use devbox");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toEqual({ peer: "devbox" });
+    expect(asked[0]?.[2]).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("optional time, warm greeting, stopwatch and quote widgets are independently opt-in", async () => {
   let root = await render("minimal", []);
   try {
@@ -212,7 +417,7 @@ test("a project picked in the headline is the folder the composer starts its cha
     const strip = () => host.querySelector(".acpmux-composer-strip")?.textContent ?? "";
     expect(strip()).toContain("atlas");
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-text .acpmux-project-button")!.click());
-    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow,"]');
+    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow"]');
     expect(row).not.toBeNull();
     await act(async () => {
       row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
