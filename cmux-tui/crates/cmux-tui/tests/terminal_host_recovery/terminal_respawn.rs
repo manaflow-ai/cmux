@@ -742,6 +742,9 @@ fn a_close_after_a_host_loss_is_never_respawned() {
 #[path = "tab_restart.rs"]
 mod tab_restart;
 
+#[path = "holder_respawn.rs"]
+mod holder_respawn;
+
 /// `resume-command`: a person's resume command is typed on the respawned
 /// terminal's new prompt, never run, and wins over what the daemon would
 /// offer; reading it back names the stored line, and a clear removes it.
