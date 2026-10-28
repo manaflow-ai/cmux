@@ -137,7 +137,9 @@ enum ConversationTheme {
     /// thread runs inside the transcript's traits (`performAsCurrent`, as its
     /// text styles do) and reads their scale, so it never reads main-thread
     /// state while a trait change writes it. 3 until either is known, every
-    /// current iPhone Pro.
+    /// current iPhone Pro; off-main code must measure inside the
+    /// transcript's traits, or it rounds to that 3. A measured row records
+    /// the scale it used (`MessageLayoutCache.Measured.displayScale`).
     static var displayScale: CGFloat {
         if Thread.isMainThread { return MainActor.assumeIsolated { mainDisplayScale } }
         let scale = UITraitCollection.current.displayScale
