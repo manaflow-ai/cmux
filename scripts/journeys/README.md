@@ -173,7 +173,7 @@ every poll and holds only when it holds together with the positive ones at the e
 | `{"app_layout": {"workspace": W, "windows": N, "panes": N, "tabs": N, "pane_tabs": N, "selected": true}}` | app | the current terminal's workspace in the topology has these counts; `selected`: its tab is its pane's selected tab; `bind_workspace: NAME` keeps the workspace's name as `${NAME}` |
 | `{"app_tab_pane": {"same_as": N}}` / `{"not_same_as": N}` | app | the current terminal's tab is (is not) in the same pane as terminal N |
 | `{"app_tab_gone": "N"}` | app | terminal N is in no tab of the topology |
-| `{"app_rpc": {"method": M, "params": P, "path": "a.b.0", "equals"\|"contains"\|"len"\|"len_gte"\|"gt"\|...: V}}` | app | one control-socket read; the value at `path` meets every rule (also `not_equals`, `in`, `not_in`: a missing value fails them); `bind: NAME` keeps the value as `${NAME}` |
+| `{"app_rpc": {"method": M, "params": P, "path": "a.b.0", "equals"\|"contains"\|"len"\|"len_gte"\|"gt"\|...: V}}` | app | one control-socket read; the value at `path` meets every rule (also `not_equals`, `in`, `not_in`, `lacks`: a missing value fails them; `lacks` TEXT: the value, as JSON text unless a string, does not contain TEXT); `bind: NAME` keeps the value as `${NAME}` |
 | `{"app_grid": {"cell_height_gt": V}}` | app | the pane's drawn grid (`cell_height`, `cell_width` with `equals`, `lt`, `gt`, ...) |
 
 `within` (seconds) makes a timing claim: each condition must first hold within that long of

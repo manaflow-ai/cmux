@@ -1278,7 +1278,7 @@ class Journey:
             return self.need_term(), spec
 
         def compare(got, rules):
-            """`rules`: {"equals"|"not_equals"|"in"|"not_in"|"contains"|"gte"|"lte"|"gt"|"lt"|"len"|"len_gte": value};
+            """`rules`: {"equals"|"not_equals"|"in"|"not_in"|"contains"|"lacks"|"gte"|"lte"|"gt"|"lt"|"len"|"len_gte": value};
             all must hold. `not_equals`, `not_in`: a missing value (None) does not hold either, so a wrong
             path cannot pass a negative rule."""
             for rule, value in rules.items():
@@ -1296,6 +1296,9 @@ class Journey:
                     except (TypeError, ValueError):
                         return False
                 if rule == "contains" and (got is None or str(value) not in (got if isinstance(got, (list, str)) else json.dumps(got))):
+                    return False
+                # `lacks`: the value (as JSON text when not a string) does not contain the text; a missing value fails.
+                if rule == "lacks" and (got is None or str(value) in (got if isinstance(got, str) else json.dumps(got))):
                     return False
                 if rule in ("gte", "lte", "gt", "lt"):
                     try:
