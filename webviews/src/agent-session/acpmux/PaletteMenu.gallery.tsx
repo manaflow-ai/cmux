@@ -9,6 +9,22 @@ const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-picker-button" });
 };
 
+const editSearch: Play = async (ctx) => {
+  await open(ctx);
+  const input = ctx.find({ role: "combobox" }) as HTMLInputElement;
+  await ctx.type("browser", { role: "combobox" });
+  const selected = input.getAttribute("aria-activedescendant");
+  await ctx.press("Home");
+  await ctx.waitFor(() => input.selectionStart === 0 && input.selectionEnd === 0);
+  await ctx.press("Shift+End");
+  await ctx.waitFor(() => input.selectionStart === 0 && input.selectionEnd === input.value.length);
+  await ctx.press("End");
+  await ctx.waitFor(() => input.selectionStart === input.value.length && input.selectionEnd === input.value.length);
+  await ctx.press("Shift+Home");
+  await ctx.waitFor(() => input.selectionStart === 0 && input.selectionEnd === input.value.length);
+  await ctx.waitFor(() => input.getAttribute("aria-activedescendant") === selected);
+};
+
 function Fixture({ variant }: { variant: string }) {
   const t = useT();
   // Catalog-shaped fixture rows; the rendered component and dispatch path are the real + menu.
@@ -51,11 +67,14 @@ function Fixture({ variant }: { variant: string }) {
         description: "Find an open tab",
         icon: "square.on.square",
       },
-    ]),
-  ).filter(
-    (section) =>
-      variant === "balanced" ||
-      (variant === "tools" ? ["Tools", "Apps"].includes(section.title) : ["Sessions", "Tabs"].includes(section.title)),
+    ]).filter(
+      (entry) =>
+        variant === "balanced" ||
+        variant === "keyboard" ||
+        (variant === "tools"
+          ? entry.section === "tools" || entry.section === "apps"
+          : entry.section === "sessions" || entry.section === "tabs"),
+    ),
   );
   return (
     <div
@@ -89,6 +108,11 @@ export default componentEntry<{ variant: string }>({
   styles: () => import("./styles.css"),
   load: async () => Fixture,
   variants: {
+    keyboard: {
+      note: "Home and End, including Shift selection, edit search instead of navigating menu rows.",
+      props: { variant: "keyboard" },
+      play: editSearch,
+    },
     balanced: {
       note: "Chat and New Tab share one searchable registry-backed menu.",
       props: { variant: "balanced" },
