@@ -43,6 +43,7 @@ export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "claude-onboarding.py",
   "agent-auth.sh",
   "cmux-claude",
   "cmux-codex",
@@ -526,6 +527,17 @@ export type DevboxSourceRecord = {
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
+}
+
+/** Reset the bake's temporary owner record and prove team shells drop caller credentials. */
+export function devboxTeamKindDefaultCommand(
+  kindFile = "/etc/cmux/vm-kind",
+  checkHome = "/tmp/team-kind-check",
+  agentConfig = "/etc/cmux/agent-config.sh",
+): string {
+  const kind = shellQuote(kindFile);
+  const home = shellQuote(checkHome);
+  return `echo team > ${kind} && chmod 0644 ${kind} && rm -rf ${home} && env HOME=${home} OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c ${shellQuote(`. ${shellQuote(agentConfig)}`)} && ! grep -rqs -e cmux-team-kind-check -e example.invalid ${home} && rm -rf ${home} && echo team-kind-keeps-no-caller-env`;
 }
 
 export function devboxDesktopFile(name: string): string {
