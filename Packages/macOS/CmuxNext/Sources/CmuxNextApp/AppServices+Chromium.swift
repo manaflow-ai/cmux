@@ -148,6 +148,8 @@ extension AppServices {
         let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame (p06-scheduler-219)
         // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
+        // Host mode only: hosted pages' input through the host's input ring (p01-process-042).
+        chromiumRuntime.source.routesHostInput = features.isEnabled(.chromiumHostInputRing)
         // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
         chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
