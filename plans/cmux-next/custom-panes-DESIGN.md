@@ -48,7 +48,7 @@ already holds every field (`schema/v2/cmux-app.schema.json`, `implementation.web
 
 | Rule | How |
 | --- | --- |
-| Own origin per app | Scheme `cmux-app`, host = the app's namespace (`local/workspace-board` -> `local.workspace_board`, the one id mapping of app-platform.md 18). Never `cmux-page://`, so the daemon's page router and the first-party page bridge never see it. |
+| Own origin per app | Scheme `cmux-app`, host = the app's namespace (`local/workspace-board` -> `local.workspace_board`, the one id mapping of app-platform.md 18, `app_namespace`). Never `cmux-page://`, so the daemon's page router and the first-party page bridge never see it. |
 | Only its own files | `AppWebPaneSchemeHandler` answers GET for files under `<bundle_dir>/<runtime.web.root>`; `.`/`..` components, a symlink out of the root, another host or another method fail the request. |
 | Host CSP floor | Every response carries `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; frame-src 'none'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'`. A manifest `runtime.web.csp` is sent as a second policy in the same header; the browser enforces both, so it can only narrow. No inline script, no eval, no network: the network is `net.fetch` through the bridge, under the `net:` scope and the egress gate. |
 | No navigation away | The navigation delegate allows only the pane's own origin; `window.open` and links elsewhere are cancelled. |
@@ -60,13 +60,16 @@ already holds every field (`schema/v2/cmux-app.schema.json`, `implementation.web
 The page sees one frozen global:
 
 ```js
-await cmux.call("workspace.list", {})          // any catalog op the app holds a scope for
+const { value } = await cmux.call("workspace.list", {})  // any catalog op the app holds a scope for
 await cmux.call("app.storage.set", {key, value})
-cmux.app                                         // the app id
+cmux.app                                                   // the app id
 ```
 
 `cmux.call` posts `{kind: "call", op, params}` to the host; the host sends daemon
-command `apps-web-call {app, op, args}`. The supervisor decides the call exactly as it
+command `apps-web-call {app, op, args}`. It resolves to the supervisor's whole ok
+body (`{value}` for a read, the mutation's result for a write) and rejects with an
+`Error` whose `code` is the refusal's (`scope.missing`, `operation.unsupported`,
+`gesture.required`, `bridge.invalid` for params that are not an object). The supervisor decides the call exactly as it
 decides a call from the app's QuickJS host (`apps/web_calls.rs`, sharing
 `apps/calls.rs`):
 
@@ -95,12 +98,12 @@ The shipped Chief skill `cmux-custom-pane` (`Native/OptChat/optchat-chief/skills
 
 1. Find the local apps folder: `cmux raw command --request-json '{"cmd":"apps-list"}'`,
    field `local_dir` (`<daemon state>/apps/local`).
-2. Scaffold `<local_dir>/<name>/` from the template in the skill: `cmux-app.json`,
+2. Scaffold `<local_dir>/<name>/` from the template in the skill: `cmux-app.v2.json`,
    `web/index.html`, `web/app.js`, `web/style.css`. No inline script (the CSP refuses it).
 3. Check it loaded: `apps-list` shows `local/<name>`; a rejected package is a `warn`
    line in `apps-logs` of `cmux/supervisor` with the validator's path and code.
-4. The person installs it once from the App Store (Installed or Discover, `cmux app open
-   cmux/app-store`): the native sheet lists its scopes. An agent cannot install an app
+4. The person installs it once from the App Store (`cmux app store --app local/<name>`
+   opens its listing): the native sheet lists its scopes. An agent cannot install an app
    (app-platform.md 8), and the skill says so instead of trying.
 5. Open it beside the chat: `cmux app open local/<name>`.
 6. Iterate: every save in the folder reloads the pane (the supervisor's FSEvents watch
@@ -155,10 +158,13 @@ mismatch.
   shape as `CLOUD_ADMIN_USERS`. Without `APP_REVIEWERS` the review routes answer 404.
 - Submit rules: `id` is `<publisher>/<name>` with the manifest's patterns; `cmux`,
   `manaflow-ai` and `local` are reserved; a publisher belongs to the first person who
-  submits under it; the version is semver and greater than every pending or approved
+  submits under it; `repository` is `https://github.com/<publisher>/...` (the daemon's
+  manifest rule for store apps, so an approved bundle always installs); the version is semver and greater than every pending or approved
   version of the app (a rejected version may be submitted again); one pending
   submission per app; at most 200 files, 2 MiB decoded in total, safe relative paths;
   the package's manifest file is one of the files and equals `manifest`.
+- The review queue lists each submission with `files: [{path, size}]`; the Mac shows
+  the submitter as `{user}`.
 - Review rules: only `pending` is decided; a reviewer never decides their own
   submission; reject needs a reason (8 to 500 characters); every decision is audited.
 - An approved version is immutable. Versions accumulate; listings show the latest.
@@ -173,12 +179,18 @@ mismatch.
 - Page ops `cmux.registry.*`, answered by the Mac (`AppRegistryPageProvider`) over
   the signed-in Cloud session: `listings`, `me`, `submissions`, `submit {app,
   publisher, notes?}`, `review.queue`, `review.file {id, path}`, `review.decide {id,
-  decision, reason}`, `get {app, version}`. `submit` and an approve show a native sheet
-  first (publishing is outward-facing); page JavaScript is not a gesture.
+  decision, reason, app?, version?}` (app and version name the sheet), `get {app,
+  version}`. `submit` and `review.decide` show a native sheet first (publishing and
+  deciding are outward-facing); page JavaScript is not a gesture.
+- Submit packs the local app on the Mac (`AppRegistrySubmission`): `local/<name>`
+  becomes `<publisher>/<name>`, every package file except hidden files, symlinks and
+  `node_modules` is sent, and the publisher, repository owner and limits are checked
+  before anything is sent.
 - Get: the Mac downloads the approved bundle and hands it to the daemon:
   `apps-store {op: "apps.registry.put", args: {app, version, sha256, files}}` (the
   verified app only). The supervisor checks the hash, validates the package, writes it
-  atomically to `<state>/apps/registry/<publisher>/<name>/` and reloads its catalog.
+  atomically to `<state>/apps/registry/<namespace>/` (`octo.board`) and reloads its
+  catalog.
   The page then calls `cmux.apps.install`, which shows the existing native scopes sheet.
   Registry apps are tier `unverified` with source `registry`: they start sandboxed with
   read scopes, like every third-party app (app-platform.md 10).
@@ -189,7 +201,10 @@ Gesture tokens for web panes; provider-owned ops from a web pane; a Chromium eng
 host for panes; signed bundles and the Verified tier; paid listings; screenshots in
 listings; update prompts for installed registry apps (the page shows the newer
 version, the person gets it again); search ranking; reports and takedown (a reviewer
-can reject only pending versions; removal of an approved version is a follow-up).
+can reject only pending versions; removal of an approved version is a follow-up);
+proof that a publisher owns the GitHub account its name matches (in this MVP the
+first person to submit under a name holds it, and the reviewer checks the repository);
+an event stream into web panes (a pane reads again on a timer).
 
 ## 8. Tests
 
