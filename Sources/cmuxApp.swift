@@ -1751,6 +1751,7 @@ enum MainWindowBootstrapWindowPolicy {
 
     static func owns(_ window: NSWindow, objectIdentifier: ObjectIdentifier) -> Bool {
         ObjectIdentifier(window) == objectIdentifier
+            && window.identifier?.rawValue == identifier
     }
 }
 
