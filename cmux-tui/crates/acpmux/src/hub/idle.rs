@@ -243,9 +243,9 @@ impl Hub {
             if link_lost {
                 self.end_unadopted_host(&session).await;
             }
-            drop((turn, using, spawning));
             // Stopped meanwhile (`kill` clears the mark): its next start is no wake, and this
-            // was no hibernation.
+            // was no hibernation. The leases stay held through the stored mark, so no Stop (it
+            // takes `harness_use`) and no wake (it takes `spawn_lock`) clears it in between.
             if session.status() == SessionStatus::Closed
                 || session.hibernated_at.load(Ordering::SeqCst) == 0
             {
@@ -256,6 +256,7 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
                 crate::store::now_ms().max(1);
             self.save_meta(&session);
+            drop((turn, using, spawning));
             tracing::info!(
                 session = %session.id,
                 cause = "idle",
