@@ -79,32 +79,46 @@ test("an authoritative daemon clear updates the mirror for a later fallback", as
   expect(await actions["chat.readDraft"]({ sessionId })).toBe("");
 });
 
-test("a newer local write wins over an older read and its mirror sync", async () => {
-  let release!: () => void;
-  const reading = new Promise<void>((resolve) => {
-    release = resolve;
+for (const duringMirrorSync of [false, true]) {
+  test(`a newer local write wins during ${duringMirrorSync ? "mirror sync" : "daemon read"}`, async () => {
+    let release!: () => void, reached!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const block = async () => {
+      reached();
+      await reading;
+    };
+    let mirror = "old",
+      daemon = "daemon old";
+    const actions = draftTextActions(
+      {
+        readDraft: async () => {
+          if (!duringMirrorSync) await block();
+          return { sessionId, draft: daemon };
+        },
+        writeDraft: async (_id, text) => {
+          daemon = text;
+        },
+      },
+      async (method, params) => {
+        if (method === "chat.draftText.set") {
+          if (duringMirrorSync && params.text === "daemon old") await block();
+          mirror = String(params.text);
+        }
+        return method === "chat.draftText.get" ? mirror : undefined;
+      },
+    );
+    const oldRead = actions["chat.readDraft"]({ sessionId });
+    await started;
+    const write = actions["chat.writeDraft"]({ sessionId, text: "new local" });
+    release();
+    expect(await oldRead).toBe("new local");
+    await write;
+    expect(mirror).toBe("new local");
+    expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: "new local" });
   });
-  let mirror = "old";
-  let daemon = "daemon old";
-  const actions = draftTextActions(
-    {
-      readDraft: async () => {
-        await reading;
-        return { sessionId, draft: daemon };
-      },
-      writeDraft: async (_id, text) => {
-        daemon = text;
-      },
-    },
-    async (method, params) => {
-      if (method === "chat.draftText.set") mirror = String(params.text);
-      return method === "chat.draftText.get" ? mirror : undefined;
-    },
-  );
-  const oldRead = actions["chat.readDraft"]({ sessionId });
-  const write = actions["chat.writeDraft"]({ sessionId, text: "new local" });
-  release();
-  expect(await oldRead).toBe("new local");
-  await write;
-  expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: "new local" });
-});
+}

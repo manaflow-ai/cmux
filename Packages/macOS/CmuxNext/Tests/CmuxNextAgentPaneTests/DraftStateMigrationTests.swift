@@ -111,7 +111,7 @@ nonisolated struct DraftStateMigrationTests {
 
         let drafts = try fixture.object("destination/agent-composer-drafts.json")
         #expect(drafts["chat"] as? String == "new")
-        #expect(drafts["cleared"] == nil)
+        #expect(drafts["cleared"] as? String == "")
         #expect(drafts["current"] as? String == "")
         #expect(drafts["distinct"] as? String == "B only")
     }
@@ -123,9 +123,10 @@ nonisolated struct DraftStateMigrationTests {
         try fixture.write("source/sessions/cleared/session.json", #"{"id":"cleared"}"#, date: 20)
         try fixture.write("source/sessions/updated/session.json", #"{"id":"updated","composerDraft":"new daemon"}"#, date: 20)
         try fixture.write("destination/agent-composer-drafts.json", #"{"genuine":"B current"}"#)
+        try fixture.write("source/sessions/genuine/session.json", #"{"id":"genuine"}"#, date: 30)
 
-        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
-        DraftStateMigration.adoptComposerDrafts(from: [fixture.url("source")], to: fixture.url("destination"))
+        DraftStateMigration.adopt(from: [fixture.url("source")],
+                                 composerHomes: [fixture.url("source")], to: fixture.url("destination"))
 
         let drafts = try fixture.object("destination/agent-composer-drafts.json")
         #expect(drafts["cleared"] as? String == "")
@@ -140,11 +141,14 @@ nonisolated struct DraftStateMigrationTests {
         try fixture.write("source/sessions/chat/session.json", #"{"id":"chat","composerDraft":"older daemon"}"#, date: 10)
         try fixture.write("new/sessions/chat/session.json", "{not valid json", date: 20)
 
-        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
-        DraftStateMigration.adoptComposerDrafts(from: [fixture.url("new"), fixture.url("source")], to: fixture.url("destination"))
+        DraftStateMigration.adopt(from: [fixture.url("source")],
+                                 composerHomes: [fixture.url("new"), fixture.url("source")], to: fixture.url("destination"))
 
-        let drafts = try fixture.object("destination/agent-composer-drafts.json")
-        #expect(drafts["chat"] as? String == "legacy")
+        #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-composer-drafts.json").path))
+        try fixture.write("new/sessions/chat/session.json", #"{"id":"chat","composerDraft":"repaired newest"}"#, date: 30)
+        DraftStateMigration.adopt(from: [fixture.url("source")],
+                                 composerHomes: [fixture.url("new"), fixture.url("source")], to: fixture.url("destination"))
+        #expect((try fixture.object("destination/agent-composer-drafts.json"))["chat"] as? String == "repaired newest")
     }
 
     @Test func quickDraftFileIsAdoptedOnlyWhenDestinationIsAbsent() throws {
