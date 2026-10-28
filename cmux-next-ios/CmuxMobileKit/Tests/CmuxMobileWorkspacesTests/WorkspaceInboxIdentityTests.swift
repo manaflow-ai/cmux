@@ -87,3 +87,20 @@ import Testing
         #expect(inbox.workspace("missing") == nil)
     }
 }
+
+/// The keyed sort orders exactly as `isNewer` does.
+@Suite struct WorkspaceInboxSortTests {
+    @Test func keyedSortMatchesIsNewer() {
+        var rows: [Workspace] = []
+        for index in 0..<120 {
+            var w = Workspace(id: "w\(index)", macID: index % 3 == 0 ? "a" : "b", title: "\(index)", directory: "~", tabs: [],
+                              lastActivityAt: Date(timeIntervalSince1970: Double((index * 37) % 50)), hasActivityTime: index % 5 != 0)
+            w.sidebarIndex = index % 4 == 0 ? (index * 7) % 11 : nil
+            w.focusOrder = (index * 13) % 7
+            rows.append(w)
+        }
+        let order = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let expected = rows.sorted { WorkspaceInbox.isNewer($0, $1, order: order) }.map(\.id)
+        #expect(WorkspaceInbox.newestFirst(rows.shuffled(), order: order).map(\.id) == expected)
+    }
+}

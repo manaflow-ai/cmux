@@ -195,9 +195,39 @@ final class WorkspacesHeightCache {
 }
 
 /// A list cell that takes its height from the cache when its value was measured before.
-final class WorkspacesListCell: UICollectionViewListCell {
+/// A plain cell, not a `UICollectionViewListCell`: a list cell asks its
+/// hosting view for the separator's leading inset on every layout, a SwiftUI
+/// layout pass per cell (a third of the main thread while scrolling). The list
+/// layout still gives it swipe actions; it draws its own hairline.
+final class WorkspacesListCell: UICollectionViewCell {
     var heights: WorkspacesHeightCache?
     var key: WorkspacesHeightCache.Key?
+    /// A hairline under a row, from the rows' text column to their trailing inset.
+    var showsSeparator = false {
+        didSet { hairline.isHidden = !showsSeparator }
+    }
+    private let hairline = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        hairline.backgroundColor = .separator
+        hairline.isUserInteractionEnabled = false
+        hairline.isHidden = true
+        addSubview(hairline)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // 1 pt, as the plain list's separator measured on the iOS 26.5 simulator (3 px at 3x).
+        let height: CGFloat = 1
+        let size = DynamicTypeSize(traitCollection.preferredContentSizeCategory) ?? .large
+        let leading = CmuxMobileListColumn.plain(size).text
+        hairline.frame = CGRect(x: leading, y: bounds.height - height, width: max(0, bounds.width - leading - 20), height: height)
+        bringSubviewToFront(hairline)
+    }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         let width = attributes.size.width
@@ -243,14 +273,13 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
         config.backgroundColor = .clear
         config.headerMode = .none
-        config.showsSeparators = true
+        // The cells draw their own hairline: a list separator asks each cell's
+        // hosting view for its leading alignment, a SwiftUI layout pass per cell.
+        config.showsSeparators = false
         // Trailing only: a rightward swipe from the leading edge belongs to the team sidebar.
         config.leadingSwipeActionsConfigurationProvider = nil
         config.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
             self?.swipeActions(at: indexPath)
-        }
-        config.itemSeparatorHandler = { [weak self] indexPath, separator in
-            self?.separator(at: indexPath, separator) ?? separator
         }
         let listConfig = config
         let layout = UICollectionViewCompositionalLayout { index, environment in
@@ -302,6 +331,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         var background = UIBackgroundConfiguration.clear()
         if item.isRow { background.backgroundColor = theme.colors.bg.uiColor }
         cell.backgroundConfiguration = background
+        // Rows draw the separator under them from the text column; titles, group
+        // headers, Mac lines and placeholders draw none (as the SwiftUI list did).
+        cell.showsSeparator = item.isRow
         shown[ObjectIdentifier(cell)] = (id, item)
     }
 
@@ -357,12 +389,26 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         items = next.items
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 && !sections.isEmpty else { return }
         if plan.orderChanged || dataSource.snapshot().numberOfSections == 0 {
-            var snapshot = NSDiffableDataSourceSnapshot<String, String>()
-            for section in sections {
-                snapshot.appendSections([section.id])
-                snapshot.appendItems(section.items, toSection: section.id)
+            if !animated, !plan.membershipChanged, let moves = Self.moves(from: shownSections, to: sections) {
+                // A live reorder (a row went to the top): moved items only, in place.
+                var snapshot = dataSource.snapshot()
+                for move in moves {
+                    if let before = move.before {
+                        snapshot.moveItem(move.id, beforeItem: before)
+                    } else {
+                        snapshot.deleteItems([move.id])
+                        snapshot.appendItems([move.id], toSection: move.section)
+                    }
+                }
+                dataSource.apply(snapshot, animatingDifferences: false)
+            } else {
+                var snapshot = NSDiffableDataSourceSnapshot<String, String>()
+                for section in sections {
+                    snapshot.appendSections([section.id])
+                    snapshot.appendItems(section.items, toSection: section.id)
+                }
+                dataSource.apply(snapshot, animatingDifferences: animated)
             }
-            dataSource.apply(snapshot, animatingDifferences: animated)
             applyCount += 1
         }
         shownSections = sections
@@ -382,6 +428,59 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         guard let cell = cell as? WorkspacesListCell, let id = dataSource?.itemIdentifier(for: indexPath) else { return }
         if let last = shown[ObjectIdentifier(cell)], last.id == id, last.item == items[id] { return }
         configure(cell, id)
+    }
+
+    struct Move: Equatable {
+        var id: String
+        var section: String
+        /// The item it now goes before; nil: last in its section.
+        var before: String?
+    }
+
+    /// The few moves that turn `old` into `new` when only a handful of items
+    /// changed place (same sections, same items): each moved item, placed before
+    /// its new successor. Nil when the change is bigger than that (a new snapshot).
+    static func moves(from old: [ListSectionIDs], to new: [ListSectionIDs], limit: Int = 8) -> [Move]? {
+        guard old.map(\.id) == new.map(\.id) else { return nil }
+        var moves: [Move] = []
+        for (before, after) in zip(old, new) where before.items != after.items {
+            guard Set(before.items) == Set(after.items) else { return nil }
+            // Items outside the longest run kept in order are the moved ones.
+            let kept = Set(longestKeptRun(before.items, after.items))
+            for (index, id) in after.items.enumerated() where !kept.contains(id) {
+                moves.append(Move(id: id, section: after.id, before: index + 1 < after.items.count ? after.items[index + 1] : nil))
+                if moves.count > limit { return nil }
+            }
+        }
+        // Apply from the end, so each "before" item is already where it belongs.
+        return moves.reversed()
+    }
+
+    /// The items of `new` that keep their relative order from `old`, found
+    /// greedily: a moved item is one whose old position breaks the run.
+    private static func longestKeptRun(_ old: [String], _ new: [String]) -> [String] {
+        let position = Dictionary(old.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        // Patience sorting over old positions in new order: the longest increasing subsequence.
+        var tails: [Int] = []
+        var tailIndex: [Int] = []
+        var previous = Array(repeating: -1, count: new.count)
+        for (index, id) in new.enumerated() {
+            let value = position[id] ?? 0
+            var low = 0, high = tails.count
+            while low < high {
+                let mid = (low + high) / 2
+                if tails[mid] < value { low = mid + 1 } else { high = mid }
+            }
+            if low > 0 { previous[index] = tailIndex[low - 1] }
+            if low == tails.count { tails.append(value); tailIndex.append(index) } else { tails[low] = value; tailIndex[low] = index }
+        }
+        var run: [String] = []
+        var cursor = tailIndex.last ?? -1
+        while cursor >= 0 {
+            run.append(new[cursor])
+            cursor = previous[cursor]
+        }
+        return run.reversed()
     }
 
     private func configureRefresh(_ wanted: Bool) {
@@ -412,24 +511,6 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private func swipeActions(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         guard let (id, item) = item(at: indexPath) else { return nil }
         return actions?.swipe(id, item)
-    }
-
-    /// Rows draw the separator under them from the text column; titles, group
-    /// headers, Mac lines and placeholders draw none (as the SwiftUI list did).
-    private func separator(at indexPath: IndexPath, _ separator: UIListSeparatorConfiguration) -> UIListSeparatorConfiguration {
-        var separator = separator
-        guard let (_, item) = item(at: indexPath), item.isRow else {
-            separator.topSeparatorVisibility = .hidden
-            separator.bottomSeparatorVisibility = .hidden
-            return separator
-        }
-        let size = DynamicTypeSize(collectionView?.traitCollection.preferredContentSizeCategory ?? .large) ?? .large
-        let leading = CmuxMobileListColumn.plain(size).text
-        separator.topSeparatorVisibility = .hidden
-        separator.bottomSeparatorVisibility = .visible
-        // From the text column to the rows' trailing inset, as the SwiftUI list drew it.
-        separator.bottomSeparatorInsets = NSDirectionalEdgeInsets(top: 0, leading: leading, bottom: 0, trailing: 20)
-        return separator
     }
 
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],

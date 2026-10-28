@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Synchronization
 import Testing
 @testable import CmuxMobileModel
 
@@ -9,10 +10,10 @@ import Testing
 @MainActor
 @Suite struct WorkspacePublishTests {
     private func observes(_ store: AppStore, _ change: () -> Void) -> Bool {
-        var fired = false
-        withObservationTracking { _ = store.workspaces } onChange: { fired = true }
+        let fired = Mutex(false)
+        withObservationTracking { _ = store.workspaces } onChange: { fired.withLock { $0 = true } }
         change()
-        return fired
+        return fired.withLock { $0 }
     }
 
     @Test func theSameWorkspacesDoNotNotify() {

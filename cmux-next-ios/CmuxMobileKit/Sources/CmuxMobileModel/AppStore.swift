@@ -18,10 +18,14 @@ public final class AppStore {
         set {
             guard newValue != workspaceStorage else { return }
             withMutation(keyPath: \.workspaces) { workspaceStorage = newValue }
+            workspacesRevision &+= 1
             refreshAttentionCount()
         }
     }
     @ObservationIgnored private var workspaceStorage: [Workspace]
+    /// Moves on every change of `workspaces`: what reads them can key a memo
+    /// on it instead of comparing every workspace (read it with `workspaces`).
+    @ObservationIgnored public private(set) var workspacesRevision = 0
     /// The active team's workspaces that need attention (the Workspaces tab
     /// badge). Kept as a value that changes only with the count: the
     /// workspaces change on every Mac tree update while an agent works, and a

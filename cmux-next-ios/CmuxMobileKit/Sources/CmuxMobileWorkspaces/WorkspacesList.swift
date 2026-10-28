@@ -117,7 +117,8 @@ public struct WorkspacesList: View {
     /// Memoized: the body reads it for the rows, the subtitle, the refresh
     /// state and the animations, and it is built once per change.
     var inbox: WorkspaceInbox {
-        inboxMemo.inbox(WorkspaceInbox.Memo.Input(scope: scope, macs: macs, workspaces: store.workspaces, query: query,
+        inboxMemo.inbox(WorkspaceInbox.Memo.Input(scope: scope, macs: macs, workspaces: store.workspaces,
+                                                  workspacesRevision: store.workspacesRevision, query: query,
                                                   context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
                                                                                   phases: phases)))
     }
@@ -368,6 +369,10 @@ public struct WorkspacesList: View {
     /// each Mac's fold, then the placeholders.
     private func listModel(_ inbox: WorkspaceInbox) -> WorkspacesListModel {
         let names = macNames()
+        var rights: [String: WorkspaceCreator.MacRights] = [:]
+        for mac in macs { rights[mac.id] = creator.rights(onMac: mac.id) }
+        let pending = store.pendingWorkspaceIDs
+        let tracks = store.tracksMacData
         var model = WorkspacesListModel()
         func add(_ section: String, _ entries: [(String, WorkspacesListItem)]) {
             guard !entries.isEmpty else { return }
@@ -375,7 +380,10 @@ public struct WorkspacesList: View {
             for (id, item) in entries where model.items[id] == nil { model.items[id] = item }
         }
         func rows(_ list: [Workspace]) -> [(String, WorkspacesListItem)] {
-            list.map { (WorkspacesListModel.rowID($0.id), .row(rowModel($0, inbox, names))) }
+            list.map { ws in
+                let mac = rights[ws.macID] ?? .none
+                return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending, tracks: tracks)))
+            }
         }
         if inbox.allAsleep && query.isEmpty { add("asleep", [("asleep", .asleep)]) }
         if !inbox.needsYou.isEmpty { add("needs", [("title.needs", .title("Needs You"))] + rows(inbox.needsYou)) }
@@ -388,7 +396,7 @@ public struct WorkspacesList: View {
             }
             for section in inbox.recentSections {
                 if let group = section.group {
-                    let canEdit = section.workspaces.first.map { creator.canGroup($0) } ?? false
+                    let canEdit = section.workspaces.first.map { !pending.contains($0.id) && rights[$0.macID]?.group == true } ?? false
                     entries.append(("group.\(section.id)", .group(WorkspaceGroupHeaderModel(group: group, macID: section.macID,
                                                                                               count: section.workspaces.count, canEdit: canEdit))))
                     if !group.isCollapsed { entries += rows(section.workspaces) }
@@ -486,16 +494,20 @@ public struct WorkspacesList: View {
         return Dictionary(macs.map { ($0.id, sameNames.displayName($0)) }, uniquingKeysWith: { first, _ in first })
     }
 
-    private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String]) -> WorkspaceRowModel {
+    /// A row's values. `rights` is its Mac's (`WorkspaceCreator.rights(onMac:)`),
+    /// worked out once per pass: the same answers as `canManage`, `canArrange`
+    /// and `canDuplicate` for this workspace.
+    private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String], rights: WorkspaceCreator.MacRights,
+                          pending: Set<String>, tracks: Bool) -> WorkspaceRowModel {
         let status = inbox.status(ws)
         let macName = names[ws.macID]
-        let canManage = status != .offline && creator.canManage(ws)
-        let canArrange = canManage && creator.canArrange(ws)
+        let canManage = status != .offline && !pending.contains(ws.id) && rights.manage
+        let canArrange = canManage && rights.arrange
         let moves = canArrange ? inbox.moves(of: ws) : (up: false, down: false)
         return WorkspaceRowModel(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
                                  offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
-                                 tracksMacData: store.tracksMacData, canManage: canManage, canArrange: canArrange,
-                                 canDuplicate: canManage && creator.canDuplicate(ws), canMoveUp: moves.up, canMoveDown: moves.down)
+                                 tracksMacData: tracks, canManage: canManage, canArrange: canArrange,
+                                 canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down)
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
