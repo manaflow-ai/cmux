@@ -87,8 +87,9 @@ extension WindowController {
         let floating = Set(docks.visible.filter { $0.mode == .overlay }.map(\.workspace))
         for (id, view) in views { view.applyDockedWorkspaceChrome(floating: floating.contains(id)) }
         host.stackFloatingDocks(front: Set(floating.compactMap { views[$0].map(ObjectIdentifier.init) }))
+        let frame = docks
         host.arrangeContent = { bounds in
-            let placement = geometry.place(docks, in: CGRect(origin: .zero, size: bounds.size))
+            let placement = geometry.place(frame, in: CGRect(origin: .zero, size: bounds.size))
             var frames = placement.docks.map { (id: $0.workspace, frame: $0.frame) }
             if let set {
                 frames += set.frames(in: placement.stage, gap: gap)

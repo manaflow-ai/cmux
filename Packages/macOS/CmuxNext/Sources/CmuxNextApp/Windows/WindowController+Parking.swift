@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextLayout
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): every workspace this window showed stays mounted and
 // paused, so a switch back swaps its view in within the frame.

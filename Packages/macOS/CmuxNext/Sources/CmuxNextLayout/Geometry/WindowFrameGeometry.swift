@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 
 /// Places a window's docked workspaces and its stage (plans/cmux-next/docked-workspace-DESIGN.md G1 to G3, W6 to W8).
 /// Pure: rects are y-down (`minY` is the top), whole points.
