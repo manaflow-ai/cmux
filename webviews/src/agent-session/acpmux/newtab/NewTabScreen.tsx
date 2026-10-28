@@ -137,6 +137,8 @@ export type NewTabScreenActions = {
   environments?: boolean;
   /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
   onConnect?(kind: ConnectKind): void;
+  /// Reconnects a remote machine through the app's existing remote.reconnect action.
+  onReconnectRemote?(peer: string): void;
   /// The location row's machine list opened, and every few seconds while it stays open: the host
   /// reads acpmux's machines again (`_acpmux/status`).
   onRefreshMachines?(): void;
@@ -1181,6 +1183,7 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.onReconnectRemote ? { onReconnectRemote: props.onReconnectRemote } : {})}
         {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {

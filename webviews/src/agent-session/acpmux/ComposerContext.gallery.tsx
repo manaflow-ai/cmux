@@ -544,6 +544,60 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "Preview, New Tab page: a picked saved environment names the strip; the folder control steps aside.",
       props: savedProps("l1"),
     },
+    "remote-connected": {
+      note: "A new chat on a remote machine keeps project optional and shows a simulated connected state beside Remote.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["studio-mac"],
+        peerKinds: { "studio-mac": "ssh" },
+        peerConnected: { "studio-mac": true },
+        peerStates: { "studio-mac": "connected" },
+        onReconnectRemote: () => undefined,
+        summary: {
+          sessionId: "gallery-remote-connected",
+          harness: "claude",
+          host: "studio-mac",
+          peer: "studio-mac",
+        },
+      },
+    },
+    "remote-connecting": {
+      note: "A remote machine still completing its handshake uses a neutral spinner, using a simulated acpmux connecting state.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["studio-mac"],
+        peerKinds: { "studio-mac": "ssh" },
+        peerConnected: { "studio-mac": false },
+        peerStates: { "studio-mac": "reconnecting" },
+        onReconnectRemote: () => undefined,
+        summary: {
+          sessionId: "gallery-remote-connecting",
+          harness: "claude",
+          host: "studio-mac",
+          peer: "studio-mac",
+        },
+      },
+    },
+    "remote-offline": {
+      note: "A simulated offline remote machine has a red reconnect action; it runs the existing remote reconnect command.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["studio-mac"],
+        peerKinds: { "studio-mac": "ssh" },
+        peerConnected: { "studio-mac": false },
+        peerStates: { "studio-mac": "offline" },
+        onReconnectRemote: () => undefined,
+        summary: {
+          sessionId: "gallery-remote-offline",
+          harness: "claude",
+          host: "studio-mac",
+          peer: "studio-mac",
+        },
+      },
+    },
     "ssh-chat": {
       note: "A chat on an SSH machine names that machine as its Computer, not this Mac (cx-7ooz).",
       props: {

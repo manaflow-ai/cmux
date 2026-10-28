@@ -459,8 +459,14 @@ final class AgentTabStore {
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
-            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
+            var actionArguments = arguments
+            let target: ActionTargetRef
+            if id == "remote.reconnect", let machine = actionArguments.removeValue(forKey: "machine") {
+                target = ActionTargetRef(kind: .machine, id: machine)
+            } else {
+                target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            }
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: actionArguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in

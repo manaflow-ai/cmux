@@ -87,6 +87,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editShortcut(AgentPaneTabKind)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
+    /// A gesture on the remote location strip retries only the named machine.
+    case reconnectMachine(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the

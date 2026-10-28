@@ -9435,6 +9435,9 @@ function AcpmuxPane() {
             }
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
+            onReconnectRemote={(peer) =>
+              void callNative("action.run", { id: "remote.reconnect", machine: peer }).catch(() => undefined)
+            }
             // The floating chat has no tab to move.
             {...(quick ? {} : { onOffload: offloadChat, offloads })}
             // The list opened: the machines' status and the chat's moves are read again.
@@ -9799,6 +9802,9 @@ function AcpmuxPane() {
                   }
                 : {})}
               onConnect={connectMachine}
+              onReconnectRemote={(peer) =>
+                void callNative("action.run", { id: "remote.reconnect", machine: peer }).catch(() => undefined)
+              }
               onRefreshMachines={() => void directClient.current?.refreshPeers()}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;

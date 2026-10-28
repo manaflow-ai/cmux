@@ -96,6 +96,9 @@ test("remote strip reflects real peer state and reconnects the existing command"
   );
   expect(host.querySelector(".acpmux-remote-location")?.getAttribute("data-state")).toBe("connected");
   expect(host.querySelector(".acpmux-remote-location-reconnect")).toBeNull();
+  await act(async () => root!.render(<ComposerContext {...props} peerConnected={{}} peerStates={{}} />));
+  expect(host.querySelector(".acpmux-remote-location")?.getAttribute("data-state")).toBe("unknown");
+  expect(host.querySelector(".acpmux-remote-location-reconnect")).toBeNull();
 });
 
 test("a remote machine pick leaves the project optional even when it has recent folders", async () => {

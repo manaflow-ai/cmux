@@ -380,7 +380,15 @@ extension AgentPaneRequest {
             }
         case "action.run":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                self = .runAction(id)
+                if id == "remote.reconnect" {
+                    if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256 {
+                        self = .reconnectMachine(machine)
+                    } else {
+                        self = .unsupported(method)
+                    }
+                } else {
+                    self = .runAction(id)
+                }
             } else {
                 self = .unsupported(method)
             }

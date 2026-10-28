@@ -24,13 +24,14 @@ extension AgentPaneModel {
     /// inside that same gesture. An action the app did not run (turned off, or not for this tab), with
     /// no fallback that ran, is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
-    func runAction(_ id: String) -> [String: Any] {
-        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id),
+    func runAction(_ id: String, machine: String? = nil) -> [String: Any] {
+        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id) || (id == "remote.reconnect" && machine != nil),
               let onRunAction else {
             return Self.unsupported("action.run")
         }
-        if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
-        if onRunAction(id, Self.connectArguments[id] ?? [:]) { return AgentPaneReply.success() }
+        if Self.connectActions.contains(id) || (id == "remote.reconnect" && machine != nil), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+        let arguments = id == "remote.reconnect" ? machine.map { ["machine": $0] } ?? [:] : Self.connectArguments[id] ?? [:]
+        if onRunAction(id, arguments) { return AgentPaneReply.success() }
         if let fallback = Self.connectFallbacks[id], onRunAction(fallback, [:]) { return AgentPaneReply.success() }
         return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
     }
