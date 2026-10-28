@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use crate::panic_free::JsonFields;
 use serde_json::Value;
 
 const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
@@ -44,8 +45,9 @@ pub enum ActionDecision {
 fn catalog() -> &'static HashMap<String, String> {
     static CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
     CATALOG.get_or_init(|| {
+        #[allow(clippy::expect_used, reason = "INVARIANT: ACTIONS_JSON is the action catalog built into this binary; the catalog test parses it")]
         let doc: Value = serde_json::from_str(ACTIONS_JSON).expect("action catalog is JSON");
-        doc["actions"]
+        doc.field("actions")
             .as_array()
             .into_iter()
             .flatten()

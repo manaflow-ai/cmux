@@ -178,8 +178,8 @@ impl EchoWatch {
         if self.shared.stopping.load(Ordering::Relaxed) {
             return None;
         }
-        let (index, word) = self.shared.claim(kind, 0, 0)?;
-        Some(RequestScope::new(&self.shared, index, word))
+        let (_, slot, word) = self.shared.claim(kind, 0, 0)?;
+        Some(RequestScope::new(&self.shared, slot, word))
     }
 
     /// [`Self::item`] for a `mux-pty-input` write.
@@ -219,7 +219,7 @@ pub(crate) fn process_enter(kind: WatchKind, method: u32) -> u32 {
     if shared.stopping.load(Ordering::Relaxed) {
         return 0;
     }
-    shared.claim(kind, 0, method).map_or(0, |(index, _)| u32::try_from(index + 1).unwrap_or(0))
+    shared.claim(kind, 0, method).map_or(0, |(index, _, _)| u32::try_from(index + 1).unwrap_or(0))
 }
 
 /// End the scope [`process_enter`] returned `token` for. Each token is

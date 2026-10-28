@@ -15,8 +15,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use super::values::{local_registry_id, workspace_public_id_for_key};
 use crate::user_settings::NewWorkspacePlacement;
 use crate::workspace_registry::personal_store::{
-    PersonalGroup, bump_personal_revision, next_workspace_position, read_groups, read_pins,
-    read_workspaces,
+    PersonalGroup, PersonalWorkspace, bump_personal_revision, next_workspace_position, read_groups,
+    read_pins, read_workspaces,
 };
 use crate::workspace_registry::{ResourceChange, ResourcePatch, WorkspaceRegistry};
 
@@ -31,29 +31,27 @@ pub(crate) fn sidebar_workspace_ids(connection: &Connection) -> anyhow::Result<V
     let rows = read_workspaces(connection)?;
     let groups = read_groups(connection)?;
     let known = groups.iter().map(|group| group.id.as_str()).collect::<HashSet<_>>();
-    let mut order = Vec::with_capacity(rows.len());
-    let members = |group: &str, order: &mut Vec<usize>| {
-        order.extend(
-            rows.iter()
-                .enumerate()
-                .filter(|(_, row)| row.group.as_deref() == Some(group))
-                .map(|(index, _)| index),
-        );
-    };
+    let mut order: Vec<&PersonalWorkspace> = Vec::with_capacity(rows.len());
+    fn members<'a>(
+        rows: &'a [PersonalWorkspace],
+        group: &str,
+        order: &mut Vec<&'a PersonalWorkspace>,
+    ) {
+        order.extend(rows.iter().filter(|row| row.group.as_deref() == Some(group)));
+    }
     for (index, row) in rows.iter().enumerate() {
         for group in groups.iter().filter(|group| group.top_index == Some(index)) {
-            members(&group.id, &mut order);
+            members(&rows, &group.id, &mut order);
         }
         if row.group.as_deref().is_none_or(|group| !known.contains(group)) {
-            order.push(index);
+            order.push(row);
         }
     }
     for group in groups.iter().filter(|group| group.top_index.is_none_or(|top| top >= rows.len())) {
-        members(&group.id, &mut order);
+        members(&rows, &group.id, &mut order);
     }
     let mut ids = Vec::with_capacity(order.len());
-    for index in order {
-        let row = &rows[index];
+    for row in order {
         if row.session_id == local
             && let Some(id) = workspace_public_id_for_key(connection, &row.workspace_key)?
         {
@@ -288,12 +286,14 @@ fn after_current_slot(
         .into_iter()
         .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
         .collect::<Vec<_>>();
-    let Some(index) =
-        rows.iter().position(|row| row.session_id == local && row.workspace_key == current)
+    let Some((index, row)) = rows
+        .iter()
+        .enumerate()
+        .find(|(_, row)| row.session_id == local && row.workspace_key == current)
     else {
         return Ok(None);
     };
-    let Some(group) = rows[index].group.clone() else { return Ok(Some((index + 1, None))) };
+    let Some(group) = row.group.clone() else { return Ok(Some((index + 1, None))) };
     // Into the group only when the new workspace shows in the group's room:
     // a workspace pinned to another room (the app pins before it creates)
     // goes to the top instead.
