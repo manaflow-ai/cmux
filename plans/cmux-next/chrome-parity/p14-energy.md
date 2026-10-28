@@ -1464,6 +1464,18 @@ repositories.
   `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFForkFeatures.swift`, the CEF pin file.
 - Change: collect every p14 fork patch on one integration branch, bump the fork API once, run one Chromium build, land
   one pin commit in cmux. Coordinate the pin with F2 and cef-layer.
+- Integration branch (136): manaflow-ai/cef `cp/p14-energy-136` (ce852697). Base: the API 31 train
+  `cp/p01-process-178` with the API 32 fence `cp/p03-rendering-042` merged in (31's
+  `cmux_browser_resize_fence` gives way to 32's). On it: 037 (2 ms slice), 046 (absolute delayed work), 124
+  (renderer pid), and `cmux_ui_thread_no_batches.patch`, which closes 037's open item: under the external
+  pump `BrowserUIThreadScheduler` runs one task per `DoWork` instead of an 8 ms `kRunTasksByBatches` batch
+  (`content/browser/scheduler/browser_ui_thread_scheduler.cc`, `SetCanRunTasksByBatches` only when the UI
+  pump factory is not overridden). `CMUX_CEF_API_VERSION` 33 numbers them all
+  (`CEFForkFeatures.p14BundleForkAPI`). Embedder cases `pump-slice` and `pump-delayed` are new.
+  Still to merge before the one build: 029 (no fork patch yet; cmux binds it by symbol and gates it on 33),
+  any Q8 fork patch (042-044) and 048's fork part if 048 finds one. 107 needs none. At the pin: this line has
+  no API 28/29 (cmux.34's capture and renderer paths), so `rendererPathsForkAPI` (29) must not read 33 as
+  having them; the in-process shim has no renderer-path exports today, so `rendererPaths` stays false.
 - Acceptance: the fork header lists every new function under one API number; the pin commit names the fork build; the
   cmux side compiles against old and new API.
 - Test phase: fork CI build; `cmux-ci build cmux --ref SHA`; idle-budget tabs-static and energy-saver.

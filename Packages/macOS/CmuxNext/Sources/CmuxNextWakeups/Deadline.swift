@@ -24,6 +24,7 @@ public struct Deadline: Sendable {
         /// The limit it had.
         public let limit: Duration
 
+        /// The exceeded limit of the race named `label`.
         public init(label: String, limit: Duration) {
             self.label = label
             self.limit = limit
