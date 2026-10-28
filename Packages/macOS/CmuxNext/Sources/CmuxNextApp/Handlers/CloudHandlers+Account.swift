@@ -69,10 +69,19 @@ extension CloudHandlers {
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
             let wizard = CloudWorkspaceSetupWizard()
+            // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
+            let supportsEnvironments = cloud.configuration.linkSource == .appServer
+            let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy, present: present) else { return }
+                supportsRepository: cloud.configuration.linkSource == .legacy,
+                environments: environments, supportsEnvironments: supportsEnvironments, present: present) else { return }
             var request = plan.request
+            if let new = plan.newEnvironment {
+                // Saved first, then booted: the first machine starts cold and runs the setup itself.
+                guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
+                request.environment = try await cloud.appServerSaveEnvironment(new)
+            }
             request.script = try await request.loadScript(work: services.work)
             try Task.checkCancellation()
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
