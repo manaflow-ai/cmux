@@ -341,6 +341,41 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 1, vms: [] })
   })
 
+  it("revalidates same-name requests that race while installing their first alarm", async () => {
+    const c = caller()
+    const stub = cloudStub(c.team)
+    await inDO(stub, async instance => {
+      const originalHost = instance.platformHost(c.team)
+      let entered!: () => void
+      const bothArmed = new Promise<void>(resolve => { entered = resolve })
+      const releases: Array<() => void> = []
+      const gates = [0, 1].map(() => new Promise<void>(resolve => { releases.push(resolve) }))
+      let calls = 0
+      let ready = 0
+      const host = { ...originalHost, arm: async (at: number) => {
+        const slot = calls++
+        await originalHost.arm(at)
+        if (++ready === 2) entered()
+        await gates[slot]
+      } }
+      const name = nameOf()
+      // Both requests read absence before either one can install its operation record.
+      const first = instance.platformOperations.request(host, c.user, { name, shape: { vcpu: 2, memGiB: 4, diskGiB: 16 }, labels: { runId: "first" } }, host.now)
+      const second = instance.platformOperations.request(host, c.user, { name, shape: { vcpu: 4, memGiB: 8, diskGiB: 32 }, labels: { runId: "second" } }, host.now)
+      try {
+        await bothArmed
+        releases[0]!()
+        expect(await first).toMatchObject({ ok: true, value: { shape: { vcpu: 2, memGiB: 4, diskGiB: 16 } } })
+        releases[1]!()
+        expect(await second).toMatchObject({ ok: false, code: "idempotency.conflict", retryable: false })
+      } finally {
+        for (const release of releases) release()
+        await Promise.allSettled([first, second])
+      }
+    })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
+  })
+
   it("is not reachable over HTTP", async () => {
     const worker = (exports as unknown as { default: Fetcher }).default
     for (const path of ["/PlatformMachines", "/v1/PlatformMachines/boot", "/platform-machines"]) {

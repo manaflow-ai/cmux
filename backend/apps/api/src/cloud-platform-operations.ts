@@ -115,6 +115,8 @@ export class PlatformOperations {
       // Install the alarm before recording any work; a crash can leave a harmless alarm, never an
       // unserviced allocating intent. The host binds its engine so OwnerDO's alarm will run.
       await host.arm(now + RETRY_MS)
+      // Another request may have installed this name while arm awaited storage. Re-enter the
+      // synchronous identity check before doing any work; the final absent read and put never await.
       if (this.read(key)) return this.request(host, user, input, now)
       o = { key, user, name: input.name, ...(input.machine ? { source: input.machine } : {}), ...(input.snapshot ? { image: input.snapshot } : {}), target, labels: input.labels ?? {}, phase: input.machine ? "capture" : "create", due: now, deadline: now + DEADLINE_MS }
       this.put(o)
