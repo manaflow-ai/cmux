@@ -161,24 +161,28 @@ impl Progress {
         let (stop, stopped) = mpsc::channel::<()>();
         let what = what.to_owned();
         // supervise-allow: owned by Progress and joined at its end; it only prints progress notes.
-        let spawned = std::thread::Builder::new().name("app-wait-notes".into()).spawn(move || {
-            let mut next = FIRST_NOTE_AFTER;
-            while next < total {
-                let left = next.saturating_sub(started.elapsed());
-                match crate::blocking::sync::recv_timeout(&stopped, left) {
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+        let spawned = cmux_threads::spawn(
+            "app-wait-notes",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let mut next = FIRST_NOTE_AFTER;
+                while next < total {
+                    let left = next.saturating_sub(started.elapsed());
+                    match crate::blocking::sync::recv_timeout(&stopped, left) {
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                    eprintln!(
+                        "{}",
+                        template
+                            .replace("{what}", &what)
+                            .replace("{elapsed}", &started.elapsed().as_secs().to_string())
+                            .replace("{total}", &total.as_secs().to_string())
+                    );
+                    next += NOTE_EVERY;
                 }
-                eprintln!(
-                    "{}",
-                    template
-                        .replace("{what}", &what)
-                        .replace("{elapsed}", &started.elapsed().as_secs().to_string())
-                        .replace("{total}", &total.as_secs().to_string())
-                );
-                next += NOTE_EVERY;
-            }
-        });
+            },
+        );
         // No thread, no notes: the request itself still runs.
         match spawned {
             Ok(thread) => Self { started, stop: Some(stop), thread: Some(thread) },
