@@ -1574,6 +1574,8 @@ mod adopt;
 #[cfg(unix)]
 mod preset_args;
 
+#[path = "hub_integration/bg_tasks.rs"]
+mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
 #[path = "hub_integration/lifecycle_fixes.rs"]
@@ -1582,8 +1584,6 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
-#[path = "hub_integration/bg_tasks.rs"]
-mod bg_tasks;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
