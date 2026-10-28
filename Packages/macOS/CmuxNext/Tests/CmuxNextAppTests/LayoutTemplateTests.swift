@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -93,12 +94,12 @@ struct LayoutTemplateTests {
     @Test func templatesPersistAndRenameAndDeleteThroughTheFile() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cn-layouts-\(UUID().uuidString.prefix(8))/layout-templates.json")
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        let library = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file))
+        let library = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try await library.save(name: "Two up", blueprint: Self.blueprint)
         try await library.save(name: "Solo", blueprint: Self.blueprint)
         let id = try #require(library.template(named: "two UP")?.id, "names match ignoring case")
 
-        let relaunched = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file))
+        let relaunched = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         await relaunched.load()
         #expect(relaunched.templates.map(\.name) == ["Two up", "Solo"])
         #expect(relaunched.template(named: "Two up")?.blueprint == Self.blueprint)
@@ -111,7 +112,7 @@ struct LayoutTemplateTests {
         await relaunched.settled()
         #expect(relaunched.templates.map(\.name) == ["Side by side"])
 
-        let again = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file))
+        let again = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         await again.load()
         #expect(again.templates.map(\.name) == ["Side by side"])
     }

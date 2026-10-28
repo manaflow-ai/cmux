@@ -242,6 +242,22 @@ final class FocusCoordinator {
         CommitBoundary().after { _ in body(ProcessInfo.processInfo.systemUptime + refresh) }
     }
 
+    /// The window's saved record names `pane` as the focused pane of `workspace` (relaunch,
+    /// `WindowState.adopt`). For a workspace the window does not show yet it is remembered for when it
+    /// shows (`restoredPane`). For the workspace it already shows (the launch window showed its panes
+    /// before it adopted the record) the saved pane takes the focus now, as when the record comes first,
+    /// unless a person chose since the window opened (every user intent bumps `generation`); a view that
+    /// took the keyboard by itself (Home's message box, AppKit's first key view) is no choice. Before,
+    /// that restore was dropped and Home kept the keyboard (QA chrome-parity-v2-2-2 bug 1). Sent as a
+    /// programmatic `focusPane`, the pinned reducer's own rule: no intent, the responder re-applied.
+    func restore(_ pane: String, workspace: String) {
+        let state = currentState()
+        guard state.topology.workspace == workspace else { return send(.restoredPane(pane, workspace: workspace)) }
+        guard state.generation == 0, state.topology.panes.contains(where: { $0.id == pane }),
+              state.pane != pane || state.target != .content else { return }
+        send(.focusPane(pane, source: .programmatic))
+    }
+
     /// Starts a user intent that lands later (split, new tab). Pass the
     /// returned generation to `expect`.
     func beginIntent() -> UInt64 {
@@ -287,10 +303,17 @@ final class FocusCoordinator {
 }
 
 extension FocusEvent.Source {
-    /// Mouse or keyboard from the event AppKit is dispatching, else programmatic (`NSApp.currentEvent`
-    /// stays the last event after its dispatch, so it counts only inside `sendEvent`; cx-3hw0i.2).
+    /// Mouse or keyboard from the event the action answers (`InputEventTap.actionEvent`: a context menu's
+    /// own choice), only while the app dispatches one; else programmatic: a CLI run after a click is not the
+    /// mouse (cx-3hw0i.2).
     static var current: FocusEvent.Source {
-        switch (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent?.type : nil {
+        let app = NSApp as? CmuxApplication
+        return of(app?.inputDispatch?.event == nil ? nil : app?.inputTap?.actionEvent)
+    }
+
+    /// Mouse or keyboard from `event`, the input an action answers; programmatic for none.
+    static func of(_ event: NSEvent?) -> FocusEvent.Source {
+        switch event?.type {
         case .keyDown, .keyUp, .flagsChanged: .keyboard
         case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .leftMouseDragged: .mouse
         default: .programmatic

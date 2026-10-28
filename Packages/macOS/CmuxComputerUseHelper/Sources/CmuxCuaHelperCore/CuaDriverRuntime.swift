@@ -2,6 +2,8 @@
 import CCuaDriverABI
 import Darwin
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Upstream Cua Driver, in process, through its stable C ABI (cua_driver_*_v1).
 /// The library is the pinned libcua_driver_sdk.dylib in the helper's
@@ -111,7 +113,7 @@ import Foundation
     public func invoke(name: String, arguments: Data) async throws -> Data {
         let free = unsafe self.free
         let release = unsafe self.release
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data, any Error>) in
             // SAFETY: the box is retained once here and released exactly once: by the
             // completion's takeRetainedValue when invoke returns 0 (the ABI then calls the
             // completion exactly once, cua_driver_abi.h), or by box.release() below when
@@ -161,10 +163,10 @@ import Foundation
     // crash-allow: two immutable lets, a CheckedContinuation (Sendable) and a C function pointer (a code address with no state); the ABI calls the completion exactly once.
     // `@safe`: `free` is the ABI's own buffer-free function, called only through take.
     @safe final class CompletionBox: @unchecked Sendable {
-        let continuation: CheckedContinuation<Data, any Error>
+        let continuation: OnceContinuation<Data, any Error>
         let free: FreeFn
 
-        init(continuation: CheckedContinuation<Data, any Error>, free: FreeFn) {
+        init(continuation: OnceContinuation<Data, any Error>, free: FreeFn) {
             self.continuation = continuation
             // SAFETY: stores the function pointer the runtime resolved; see the type note.
             unsafe self.free = free

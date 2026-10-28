@@ -9,6 +9,7 @@ extension MotionGate {
     /// `bloom` condenses the mark from a soft glow, 6% larger, to its crisp
     /// size. No overshoot in either. Under Reduce Motion both are a plain
     /// fade (`duration` caps it); with animation off the mark just shows.
+    /// The glow is `mark`'s shadow, cast from the shadowPath `LaunchMarkView` lays out.
     public func revealLaunchMark(_ style: LaunchMarkStyle, mark: CALayer, outline: CAShapeLayer, body: CAShapeLayer) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

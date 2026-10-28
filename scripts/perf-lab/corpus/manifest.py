@@ -20,6 +20,8 @@ then what the schema cannot say:
   - event and checkpoint times are ordered and within duration_ms; checkpoint names are unique
   - repository sources exist, match their digest and size, and no perf-corpus file is over 256 KB
   - metric names compile as regexes; the owner is an OWNERS.md owner; compose names known stories
+  - each config key is a cmux-next.json setting (schemas/defaults/cmux-next.json lists it as setting.<key>) and
+    its value has that default's type
 
 R2 (fetch, upload): CMUX_PERF_LAB_R2_PUBLIC_URL is the read base; upload uses trace_quest.R2BlobStore and its
 CMUX_PERF_LAB_R2_* credentials from the environment. The cache is $CMUX_PERF_CORPUS_CACHE, else
@@ -48,6 +50,7 @@ REPO_ROOT = LAB.parents[1]
 SCHEMA_PATH = "schemas/perf/corpus-story-v1.schema.json"
 VOCABULARY_PATH = "schemas/perf/corpus-input-vocabulary-v1.json"
 VOCABULARY_ID = "cmux-perf-corpus-vocabulary/v1"
+SETTINGS_PATH = "schemas/defaults/cmux-next.json"
 CORPUS_DIR = "perf-corpus"
 SCHEMA_ID = "cmux-perf-corpus-story/v1"
 MAX_GIT_BYTES = 256 * 1024
@@ -153,6 +156,32 @@ def load_schema(root: Path = REPO_ROOT) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- the rules the schema cannot say
+
+def load_settings(root: Path = REPO_ROOT) -> dict[str, Any]:
+    """{dotted setting path: default value} of every cmux-next.json setting (SETTINGS_PATH's setting.* keys)."""
+    defaults = json.loads((root / SETTINGS_PATH).read_text(encoding="utf-8"))["defaults"]
+    return {key.removeprefix("setting."): value for key, value in defaults.items() if key.startswith("setting.")}
+
+
+def _json_kind(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return {str: "string", list: "array", dict: "object", type(None): "null"}[type(value)]
+
+
+def config_errors(config: Mapping[str, Any], settings: Mapping[str, Any]) -> list[str]:
+    """Why a manifest's `config` would not launch the app it says: a key that is not a setting, or a value of
+    another type than the setting's default."""
+    errors = []
+    for key, value in config.items():
+        if key not in settings:
+            errors.append(f"$.config.{key}: not a cmux-next.json setting ({SETTINGS_PATH} has no setting.{key})")
+        elif _json_kind(value) != _json_kind(settings[key]):
+            errors.append(f"$.config.{key}: a {_json_kind(value)}, the setting takes a {_json_kind(settings[key])}")
+    return errors
+
 
 def load_vocabulary(root: Path = REPO_ROOT) -> dict[str, Any]:
     """The declared actions and CLI commands (VOCABULARY_PATH). A literal or shape outside the closed set raises,
@@ -272,9 +301,10 @@ def _sources(manifest: Mapping[str, Any]) -> Iterable[tuple[str, Any]]:
 
 def validation_errors(manifest: Any, *, root: Path = REPO_ROOT, schema: Mapping[str, Any] | None = None,
                       vocabulary: Mapping[str, Any] | None = None, owners: frozenset[str] | None = None,
-                      stories: frozenset[str] | None = None) -> list[str]:
+                      stories: frozenset[str] | None = None, settings: Mapping[str, Any] | None = None) -> list[str]:
     """One "where: reason" line per problem of MANIFEST (empty if valid). `owners` and `stories` are optional
-    allowlists for the owner and for compose; repository sources are checked under `root`."""
+    allowlists for the owner and for compose; repository sources are checked under `root`, and `config` against
+    `settings` (default load_settings(root))."""
     schema = schema if schema is not None else load_schema(root)
     vocabulary = vocabulary if vocabulary is not None else load_vocabulary(root)
     events: list[Any] = []
@@ -318,6 +348,8 @@ def validation_errors(manifest: Any, *, root: Path = REPO_ROOT, schema: Mapping[
             errors.append(f"$.metrics[{index}].name: {error}")
     if owners is not None and manifest["owner"] not in owners:
         errors.append(f"$.owner: {manifest['owner']!r} is not an owner in plans/cmux-next/OWNERS.md")
+    if "config" in manifest:
+        errors += config_errors(manifest["config"], settings if settings is not None else load_settings(root))
     if "compose" in manifest:
         for name in manifest["compose"]["stories"]:
             if name == manifest["id"] or (stories is not None and name not in stories):

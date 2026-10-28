@@ -56,6 +56,9 @@ final class LayoutViewContext {
     /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
     /// it started ends.
     var userMotionEnded: () -> Void = {}
+    /// A screen's render-server springs all landed, a pan held across the landing or not: the visibility pass
+    /// narrows to the rest (`LayoutRootView.updateVisibilityIfPlanChanged`).
+    var renderSpringsLanded: () -> Void = {}
     /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
     /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
     /// frames then (`ScreenContentView.pansOnContainer`).
@@ -100,6 +103,9 @@ final class LayoutViewContext {
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
+    /// Where the root hears its window's key changes (`LayoutRootView.observeKeyWindow()`): the
+    /// app's one ``WindowEvents`` per window; tests pass their own on their own center.
+    var hoverWindowEvents: @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) }
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
     var dragFrameInput: FrameInputCoalescers?

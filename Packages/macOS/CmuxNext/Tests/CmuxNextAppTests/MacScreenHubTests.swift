@@ -37,14 +37,14 @@ private final class CallLog {
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 @MainActor
-private func testHub() -> DeviceHub {
+func testHub() -> DeviceHub {
     let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
     let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                  tokens: DeviceHubAccountToken { throw DeviceHubError.notSignedIn })
     return DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
 }
 
-private func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
+func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
                     peer: String = hostID) -> SessionTicket {
     SessionTicket(sessionId: id, ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/\(id)/ws")!, ice: [],
                   peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope)
@@ -168,7 +168,7 @@ struct MacScreenHubCardTests {
 
     /// A device tab shows the stream's controls only while a session streams.
     @Test func deviceTabsShowStreamControlsOnlyWhileStreaming() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(),
                                  node: shownNode(), on: linklessMainWork())
         #expect(pane.model.card == .hubConnect)
@@ -189,7 +189,7 @@ struct MacScreenViewOnlyTests {
     }
 
     @Test func theSessionsScopeDecidesViewOnly() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(),
                                  node: shownNode(), on: linklessMainWork())
         #expect(!pane.model.viewOnly)
@@ -245,7 +245,7 @@ struct MacScreenAccessTests {
 @MainActor
 struct MacScreenHubViewerTests {
     @Test func requestAnswersMoveThePhase() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         viewer.phase = .requesting(.full)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .full)), scope: .full, hub: nil)
         #expect(viewer.phase == .waitingForApproval(sessionID: "s1", scope: .full))
@@ -259,14 +259,14 @@ struct MacScreenHubViewerTests {
 
     /// A ticket can arrive before the request's answer: the answer then changes nothing.
     @Test func anAnswerAfterTheTicketIsIgnored() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: nil)
         #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
     }
 
     @Test func ticketsMatchTheirSessionOrTheRequestedHost() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         viewer.phase = .requesting(.full)
         #expect(viewer.accepts(ticket("s9")))
         #expect(!viewer.accepts(ticket("s9", peer: "11111111-2222-3333-4444-555555555555")))
@@ -280,7 +280,7 @@ struct MacScreenHubViewerTests {
 
     @Test func aTicketStartsTheStreamWithItsSignalingOnce() throws {
         let hub = testHub()
-        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { hub }
         let signaling = IdleSignaling()
         viewer.makeSignaling = { _, _ in signaling }
         var started = 0
@@ -296,7 +296,7 @@ struct MacScreenHubViewerTests {
     }
 
     @Test func denialsRevocationsAndEndsShowTheirCards() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         var stopped = 0
         viewer.stopStream = { stopped += 1 }
         viewer.phase = .waitingForApproval(sessionID: "s1", scope: .full)
@@ -320,7 +320,7 @@ struct MacScreenHubViewerTests {
     /// Disconnect tells the hub why (`/end viewer_disconnected`) before the stream stops.
     @Test func disconnectEndsOnTheHubBeforeTheStreamStops() async {
         let hub = testHub()
-        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { hub }
         let order = CallLog()
         viewer.endSession = { _, id, reason in order.items.append("end \(id) \(reason)") }
         viewer.stopStream = { order.items.append("stop") }
@@ -335,7 +335,7 @@ struct MacScreenHubViewerTests {
     /// A stream that failed keeps its card (which says why) when the hub's end for it arrives.
     @Test func aFailedStreamKeepsItsCard() {
         let hub = testHub()
-        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { hub }
         viewer.endSession = { _, _, _ in }
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
         viewer.streamFailed()
@@ -351,11 +351,10 @@ struct MacScreenHubViewerTests {
     /// cause (signed_out, sharing_off) that is on its way wins at the hub too.
     @Test func aDroppedStreamWaitsBeforeEndingAsFailed() async throws {
         let hub = testHub()
-        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let rig = MainDeadlineRig()
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: rig.deadlines) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
-        let clock = ManualClock()
-        viewer.failureEnd = DemandTimer(owner: "test.mac-screen.hub-failure-grace", clock: clock)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         viewer.streamFailed()
         #expect(ends.items.isEmpty)
@@ -363,19 +362,20 @@ struct MacScreenHubViewerTests {
         #expect(!viewer.failureEnd.isScheduled)
         #expect(ends.items.isEmpty)
         #expect(viewer.phase == .revoked(reason: "signed_out"))
-        // No push comes: the hub hears "failed" after the grace.
+        // No push comes: the hub hears "failed" after the grace, as one background deadline.
         viewer.phase = .streaming(sessionID: "s2", scope: .view)
         viewer.streamFailed()
-        try await clock.waitForSleeper()
-        #expect(ends.items.isEmpty)
-        clock.advance(by: viewer.failureGrace)
+        #expect(viewer.failureEnd.isScheduled && viewer.failureEnd.workClass == .background)
+        rig.frame()
+        #expect(ends.items.isEmpty, "the end came before its grace")
+        rig.fireAndRun()
         for _ in 0..<500 where ends.items.isEmpty { await Task.yield() }
         #expect(ends.items == ["s2 failed"])
     }
 
     /// A stream that failed while this Mac's hub link was down keeps saying so after the link returns.
     @Test func aLostLinkFailureStaysExplained() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { testHub() }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { testHub() }
         viewer.endSession = { _, _, _ in }
         viewer.failureGrace = .seconds(60)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
@@ -410,7 +410,7 @@ struct MacScreenHubViewerTests {
     @Test func theHostsReasonWinsOverTheDroppedStream() {
         for scope: SessionScope in [.view, .full] {
             let hub = testHub()
-            let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+            let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { hub }
             viewer.endSession = { _, _, _ in }
             viewer.failureGrace = .seconds(60)
             viewer.phase = .streaming(sessionID: "s1", scope: scope)
@@ -428,7 +428,7 @@ struct MacScreenHubViewerTests {
     /// afterwards never ends the session it started.
     @Test func aLateAnswerNeverEndsTheSessionItStarted() async {
         let hub = testHub()
-        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
         viewer.phase = .streaming(sessionID: "s2", scope: .full)
@@ -446,7 +446,7 @@ struct MacScreenHubViewerTests {
     /// A stalled stream whose host the hub lists offline ends now; either alone does not
     /// (a host's short hub drop leaves a live stream alone, and a stall may recover).
     @Test func aStalledStreamOfAnOfflineHostEnds() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         let stops = CallLog()
         viewer.stopStream = { stops.items.append("stop") }
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
@@ -462,18 +462,18 @@ struct MacScreenHubViewerTests {
     /// The viewer gives up with the hub: a request nobody answers ends at the five-minute expiry.
     @Test func anUnansweredRequestExpires() async throws {
         let hub = testHub()
-        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let rig = MainDeadlineRig()
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: rig.deadlines) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
-        let clock = ManualClock()
-        viewer.approvalExpiry = DemandTimer(owner: "test.mac-screen.hub-request-expiry", clock: clock)
         viewer.phase = .requesting(.view)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .view)), scope: .view, hub: hub)
         #expect(viewer.phase == .waitingForApproval(sessionID: "s1", scope: .view))
-        try await clock.waitForSleeper()
-        clock.advance(by: viewer.approvalTimeout)
-        for _ in 0..<500 where viewer.phase != .ended(reason: "expired") { await Task.yield() }
+        #expect(viewer.approvalExpiry.isScheduled && viewer.approvalExpiry.workClass == .visible)
+        rig.fireAndRun()
+        // The card says so in the deadline's task; the hub hears it after.
         #expect(viewer.phase == .ended(reason: "expired"))
+        for _ in 0..<500 where ends.items.isEmpty { await Task.yield() }
         #expect(ends.items == ["s1 expired"])
     }
 
@@ -497,7 +497,7 @@ struct MacScreenHubViewerTests {
     }
 
     @Test func withoutAHubARequestIsRefusedAsSignedOut() {
-        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let viewer = MacScreenHubViewer(deviceID: hostID, deadlines: linklessDeadlines()) { nil }
         viewer.request(.view)
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
@@ -509,7 +509,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     @Test func pushesReachTheTabOfTheirSession() throws {
@@ -663,7 +663,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -698,7 +698,7 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
@@ -736,7 +736,7 @@ struct MacScreenHubHostOrderTests {
 @MainActor
 struct MacScreenApprovalPanelTests {
     @Test func everyPromptHasAVisibleFrame() throws {
-        let prompt = MacScreenApprovalPrompt(mainWork: linklessMainWork())
+        let prompt = MacScreenApprovalPrompt(deadlines: linklessDeadlines())
         let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
         let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
         prompt.update([first])

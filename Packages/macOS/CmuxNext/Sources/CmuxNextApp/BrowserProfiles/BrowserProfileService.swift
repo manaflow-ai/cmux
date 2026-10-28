@@ -1,10 +1,16 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLaunch
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Browser profiles of this app install (plans/cmux-next/data-model.md 5):
 /// the records, which profile a new tab gets, and each tab's engine store.
@@ -19,22 +25,26 @@ final class BrowserProfileService {
     private(set) var book = BrowserProfileBook()
     /// False until the file was read (a launch reads it off the main thread).
     private(set) var isLoaded = false
-    @ObservationIgnored unowned let services: AppServices
+    @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     /// Nil until `load` (tests and a service that never loaded write nothing).
     @ObservationIgnored private(set) var file: BrowserProfileBookFile?
     /// The onboarding import's saved data (nil: no import migration).
     @ObservationIgnored private(set) var importStore: ImportedDataStore?
-    @ObservationIgnored private var saving: Task<Void, Never>?
+    @ObservationIgnored private var saving: Task<Void, any Error>?
     /// The file's launch read, signaled once it applied: `loaded()` and every browser tab's page at launch
     /// wait for it (`TabContentCache.enginesAwait`, p08-startup-028).
     @ObservationIgnored let loadRead = LaunchReadEvent("BrowserProfiles.loaded")
-    @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
-    @ObservationIgnored var recordProfileObservation: Task<Void, Never>?
+    /// The home daemon's records follow (``observeHomeRecords()``); nil until the file was read.
+    @ObservationIgnored var homeRecordsObservation: ServiceObservation<ObservationTrigger<Bool>>?
+    /// The live pages' store follow (``followRecordProfiles()``); nil until the file was read.
+    @ObservationIgnored var recordProfileObservation: ServiceObservation<[(String, BrowserProfileID, URL)]>?
     @ObservationIgnored var migratingRecords = false
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     /// `<Application Support>/<bundle id>/BrowserProfiles`.
@@ -48,31 +58,38 @@ final class BrowserProfileService {
     /// earlier run and moves pre-profile imports (in `importStore`) into
     /// their own profiles.
     func load(directory: URL, importStore: ImportedDataStore? = nil) {
+        guard let services else { return }
         let file = BrowserProfileBookFile(url: directory.appending(path: "profiles.json"))
         self.file = file
         self.importStore = importStore
         // Until the book applied, no engine makes a tab's page with a profile chosen from an empty book (a deleted
         // profile's tab would reopen its store; p08-startup-028, Chrome opens a profile's windows from its loaded callback).
         services.cache.enginesAwait = loadRead
-        // task-owner: one-shot launch read of a small JSON file
-        Task { [weak self] in
+        let mainWork = services.mainWork
+        // task-owner: one-shot launch read of a small JSON file. R-hop: read on the file's actor, off main; the book
+        // applies in one visible task (the launch's browser pages wait for it).
+        services.work.task(.userVisible) { [weak self] in
             let loaded = await file.load()
-            guard let self else { return }
-            book = loaded
-            isLoaded = true
-            refreshPresentation()
-            cleanUpDeletedProfiles()
-            observeHomeRecords()
-            followRecordProfiles()
-            migrateImports()
-            loadRead.signal()
+            mainWork.postFromAnyThread(.visible, owner: "BrowserProfiles.loaded") { [weak self] in self?.didLoad(loaded) }
         }
+    }
+
+    /// The file's launch read landed with `loaded`.
+    private func didLoad(_ loaded: BrowserProfileBook) {
+        book = loaded
+        isLoaded = true
+        refreshPresentation()
+        cleanUpDeletedProfiles()
+        observeHomeRecords()
+        followRecordProfiles()
+        migrateImports()
+        loadRead.signal()
     }
 
     /// Waits until the file was read.
     func loaded() async {
         if isLoaded { return }
-        await withCheckedContinuation { done in loadRead.post { done.resume() } }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in loadRead.post { done.resume(returning: ()) } }
     }
 
     // MARK: Records
@@ -80,7 +97,7 @@ final class BrowserProfileService {
     /// Profiles in order: the home daemon's once they moved there
     /// (`browser-profiles-v1`), else this Mac's file.
     var ordered: [BrowserProfileRecord] {
-        guard usesDaemonRecords else { return book.ordered }
+        guard usesDaemonRecords, let services else { return book.ordered }
         return services.machines.local.store.personal.browserProfiles.map(Self.record(from:))
     }
 
@@ -105,11 +122,13 @@ final class BrowserProfileService {
     }
 
     private func save() {
+        guard let services else { return }
         guard let file else { return }
         let snapshot = book, previous = saving, logger = logger
-        // task-owner: chained single-file saves; each waits for the previous
-        saving = Task {
-            await previous?.value
+        // task-owner: chained single-file saves; each waits for the previous. R-hop: off main on the file's actor;
+        // quit waits for each (one small atomic write, as Chrome's ImportantFileWriter blocks shutdown).
+        saving = services.work.task(.userVisible, shutdown: .blockShutdown) {
+            _ = try? await previous?.value
             do { try await file.save(snapshot) } catch {
                 logger.error("save browser profiles: \(String(describing: error), privacy: .public)")
             }
@@ -117,13 +136,14 @@ final class BrowserProfileService {
     }
 
     /// Waits for pending saves (tests, termination).
-    func flush() async { await saving?.value }
+    func flush() async { _ = try? await saving?.value }
 
     // MARK: Engine stores
 
     /// The engine store of a tab: an incognito window's session, else the
     /// profile its record names (fixed at creation), else the default one.
     func engineProfile(forTab key: String) -> BrowserProfileID {
+        guard let services else { return book.engineProfile(for: nil) }
         if case let windows = services.windows, let incognito = windows.browserProfile(forWorkspace: services.workspaceID(ofTab: key)) {
             return incognito
         }

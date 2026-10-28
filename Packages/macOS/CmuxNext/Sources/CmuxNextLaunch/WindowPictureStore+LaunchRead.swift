@@ -15,14 +15,19 @@ public import Foundation
 /// a launch with no picture reads nothing more than the folders. The meta must name that window and profile; the
 /// image is then decoded there (`LaunchFileReader.image(at:maximumBytes:)` creates it with
 /// `kCGImageSourceShouldCacheImmediately`), so the main thread gets pixels ready to draw. The first frame asks with
-/// ``takeFront()`` and never waits; the picture is handed out once and dropped at startup complete when nobody took
-/// it (``dropFront()``; a decoded window picture is tens of MB).
+/// ``takeFront(matching:launch:)``, the only way out of the store, so the launch rules always apply
+/// (WindowPictureStore+LaunchRules.swift); it never waits. The picture is handed out once and dropped at startup
+/// complete when nobody took it (``dropFront()``; a decoded window picture is tens of MB).
 ///
 /// ```swift
 /// let pictures = WindowPictureStore(state: stateDirectory, work: work)
 /// pictures.prefetchFront({ frontWindow() }) { DebugTimings.markLaunch($0) }
 /// order.startup.whenComplete { _ in pictures.dropFront() }
-/// let front = pictures.takeFront()   // at the first window's frame
+/// _ = await pictures.frontFinished()   // the first window orders in once the read has ended
+/// let facts = WindowPictureStore.LaunchFacts(savedPicture: settings.snapshot.savedPicture,
+///                                            recovered: crashRecovery.recovery.isRestart,
+///                                            incognitoLeftovers: incognitoLedger.mayHaveLeftovers)
+/// let front = pictures.takeFront(matching: openingWindowMeta, launch: facts)   // at the first window's frame
 /// ```
 extension WindowPictureStore {
     /// A larger picture file is not read.
@@ -69,16 +74,23 @@ extension WindowPictureStore {
         launch.start(front, mark: mark)
     }
 
-    /// The front window's picture, at once and never waiting: nil while the read runs (the window shows what it
-    /// shows with no picture), when the last quit saved none of that window, or once handed out or dropped.
-    public func takeFront() -> FrontPicture? {
+    /// The front window's picture with no launch rule applied, at once and never waiting: nil while the read runs,
+    /// when the last quit saved none of that window, or once handed out or dropped. Internal: the launch takes it
+    /// only through ``takeFront(matching:launch:)``.
+    func takeFront() -> FrontPicture? {
         launch.take()
     }
 
-    /// The front window's picture once the read has ended (the caller suspends; no thread waits), without
-    /// handing it out: the first window orders in on it (p08-startup-059). Nil when there is none, or it was
-    /// taken or dropped.
-    public func frontFinished() async -> FrontPicture? {
+    /// Whether the read found a picture, once it has ended (the caller suspends; no thread waits), without handing
+    /// it out: the first window orders in on it (p08-startup-059). False when there is none, or it was taken or
+    /// dropped. It gives no pixels: those come only through ``takeFront(matching:launch:)``.
+    @discardableResult
+    public func frontFinished() async -> Bool {
+        await launch.finished() != nil
+    }
+
+    /// The front window's picture once the read has ended, with no launch rule applied (tests).
+    func finishedFront() async -> FrontPicture? {
         await launch.finished()
     }
 
@@ -122,6 +134,11 @@ extension WindowPictureStore {
             }
             end()
             return result
+        }
+
+        /// Records the launch mark `name` with the read's recorder (a refusal, WindowPictureStore+LaunchRules.swift).
+        func note(_ name: String) {
+            mark(name)
         }
 
         func finished() async -> FrontPicture? {

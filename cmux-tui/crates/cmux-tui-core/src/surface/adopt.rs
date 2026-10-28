@@ -254,6 +254,8 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
+                publication_posted: AtomicBool::new(false),
+                publications: Arc::default(),
                 directory_reported: AtomicBool::new(false),
                 geometry: RankedMutex::new(
                     LockRank::Geometry,
@@ -284,10 +286,11 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,

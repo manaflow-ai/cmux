@@ -39,6 +39,10 @@ nonisolated final class PowerSourceMonitor: Sendable {
         }
     }
 
+    /// notify(3)'s name for a battery charge change. IOPowerSources.h's `kIOPSNotifyPercentChange`
+    /// is not imported into Swift from the macOS SDK, so its value is spelled here.
+    static let percentChangeNotification = "com.apple.system.powersources.percent"
+
     /// The system calls the monitor makes; a test passes a fake Mac.
     nonisolated struct System: Sendable {
         /// The Mac has an `IOPMPowerSource` service (a Mac mini, Studio or Pro has none).
@@ -52,12 +56,15 @@ nonisolated final class PowerSourceMonitor: Sendable {
         var cancel: @Sendable (_ token: Int32) -> Void
         /// Runs work on the monitor's queue.
         var post: @Sendable (_ work: @escaping @Sendable () -> Void) -> Void
-        /// Runs work on the main actor: inline on the main thread, else on the main queue's next turn.
+        /// Runs work on the main actor, called from the monitor's queue.
         var toMain: @Sendable (_ work: @escaping @MainActor @Sendable () -> Void) -> Void
 
-        /// IOKit and notify(3) on the app's one power-source queue.
-        static func live() -> System {
+        /// IOKit and notify(3) on the app's one power-source queue; a reading reaches the main actor as one
+        /// `visible` task on `mainWork` (it changes the energy policy and the low-battery card the person sees),
+        /// so it waits behind the person's input like any posted task.
+        static func live(mainWork: MainWorkScheduler) -> System {
             let queue = DispatchQueue.checked(label: "com.cmuxterm.next.energy.power-source", qos: .utility)
+            let owner = mainWork.board.owner("Energy.powerSource")
             return System(hasPowerSource: { PowerSourceMonitor.hasPowerSourceService() },
                           read: { PowerSourceMonitor.read() },
                           register: { name, handler in
@@ -69,7 +76,7 @@ nonisolated final class PowerSourceMonitor: Sendable {
                           },
                           cancel: { token in _ = notify_cancel(token) },
                           post: { work in queue.async(execute: work) },
-                          toMain: { work in MainDelivery().run(work) })
+                          toMain: { work in mainWork.postFromAnyThread(.visible, owner: owner, work) })
         }
     }
 
@@ -96,7 +103,7 @@ nonisolated final class PowerSourceMonitor: Sendable {
     private let system: System
     private let state = Mutex(State())
 
-    init(system: System = .live()) {
+    init(system: System) {
         self.system = system
     }
 
@@ -151,7 +158,7 @@ nonisolated final class PowerSourceMonitor: Sendable {
         }
         guard let next else { return }
         if reading.onBattery, next.percentToken == nil {
-            let token = system.register(kIOPSNotifyPercentChange) { [weak self] in self?.changed(run) }
+            let token = system.register(Self.percentChangeNotification) { [weak self] in self?.changed(run) }
             guard keep(token, in: \.percentToken, run: run) else { return }
         } else if !reading.onBattery, let token = next.percentToken {
             state.withLock { if $0.run == run { $0.percentToken = nil } }

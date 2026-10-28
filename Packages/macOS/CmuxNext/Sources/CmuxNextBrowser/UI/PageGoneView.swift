@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// area (child-window pages get an occlusion hole there, so this view is
 /// what the pane shows) and offers Reload, which starts a new process on the
 /// same URL and history.
-final class PageGoneView: NSView {
+final class PageGoneView: ChromeFrameView {
     var onReload: (() -> Void)?
     private let symbol = NSImageView()
     private let titleLabel = ChromeLabel(labelWithString: "")
@@ -25,24 +25,18 @@ final class PageGoneView: NSView {
         let reload = reloadButton
         reload.target = self
         reload.setAccessibilityIdentifier(BrowserChromeView.pageGoneReloadIdentifier)
-        let stack = NSStackView(views: [symbol, titleLabel, messageLabel, reload, codeLabel])
-        stack.orientation = .vertical
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            density.bind(stack.centerYAnchor.constraint(equalTo: centerYAnchor)) { -BrowserMetrics.toolbarHeight },
-            density.bind(stack.widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
-        ])
-        density.update { [titleLabel, messageLabel, codeLabel, symbol] in
+        for view in [symbol, titleLabel, messageLabel, reload, codeLabel] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(view)
+        }
+        density.update { [weak self] in
+            guard let self else { return }
             titleLabel.font = BrowserMetrics.errorTitleFont
             messageLabel.font = BrowserMetrics.bodyFont
             codeLabel.font = BrowserMetrics.captionFont
-            messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
             // chrome-icons: allow a page body, not toolbar chrome
             symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
-            stack.spacing = BrowserMetrics.overlayPadding
+            needsLayout = true // invalidate: a design token changed the sizes the column lays out
         }
         density.start(in: self)
     }
@@ -50,21 +44,33 @@ final class PageGoneView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func layout() {
+        super.layout()
+        let column: [NSView] = [symbol, titleLabel, messageLabel, reloadButton, codeLabel]
+        PageMessageLayout.statusPage(rightToLeft: laysOutRightToLeft).layout(column, in: bounds)
+    }
+
     func show(_ exit: BrowserProcessExit) {
-        // A Chromium tab says what Chrome's sad tab says.
+        // A Chromium tab says what Chrome's sad tab says, and that Chromium stopped when its host ended.
         let chromium = exit.engine == .cef
         titleLabel.stringValue = chromium ? Strings.pageGoneChromiumTitle : Strings.pageGoneTitle(exit.reason)
-        messageLabel.stringValue = chromium ? Strings.pageGoneChromiumMessage : Strings.pageGoneMessage(exit.reason)
+        messageLabel.stringValue = switch (chromium, exit.process) {
+        case (true, .chromiumHost): Strings.pageGoneChromiumHostMessage
+        case (true, .page): Strings.pageGoneChromiumMessage
+        case (false, _): Strings.pageGoneMessage(exit.reason)
+        }
         if let code = exit.codeDescription {
             codeLabel.stringValue = Strings.pageGoneErrorCode(code)
             codeLabel.isHidden = false
         } else {
             codeLabel.isHidden = true
         }
+        needsLayout = true // invalidate: the title, message or error code changed the column
         isHidden = false
         updateColors()
     }
 
+    // visibility-walk-allow: five color stores (a layer color, a tint, three text colors) in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

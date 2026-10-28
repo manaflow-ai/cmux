@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import WebKit
 
@@ -21,9 +22,15 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
     private var pausing: Set<ObjectIdentifier> = []
     /// Each running download's progress, mirrored into its item.
     private var progressObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
+    /// The tab's main-thread scheduler: progress and pause answers land as `visible` tasks on it (the downloads list).
+    private let mainWork: MainWorkScheduler
+    /// The progress task owner, interned once: KVO reports progress per chunk, from any thread.
+    private let progressOwner: MainTaskOwner
 
     init(tab: WebKitTab) {
         self.tab = tab
+        mainWork = tab.mainWork
+        progressOwner = tab.mainWork.board.owner("WebKitDownloads.progress")
     }
 
     /// Takes `download` over; `chosen` is the file the person picked, if any.
@@ -59,9 +66,12 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         download.delegate = self
         let progress = download.progress
         let key = ObjectIdentifier(download)
+        let mainWork = mainWork, owner = progressOwner
+        // raw-observer-allow: NSProgress reports a download's bytes only through KVO; it is this download's own progress, no window's or app's notice
         progressObservations[key] = progress.observe(\.completedUnitCount, options: [.new]) { [weak self, weak item] progress, _ in
             let received = progress.completedUnitCount, total = progress.totalUnitCount
-            Task { @MainActor in
+            // node-free: the downloads list shows every tab's downloads, a hidden tab's too
+            mainWork.postFromAnyThread(.visible, owner: owner) {
                 // An update queued before Pause or the end is stale: it would clear the pause.
                 guard let self, let item, self.items[key] === item, !self.pausing.contains(key) else { return }
                 item.update(received: received, total: total > 0 ? total : nil)
@@ -78,8 +88,10 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         pausing.insert(key)
         progressObservations.removeValue(forKey: key)?.invalidate()
         item.isPaused = true
+        let mainWork = mainWork
         download.cancel { [weak self, weak item] data in
-            Task { @MainActor in
+            // node-free: the downloads list shows every tab's downloads, a hidden tab's too
+            mainWork.postFromAnyThread(.visible, owner: "WebKitDownloads.pause") {
                 guard let self else { return }
                 self.pausing.remove(key)
                 guard self.items.removeValue(forKey: key) != nil, let item, item.status == .inProgress else { return }

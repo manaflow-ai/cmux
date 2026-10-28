@@ -65,7 +65,6 @@ open class PopupRowView: NSView {
     private var isHovering = false { didSet { if oldValue != isHovering { needsDisplay = true } } }
     private var isPressed = false { didSet { if oldValue != isPressed { needsDisplay = true } } }
     private var showsFocus = false { didSet { needsDisplay = true } }
-    private var tracking: NSTrackingArea?
 
     public init(leading: NSView?, title: String, subtitle: String? = nil, trailing: NSView? = nil,
                 layout: Layout = Layout(), interactive: Bool = true) {
@@ -121,6 +120,9 @@ open class PopupRowView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(interactive ? .button : .staticText)
         setAccessibilityLabel([title, subtitle].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", "))
+        if interactive {
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
+        }
     }
 
     /// The title's end yields while the row is narrower than its columns (a panel not yet sized).
@@ -181,23 +183,13 @@ open class PopupRowView: NSView {
         }
     }
 
+    // visibility-walk-allow: one invalidation; AppKit draws only views on screen, so a hidden row pays nothing
     open override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     // MARK: Pointer
-
-    open override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        tracking = nil
-        guard isInteractive else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-                                  owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     // Crossing into or out of a row is a position like a move: with a popup consumer it coalesces with the
     // moves around it, so a sweep across the rows hovers at most twice a frame. A press is discrete: the
@@ -207,6 +199,8 @@ open class PopupRowView: NSView {
         if let hoverMoves { hoverMoves.crossed(event) } else if isEnabled { onHover?() }
     }
 
+    // local-monitor-allow: with feature pointerFrameHover the moves go to the popup's PointerFrameHover, on its
+    // window's FrameInputCoalescer (recipe R-input); off, each move hovers at once
     open override func mouseMoved(with event: NSEvent) {
         if let hoverMoves { hoverMoves.moved(event) } else { pointerMoved() }
     }

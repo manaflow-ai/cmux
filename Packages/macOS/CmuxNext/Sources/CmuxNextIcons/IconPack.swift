@@ -32,6 +32,29 @@ public nonisolated struct IconPack: Sendable, Decodable {
         overlayName.withLock { $0 = name }
     }
 
+    /// Decodes the shipped pack and ``IconCatalog/bundled`` on a new one-shot thread, then calls
+    /// `decoded` there: 367 KB of JSON in two `swift_once`s that the first tab, sidebar row or menu
+    /// icon otherwise decodes on the main thread before the first frame. The launch calls it from
+    /// `main()`; a draw that comes first waits only for the rest of that one decode. The Debug
+    /// overlay is left alone: Debug Settings chooses it later, on main.
+    public static func decodeBundledInBackground(then decoded: @escaping @Sendable () -> Void) {
+        decodeInBackground({ _ = shipped; _ = IconCatalog.bundled }, then: decoded)
+    }
+
+    /// The warm-up thread of ``decodeBundledInBackground(then:)``: runs `decode`, then `decoded`, on it.
+    package static func decodeInBackground(
+        _ decode: @escaping @Sendable () -> Void,
+        then decoded: @escaping @Sendable () -> Void
+    ) {
+        let thread = Thread {
+            decode()
+            decoded()
+        }
+        thread.name = "cmux-next icon warm-up"
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
     private static let overlayName = Mutex<String?>(nil)
     private static let shipped: IconPack = load("cmux-icons") ?? IconPack(icons: [:])
     private static let overlaid: IconPack = {

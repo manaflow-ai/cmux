@@ -1,0 +1,164 @@
+# cmux NEXT memory: Memory Saver, budgets from RAM, one coordinator per process
+
+Owner: PL-memory ([OWNERS.md](OWNERS.md)). The program spec is
+[chrome-parity/p07-memory.md](chrome-parity/p07-memory.md). Browser hibernation details (keep rules,
+freeze, neighbors, wake) stay in [tab-lifecycle.md](tab-lifecycle.md) section 3. Task 007 writes the
+design sections of this file; the freezing section is task 103's and the hidden-pages section is task
+110's. When 007 lands, keep its sections and put these two after section 7, "Measurement".
+
+## Freezing hidden pages
+
+### Why 30 seconds
+
+A hidden Chromium page freezes after `browser.freezeHiddenTabs` seconds, 30 by default
+(`BrowserHibernationSetting.defaultFreezeSeconds`). The timer is a power choice, not a memory one: a
+frozen page keeps its memory and its state.
+
+- A hidden page keeps its renderer awake about 0.5 to 1.5 times a second (msg 2654). Freezing it cut the
+  renderer's energy by about 90 % on cmux14, and hibernation closes a page only after 60 minutes hidden.
+  Chrome's own throttling of hidden pages (one wake-up a second at once, intensive throttling after 5
+  minutes, `kIntensiveWakeUpThrottling`) leaves those wake-ups; a frozen page has none.
+- 30 seconds is long enough for the work a page starts as the person leaves it (a send, a save, an
+  upload's last request) to end, and for a quick look at another tab and back to find a live page.
+  Pages the person switches to with one key (`browser.keepNeighborTabsAwake`) and a hovered tab stay
+  awake whatever the timer, so the timer does not decide the cost of the next switch.
+- Chrome's `FreezingPolicy` freezes hidden pages under its battery saver, pages above its high-CPU
+  proportion (`kFreezingHighCPUProportion`); cmux freezes every hidden page that can freeze, since cmux keeps many more
+  hidden pages (agents' pages, dashboards) than a person keeps background tabs. Energy Saver freezes a
+  CPU-heavy hidden page before the delay (`SaverCPUFreeze`).
+
+### What never freezes
+
+Chrome's `CannotFreezeReason`s (`components/performance_manager/freezing/freezing_policy.cc`), behind
+feature `memoryFreezeEligibility` (`FreezeEligibility`, `HibernationPlanner.freezePlan`): never freeze a
+page whose site may show notifications, that holds a Web Lock or an open IndexedDB connection (Chrome:
+a blocking IndexedDB lock; cmux has no engine hook for that yet, so any open connection counts), or that
+still loads. The page's recorder counts the locks this document holds (`BrowserPageBusy`), as Chrome
+counts them per frame; `navigator.locks.query()` would list every page of the origin. A page kept for its
+load, or that starts to load before its freeze probe answers, is planned again when the load ends (an
+observation, no timer).
+
+An opener and the pages it opened freeze only when every one of them is due, and thaw together, as
+Chrome freezes a browsing instance as a whole; the hibernation of one member thaws that page alone, as
+Chrome discards a frozen page without unfreezing its group. The links are read once per plan, only when
+a due page asks for its group. cmux's own reasons stay: pinned tabs, Never Hibernate
+hosts, DevTools, capture, an agent's lease, background activity, playing media, Web Audio, WebRTC and
+open devices.
+
+## Hidden Chromium pages: backgrounded and purged
+
+Question: does a hidden Chromium page in cmux give back memory the way a hidden tab does in Chrome,
+before any hibernation closes it?
+
+### What Chrome does
+
+1. A renderer process whose frames are all hidden, with no audio, capture or foreground worker, gets
+   `Priority::kBestEffort`: `RenderProcessHostImpl::UpdateProcessPriority`
+   (`content/browser/renderer_host/render_process_host_impl.cc`). On macOS `Process::SetPriority`
+   (`base/process/process_mac.cc`) then sets the task role `TASK_BACKGROUND_APPLICATION` and a
+   `TASK_SUPPRESSION_POLICY` (low CPU priority, timer and throughput throttling), and
+   `TASK_FOREGROUND_APPLICATION` with no suppression again when a frame shows.
+2. The renderer learns it is backgrounded (`RenderThreadImpl::OnRendererBackgrounded`) and
+   `blink::MemoryPurgeManager` (`third_party/blink/renderer/core/timing/memory_purge_manager.cc`) purges
+   V8, PartitionAlloc and Skia memory at a random time 1 to 4 minutes later, and at once when all of its
+   pages are frozen.
+3. A frame is hidden when its `WebContents` is hidden: `WebContentsImpl::UpdateWebContentsVisibility`
+   (`content/browser/web_contents/web_contents_impl.cc`), fed on macOS by the view's hide and by window
+   occlusion (`content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm`).
+
+In cmux, `CefBrowserHost::WasHidden` does nothing for a windowed Chrome-style browser
+(`CEFTabNodeVisibility.swift`). If Chromium never counts a hidden cmux page as hidden, step 1 never
+runs, the renderer keeps its foreground role, and step 2 never purges. Freezing
+(`browser.freezeHiddenTabs`) then saves CPU but not memory. The fork's `cmux_tab_set_visibility`
+(fork API 37, p06-scheduler-212) sends a tab's hide to `UpdateWebContentsVisibility`, but only with
+the default-off feature `chromiumTabVisibility` and a fork pin at API 37 or later. So the bench runs
+twice: with the feature off (what people get today) and on.
+
+### The measurement
+
+`scripts/cmux-next/bench_hibernation.py --background-timeline 0,30,300,600`. Hibernation is off for
+the run, so every page stays loaded. For each freeze mode (`off`, then `on` at `--freeze` seconds) the
+bench opens `--tabs` Chromium pages, each its own site (`tN.localhost`, so each has its own renderer
+under site isolation), and hides them behind one shown tab. The timeline's `--heap-mb` is 0 by
+default: a live array is memory no purge can free, so a pinned heap (the other phases use 40 MB)
+would make a correct purge fall by less than 10 % of the 0 s PMF.
+At 0 s, 30 s, 5 min and 10 min after the hide it reads, for each hidden page, the footprint of the
+renderer that hosts that page and no other (from the app's `resources` report), and that renderer's
+task role.
+
+- PMF is `phys_footprint` from `proc_pid_rusage`, the number Chrome reports as private memory footprint
+  on macOS (`components/metrics/process_memory_metrics_emitter.cc`).
+- The task role is read the way the idle audit reads it (`idle-budget.py` `observed_role` over
+  `scripts/perf-bench/procs.py` `priorities`, same user, no task port): `darwinbg` (the kernel's
+  darwin-background bit), `suppressed` (a base priority below `BASEPRI_DEFAULT` 31: the suppression
+  policy's low CPU priority, App Nap or a positive nice) or `default` (not lowered). The role itself
+  changes thread QoS, not the base priority (xnu `osfmk/kern/task_policy.c`), so Chrome's background
+  renderer shows as `suppressed` or `darwinbg`, a foreground one as `default`. The raw base priorities
+  are printed too.
+
+The bench first prints `PERF-HIBERNATE-BACKGROUND-START chromiumTabVisibility=<state> fork_api=<n>
+heap_mb=<n>` (the state from `features.list`, the API from `debug.cef`). Below fork API 37 the feature makes no
+call, so a run with it on measures the same as off. Then one line per mode and point:
+
+```text
+PERF-HIBERNATE-BACKGROUND freeze=off at_s=300 measured_at_s=300.0 per_hidden_tab_pmf_mb=... max_hidden_tab_pmf_mb=...
+    renderer_task_role=suppressed:6 renderer_base_priority=4,4,4,4,4,4 front_task_role=default frozen=0/6 measured=6/6
+```
+
+then one `PERF-HIBERNATE-BACKGROUND-SUMMARY` line per mode (`measured`, PMF at the four points,
+`fell_mb`, `fell_pct`, `backgrounded`, the roles at 30 s), and a verdict:
+
+- `measured`: at 30 s at least one hidden renderer has a role read and none is `unread`, and the
+  per-page PMF has a value at 0 s and at 10 min. It is false when the `resources` report failed,
+  when every hidden page shares its renderer, or when the task priorities could not be read.
+- `backgrounded`: every measured hidden renderer has the `suppressed` or `darwinbg` role at 30 s.
+- `pmf_falls`: the per-page PMF at 10 min is at least 10 % below the PMF at 0 s.
+- `follow_up=unmeasured` when no mode ran or a mode is not `measured`: the run says nothing about
+  Chromium. Find the cause in the run's stderr, then run it again. File no follow-up.
+- Else `follow_up=none` when `backgrounded` and `pmf_falls` are true in every mode, and
+  `follow_up=shim-visibility` when not.
+
+The bench's last script call into each page starts the 30 s agent grace, so with freezing on a page
+freezes at the later of `--freeze` and 30 s; the `frozen=` count at each point shows when. The run
+writes the report (`--out FILE.json`, key `background`) and no result-v1 series.
+
+Commands (fleet, exclusive; one run is about 21 min: two freeze modes of 10 min each):
+
+```bash
+cmux-ci run --class exclusive --measurement --label measure --ref SHA \
+  --script 'scripts/cmux-next/bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 --tabs 6 --heap-mb 0 --out background-off.json'
+cmux-ci run --class exclusive --measurement --label measure --ref SHA \
+  --script 'scripts/cmux-next/bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 --tabs 6 --heap-mb 0 --feature chromiumTabVisibility=on --out background-on.json'
+```
+
+### Result
+
+Not run yet. The lead's fleet measurement round records host, SHA, step ID, `fork_api` and the
+numbers here.
+
+| chromiumTabVisibility | Freeze | 0 s PMF MB | 30 s | 5 min | 10 min | Role at 30 s | Frozen at 10 min | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| off | off | | | | | | | |
+| off | on | | | | | | | |
+| on | off | | | | | | | |
+| on | on | | | | | | | |
+
+### Follow-up when the PMF does not fall
+
+Read the two runs together. If one of them gives `follow_up=unmeasured`, run it again and file
+nothing until both are measured.
+
+- Off gives `follow_up=shim-visibility` and on gives `follow_up=none` (fork API 37 or later): the fix
+  exists. File a p07-memory task to turn `chromiumTabVisibility` on by default with these numbers,
+  and tell its owner (PL-cef-tab).
+- Both give `follow_up=shim-visibility`, or the pin is below API 37: file this task in p07-memory.
+  - Title: hidden Chromium pages reach Chromium as hidden.
+  - Files: the cef-cmux fork (`cmux_tab_set_visibility` reaches
+    `WebContentsImpl::UpdateWebContentsVisibility` for a windowed Chrome-style browser, and the
+    renderer's priority follows it as in `RenderProcessHostImpl::UpdateProcessPriority`),
+    `CEF/Shim/cmux_cef_shim.h`, `CEFTabNodeVisibility.swift` and `CEFPaneHost.swift` (hidden and shown
+    from the tab's visibility node, occlusion from `WindowDrawPolicy`), behind a fork API check.
+  - Acceptance: this bench shows `backgrounded=True` at 30 s and `pmf_falls=True` in both freeze
+    modes; the shown tab's renderer stays `default`; a shown tab paints its first frame within the
+    tab-switch budget (`bench-tab-switch.sh`, not worse).
+  - Test: fleet exclusive, this bench before and after.

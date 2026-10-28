@@ -243,25 +243,28 @@ public nonisolated final class TerminalEchoStage: Sendable {
 
     // MARK: Layer association
 
-    /// The associated-object key: the stage class object, one stable address readable from any thread.
-    @safe private static var associationKey: UnsafeRawPointer {
-        // SAFETY: only an address used as a key, never dereferenced; the class object lives for
-        // the process, so the address is stable.
-        unsafe UnsafeRawPointer(Unmanaged.passUnretained(TerminalEchoStage.self as AnyObject).toOpaque())
+    /// The associated-object key: the stage class's identity, one stable address readable from any
+    /// thread (nil only for a 0 identity, which no type has).
+    @safe private static var associationKey: UnsafeRawPointer? {
+        // SAFETY: built from the identity's bits and only compared by the runtime, never
+        // dereferenced; the class's metadata lives for the process, so the address is stable.
+        unsafe UnsafeRawPointer(bitPattern: UInt(bitPattern: ObjectIdentifier(TerminalEchoStage.self)))
     }
 
     /// Ties this stage to the layer Ghostty presents the surface's frames in.
     func attach(to layer: AnyObject) {
+        guard let key = unsafe Self.associationKey else { return }
         // SAFETY: the key is an address the runtime only compares (`associationKey`); the runtime
         // retains this stage on `layer` (OBJC_ASSOCIATION_RETAIN).
-        unsafe objc_setAssociatedObject(layer, Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN)
+        unsafe objc_setAssociatedObject(layer, key, self, .OBJC_ASSOCIATION_RETAIN)
     }
 
     /// The stage tied to `layer`, if any (read only while the gate is open).
     static func attached(to layer: AnyObject) -> TerminalEchoStage? {
+        guard let key = unsafe associationKey else { return nil }
         // SAFETY: the key is an address the runtime only compares (`associationKey`); the value is
         // an object the layer retains, and the cast checks its type.
-        unsafe objc_getAssociatedObject(layer, associationKey) as? TerminalEchoStage
+        return unsafe objc_getAssociatedObject(layer, key) as? TerminalEchoStage
     }
 }
 

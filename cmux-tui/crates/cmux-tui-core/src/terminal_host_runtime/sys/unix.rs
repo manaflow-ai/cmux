@@ -33,7 +33,7 @@ pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
-pub(crate) use spawned_host::SpawnedHostProcess;
+pub(crate) use spawned_host::{HostReaper, SpawnedHostProcess};
 pub(crate) use waker::AcceptWaker;
 
 /// The host process's bootstrap streams: its private stdin and stdout pipes.

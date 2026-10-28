@@ -80,10 +80,7 @@ public nonisolated struct MemoryDiagnosticsReport: Sendable {
                                     unknownTabs: bytes.filter { $0 == nil }.count)
             },
             terminal: TerminalRow(snapshot.terminal),
-            spares: snapshot.spares.map { spare in
-                SpareRow(pool: opaque(spare.pool), processKind: spare.processKind, pid: Count(spare.pid),
-                         bytes: Count(spare.pid.flatMap { footprints[$0] ?? nil }))
-            },
+            spares: spareRows(footprints: footprints),
             pressureHistory: snapshot.history.changes.map {
                 HistoryRow(atMs: $0.atMilliseconds, level: $0.level, kernelLevel: $0.kernelLevel, override: Count($0.override),
                            source: $0.source)
@@ -91,6 +88,31 @@ public nonisolated struct MemoryDiagnosticsReport: Sendable {
             histograms: snapshot.histograms
         )
     }
+
+    /// The snapshot's spares, a Chromium spare window's pid from its placeholder's renderer client, then
+    /// one `chromium_unattributed_renderer` row per sampled renderer helper that hosts no frame of any
+    /// browser, by pid. No such row when the sample did not read the frames.
+    private func spareRows(footprints: [Int32: Int?]) -> [SpareRow] {
+        func row(_ pool: String, _ kind: MemoryDiagnosticsProcesses.Kind, _ pid: Int32?) -> SpareRow {
+            SpareRow(pool: opaque(pool), processKind: kind, pid: Count(pid), bytes: Count(pid.flatMap { footprints[$0] ?? nil }))
+        }
+        var rows = snapshot.spares.map { spare in
+            row(spare.pool, spare.processKind, spare.pid ?? spare.rendererClients.lazy.compactMap { processes.rendererPIDs[$0] }.first)
+        }
+        guard let withFrames = processes.rendererClientsWithFrames else { return rows }
+        let claimed = withFrames.union(snapshot.spares.flatMap(\.rendererClients))
+        let unattributed = processes.rendererPIDs.filter { !claimed.contains($0.key) }.values.sorted()
+        rows += unattributed.map { row(Self.chromiumUnattributedPool, .chromiumRenderer, $0) }
+        return rows
+    }
+
+    /// The pool of a Chromium renderer that hosts no frame of any browser: Chromium's own spare
+    /// (`SpareRenderProcessHostManager`), and also a renderer whose first navigation has not committed
+    /// yet or one that holds only workers or back/forward-cached pages. The fork exposes no read of the
+    /// spare's id, which Chrome's Task Manager matches on
+    /// (chrome/browser/task_manager/providers/spare_render_process_host_task_provider.cc), so the row
+    /// does not name the spare: at Home idle the count of these rows is an upper bound on Chromium's spares.
+    public static let chromiumUnattributedPool = "chromium_unattributed_renderer"
 
     /// Each tab with the pids it draws in, and its bytes when every one of them is its own.
     private func tabRows(footprints: [Int32: Int?]) -> [TabRow] {

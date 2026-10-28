@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The app's ``PasswordSecretSurface``. The reveal sheet uses a private dialog center (`debug.dialog`
 /// never lists the password) and is left out of screen capture and screen sharing while it shows.
@@ -10,7 +13,7 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
     private let center = CmuxDialogCenter(host: CmuxDialogCaptureExcludedHost())
     private let pasteboard: ConcealedPasteboard
 
-    init(pasteboard: ConcealedPasteboard = ConcealedPasteboard()) {
+    init(pasteboard: ConcealedPasteboard) {
         self.pasteboard = pasteboard
     }
 
@@ -35,7 +38,8 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
         panel.nameFieldStringValue = PasswordStrings.exportFileName(profileName)
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.canCreateDirectories = true
-        return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+        // A panel that drops its reply chose nothing.
+        return try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
             panel.beginForCmux(in: anchor?.window) { continuation.resume(returning: $0) }
         }
     }

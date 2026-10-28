@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextInput
+import CmuxNextWakeups
 
 /// A subagent open's watch for the person's next action goes through the app's input tap
 /// (p04-input-017): one press subscription, held only while a focus is owed, that hears key-downs and
@@ -42,7 +43,7 @@ struct AgentSubagentPanesTests {
     @Test func theWatchHearsPressesOnlyAndLeavesTheTapWhenStopped() throws {
         let tap = InputEventTap()
         let counter = Counter()
-        let stop = AgentSubagentPanes.watchUser(on: tap, center: NotificationCenter())({ counter.acted += 1 })
+        let stop = AgentSubagentPanes.watchUser(on: tap, appEvents: AppEvents(center: NotificationCenter()))({ counter.acted += 1 })
         #expect(tap.subscriberCount(.key, stage: .intercept) == 1)
         #expect(tap.subscriberCount(.button, stage: .intercept) == 1)
         #expect(tap.subscriberCount(.key, stage: .observe) == 0, "the watch hears presses after the key router, not before it")
@@ -66,7 +67,7 @@ struct AgentSubagentPanesTests {
     @Test func aPressAnEarlierInterceptConsumedLeavesTheFocusOwed() throws {
         let tap = InputEventTap()
         let counter = Counter()
-        let stop = AgentSubagentPanes.watchUser(on: tap, center: NotificationCenter())({ counter.acted += 1 })
+        let stop = AgentSubagentPanes.watchUser(on: tap, appEvents: AppEvents(center: NotificationCenter()))({ counter.acted += 1 })
         defer { stop() }
         let modal = tap.subscribe(class: [.key, .button], phase: .intercept(order: .modal)) { _ in .consume }
         Self.dispatch(try Self.key(.keyDown), through: tap)
@@ -82,13 +83,22 @@ struct AgentSubagentPanesTests {
         let tap = InputEventTap()
         let center = NotificationCenter()
         let counter = Counter()
-        let stop = AgentSubagentPanes.watchUser(on: tap, center: center)({ counter.acted += 1 })
+        let appEvents = AppEvents(center: center)  // the app holds its one AppEvents for its lifetime
+        let stop = AgentSubagentPanes.watchUser(on: tap, appEvents: appEvents)({ counter.acted += 1 })
         center.post(name: NSWindow.didBecomeKeyNotification, object: nil)
         center.post(name: NSApplication.didResignActiveNotification, object: nil)
         #expect(counter.acted == 2)
-        stop()
+        // Two watches share the app's one observer per notice (R-notif), not one each.
+        let second = AgentSubagentPanes.watchUser(on: tap, appEvents: appEvents)({})
+        #expect(appEvents.subscriberCount(NSWindow.didBecomeKeyNotification) == 2)
         center.post(name: NSWindow.didBecomeKeyNotification, object: nil)
-        #expect(counter.acted == 2)
+        #expect(appEvents.deliveries(NSWindow.didBecomeKeyNotification) == 2)
+        #expect(counter.acted == 3)
+        second()
+        stop()
+        #expect(!appEvents.isObserving(NSWindow.didBecomeKeyNotification), "the last watch's stop removes the observer")
+        center.post(name: NSWindow.didBecomeKeyNotification, object: nil)
+        #expect(counter.acted == 3)
     }
 
     /// End to end with the tracker: the watch is on the tap only while a focus is owed, and the
@@ -107,7 +117,7 @@ struct AgentSubagentPanesTests {
                 return true
             },
             again: { _ in },
-            watchUser: AgentSubagentPanes.watchUser(on: tap, center: NotificationCenter()))
+            watchUser: AgentSubagentPanes.watchUser(on: tap, appEvents: AppEvents(center: NotificationCenter())))
 
         #expect(panes.open("explore", focus: false, chat: "chat", hooks: hooks))
         #expect(Self.liveSubscriptions(tap) == 0, "nothing is owed yet, so nothing watches")

@@ -62,6 +62,7 @@ extension PaneContentView {
             guard let self, holdKeepsStrip else { return }
             holdKeepsStrip = false
             needsLayout = true // invalidate: the hold that kept the strip ended (the guard above).
+            // sync-layout: the strip moves in the swap's own transaction (`PanePaintHold.end`), not a frame later.
             layoutSubtreeIfNeeded()
         })
     }

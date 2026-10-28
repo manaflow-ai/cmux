@@ -83,8 +83,7 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
     /// The candidates for the word before the end of `line` (the text before the caret).
     public func complete(_ line: String, cwd: String?) async throws(Failure) -> Result {
         let folder = cwd ?? home
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard AcpmuxPathPolicy.isDirectory(folder) else {
             throw .folderMissing
         }
         let word = Self.word(in: line)

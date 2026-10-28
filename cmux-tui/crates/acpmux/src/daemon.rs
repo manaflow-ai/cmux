@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub mod hang_watch;
+pub use hang_watch::spawn_blocking;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
@@ -40,10 +42,9 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
-/// a panic in a request task ends only that task and used to leave just
-/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
-/// app sends new lines to Sentry.
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log): a panic in a request task
+/// ends only that task and used to leave just two lines in `daemon.log` (the 2026-10-14 sort
+/// panic). The cmux-next app sends new lines to Sentry.
 pub fn panic_log_path() -> std::path::PathBuf {
     home().join("panics.jsonl")
 }
@@ -105,6 +106,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
     #[cfg(unix)]
+    // SAFETY: SIG_IGN is a valid disposition for SIGPIPE; no handler runs.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
@@ -112,6 +114,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // must not hold the readiness pipe open.
     #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
+        // SAFETY: fcntl takes no pointers; `fd` is the launcher's readiness
+        // descriptor (above stdio), and only its close-on-exec flag changes.
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
@@ -134,6 +138,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the hub's threads start, so each one registers; hangs go beside the panic log.
+    hang_watch::init(&home());
     #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
     poll_watch_lab::install();
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
@@ -244,7 +250,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
-                let _ = std::fs::remove_file(socket_path());
+                let _ = tokio::fs::remove_file(socket_path()).await;
                 return Err(e.context(format!(
                     "the WebSocket listener {listen} (--listen) is taken; free the port or choose another"
                 )));
@@ -259,7 +265,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                         Some((l, token.clone()))
                     }
                     Err(e) => {
-                        let _ = std::fs::remove_file(socket_path());
+                        let _ = tokio::fs::remove_file(socket_path()).await;
                         return Err(e.context("no free loopback port for the WebSocket listener"));
                     }
                 }
@@ -328,14 +334,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("--person-key-fd: {e}");
         }
     }
+    // Periodic upkeep (catalog, harness health, upload sweep) shares one clock (`maintenance.rs`).
+    let phase = crate::maintenance::install_phase(&home().join(crate::maintenance::PHASE_FILE));
+    if let Err(e) = hub.maintenance.start(phase) {
+        tracing::warn!("the maintenance clock did not start, periodic upkeep is off: {e}");
+    }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
     // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
     let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
-    if fetch_catalog {
-        tokio::spawn(hub.catalog.clone().run());
+    if let Err(e) = hub.catalog.schedule(&hub.maintenance, fetch_catalog) {
+        tracing::warn!("the periodic model catalog refresh is off: {e}");
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -519,11 +530,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::select! {
         r = unix => { r??; }
         _ = shutdown => {}
+        _ = crate::daemon_lifecycle::run_for_daemon(hub.clone()) => {}
     }
     tracing::info!("shutting down");
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
-    let _ = std::fs::remove_file(socket_path());
+    let _ = tokio::fs::remove_file(socket_path()).await;
     if let Some(t) = ws_task {
         t.abort();
     }
@@ -537,11 +549,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
-    // After the agents: their model streams go through the router.
+    // After the agents: their model streams go through the router. Waits for the router's exit:
+    // a WILL_BLOCK item, unwatched.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
-    let _ = std::fs::remove_file(home().join("daemon.pid"));
+    let _ = tokio::fs::remove_file(home().join("daemon.pid")).await;
     for file in [local_app_file, peer_file].into_iter().flatten() {
-        let _ = std::fs::remove_file(file);
+        let _ = tokio::fs::remove_file(file).await;
     }
     tracing::info!("stopped");
     Ok(())
@@ -866,14 +879,22 @@ pub async fn wait_for_exit() -> bool {
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
+    connect_as(autostart, crate::client::ClientCaller::of_process()).await
+}
+
+/// [`connect`] for `caller` instead of this process's own session.
+pub async fn connect_as(
+    autostart: bool,
+    caller: crate::client::ClientCaller,
+) -> Result<Arc<Client>> {
     let path = socket_path();
-    if let Ok(c) = Client::connect(&path).await {
+    if let Ok(c) = Client::connect_as(&path, caller.clone()).await {
         return Ok(c);
     }
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    start_and_connect(&path, || Client::connect(&path)).await
+    start_and_connect(&path, || Client::connect_as(&path, caller.clone())).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
@@ -1063,6 +1084,9 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        // SAFETY: the hook runs in the forked child before exec and calls only setsid
+        // and fcntl, both async-signal-safe, on the copied descriptor numbers; it
+        // allocates nothing and takes no lock.
         unsafe {
             cmd.pre_exec(move || {
                 // New session so the daemon outlives the terminal; keep the
