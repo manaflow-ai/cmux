@@ -95,7 +95,8 @@ extension DaemonStore {
         case .daemon:
             return target.handle
         case .split(let paneID):
-            return index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != target.handle ? $0.handle : nil }
+            guard let model = index.panesByResource[ResourceID(rawValue: paneID)], model.handle != target.handle else { return nil }
+            return model.handle
         case .workspace(let key):
             // The daemon's new workspace has one pane, which holds its first tab.
             return workspacesByKey[key]?.screens.lazy.flatMap(\.panes)
