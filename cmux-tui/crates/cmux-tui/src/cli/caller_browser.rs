@@ -22,11 +22,12 @@ pub(super) fn wants(params: &Map<String, Value>) -> bool {
             .all(|scope| params.get(*scope).is_none_or(|value| value.as_str() == Some("current")))
 }
 
-/// Puts the tab of the app's `browser` (from `system.identify`) in place of
-/// the `current` chain of `params`. `Ok(false)` leaves `params` as they are:
-/// the app does not place the caller, or it is an app from before #26648
-/// that reports no `browser`. An error when the caller has no browser near
-/// it, or that browser is in another session than the request's.
+/// Puts the place of the app's `browser` (from `system.identify`: its
+/// workspace, screen, pane and tab) in place of the `current` chain of
+/// `params`. `Ok(false)` leaves `params` as they are: the app does not place
+/// the caller, or it is an app from before #26648 that reports no
+/// `browser`. An error when the caller has no browser near it, or that
+/// browser is in another session than the request's.
 pub(super) fn apply(params: &mut Map<String, Value>, identity: &Value) -> Result<bool, Value> {
     let caller = &identity["caller"];
     let workspace = caller.get("workspace").and_then(Value::as_str);
@@ -55,10 +56,14 @@ pub(super) fn apply(params: &mut Map<String, Value>, identity: &Value) -> Result
             json!({"tab": tab, "session": session}),
         ));
     }
-    for scope in ["workspace", "screen", "pane"] {
-        params.remove(scope);
+    // The daemon reads a `current` browser only below a full chain of
+    // workspace, screen, pane and tab, so all four name that browser's place.
+    for scope in PARENTS {
+        match browser.get(scope).and_then(Value::as_str) {
+            Some(id) => params.insert(scope.into(), Value::String(id.to_owned())),
+            None => params.remove(scope),
+        };
     }
-    params.insert("tab".into(), Value::String(tab.to_owned()));
     Ok(true)
 }
 
@@ -92,10 +97,16 @@ mod tests {
             params(json!({"workspace": "current", "tab": "current", "browser": "current"}));
         let identity = json!({
             "caller": {"workspace": "ws_mine", "tab": "tab_chat"},
-            "browser": {"tab": "tab_near", "pane": "pane_b", "workspace": "ws_mine", "session": null},
+            "browser": {"tab": "tab_near", "pane": "pane_b", "screen": "screen_a",
+                        "workspace": "ws_mine", "session": null},
         });
         assert_eq!(apply(&mut chain, &identity), Ok(true));
-        assert_eq!(Value::Object(chain), json!({"tab": "tab_near", "browser": "current"}));
+        // The daemon reads a `current` browser only below a full chain.
+        assert_eq!(
+            Value::Object(chain),
+            json!({"workspace": "ws_mine", "screen": "screen_a", "pane": "pane_b",
+                   "tab": "tab_near", "browser": "current"})
+        );
     }
 
     #[test]

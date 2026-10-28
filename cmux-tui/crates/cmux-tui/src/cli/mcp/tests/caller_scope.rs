@@ -264,7 +264,8 @@ fn a_current_browser_is_the_one_nearest_the_caller() {
     let near = "tab_99999999999999999999999999999999";
     let fake = Fake {
         browser: Some(
-            json!({"tab": near, "pane": OTHER_PANE, "workspace": OWN_WS, "session": null}),
+            json!({"tab": near, "pane": OTHER_PANE, "screen": OWN_SCREEN, "workspace": OWN_WS,
+                   "session": null}),
         ),
         ..placed()
     };
@@ -278,7 +279,10 @@ fn a_current_browser_is_the_one_nearest_the_caller() {
     let params = sent_params(&server);
     assert_eq!(params["tab"], near);
     assert_eq!(params["browser"], "current");
-    assert!(params.get("workspace").is_none(), "{params}");
+    // The daemon reads a `current` browser only below a full chain of ids.
+    assert_eq!(params["pane"], OTHER_PANE);
+    assert_eq!(params["screen"], OWN_SCREEN);
+    assert_eq!(params["workspace"], OWN_WS);
 }
 
 /// With no browser near the chat the call is refused: it never falls through
