@@ -5,7 +5,7 @@
 // (it goes as an ACP image block), and a bubble never draws the data URI as text.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef, type RefObject } from "react";
+import { act, createRef, type ComponentProps, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
@@ -158,22 +158,30 @@ async function until(ready: () => boolean, what: string) {
 let opened: RefObject<ComposerHandle | null> | undefined;
 
 let composerCount = 0;
-async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
+type ComposerProps = ComponentProps<typeof import("../src/agent-session/acpmux/Composer").Composer>;
+
+/// `extra`: more props; `newChat`, a chat not started yet (no session id), whose text goes to
+/// `onUnsentDraft`.
+async function openComposer(
+  sent: { text: string; attachments: ComposerAttachment[] }[] = [],
+  extra: Partial<ComposerProps> = {},
+  newChat = false,
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
   opened = handle;
-  const sessionId = `chat-${++composerCount}`;
-  const snapshot = noChat([], {
-    sessionId,
-    summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
-  });
+  const sessionId = newChat ? undefined : `chat-${++composerCount}`;
+  const snapshot = noChat(
+    [],
+    sessionId ? { sessionId, summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 } } : {},
+  );
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
       <Composer
         snapshot={snapshot}
-        sessionId={sessionId}
+        {...(sessionId ? { sessionId } : {})}
         chips={Chips}
         onSend={(text, attachments) => {
           sent.push({ text, attachments: attachments ?? [] });
@@ -185,6 +193,7 @@ async function openComposer(sent: { text: string; attachments: ComposerAttachmen
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         handle={handle}
+        {...extra}
       />,
     ),
   );
@@ -478,4 +487,66 @@ test("inline images keep the text on both sides in the sent prompt", async () =>
   expect(blocks.map((block) => block.type)).toEqual(["text", "image", "text"]);
   expect(blocks[0]).toEqual({ type: "text", text: "before " });
   expect(blocks[2]).toEqual({ type: "text", text: " after" });
+});
+
+// Review of #26545: a new chat's unsent draft (`chat.unsentDraft`) is the person's words only. An
+// attachment's token is the composer's, and the host keeps no attachment with the text, so a token
+// left in it came back after a relaunch as raw U+FFFC text in the prompt.
+const MARK = "\uFFFC";
+
+test("a new chat's unsent draft leaves out the token of an attachment still uploading", async () => {
+  const drafts: string[] = [];
+  // The host's upload never answers: the file stays a placeholder in the text.
+  const upload = () => new Promise<never>(() => {});
+  const composer = await openComposer([], { onUnsentDraft: (text) => void drafts.push(text), upload }, true);
+  await act(async () => composer.current!.restore("see", []));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(() => Boolean(field().querySelector("[data-inline-attachment]")), "the placeholder in the text");
+  await act(async () => composer.current!.settleDraft());
+  expect(drafts.at(-1)).toBe("see");
+  for (const draft of drafts) expect(draft).not.toContain(MARK);
+});
+
+test("settling a new chat's draft sends its words without its attachments' tokens", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const drafts: string[] = [];
+  const composer = await openComposer([], { onUnsentDraft: (text) => void drafts.push(text) }, true);
+  const image: ComposerAttachment = {
+    id: "settled",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.settleDraft());
+  expect(drafts.at(-1)).toBe("before  after");
+  for (const draft of drafts) expect(draft).not.toContain(MARK);
+});
+
+test("a chat's draft read before its kept attachments places them once they come", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const image: ComposerAttachment = {
+    id: "kept-later",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  const composer = await openComposer([], { draft: `look ${inlineToken(image.id)} here` });
+  await until(() => field().textContent?.includes("look") === true, "the draft");
+  await act(async () => composer.current!.wake({ attachments: [image] }));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "the kept image in the text");
+  expect(field().textContent).not.toContain(MARK);
+  expect(field().textContent).not.toContain(image.id);
 });
