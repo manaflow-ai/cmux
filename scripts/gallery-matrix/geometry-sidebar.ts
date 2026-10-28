@@ -110,7 +110,7 @@ export function sidebarArtifact(state: SidebarState, revision: GeometryArtifact[
 export function sidebarConfig(states: SidebarState[], revision: GeometryArtifact["revision"], contract: SidebarContract): GeometryConfig {
   const rules: GeometryRule[] = [];
   for (const state of states) {
-    const common = { tolerancePx: contract.tolerancePoints * state.backingScale, source: "view-frame" as const, appliesTo: [caseId(state)], minCount: 1 };
+    const common = { tolerancePx: contract.tolerancePoints, source: "view-frame" as const, appliesTo: [caseId(state)], minCount: 1 };
     rules.push({ ...common, id: `${caseId(state)}-column`, kind: "container-center", group: "trailing", containerGroup: "column", axis: "x" }, { ...common, id: `${caseId(state)}-mark-center`, kind: "container-center", group: "mark-centers", containerGroup: "marked-rows", axis: "y" });
     if (state.rows.some((row) => row.hovered)) rules.push({ ...common, id: `${caseId(state)}-hover`, kind: "exclusive-parts", group: "hover-parts", containerGroup: "hovered-rows", parts: ["activity", "control"] });
     if (state.rows.some((row) => row.controls.length)) rules.push({ ...common, id: `${caseId(state)}-control-center`, kind: "container-center", group: "control-centers", containerGroup: "control-rows", axis: "y" });

@@ -91,3 +91,26 @@ test("CLI validates PNGs and geometry hash and emits failing conversion evidence
     expect(await sidebarAudit([...args.slice(0, -1), "0".repeat(64), "--output-dir", join(dir, "hash")])).toBe(1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+
+test("native tolerance and reported deltas stay in points at 1x and 2x", async () => {
+  // A synthetic scale transform of the recorded point frames, not a second capture.
+  for (const scale of [1, 2]) for (const delta of [0.5, 0.51]) {
+    const states = fresh();
+    for (const state of states) {
+      state.backingScale = scale;
+      state.imagePixels = [state.imagePoints[0] * scale, state.imagePoints[1] * scale];
+    }
+    states[0]!.rows[0]!.marks[0]!.centerX += delta;
+    const config = sidebarConfig(states, revision, contract);
+    expect(config.rules.every((rule) => rule.tolerancePx === 0.5)).toBe(true);
+    const artifacts = states.map((state) => ({ file: "synthetic-scale-replay", artifact: sidebarArtifact(state,
+      { ...revision, source: "synthetic scale replay of measured point frames" },
+      { sha256: "0".repeat(64), width: state.imagePixels[0], height: state.imagePixels[1] }, contract) }));
+    const rawPoint = artifacts[0]!.artifact.elements.find((element) => element.group === "trailing")!.rect.x;
+    const report = await lintGeometry(artifacts, config);
+    expect(report.passed).toBe(delta === 0.5);
+    if (delta > 0.5) expect(report.findings.find((finding) => finding.rule.endsWith("-column"))!.deltaPx).toBeCloseTo(delta, 8);
+    expect(artifacts[0]!.artifact.elements.find((element) => element.group === "trailing")!.rect.x).toBe(rawPoint);
+  }
+});
