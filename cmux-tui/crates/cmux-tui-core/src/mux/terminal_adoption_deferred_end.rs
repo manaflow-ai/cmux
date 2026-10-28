@@ -85,13 +85,23 @@ impl Mux {
         let end = AdoptionEnd { mux: Arc::downgrade(self), terminal_id: terminal_id.clone() };
         let options = options.clone();
         let key: Arc<str> = Arc::from(terminal_id.as_str());
+        // Test hook (fault injection, debug builds): the end starts this much
+        // later, as an adoption does (`schedule_terminal_adoption_after`), so
+        // a test can act while the terminal adopts.
+        #[cfg(debug_assertions)]
+        let first_delay = std::env::var("CMUX_TUI_TEST_ADOPTION_DELAY_MS")
+            .ok()
+            .and_then(|ms| ms.parse::<u64>().ok())
+            .map_or(Duration::ZERO, Duration::from_millis);
+        #[cfg(not(debug_assertions))]
+        let first_delay = Duration::ZERO;
         let start: HeldAdoption = Box::new(move |mux: &Mux| {
             let mut delay = Duration::from_millis(100);
             // Refused: shutdown began; the dropped item ends the adoption,
             // and the next owner's start finds the row adopting with no
             // record and ends it the same way.
             let _ = mux.post_mux_retry_limited(
-                Duration::ZERO,
+                first_delay,
                 Priority::UserVisible,
                 Lane::System,
                 (&mux.terminal_replays, Some(key)),
