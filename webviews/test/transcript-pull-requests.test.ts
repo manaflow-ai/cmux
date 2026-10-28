@@ -518,6 +518,10 @@ test("shell substitutions and conditions retain executed mutations", () => {
     const rows = toolsRows(shell(command, "https://github.com/acme/app/pull/41"));
     expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
   }
+  expect(transcriptPullRequests(toolsRows(shell("if false; then gh pr merge 45 -R acme/app --squash; fi")))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("( gh pr merge 46 -R acme/app --squash )")))).toMatchObject([
+    { number: 46, changed: true, state: "merged" },
+  ]);
 });
 
 test("brokered PR lifecycle writes settle the same record", () => {
