@@ -246,13 +246,14 @@ pub fn is_sign_in_failure(message: &str) -> bool {
 /// drift. Only a statement that one expired counts: "invalid token expiry", "the credential
 /// expires in 30 days" and a bare "session expired" do not.
 pub fn is_expired_credential(message: &str) -> bool {
-    static EXPIRED: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    // A constant pattern; the unit test proves it compiles.
+    static EXPIRED: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
         regex::Regex::new(
             r"(?i)\b(?:tokens?|credentials?|api keys?|logins?|sign-ins?)(?:\s+(?:has|have|is|are|was|were))?\s+expired\b|\bexpired\s+(?:(?:oauth|access|refresh|auth|authentication|session)\s+)?(?:tokens?|credentials?|api keys?|logins?|sign-ins?)\b",
         )
-        .expect("expired-credential pattern") // crash-allow: constant pattern
+        .ok()
     });
-    EXPIRED.is_match(message)
+    EXPIRED.as_ref().is_some_and(|re| re.is_match(message))
 }
 
 /// The explanation for a Claude agent's sign-in failure, or None when this
