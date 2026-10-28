@@ -20,7 +20,7 @@ import Foundation
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompatCore -> CmuxThreading, Foundation, Security (what the privileged server helper shares with the app:
-//     Process.runOnOwnThread, the running code's signing-team read; Compat re-exports it)
+//     Process.runOnOwnThread, the running code's signing-team read; its users import it directly)
 //   CmuxNextCompat -> CompatCore, swift-atomics, CmuxSafeConcurrency, CmuxThreading, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, CmuxSafeConcurrency, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
@@ -1495,7 +1495,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCompat",
             dependencies: [
-                // Re-exported (CompatCore+Reexport.swift): the part of Compat the privileged helper links.
+                // SigningTeamInstall reads the team through CompatCore's RunningCodeSigningTeam, which the helper shares.
                 "CmuxNextCompatCore",
                 .product(name: "Atomics", package: "swift-atomics"),
                 // Mutex wraps the portable one (p10-stability-172), with the blocking detector as its wait observer.
