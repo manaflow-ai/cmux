@@ -291,6 +291,33 @@ try {
     }
   });
 
+  test("a short plain prompt does not force a layout measurement before its first paint", () => {
+    resetTranscriptDisclosure();
+    const computed = dom.window.getComputedStyle;
+    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
+    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+    let measurements = 0;
+    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 20 });
+    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
+    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => {
+        measurements += 1;
+        return { height: 20 };
+      },
+    });
+    try {
+      render(prompt("user-short", "Describe this synthetic onboarding fixture"));
+      expect(measurements).toBe(0);
+    } finally {
+      Object.assign(dom.window, { getComputedStyle: computed });
+      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
+      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    }
+  });
+
   test("paste ranges are read defensively: sorted, inside the text, never overlapping", () => {
     const text = "abcdefghij";
     expect(pasteRanges(undefined, text)).toEqual([]);
