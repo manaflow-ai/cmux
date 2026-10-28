@@ -93,7 +93,7 @@ test("the replay renders in the transcript card, Session Info tasks and summary"
   expect(text(card)).toContain("count-files-fixture Workflow 3 agents 10s");
   expect(card.match(/acpmux-workflow-dot"/g)?.length).toBe(3);
   expect(text(tasks)).toContain(
-    "count-files-fixture 10s Workflow · Finished · 3 agents · 84.1k tokens",
+    "count-files-fixture 10s Workflow · Finished · 3 agents · 84k tokens",
   );
   expect(text(tasks)).toContain("Count 2/2 Report 1/1");
   expect(text(summary)).toContain("count-files-fixture");
