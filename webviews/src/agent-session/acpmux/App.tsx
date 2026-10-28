@@ -5586,7 +5586,7 @@ function AcpmuxPane() {
   );
   // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
   const retryModelsKey = (retryHarness?.models ?? [])
-    .filter((model) => !model.unavailable && !isDefaultChoice(model))
+    .filter((model) => (!model.unavailable || model.id === snapshot.summary?.model) && !isDefaultChoice(model))
     .map(
       (model) =>
         `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}\t${model.family ?? ""}`,

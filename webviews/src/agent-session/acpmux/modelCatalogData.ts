@@ -1,5 +1,6 @@
 import { isDefaultChoice } from "./defaultChoice";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
+import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
 import { agentKey } from "../shared/agentKey";
@@ -78,6 +79,21 @@ export type ModelUserLayer = {
   harnesses?: Record<string, { hidden?: boolean; name?: string; order?: number; defaultModel?: string }>;
   overrides?: Record<string, Partial<HarnessModel> & { hidden?: boolean }>;
 };
+
+// Identity-only rows are useful in the bundled/offline catalog, but a connected account's
+// probed list is authoritative. Keep these IDs sourced from the same family file so a feed lag
+// cannot make an unverified release appear selectable for a live account.
+const currentFamilyIds = new Set(
+  Object.values(currentFamilies)
+    .flat()
+    .map((model) => model.id),
+);
+const isIdentityOnlyCurrentModel = (model: HarnessModel) =>
+  currentFamilyIds.has(model.id) &&
+  model.ref === undefined &&
+  model.efforts === undefined &&
+  model.fast === undefined &&
+  model.aliases === undefined;
 
 export type PickerModel = {
   id: string;
@@ -282,6 +298,7 @@ export function buildPickerCatalog({
   const join: Join = {
     catalog: layered,
     sourceCatalog: catalog,
+    provisional,
     session,
     worked,
     overrides: userOverrides(user),
@@ -308,6 +325,7 @@ type Join = {
   catalog: ModelCatalog;
   /** The unlayered catalog keeps alias declarations that hidden overrides remove from `catalog`. */
   sourceCatalog: ModelCatalog;
+  provisional: boolean;
   session: PickerInputs["session"];
   worked: string[];
   overrides: Record<string, Record<string, unknown>>;
@@ -382,7 +400,10 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     members.find((entry) => entry.id === harness.id) ??
     members[0];
   const probed = chosen?.models ?? [];
-  const listed = harness.modelSource === "catalog" ? harness.models : [];
+  const listed =
+    harness.modelSource === "catalog"
+      ? harness.models.filter((model) => join.provisional || !isIdentityOnlyCurrentModel(model))
+      : [];
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);

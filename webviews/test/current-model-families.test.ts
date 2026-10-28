@@ -52,3 +52,55 @@ test("a later release and a new harness family remain visible without changing a
   expect(ids(retry.latest)).toEqual(ids(composer.shown));
   expect(ids(retry.more)).toContain("gpt-6-luna");
 });
+
+test("identity-only current releases stay offline until a live account reports them", () => {
+  const catalog = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "codex",
+        family: "codex",
+        name: "Codex",
+        models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }],
+      },
+    ],
+    session: { harness: "codex" },
+    provisional: false,
+  });
+  const harness = catalog.harnesses.find((entry) => entry.id === "codex")!;
+  expect(ids(harness.models)).not.toContain("gpt-6.1-terra");
+  expect(ids(harness.models)).not.toContain("gpt-6.1-luna");
+
+  const reported = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "codex",
+        family: "codex",
+        name: "Codex",
+        models: [
+          { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+          { id: "gpt-6.1-terra", name: "GPT-6.1 Terra" },
+        ],
+      },
+    ],
+    session: { harness: "codex" },
+    provisional: false,
+  });
+  expect(ids(reported.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-terra");
+});
+
+test("Retry keeps the running unavailable model and excludes unavailable alternatives", () => {
+  const sections = retryModelSections(
+    [
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", unavailable: "account unavailable" },
+      { id: "gpt-6-astra", name: "GPT-6 Astra" },
+      { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", unavailable: "account unavailable" },
+    ],
+    "gpt-6.1-sol",
+    "Codex",
+  );
+  expect(ids(sections.latest)).toContain("gpt-6.1-sol");
+  expect(ids(sections.latest)).toContain("gpt-6-astra");
+  expect(ids(sections.latest)).not.toContain("gpt-6.1-terra");
+});
