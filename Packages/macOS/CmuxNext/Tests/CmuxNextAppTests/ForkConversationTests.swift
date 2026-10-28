@@ -27,7 +27,7 @@ struct ForkConversationTests {
     @Test func everyDestinationIsOfferedInAnAgentChatAndATerminal() {
         let services = Self.services()
         AppActions.bind(services)
-        for (id, _) in Self.destinations {
+        for (id, _) in [("palette.forkAgentConversation", AgentForkDestination.default)] + Self.destinations {
             #expect(services.registry.unavailableReason(for: id) == nil, "\(id)")
             #expect(services.registry.isAvailable(id, in: [.agentPaneFocused]), "\(id) in an agent chat")
             #expect(services.registry.isAvailable(id, in: [.terminalFocused]), "\(id) in a terminal")
@@ -35,10 +35,22 @@ struct ForkConversationTests {
     }
 
     /// The palette's step lists every destination, the default (right) first.
-    @Test func thePaletteStepListsEveryDestinationDefaultFirst() throws {
+    @Test func thePaletteFamilyRunsTheDefaultAndKeepsExplicitDestinations() throws {
         let family = try #require(ActionDescriptor.paletteFamilies.first { $0.id == "forkConversation" })
         #expect(family.members == Self.destinations.map(\.0))
-        #expect(AgentHandlers.destination(of: family.members[0]) == AgentForkDestination.default)
+        #expect(family.parent == "palette.forkAgentConversation")
+        #expect(AgentHandlers.destination(of: try #require(family.parent)) == AgentForkDestination.default)
+    }
+
+    @Test func emptySpaceOffersImmediateForkAndSeparateDestinationChoices() throws {
+        let services = Self.services()
+        AppActions.bind(services)
+        let menu = services.registry.makeContextMenu(for: .agentChat, implied: [.agentPaneFocused])
+        let title = try #require(ActionCatalog.all.first { $0.id == "palette.forkAgentConversation" }?.title)
+        let primary = try #require(menu.items.first { $0.title == title })
+        #expect(primary.submenu == nil)
+        let destinations = try #require(menu.items.first { $0.submenu?.items.count == 7 }?.submenu)
+        #expect(destinations.items.count == Self.destinations.count)
     }
 
     @Test func eachActionNamesItsDestination() {
@@ -49,7 +61,7 @@ struct ForkConversationTests {
 
     /// The default destination has a shortcut, shown in Settings and the palette.
     @Test func theDefaultForkHasAShortcut() throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id == "palette.forkAgentConversationRight" })
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "palette.forkAgentConversation" })
         #expect(descriptor.defaultShortcut != nil)
     }
 
