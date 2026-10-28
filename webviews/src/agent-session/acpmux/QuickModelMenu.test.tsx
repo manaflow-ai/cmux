@@ -208,6 +208,7 @@ test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", 
 test("inline effort picks a different model and its level together; model names keep effort", async () => {
   const container = installDom();
   const picks: { id: string; effort?: string }[] = [];
+  const effortPicks: string[] = [];
   function InlineHarness() {
     const trigger = useRef<HTMLButtonElement | null>(null);
     const [open, setOpen] = useState(false);
@@ -228,7 +229,7 @@ test("inline effort picks a different model and its level together; model names 
               { id: "high", name: "High" },
             ],
             current: "high",
-            onPick() {},
+            onPick: (value) => effortPicks.push(value),
           },
           families: {
             current: "claude",
@@ -278,6 +279,89 @@ test("inline effort picks a different model and its level together; model names 
   await settle();
   await open();
   await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
-  expect(picks.at(-1)?.id).toBe("a");
-  expect(picks.at(-1)?.effort).toBe("low");
+  expect(effortPicks).toEqual(["low"]);
+});
+
+test("the running model keeps session-only effort levels and calls effort.onPick", async () => {
+  const container = installDom();
+  const picked: string[] = [];
+  function CurrentModel() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          models: [{ id: "a", name: "Model A", family: "", efforts: ["low", "high"] }],
+          current: "a",
+          onModel() {},
+          effort: {
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+              { id: "ultracode", name: "Ultracode" },
+            ],
+            current: "high",
+            onPick: (value) => picked.push(value),
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CurrentModel />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
+  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  expect(picked).toEqual(["ultracode"]);
+});
+
+test("the fallback Effort submenu remains when the running model is folded away", async () => {
+  const container = installDom();
+  function FoldedModel() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          models: [{ id: "top", name: "Top model", family: "", efforts: ["low", "high"] }],
+          current: "folded",
+          onModel() {},
+          effort: {
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
+            current: "high",
+            onPick() {},
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<FoldedModel />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  expect([...document.querySelectorAll<HTMLElement>(".acpmux-quick-sub")].some((row) => row.textContent?.startsWith("Effort"))).toBe(
+    true,
+  );
 });

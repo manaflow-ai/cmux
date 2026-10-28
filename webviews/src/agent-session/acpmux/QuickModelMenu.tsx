@@ -284,17 +284,31 @@ export function QuickModelMenu({
   const pickRow = (row: QuickModel) => {
     if (row.disabled) return;
     onOpenChange(false);
-    const running = (!families || row.family === families.current) && row.id === current;
+    const running =
+      (!families || row.family === families.current) && (row.id === current || runsOffers(row, current));
     if (running && !row.effort && !row.fast) return;
     if (query && search) search.pick(row);
-    else if (!families && row.effort && menu.onModelEffort) menu.onModelEffort(row.id, row.effort);
+    else if (running && row.effort && effort?.onPick) effort.onPick(row.effort);
+    else if (!families && row.effort) {
+      if (running && effort?.onPick) effort.onPick(row.effort);
+      else if (menu.onModelEffort) menu.onModelEffort(row.id, row.effort);
+      else menu.onModel(row.id);
+    }
     else if (!families) menu.onModel(row.id);
     else families.onPick(row);
   };
   const effortChoices = (model: QuickModel) => {
-    const running = (!families || model.family === families.current) && model.id === current;
-    if (!families && !menu.onModelEffort) return [];
-    // An explicit empty list must not inherit another model's reasoning capabilities.
+    const running =
+      (!families || model.family === families.current) && (model.id === current || runsOffers(model, current));
+    if (!families && !running && !menu.onModelEffort) return [];
+    // The running session's levels are authoritative (including session-only Ultracode), while
+    // a catalog list still narrows other rows. An explicit empty catalog list remains unsupported.
+    if (running) {
+      if (model.efforts?.length === 0) return [];
+      if (model.efforts === undefined) return levels;
+      const allowed = new Set(model.efforts);
+      return levels.filter((choice) => choice.id === "ultracode" || allowed.has(choice.id));
+    }
     return model.efforts !== undefined
       ? reasoningChoices(
           model.efforts.map((value) => ({ value })),
@@ -308,7 +322,8 @@ export function QuickModelMenu({
   const withEffort = (model: QuickModel, name: React.ReactNode) => {
     const choices = effortChoices(model);
     if (choices.length === 0) return name;
-    const running = (!families || model.family === families.current) && model.id === current;
+    const running =
+      (!families || model.family === families.current) && (model.id === current || runsOffers(model, current));
     return (
       <div className="acpmux-quick-model-effort" key={valueOf(model)} data-effort-look={menu.effortLook ?? "joined"}>
         {name}
@@ -575,7 +590,16 @@ export function QuickModelMenu({
           )}
         </>
       )}
-      {!query && onChatTab && effort && levels.length > 1 && !rows.some((row) => effortChoices(row).length > 0) && (
+      {!query &&
+        onChatTab &&
+        effort &&
+        levels.length > 1 &&
+        !rows.some(
+          (row) =>
+            (!families || row.family === families.current) &&
+            (row.id === current || runsOffers(row, current)) &&
+            effortChoices(row).length > 0,
+        ) && (
         <>
           <MenuSeparator />
           <Submenu
