@@ -7,11 +7,11 @@ type Model = {
   family?: string;
   release?: string;
   unavailable?: string;
-  offers?: readonly { id: string; release?: string; unavailable?: string }[];
+  offers?: readonly { id: string; release?: string; family?: string; unavailable?: string }[];
 };
 
 /** Unknown family names stay data: remove version tokens, not a maintained list of model names. */
-function familyKey(model: Model): string {
+function familyKey(model: Model, knownFamilies: readonly string[] = []): string {
   const parts = (model.release ?? model.id).split("/");
   const vendor = parts.length > 1 ? parts.at(-2) : "";
   const inferred = (parts.at(-1) ?? model.name)
@@ -20,7 +20,13 @@ function familyKey(model: Model): string {
     .replace(/\d+(?:\.\d+)*/g, "")
     .replace(/[-_]+/g, "-")
     .replace(/^-|-$/g, "");
-  return `${vendor}\u0000${model.family ?? inferred}`.toLowerCase();
+  const explicit = model.family ?? model.offers?.find((offer) => offer.family)?.family;
+  if (explicit) return `${vendor}\u0000${explicit}`.toLowerCase();
+  // A probe may omit family metadata while a catalog row supplies it (claude-sonnet vs Sonnet).
+  // Reuse the explicit family when the inferred id ends in that family name.
+  const normalized = inferred.toLowerCase();
+  const matching = knownFamilies.find((family) => normalized === family || normalized.endsWith(`-${family}`));
+  return `${vendor}\u0000${matching ?? inferred}`.toLowerCase();
 }
 
 const version = (model: Model) =>
@@ -48,6 +54,14 @@ export function relevantModelSections<T extends Model>(
   currentModel?: string,
 ): { shown: T[]; more: T[] } {
   const available = (model: T) => (model.offers ?? [model]).some((offer) => !offer.unavailable);
+  const knownFamilies = [
+    ...new Set(
+      models.flatMap((model) => [
+        ...(model.family ? [model.family] : []),
+        ...(model.offers?.flatMap((offer) => (offer.family ? [offer.family] : [])) ?? []),
+      ]).map((family) => family.toLowerCase()),
+    ),
+  ];
   const chosen = new Set<T>();
   if (top !== undefined) {
     for (const id of top) {
@@ -60,21 +74,26 @@ export function relevantModelSections<T extends Model>(
     const families = new Map<string, T>();
     for (const model of models) {
       if (!available(model)) continue;
-      const key = familyKey(model);
+      const key = familyKey(model, knownFamilies);
       const previous = families.get(key);
       if (!previous || newer(model, previous)) families.set(key, model);
     }
     for (const model of families.values()) chosen.add(model);
   }
   const current = currentModel
-    ? models.find((model) => model.id === currentModel || (model.offers ?? []).some((offer) => offer.id === currentModel))
+    ? models.find(
+        (model) =>
+          model.id === currentModel ||
+          model.release === currentModel ||
+          (model.offers ?? []).some((offer) => offer.id === currentModel || offer.release === currentModel),
+      )
     : undefined;
   // Reports may omit `family`; use the same data-derived fallback as the grouping pass so the
   // running family still leads the curated/newest list.
-  const currentFamily = current ? familyKey(current) : undefined;
+  const currentFamily = current ? familyKey(current, knownFamilies) : undefined;
   const shown = [...chosen].sort((a, b) => {
-    const aCurrent = currentFamily !== undefined && familyKey(a) === currentFamily;
-    const bCurrent = currentFamily !== undefined && familyKey(b) === currentFamily;
+    const aCurrent = currentFamily !== undefined && familyKey(a, knownFamilies) === currentFamily;
+    const bCurrent = currentFamily !== undefined && familyKey(b, knownFamilies) === currentFamily;
     return Number(bCurrent) - Number(aCurrent);
   });
   return { shown, more: models.filter((model) => !chosen.has(model)) };
