@@ -101,6 +101,12 @@ extension CloudHandlers {
                                                        "source_line": .string(SSHMachineSecrets.sourceLine)]
             // Always sent: an own machine is one file reachable under several names (an SSH machine,
             // a peer, another alias), so no record here can say what it holds now.
+            // Before anything reaches the machine: it may also be a Cloud machine whose file this replaces
+            // (even if its answer is lost), so the Cloud ledger goes and the next Cloud delivery sends again.
+            let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
+            try await work.run(.userBlocking, mayBlock: .files) {
+                do { try FileManager.default.removeItem(at: ledgerURL) } catch CocoaError.fileNoSuchFile {}
+            }
             let values = try await keychainValues(items)
             let word = CloudMachineSecrets.randomHex()
             let link = SSHMachineSecrets.link(to: destination, environment: await SSHService.environment(), word: word)
@@ -116,10 +122,6 @@ extension CloudHandlers {
                 // Only the kind of failure: no error text near the values reaches a log or the caller.
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))
             }
-            // The machine may also be a Cloud machine whose file this replaced: its ledger no longer says
-            // what any machine holds, so the next Cloud delivery sends again instead of answering unchanged.
-            let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
-            try? await work.run(.userBlocking, mayBlock: .files) { try FileManager.default.removeItem(at: ledgerURL) }
             answer["status"] = .string("delivered")
             answer["delivered"] = .array(items.map { .string($0.name) })
             answer["written"] = .int(count)
