@@ -6,6 +6,8 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(target_os = "macos")]
+mod exe_revoke_exit;
 
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
@@ -64,6 +66,10 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // macOS: exit at once when this executable's volume is force-removed;
+    // its code can no longer run (exe_revoke_exit.rs).
+    #[cfg(target_os = "macos")]
+    let exe_revoke = exe_revoke_exit::start();
     // `--exit-with-pid`: armed once startup work has begun, so the stop
     // ends every terminal that work made (a starter already gone stops the
     // owner at once).
@@ -94,6 +100,10 @@ where
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(exe_revoke) = exe_revoke {
+        exe_revoke.stop();
     }
     Ok(())
 }
