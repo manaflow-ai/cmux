@@ -45,6 +45,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
+    // Forwarded by its own handler, which answers for a peer that is down (`session_auth.rs`).
+    method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
