@@ -112,11 +112,13 @@ extension TerminalController: ControlSessionPriorityContext {
         guard case .found(_, let workspace) = resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) else {
             return nil
         }
+        let state = workspace.sessionPriorityState
         return ControlSessionPriorityProbe(
             enabled: AutomationCatalogSection().sessionPriority.value(in: .standard),
             workspaceId: workspace.id,
-            manual: workspace.sessionPriorityState.isManual,
-            overridePresent: workspace.sessionPriorityState.difficultyOverride != nil
+            manual: state.isManual,
+            overridePresent: state.difficultyOverride != nil,
+            difficultyAuto: state.autoDifficulty?.rawValue
         )
     }
 

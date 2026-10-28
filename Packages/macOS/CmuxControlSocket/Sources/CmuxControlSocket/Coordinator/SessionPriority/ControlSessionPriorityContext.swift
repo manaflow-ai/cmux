@@ -85,12 +85,22 @@ public struct ControlSessionPriorityProbe: Sendable {
     public var workspaceId: UUID
     public var manual: Bool
     public var overridePresent: Bool
+    /// The automatic difficulty cmux holds for the workspace (`easy`,
+    /// `normal` or `hard`), or `nil` before the first rating.
+    public var difficultyAuto: String?
 
-    public init(enabled: Bool, workspaceId: UUID, manual: Bool, overridePresent: Bool) {
+    public init(
+        enabled: Bool,
+        workspaceId: UUID,
+        manual: Bool,
+        overridePresent: Bool,
+        difficultyAuto: String?
+    ) {
         self.enabled = enabled
         self.workspaceId = workspaceId
         self.manual = manual
         self.overridePresent = overridePresent
+        self.difficultyAuto = difficultyAuto
     }
 }
 

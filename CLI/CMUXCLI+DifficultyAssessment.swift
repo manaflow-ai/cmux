@@ -24,7 +24,7 @@ enum DifficultyAssessmentDecision: Equatable, Sendable {
 }
 
 /// Pure pieces of the difficulty assessment: prompt, response parsing,
-/// excerpt selection and the throttle decision.
+/// excerpt selection, the throttle decision and verdict damping.
 enum DifficultyAssessmentEngine {
     static func buildPrompt(lastUserMessage: String, lastAssistantMessage: String) -> String {
         let user = String(lastUserMessage.prefix(DifficultyAssessmentConfig.excerptLimit))
@@ -82,5 +82,37 @@ enum DifficultyAssessmentEngine {
             return .skipTooSoon
         }
         return .proceed
+    }
+
+    /// The verdict to send to cmux, or `nil` to send nothing.
+    ///
+    /// - Parameters:
+    ///   - new: This assessment's verdict.
+    ///   - current: The workspace's automatic difficulty, the last rating cmux
+    ///     stored for it (`nil` before the first; the workspace then counts as
+    ///     `normal`).
+    ///   - previous: This session's previous verdict, sent or not.
+    ///
+    /// A verdict harder than `current` is sent at once. An easier one is sent
+    /// only when `previous` already was that verdict (two in a row), so one
+    /// short exchange cannot lower the effort and restart the pane on its own.
+    /// A verdict equal to `current` is not sent again; before any rating, a
+    /// first `normal` is still sent.
+    static func verdictToSend(
+        new: ClaudeSessionDifficulty,
+        current: ClaudeSessionDifficulty?,
+        previous: ClaudeSessionDifficulty?
+    ) -> ClaudeSessionDifficulty? {
+        if let current, new == current { return nil }
+        if rank(new) >= rank(current ?? .normal) { return new }
+        return previous == new ? new : nil
+    }
+
+    private static func rank(_ difficulty: ClaudeSessionDifficulty) -> Int {
+        switch difficulty {
+        case .easy: return 0
+        case .normal: return 1
+        case .hard: return 2
+        }
     }
 }

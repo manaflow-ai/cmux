@@ -91,9 +91,19 @@ extension CMUXCLI {
             return
         }
         verdict = difficulty
+
+        let current = (probe["difficulty_auto"] as? String).flatMap(ClaudeSessionDifficulty.init(rawValue:))
+        guard let send = DifficultyAssessmentEngine.verdictToSend(
+            new: difficulty,
+            current: current,
+            previous: start.previousVerdict
+        ) else {
+            telemetry.breadcrumb(difficulty == current ? "claude-hook.difficulty.unchanged" : "claude-hook.difficulty.damped")
+            return
+        }
         guard (try? client.sendV2(
             method: "session_priority.set",
-            params: ["workspace_id": workspaceId, "difficulty": difficulty.rawValue, "source": "auto"]
+            params: ["workspace_id": workspaceId, "difficulty": send.rawValue, "source": "auto"]
         )) != nil else {
             telemetry.breadcrumb("claude-hook.difficulty.send-failed")
             return
