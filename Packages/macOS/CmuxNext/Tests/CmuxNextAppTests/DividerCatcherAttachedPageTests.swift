@@ -129,6 +129,16 @@ import Testing
 
         var catcherPanels: [NSWindow] { (window.childWindows ?? []).filter { $0 is DividerMousePanel && $0.isVisible } }
 
+        /// The pointer comes to every catcher area that has no panel yet (each gets its panel on its first move in).
+        func pointerVisitsCatcherAreas() {
+            guard let catchers = layer.catchers else { return }
+            for _ in 0..<64 {
+                guard let rect = catchers.waitingRects.first else { return }
+                let screen = window.convertToScreen(rect)
+                catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.midY))
+            }
+        }
+
         func close() {
             layer.teardown()
             window.orderOut(nil)
@@ -196,6 +206,7 @@ import Testing
 
         #expect(layer.pageWindowsTakeMouse)
         let catchers = try #require(layer.catchers)
+        layout.pointerVisitsCatcherAreas()
         #expect(catchers.shownCount == layer.catcherAreas.count, "\(catchers.shownCount) for \(layer.catcherAreas)")
     }
 
@@ -213,7 +224,7 @@ import Testing
         #expect(layout.catcherPanels.isEmpty, "a catcher over the popup would take its clicks")
     }
 
-    /// The fallback: a page window gets one panel per catcher area, and they go when it hides.
+    /// The fallback: a page window gets one panel per catcher area the pointer comes to, and they go when it hides.
     @Test func aPageWindowGetsCatchersUntilItHides() throws {
         let layout = Layout()
         defer { layout.close() }
@@ -223,6 +234,7 @@ import Testing
 
         #expect(layer.pageWindowsTakeMouse)
         let catchers = try #require(layer.catchers, "a page window takes the mouse: the catchers exist")
+        layout.pointerVisitsCatcherAreas()
         #expect(catchers.shownCount == layer.catcherAreas.count, "one panel per area: \(catchers.shownCount) for \(layer.catcherAreas)")
         #expect(catchers.panelUpdates >= layer.catcherAreas.count)
 
@@ -252,6 +264,7 @@ import Testing
         let popupRect = CGRect(x: area.rect.minX - 100, y: area.rect.midY - 50, width: 240, height: 100)
         layout.addChild(popup, over: popupRect)
         let catchers = try #require(layer.catchers, "the page window takes the mouse: the catchers exist")
+        layout.pointerVisitsCatcherAreas()
 
         let popupInWindow = layout.window.convertFromScreen(popup.frame)
         #expect(layer.catcherHoles == [popupInWindow])
@@ -266,6 +279,7 @@ import Testing
         // The popup moves off the divider: the catcher covers the divider area whole again.
         popup.setFrame(layout.window.convertToScreen(popupRect.offsetBy(dx: -400, dy: 0)), display: false)
         layer.evaluate()
+        layout.pointerVisitsCatcherAreas()
         let divider = try #require(catchers.framesInWindow[area.id], "one panel for the whole area: \(catchers.framesInWindow)")
         #expect(divider == area.rect)
 

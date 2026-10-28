@@ -27,6 +27,12 @@ import CmuxNextDesign
 /// Panels are `NSPanel`s at the overlay's level, so `WindowOverlayLayer`
 /// keeps them above page windows with its other app panels. Lives here, not
 /// in CmuxNextApp (code-quality.md SW14).
+///
+/// A panel is made the first time the pointer comes to its area (``pointerMoved(toScreen:)``, fed by the
+/// window's pointer moves, the page windows' included), or at once for an area that appears under the
+/// pointer, so a click there without a move still reaches the divider. A landed layout makes none: a new
+/// window's first turns made one NSPanel per divider hit area, 386 ms (first-5s bench, 2026-10-28), for dividers
+/// the person mostly never touches. A panel once made follows its area until the area goes.
 @MainActor
 public final class DividerMouseCatchers {
     private unowned let window: NSWindow
@@ -36,10 +42,29 @@ public final class DividerMouseCatchers {
     /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
     /// server move, so a bench counts them over an action.
     public private(set) var panelUpdates = 0
+    /// The pieces the last ``update(_:active:excluding:)`` wants covered; a piece without a panel gets one when
+    /// the pointer comes to it.
+    private var wanted: [Piece] = []
+    /// Wanted pieces that have no panel yet (``wantsPointer``, read per pointer move: O(1)).
+    private var waiting = 0
+    /// Where the pointer is now, in screen coordinates (tests pass their own).
+    private let pointerLocation: @MainActor () -> CGPoint
 
-    public init(window: NSWindow) {
+    /// - Parameters:
+    ///   - window: The window whose divider areas get panels.
+    ///   - pointerLocation: The pointer's screen point now; read once per update, for an area that appears
+    ///     under a pointer that does not move.
+    public init(window: NSWindow,
+                pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }) { // global-input-allow: read once per layout landing, outside any dispatch, for an area that appears under a still pointer
         self.window = window
+        self.pointerLocation = pointerLocation
     }
+
+    /// Some wanted area has no panel yet: the window's pointer moves are worth reading.
+    public var wantsPointer: Bool { waiting > 0 }
+
+    /// The wanted areas with no panel yet, in window coordinates (tests move the pointer into them).
+    var waitingRects: [CGRect] { wanted.filter { panels[$0.key] == nil }.map(\.area.rect) }
 
     /// Window numbers of the panels shown: they pass divider hover through.
     public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
@@ -70,18 +95,41 @@ public final class DividerMouseCatchers {
             panel.orderOut(nil)
             panels[key] = nil
         }
+        self.wanted = wanted
+        // An area that appears under the pointer gets its panel now: no move may come before the click.
+        let pointer = wanted.contains(where: { panels[$0.key] == nil }) ? pointerLocation() : nil
         for piece in wanted {
-            if panels[piece.key] == nil { panelUpdates += 1 }
-            let panel = panels[piece.key] ?? makePanel(id: piece.area.id)
-            panels[piece.key] = panel
-            panel.catcher.resizesColumns = piece.area.resizesColumns
-            let frame = window.convertToScreen(piece.area.rect)
-            if panel.frame != frame {
-                panel.setFrame(frame, display: false)
-                panelUpdates += 1
+            if panels[piece.key] == nil {
+                guard let pointer, window.convertToScreen(piece.area.rect).contains(pointer) else { continue }
             }
-            if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
+            place(piece)
         }
+        waiting = wanted.count(where: { panels[$0.key] == nil })
+    }
+
+    /// The pointer moved to `point` (screen coordinates) in the window or one of its page windows: the
+    /// wanted area under it gets its panel, the first time only. Returns whether a panel was made.
+    @discardableResult
+    public func pointerMoved(toScreen point: CGPoint) -> Bool {
+        guard waiting > 0, let piece = wanted.first(where: { panels[$0.key] == nil && window.convertToScreen($0.area.rect).contains(point) })
+        else { return false }
+        place(piece)
+        waiting -= 1
+        return true
+    }
+
+    /// Makes `piece`'s panel if it has none, and puts it over the piece's area, above the window.
+    private func place(_ piece: Piece) {
+        if panels[piece.key] == nil { panelUpdates += 1 }
+        let panel = panels[piece.key] ?? makePanel(id: piece.area.id)
+        panels[piece.key] = panel
+        panel.catcher.resizesColumns = piece.area.resizesColumns
+        let frame = window.convertToScreen(piece.area.rect)
+        if panel.frame != frame {
+            panel.setFrame(frame, display: false)
+            panelUpdates += 1
+        }
+        if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
     }
 
     /// One catcher panel's area: `area` keeps its divider's id (hover reports it), `key` names the panel.

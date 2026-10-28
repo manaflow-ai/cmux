@@ -33,4 +33,64 @@ import Testing
         #expect(catchers.panelUpdates == 0)
         #expect(!(window.childWindows ?? []).contains { $0 is DividerMousePanel })
     }
+
+    /// The first move into an area makes its panel, over the area; a move elsewhere makes none.
+    @Test func theFirstMoveIntoAnAreaMakesItsPanel() throws {
+        let window = Self.window()
+        defer { window.close() }
+        let catchers = DividerMouseCatchers(window: window, pointerLocation: { .zero })
+        defer { catchers.teardown() }
+        let other = LayoutMouseArea(id: "e", rect: CGRect(x: 0, y: 246, width: 800, height: 8), resizesColumns: false)
+        catchers.update([Self.area, other], active: true)
+        #expect(catchers.wantsPointer)
+
+        let screen = window.convertToScreen(Self.area.rect)
+        #expect(!catchers.pointerMoved(toScreen: CGPoint(x: screen.minX - 40, y: screen.midY + 100)), "a move outside every area")
+        #expect(catchers.shownCount == 0)
+        #expect(catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.maxY - 10)))
+        #expect(catchers.shownCount == 1)
+        #expect(catchers.framesInWindow["d"] == Self.area.rect, "the panel covers its area: \(catchers.framesInWindow)")
+        #expect(catchers.wantsPointer, "the other area still waits")
+
+        let otherScreen = window.convertToScreen(other.rect)
+        #expect(catchers.pointerMoved(toScreen: CGPoint(x: otherScreen.minX + 10, y: otherScreen.midY)))
+        #expect(catchers.shownCount == 2)
+        #expect(!catchers.wantsPointer, "every area has its panel: moves cost one check")
+        #expect(!catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.midY)), "a panel is made once")
+    }
+
+    /// An area that appears under a pointer that does not move gets its panel at once: a click needs no move first.
+    @Test func anAreaUnderAStillPointerGetsItsPanelAtOnce() {
+        let window = Self.window()
+        defer { window.close() }
+        let screen = window.convertToScreen(Self.area.rect)
+        let catchers = DividerMouseCatchers(window: window, pointerLocation: { CGPoint(x: screen.midX, y: screen.midY) })
+        defer { catchers.teardown() }
+
+        catchers.update([Self.area], active: true)
+
+        #expect(catchers.shownCount == 1)
+        #expect(!catchers.wantsPointer)
+    }
+
+    /// A panel once made follows its area when the layout moves it, and goes with it; no page window, no panel.
+    @Test func aMadePanelFollowsItsAreaAndGoesWithIt() {
+        let window = Self.window()
+        defer { window.close() }
+        let catchers = DividerMouseCatchers(window: window, pointerLocation: { .zero })
+        defer { catchers.teardown() }
+        catchers.update([Self.area], active: true)
+        let screen = window.convertToScreen(Self.area.rect)
+        catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.midY))
+
+        var moved = Self.area
+        moved.rect.origin.x = 300
+        catchers.update([moved], active: true)
+        #expect(catchers.framesInWindow["d"] == moved.rect)
+
+        catchers.update([moved], active: false)
+        #expect(catchers.shownCount == 0)
+        #expect(!catchers.wantsPointer, "with no page window taking the mouse no area waits")
+        #expect(!(window.childWindows ?? []).contains { $0 is DividerMousePanel })
+    }
 }

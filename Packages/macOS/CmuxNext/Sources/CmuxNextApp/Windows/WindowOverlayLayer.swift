@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextSignposts
 import CmuxNextWakeups
@@ -79,6 +80,9 @@ final class WindowOverlayLayer {
     /// Made the first time a page window takes the mouse (``pageWindowsTakeMouse``); nil while every page
     /// draws and takes input in this window.
     private(set) var catchers: DividerMouseCatchers?
+    /// The window's pointer moves (its page windows' too), heard only while a catcher area has no panel yet: the
+    /// first move into an area makes its panel (``DividerMouseCatchers/pointerMoved(toScreen:)``).
+    private var catcherPointer: InputSubscription?
     /// A visible page window takes the mouse over the layout (``takesMouse(_:)``): its divider hit areas
     /// need catcher panels above it.
     private(set) var pageWindowsTakeMouse = false
@@ -178,6 +182,7 @@ final class WindowOverlayLayer {
         isTornDown = true
         sidebarResizeArea = nil
         catchers?.teardown()
+        catcherPointer = nil
         subscriptions.forEach { $0.cancel() }
         observers.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
@@ -460,8 +465,9 @@ final class WindowOverlayLayer {
         guard let catchers = active ? self.catchers ?? makeCatchers() : self.catchers else { return }
         let shownBefore = catchers.shownCount
         catchers.update(catcherAreas, active: active, excluding: catcherHoles)
-        // No panel showed or shows: what lies under the pointer did not change.
-        guard shownBefore > 0 || catchers.shownCount > 0 else { return }
+        // No panel showed, shows or waits for the pointer: what lies under the pointer did not change. An area
+        // waiting for the pointer gets its panel later, and the layout reads the panels through these closures then.
+        guard shownBefore > 0 || catchers.shownCount > 0 || catchers.wantsPointer else { return }
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -482,6 +488,12 @@ final class WindowOverlayLayer {
             for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
         }
         catchers = made
+        // The first move into a divider area makes its panel; with every wanted area covered, moves cost one check.
+        catcherPointer = (window as? ShellWindow)?.inputTap?.subscribe(class: .pointerMove, window: .window(window),
+                                                                       while: { [weak made] in made?.wantsPointer == true }) { [weak made] event in
+            guard let made, let source = event.window else { return }
+            made.pointerMoved(toScreen: source.convertPoint(toScreen: event.locationInWindow))
+        }
         return made
     }
 

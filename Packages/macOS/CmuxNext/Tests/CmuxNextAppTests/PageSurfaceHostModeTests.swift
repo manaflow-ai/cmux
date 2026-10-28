@@ -178,21 +178,29 @@ import Testing
         let area = LayoutMouseArea(id: "d", rect: CGRect(x: 396, y: 0, width: 8, height: 500), resizesColumns: true)
 
         catchers.update([area], active: true)
+        let screen = rig.window.convertToScreen(area.rect)
+        catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.midY))
 
+        #expect(!catchers.wantsPointer, "host mode wants no panel, so no pointer either")
         #expect(catchers.shownCount == 0)
         #expect(catchers.panelUpdates == 0)
         #expect(!(rig.window.childWindows ?? []).contains { $0 is DividerMousePanel })
     }
 
+    /// In process an area waits for the pointer (DividerCatcherLazyPanelTests), then shows its panel.
     @Test func dividerCatchersStillShowInProcess() {
         let rig = Rig(.childWindows)
         defer { rig.close() }
-        let catchers = DividerMouseCatchers(window: rig.window)
+        let catchers = DividerMouseCatchers(window: rig.window, pointerLocation: { .zero })
         let area = LayoutMouseArea(id: "d", rect: CGRect(x: 396, y: 0, width: 8, height: 500), resizesColumns: true)
 
         catchers.update([area], active: true)
         defer { catchers.update([], active: false) }
+        #expect(catchers.shownCount == 0, "no panel before the pointer comes to the divider")
+        #expect(catchers.wantsPointer)
 
+        let screen = rig.window.convertToScreen(area.rect)
+        #expect(catchers.pointerMoved(toScreen: CGPoint(x: screen.midX, y: screen.midY)))
         #expect(catchers.shownCount == 1)
     }
 
