@@ -943,6 +943,18 @@ async fn auth(
     signer: &ring::signature::EcdsaKeyPair,
     action: &str,
 ) -> Channel {
+    auth_presenting(link, fixture, keys, signer, action, None).await
+}
+
+/// `auth`, with the pairing code's pre-approval sent beside the signature when `pair_token` is set.
+async fn auth_presenting(
+    link: &cmux_mobile_link::Link,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    signer: &ring::signature::EcdsaKeyPair,
+    action: &str,
+    pair_token: Option<&str>,
+) -> Channel {
     let mut channel = link
         .open(
             "auth",
@@ -962,8 +974,46 @@ async fn auth(
         action,
     );
     let signature = hex(signer.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
-    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    let mut reply = serde_json::json!({"signature": signature});
+    if let Some(token) = pair_token {
+        reply["pairToken"] = serde_json::json!(token);
+    }
+    channel.send(Bytes::from(reply.to_string())).await.unwrap();
     channel
+}
+
+/// A pairing code's pre-approval rides with the signature to the app, which decides; hostd only
+/// checks its shape, and a phone without one is asked exactly as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let token = "Zm9vYmFyLWJhel9xdXV4";
+
+    let mut bad =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
+            .await;
+    assert_eq!(drain(&mut bad).await.1, "bad_request");
+
+    let mut channel =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
+    assert_eq!(
+        request,
+        Event::PairRequest {
+            phone_device_id: fixture.phone_id.clone(),
+            name: "Test iPhone".into(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+            registered_at_ms: None,
+            pair_token: Some(token.into()),
+        }
+    );
+    // The app allowed it (as it does for a live token): the phone is served.
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -995,6 +1045,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
+            pair_token: None,
         }
     );
     fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {

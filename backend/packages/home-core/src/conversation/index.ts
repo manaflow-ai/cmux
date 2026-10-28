@@ -1,5 +1,5 @@
 export { apply, isSend, targetMessageId } from "./apply.ts"
-export { BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, inThread, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, streakOf, threadAgentStreak, withTurn } from "./budget.ts"
+export { agentCount, BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, inThread, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, streakOf, threadAgentStreak, withTurn } from "./budget.ts"
 export { consentMarkerWrites, hasConsentMarker, TABLE_CONSENT, withConsentMarkers } from "./consent.ts"
 export { checkTyping, create, summary, type CreateRequest, type CreateResult } from "./create.ts"
 export {

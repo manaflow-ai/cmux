@@ -32,6 +32,9 @@ ARTIFACTS = {
 }
 
 
+HELPER_RESOLVER = "resolve-nightly-ghostty-cli-helper"
+
+
 def require(condition, message):
     if not condition:
         raise SystemExit(message)
@@ -52,11 +55,19 @@ def validate(run, jobs, artifacts, repo, run_id, attempt):
         require(len(candidates) == 1 and candidates[0].get("conclusion") == "success" and
                 candidates[0].get("run_attempt") == int(attempt), f"producer {name} did not succeed in requested attempt")
         producers[name] = candidates[0]
+    # A helper reused from an earlier nightly (nightly_ghostty_helper_reuse.py)
+    # is uploaded by the resolver job of the same attempt, not the build job.
+    for job in jobs:
+        if (job.get("name") == HELPER_RESOLVER and job.get("conclusion") == "success" and
+                job.get("run_attempt") == int(attempt)):
+            producers[HELPER_RESOLVER] = job
     selected = {}
     for name, (owner, _) in ARTIFACTS.items():
-        job = producers[owner]
+        owners = [owner] + ([HELPER_RESOLVER] if name == "cmux-nightly-ghostty-cli-helper" and
+                            HELPER_RESOLVER in producers else [])
         matches = [a for a in artifacts if a.get("name") == name and not a.get("expired") and
-                   job["started_at"] <= a.get("created_at", "") <= job["completed_at"]]
+                   any(producers[o]["started_at"] <= a.get("created_at", "") <= producers[o]["completed_at"]
+                       for o in owners)]
         require(len(matches) == 1, f"missing or ambiguous {name} for producer attempt")
         artifact = matches[0]
         require(re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", "")) is not None,

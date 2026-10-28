@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Workspace groups when the home session serves personal state
@@ -32,6 +33,29 @@ extension AppActionContext {
     func personalGroupID(of workspace: WorkspaceModel) -> WorkspaceGroupID? {
         guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return nil }
         return personal.workspace(session: qualified.session, key: qualified.key)?.group
+    }
+
+    /// The targeted group as a notification sound level (``group(_:)``'s target rules).
+    func soundGroup(_ invocation: ActionInvocation) throws -> NotificationSoundScope.Group {
+        let group = try group(invocation)
+        return .init(id: group.id.rawValue, name: group.name)
+    }
+
+    /// The personal groups workspace `id` sits in, innermost first (its notification sound levels).
+    func soundGroups(ofWorkspace id: String) -> [NotificationSoundScope.Group] {
+        guard usesPersonalGroups, let workspace = services.machines.daemons.lazy.flatMap(\.store.workspaces).first(where: { $0.id == id }) else { return [] }
+        var groups: [NotificationSoundScope.Group] = [], next = personalGroupID(of: workspace)
+        // Depth-bounded: a malformed parent loop cannot spin here.
+        while let id = next, groups.count < 16, let group = personal.group(id) {
+            groups.append(.init(id: id.rawValue, name: group.name))
+            next = group.parent
+        }
+        return groups
+    }
+
+    /// The agent names of this Mac's tabs (chat harnesses, hook-reported agents), for per-agent sounds.
+    var soundAgentKinds: [String] {
+        store.workspaces.flatMap { $0.screens.flatMap(\.panes).flatMap(\.tabs) }.compactMap { $0.agentSession?.harness ?? $0.agent?.agent }
     }
 
     /// Workspaces of every session in personal group `id`.

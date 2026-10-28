@@ -10,8 +10,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const ACPMUX = join(import.meta.dir, "../src/agent-session/acpmux");
-// A header tool button: `.acpmux-header-tool`, not `.acpmux-header-tools` or `.acpmux-header-tool-group`.
-const HEADER_TOOL = /\.acpmux-header-tool(?![\w-])/;
+// A header tool button, including the shared panel toggle; not the tool row or group.
+const HEADER_TOOL = /\.acpmux-header-(?:tool|panel-toggle)(?![\w-])/;
 // The floating chat's header and folded bar (FloatingChat.tsx), not the chat header.
 const FLOATING = /^\.acpmux-floating-(header|bar) /;
 const NO_FILL = /^(none|transparent)$/;

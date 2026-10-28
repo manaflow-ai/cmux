@@ -33,6 +33,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var installsInBackground = false
     /// With background installs: whether a found update downloads without a click.
     var downloadsInBackground = true
+    /// The automatic install whose app quits for it (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``):
+    /// Sparkle's held reply, kept until the app ends so a refused quit can stage it again.
+    var quitInstall: (item: SUAppcastItem, install: () -> Void, cancel: (() -> Void)?)?
+    /// The host's helper is quitting the app for ``quitInstall`` (``commitQuitInstall()``).
+    var quitInstallCommitted = false
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
     /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
@@ -42,6 +47,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
+    /// Bumped each time an update is staged, so a host's late release of an automatic install
+    /// (``UpdateActionDelegate/updaterDefersAutomaticInstall(until:)``) only installs that update.
+    var stagedGeneration: UInt64 = 0
+    /// The automatic relaunch the host holds at Sparkle's relaunch, run once by its release or a click.
+    var heldAutomaticRelaunch: InstallOnce?
+    /// The update an automatic install handed to Sparkle, so a relaunch the host holds still names it
+    /// as the staged update (``stagedItem``) and the indicator keeps its click.
+    var automaticInstallItem: SUAppcastItem?
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
@@ -154,6 +167,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
         relaunchGate.cancel()
+        endAutomaticInstallHold()
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -234,6 +248,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         // decision before reading the host mirror so a stale/unavailable mirror cannot turn an
         // app update into the old "Waiting to Relaunch" card.
         guard holdsUserInstalls else {
+            // An automatic install checks the host's moment again here, at the relaunch itself: a
+            // sheet or composition may have begun while Sparkle installed. A click never waits.
+            if automatic, holdAutomaticRelaunch(installHandler) { return true }
             log.append("update relaunch is immediate; the daemon preserves live sessions (automatic=\(automatic))")
             return false
         }
@@ -243,6 +260,40 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         heldRelaunchItem = item
         holdRelaunch(isAutoUpdate: isAutoUpdate, automatic: automatic, install: installHandler)
         return true
+    }
+
+    /// Asks the host to hold an automatic relaunch (``UpdateActionDelegate/updaterDefersAutomaticInstall(until:)``).
+    /// While held, the update shows as staged and a click relaunches at once; either runs
+    /// `installHandler` once. False when the host holds nothing.
+    private func holdAutomaticRelaunch(_ installHandler: @escaping () -> Void) -> Bool {
+        let once = InstallOnce(installHandler)
+        guard actionDelegate?.updaterDefersAutomaticInstall(until: { [weak self] in
+            guard let self, self.heldAutomaticRelaunch === once else { return }
+            self.heldAutomaticRelaunch = nil
+            self.automaticInstallItem = nil
+            self.log.append("automatic relaunch: the host's hold ended; relaunching")
+            once.run()
+        }) == true else { return false }
+        log.append("automatic relaunch held by the host until nothing would be cut off")
+        heldAutomaticRelaunch = once
+        setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { [weak self] in
+                self?.endAutomaticInstallHold()
+                once.run()
+            },
+            dismiss: {}
+        )))
+        return true
+    }
+
+    /// Drops the host's hold on an automatic install or relaunch: a click, a cancel or the end of
+    /// the update session took over.
+    func endAutomaticInstallHold() {
+        heldAutomaticRelaunch = nil
+        quitInstall = nil
+        automaticInstallItem = nil
+        actionDelegate?.updaterEndsAutomaticInstallHold()
     }
 
     private func currentRelaunchBlockers() -> UpdateRelaunchBlockers {
@@ -305,6 +356,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
         relaunchGate.cancel()
+        endAutomaticInstallHold()
         setState(.idle)
         acknowledgement()
     }
@@ -486,7 +538,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 }
 
 /// Runs a Sparkle install handler at most once.
-private final class InstallOnce {
+final class InstallOnce {
     private var install: (() -> Void)?
 
     init(_ install: @escaping () -> Void) {

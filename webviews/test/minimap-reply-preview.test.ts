@@ -19,7 +19,7 @@ const fixtures = [
 ];
 
 /// What the previous implementation (split the whole reply into lines, read every line) returned
-/// for each fixture. A 20,000-input fuzz against it found no difference.
+/// for each fixture, with inline code now kept as a code span rather than flattened into prose.
 const expected: ReplyBlock[][] = [
   [],
   [],
@@ -40,7 +40,9 @@ const expected: ReplyBlock[][] = [
       spans: [
         { text: "After the fence with ", bold: false },
         { text: "bold", bold: true },
-        { text: " and code and a link.", bold: false },
+        { text: " and ", bold: false },
+        { text: "code", bold: false, code: true },
+        { text: " and a link.", bold: false },
       ],
     },
   ],
