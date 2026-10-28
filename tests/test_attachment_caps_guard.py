@@ -27,6 +27,22 @@ class AttachmentCapsGuardTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.check_source(f"let {name} = 100", 1)
 
+    def test_size_named_caps(self):
+        for name in ("MAX_FILE_SIZE", "MAX_ATTACHMENT_SIZE", "MAX_TOTAL_SIZE"):
+            with self.subTest(name=name):
+                self.check_source(f"const {name} = 100", 1)
+
+    def test_count_and_length_admission_comparisons(self):
+        for source in (
+            "guard data.count <= 1_048_576 else { return failure() }",
+            "if (file.length > 1024 * 1024) reject();",
+            "if (1_048_576 < data.count) reject();",
+            "guard 1_048_576 >= file.length else { return failure() }",
+            "if file.len() > 1_048_576 { return Err(error); }",
+        ):
+            with self.subTest(source=source):
+                self.check_source(source, 1)
+
     def test_decoder_is_scanned_even_without_upload_in_filename(self):
         self.check_source("let maximumUploadStageFile = 1024", 1,
                           "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift")
