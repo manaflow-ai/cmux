@@ -217,6 +217,26 @@ def session_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+DEV_COMPILE_VARIABLE = "CI_DEV_COMPILE_RUNNER"
+DEV_COMPILE_PREFIX = "glaeda-dev-"
+
+
+def dev_compile_reason(label: str) -> str | None:
+    """Why CI_DEV_COMPILE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-next.yml's macos-placement reads it as the freshness slot's label
+    (FRESH_LABEL, default glaeda-dev-std-xcode-26.6): one dev instance on the
+    owned minis, glaeda-dev-<class>-xcode-<version>, whose hook admits only
+    trusted pushes and dispatches. Anything else is held to the workflow
+    policy. Empty is fine (the default label).
+    """
+    if label.startswith(DEV_COMPILE_PREFIX):
+        candidate = "glaeda-" + label[len(DEV_COMPILE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
+    return forbidden_reason(label)
+
+
 AWS_SIDE_VARIABLE = "CI_AWS_SIDE_RUNNER"
 AWS_SIDE_PREFIX = "glaeda-aws-"
 
@@ -343,6 +363,8 @@ def drifted_runner_variables(
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:
             reason = session_lane_reason(value.strip())
+        elif name == DEV_COMPILE_VARIABLE:
+            reason = dev_compile_reason(value.strip())
         elif name == AWS_SIDE_VARIABLE:
             reason = aws_side_reason(value.strip())
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):

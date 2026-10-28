@@ -2859,14 +2859,28 @@
             "zh-TW": "下一個空間"
           },
           "shortcut": {
-            "key": "]",
+            "key": "",
             "modifiers": [
+              "ctrl",
               "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            }
+          ]
         },
         {
           "id": "space.previous",
@@ -2894,14 +2908,28 @@
             "zh-TW": "上一個空間"
           },
           "shortcut": {
-            "key": "[",
+            "key": "",
             "modifiers": [
+              "ctrl",
               "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            }
+          ]
         },
         {
           "id": "space.selectByNumber",
@@ -2937,7 +2965,125 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "1",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "2",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "3",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "4",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "5",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "6",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "7",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "8",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "9",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         }
       ]
     },

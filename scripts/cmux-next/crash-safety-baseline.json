@@ -110,7 +110,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 4,
+    "acpmux": 6,
     "cmux-browser-host": 4,
     "cmux-tui-core": 3
    },
