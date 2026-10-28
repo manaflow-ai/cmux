@@ -38,9 +38,9 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
-        // The one + with a caret (Lawrence 2026-10-27: "caret should maybe just be in this one"): a press
-        // opens the screen menu. Set before the tooltip, which the menu switch also writes.
-        view.opensNewTabMenuOnPress = true
+        // The plain square + of every strip, no caret (Lawrence 2026-10-28: "bring this button back to how it
+        // originally looked"): a press makes a screen; a hold or a right-click opens the screen menu.
+        view.opensNewTabMenuOnPress = false
         view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
