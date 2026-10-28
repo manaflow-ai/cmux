@@ -689,7 +689,7 @@ cat > node_modules/.bin/vp <<'VP'
         (sort_keys=False). The driver refused that format as a whole-file conflict, so any two branches
         that lowered any crate's counts conflicted (36 merge-train conflicts in a day, 2026-10-28). Both
         sides lowering the same count keeps the lower: the merged code has both sides' fixes, so its count
-        is at most min(ours, theirs) (base + dA + dB, dA and dB <= 0), and the ratchet stays tight."""
+        is at most min(ours, theirs) unless the higher side also added a hit in that row."""
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
         self.git("config", "user.name", "t")
         self.git("config", "user.email", "t@example.com")

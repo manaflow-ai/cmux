@@ -97,7 +97,8 @@ def is_count(value) -> bool:
 
 def merge_leaf(base, ours, theirs):
     """(result, conflict) for one leaf. Both sides lowering the same count keeps the lower: the merged code has both
-    sides' fixes, so its count is at most min(ours, theirs) (base + dA + dB with dA, dB <= 0) and the ratchet stays tight."""
+    sides' fixes, so its count (base - |fixes A or B| + |adds A or B|) is at most min(ours, theirs) unless the higher side
+    also added a hit in that row; then the ratchet reds the merge until a fixer raises the row (still at most the base)."""
     result, clash = merge_value(base, ours, theirs)
     if clash and is_count(base) and is_count(ours) and is_count(theirs) and ours < base and theirs < base:
         return min(ours, theirs), False
