@@ -17,9 +17,10 @@ enum BrowserHTTPAuth {
     /// leave the tab on the old page with no word of why.
     static let cancelDisposition = URLSession.AuthChallengeDisposition.rejectProtectionSpace
 
-    /// Whether a login for `space` goes to the server encrypted: an https server, or an https proxy.
+    /// Whether a login for `space` goes to the server encrypted: an https server. Never for a proxy: an
+    /// "HTTPS proxy" space is a proxy for https addresses, and its login usually goes to the proxy in clear text.
     static func isSecure(_ space: URLProtectionSpace) -> Bool {
-        if space.isProxy() { return space.proxyType == NSURLProtectionSpaceHTTPSProxy }
+        if space.isProxy() { return false }
         return space.protocol?.lowercased() == NSURLProtectionSpaceHTTPS
     }
 

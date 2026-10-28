@@ -68,12 +68,13 @@ import Testing
         #expect(spec == expected(secure: true, failed: false))
     }
 
-    @Test func anHTTPSProxyIsSecureAndAnHTTPProxyIsNot() {
+    /// A proxy's login is never called encrypted: an "HTTPS proxy" space is a proxy for https addresses.
+    @Test func noProxyLoginIsCalledEncrypted() {
         let https = URLProtectionSpace(proxyHost: "proxy.example", port: 443, type: NSURLProtectionSpaceHTTPSProxy, realm: nil,
                                        authenticationMethod: NSURLAuthenticationMethodHTTPBasic)
         let http = URLProtectionSpace(proxyHost: "proxy.example", port: 8080, type: NSURLProtectionSpaceHTTPProxy, realm: nil,
                                       authenticationMethod: NSURLAuthenticationMethodHTTPBasic)
-        #expect(BrowserHTTPAuth.isSecure(https))
+        #expect(!BrowserHTTPAuth.isSecure(https))
         #expect(!BrowserHTTPAuth.isSecure(http))
     }
 }
