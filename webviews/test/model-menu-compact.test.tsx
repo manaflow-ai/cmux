@@ -90,7 +90,7 @@ afterAll(() => {
 type Sent = { method: "model" | "effort" | "route"; value: string | null };
 
 /// A Claude chat on the compact menu, its accounts the routes `listed` (acpmux's reply), and the
-/// chat bound to `active`.
+/// chat bound to `active`; launch configurations appear as named harness entries, never Profile.
 async function mount(
   listed: unknown,
   options: {
@@ -443,6 +443,13 @@ test("without a starred model the rail starts at the harnesses", async () => {
   await mount({ routes: [] });
   await open();
   expect(railTabs()[0]?.getAttribute("aria-label")).toBe("Claude Code");
+});
+
+test("the compact picker has no unrequested Profile row", async () => {
+  await mount({ routes: [] });
+  await open();
+  expect(itemsOf(menu()!).some((row) => row === "Profile")).toBe(false);
+  expect(menu()!.textContent).not.toMatch(/\bProfile\b/);
 });
 
 test("machine profiles stay out of the harness rail", async () => {

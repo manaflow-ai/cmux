@@ -95,11 +95,14 @@ public actor DaemonUpdatePolicy {
         return await bundledBuild(of: acpmux.executable)
     }
 
-    /// The build `executable --version` names; nil when it does not answer within `bound` (it is
-    /// stopped then: SIGTERM, SIGKILL 2 s later) or names none. Bounded, since the queue waits on
-    /// it before its first target.
-    nonisolated static func bundledBuild(of executable: URL, within bound: Duration = .seconds(10)) async -> String? {
-        guard let outcome = try? await AsyncProcess().run(ProcessRequest(executable, ["--version"], timeout: bound)) else { return nil }
+    /// The build `executable --version` names; nil when it does not answer within `bound` on
+    /// `clock` (it is stopped then: SIGTERM, SIGKILL 2 s later) or names none. Bounded, since the
+    /// queue waits on it before its first target. Tests pass a manual `clock`.
+    nonisolated static func bundledBuild(of executable: URL, within bound: Duration = .seconds(10),
+                                         clock: any Clock<Duration> = ContinuousClock()) async -> String? {
+        guard let outcome = try? await AsyncProcess(clock: clock).run(ProcessRequest(executable, ["--version"], timeout: bound)) else {
+            return nil
+        }
         return AcpmuxVersionHandoff.build(fromVersion: outcome.text)
     }
 
@@ -277,6 +280,9 @@ public actor DaemonUpdatePolicy {
         // The person asked for this one (``retry(_:)``): what the ledger and this run remember of it
         // does not hold it back.
         let retry = retried.remove(target.id) != nil
+        // Its line goes when it is dropped below: the person asked, or it said before that it could
+        // not update and runs another build now (its "cannot update" line no longer holds).
+        var clearLine = retry
         // Before the run's own memory (`settled`): a machine reinstalled since it said it cannot
         // update is asked again at its next offer, in this run too.
         if let known = ledger.cannotUpdate?[target.id] {
@@ -303,23 +309,24 @@ public actor DaemonUpdatePolicy {
             ledger.targets[target.id] = nil
             settled[target.id] = nil
             write(ledger)
+            clearLine = true
         }
         if retry, ledger.attempted(target.id) || settled[target.id] != nil {
             ledger.targets[target.id] = nil
             settled[target.id] = nil
             write(ledger)
         }
-        guard !ledger.attempted(target.id), settled[target.id] != local.hash else { return await dropped(pending, asked: retry) }
+        guard !ledger.attempted(target.id), settled[target.id] != local.hash else { return await dropped(pending, asked: clearLine) }
         // Read at its turn: the machine may have gone, or reached this build meanwhile.
         let urgent = await target.urgent
         let reported = await target.currentBuild()
         let current = DaemonBuildCommit(reported)
-        if let current, local.sameCommit(current.hash) { return await dropped(pending, asked: retry) }
+        if let current, local.sameCommit(current.hash) { return await dropped(pending, asked: clearLine) }
         if let current, current.dirty || current.isNewer(than: local) {
             Self.logger.info("\(target.displayName, privacy: .public) runs \(current.hash, privacy: .public)\(current.dirty ? " with local changes" : ", newer than this app's build", privacy: .public); left alone")
-            return await dropped(pending, asked: retry)
+            return await dropped(pending, asked: clearLine)
         }
-        guard current != nil || urgent else { return await dropped(pending, asked: retry) }
+        guard current != nil || urgent else { return await dropped(pending, asked: clearLine) }
         // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
         // does not wait for an idle moment.
         let asked = elapsed()
@@ -374,8 +381,8 @@ public actor DaemonUpdatePolicy {
 
     /// Drops `pending`, which no longer needs an update; one asked again before leaves the board,
     /// since no retry comes.
-    /// `asked`: the person's click (``retry(_:)``) asked for it, so its line (a machine that could
-    /// not update) goes too.
+    /// `asked`: the person's click (``retry(_:)``) asked for it, or it could not update before and
+    /// runs another build now, so its line (a machine that could not update) goes too.
     private func dropped(_ pending: Pending, asked: Bool = false) async -> Pending? {
         if pending.firstBusy != nil || asked { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
         return nil

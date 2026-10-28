@@ -164,6 +164,7 @@ final class QuitCoordinator {
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        await services.cloud.prepareForTermination()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,

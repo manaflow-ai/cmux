@@ -141,6 +141,10 @@ extension TabStripView {
             return
         }
         if isInNewTabButton(point) {
+            if opensNewTabMenuOnPress, !event.modifierFlags.contains(.option) {
+                showNewTabMenu()
+                return
+            }
             pressedNewTab = true
             newTabButton.isPressed = true
             newTabHold.start()
@@ -311,15 +315,14 @@ extension TabStripView {
         return true
     }
 
-    /// The new tab menu (which kind of tab: terminal, WebKit, Chromium)
-    /// under the + button. Right-click and press-and-hold open it; a plain
-    /// click opens a terminal tab.
+    /// The pane type menu under +. Pane strips open it on press; other strips
+    /// retain their hold and right-click entry points.
     func showNewTabMenu() {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
         let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
         menuTracking.begin(menu)
-        menu.popUp(positioning: nil, at: origin, in: self)
+        presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }
 

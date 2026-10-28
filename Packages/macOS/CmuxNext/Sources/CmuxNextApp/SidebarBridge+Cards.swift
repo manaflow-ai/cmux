@@ -80,6 +80,7 @@ enum SidebarCardFeed {
     static func handle(_ intent: SidebarIntent, services: AppServices) {
         switch intent {
         case .installUpdate: services.updater.installClicked()
+        case .downloadUpdate: services.updater.downloadClicked()
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()

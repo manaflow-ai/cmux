@@ -26,33 +26,52 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   vars.CI_SIDE_LANE_RUNNER) that the rescue watches, or the same label on a wider class
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
-  with). Empty on any attempt after 1, when no label is one the rescue watches, or when the runners cannot be read: a busy fleet is never waited on.
+  with). Empty when no label is one the rescue watches, or when the runners
+  cannot be read (no routing token): a busy fleet is never waited on.
 - `blacksmith`: the Blacksmith macOS 26 label whose queue moves
   (nightly_sign_runner.pick(): vars.MACOS_RUNNER_26, then 6 vCPU, then 12 vCPU,
   past any stalled one). Never empty. EXCLUDE (a label another leg already
   waits on) is skipped while another candidate moves.
 
-`owned` is `dedicated` when that is set. The workflow takes `owned` on attempt 1 and
-`blacksmith` otherwise. A job an
-owned runner refuses at "Set up runner", or one stuck on an owned label after
-an idle runner was taken by another job, is re-run by ci-owned-pool-rescue.yml
-(owned_pool_rescue.py watches nightly-next push runs); that re-run is attempt 2,
-which reads `blacksmith`, so the next pool takes it instead of the same label.
+- `attempt`: GITHUB_RUN_ATTEMPT, the attempt this pick was made for.
+
+`owned` is `dedicated` when that is set. The workflow takes `owned` only while
+`attempt` is the run's own attempt, so a fresh pick, and `blacksmith` otherwise.
+Every run that reaches this job picks the same way: a push, a workflow_dispatch,
+and a re-run whose re-run includes this job (a full re-run, or a re-run of failed
+jobs after this job itself failed or was cancelled). Until 2026-10-27 only attempt
+1 of a push got the routing token, so a dispatched or re-run tip nightly could
+never build on an owned Mac and queued on a stalled Blacksmith label instead.
+
+A re-run of failed jobs that keeps this job keeps its outputs too, and their
+`attempt` is the earlier one: that re-run reads `blacksmith`. That is how a job
+an owned runner refused at "Set up runner", or one stuck on an owned label
+after an idle runner was taken by another job, leaves the label: the rescue
+(ci-owned-pool-rescue.yml; owned_pool_rescue.py watches nightly-next push and
+dispatch runs, and adopts any attempt by this job's owned-pool-watch marker)
+re-runs its failed jobs, and the next pool takes it instead of the same label.
 
 It never fails the job and never prints an empty `blacksmith`:
 
     ROUTE_TOKEN=<org runners: read> SNAPSHOT_TOKEN=<actions: read> OWNED_LABELS='<a> <b>' CANDIDATE=<vars.MACOS_RUNNER_26> \\
         DEDICATED_LABEL=<vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL> \\
-        nightly_build_runner.py   -> dedicated=..., owned=..., blacksmith=..., runner=... in $GITHUB_OUTPUT
+        nightly_build_runner.py   -> dedicated=..., owned=..., blacksmith=..., runner=..., attempt=... in $GITHUB_OUTPUT
 
-`nightly_build_runner.py dedicated` prints only `dedicated`, with no wait: the signed-app
-verify takes the dedicated builder only while it is idle now (pick-nightly-sign-runner).
+`nightly_build_runner.py dedicated` prints only `dedicated`, with no wait.
+
+`nightly_build_runner.py verify` prints only `owned`, never the dedicated builder (it keeps
+that Mac for the next tip's build): pick-nightly-sign-runner's route for the secret-free
+verify jobs (verify-signed-nightly, verify-final-dmg-nightly, signer-dmg-image),
+by the same owned rule as the build. Until 2026-10-27 that step ran the pull request pool picker
+(e2e_runner_pool.py), which named a Blacksmith macOS 15 label in run 40515681971 while owned
+side runners were idle, so verify queued about 1.5 h on Blacksmith.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -67,8 +86,15 @@ pool = placement.pool
 # a refusal or a stuck queue there is re-run as attempt 2, which takes Blacksmith. The DEV compile
 # slot (glaeda-dev-*) is not one, so it is never offered: runs 40446901975 and 40448164753 died at
 # "Set up runner" on glaeda-dev-std-xcode-26.6 and nothing re-ran them.
+# glaeda's nightly slot (glaeda#1684, runner.nightlySlot): one runner per mini whose label no PR job asks for and
+# whose hook takes only nightly jobs, ahead of every job waiting on that mini. A build queued on the shared side label
+# waited behind every PR job queued there first (2026-10-27 14:08Z: run 40518198747 was never acquired on the light
+# side label). main's rescue watches it (owned_pool_rescue.LANE_LABEL), so vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name it.
+NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+
+
 def owned_label(label: str) -> bool:
-    return pool.persistent(label)
+    return pool.persistent(label) or bool(NIGHTLY_SLOT_LABEL.fullmatch(label or ""))
 
 
 # How long a run waits for the dedicated builder while it is busy, and how often it looks. Its
@@ -78,6 +104,21 @@ DEDICATED_WAIT_SECONDS = 5 * 60
 DEDICATED_LOOK_SECONDS = 30
 
 
+# The builder admits only a push to nightly-next (nightly_builder.py admit). A dispatched run sent
+# there is refused at "Set up runner" (run 40594111618, 2026-10-27: "event workflow_dispatch is not push").
+DEDICATED_EVENTS = frozenset({"push"})
+
+
+def dedicated_builder(runner: Mapping[str, Any]) -> bool:
+    """A glaeda runner.dedicated runner: it registers with exactly its declared labels, so no `self-hosted`.
+
+    A pool runner that also carries the dedicated label (cmux15's trusted runners did until
+    2026-10-27, from runner.trustedNextNightly) applies the pool's capacity units and attempt-1
+    rule, so an idle one is not the builder: run 40593692340 was refused there at "Set up runner"
+    on attempts 1 and 2."""
+    return "self-hosted" not in pool.runner_labels(runner)
+
+
 def dedicated_state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     """'idle', 'busy', 'offline', 'unread' or 'off' for the dedicated builder's label."""
     if not pool.nightly_dedicated(label):
@@ -85,19 +126,20 @@ def dedicated_state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> 
     if runners is None:
         return "unread"
     online = [runner for runner in runners
-              if runner.get("status") == "online" and label in pool.runner_labels(runner)]
+              if runner.get("status") == "online" and label in pool.runner_labels(runner)
+              and dedicated_builder(runner)]
     if not online:
         return "offline"
     return "idle" if any(not runner.get("busy") for runner in online) else "busy"
 
 
-def dedicated_route(label: str, read: Callable[[], Sequence[Mapping[str, Any]] | None], attempt: str, *,
+def dedicated_route(label: str, read: Callable[[], Sequence[Mapping[str, Any]] | None], *,
                     wait_seconds: float = DEDICATED_WAIT_SECONDS, look_seconds: float = DEDICATED_LOOK_SECONDS,
                     sleep: Callable[[float], None] = time.sleep,
                     clock: Callable[[], float] = time.monotonic) -> tuple[str, str]:
-    """(the dedicated label while its runner is idle, waiting up to `wait_seconds` while it is busy, or "", why)."""
-    if attempt not in ("", "1"):
-        return "", f"attempt {attempt} takes Blacksmith"
+    """(the dedicated label while its runner is idle, waiting up to `wait_seconds` while it is busy, or "", why).
+
+    Any attempt: the workflow reads the pick only when it was made for the run's own attempt."""
     if not pool.nightly_dedicated(label):
         return "", "no dedicated builder label" if not label else f"`{label}` is not the dedicated builder's label"
     deadline = clock() + wait_seconds
@@ -112,12 +154,11 @@ def dedicated_route(label: str, read: Callable[[], Sequence[Mapping[str, Any]] |
         sleep(look_seconds)
 
 
-def owned_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]] | None,
-                attempt: str) -> tuple[str, str]:
-    """(the first watched owned label, or a wider class of it, with an idle runner now, or "", why)."""
+def owned_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the first watched owned label, or a wider class of it, with an idle runner now, or "", why).
+
+    Any attempt: the workflow reads `owned` only when this pick was made for the run's own attempt."""
     wanted = [label for label in (labels.split() if isinstance(labels, str) else labels) if label]
-    if attempt not in ("", "1"):
-        return "", f"attempt {attempt} takes Blacksmith, the next pool after the owned one"
     watched = [label for label in wanted if owned_label(label)]
     if not watched:
         return "", f"no owned label the rescue watches among {wanted or 'none'}"
@@ -166,6 +207,13 @@ def main(env: Mapping[str, str] = os.environ,
     labels = (env.get("OWNED_LABELS") or "").split()
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
+    only_verify = list(argv[:1]) == ["verify"]
+    if only_verify:
+        dedicated_label = ""  # the verify jobs never take the dedicated builder: it keeps that Mac for the next build
+    event = (env.get("GITHUB_EVENT_NAME") or "").strip()
+    off_event = bool(dedicated_label) and event not in DEDICATED_EVENTS
+    if off_event:
+        dedicated_label = ""
 
     route_token = env.get("ROUTE_TOKEN", "")
 
@@ -179,8 +227,10 @@ def main(env: Mapping[str, str] = os.environ,
             return None
 
     waited_from = clock()
-    dedicated, dedicated_why = dedicated_route(dedicated_label, read, attempt, sleep=sleep, clock=clock,
+    dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
                                                wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
+    if off_event:
+        dedicated_why = f"event {event or '<unset>'} is not one the builder admits (push)"
     # The Blacksmith pick below reads queue ages against `now`: move it past the wait.
     now += dt.timedelta(seconds=max(0.0, clock() - waited_from))
     if only_dedicated:
@@ -188,9 +238,9 @@ def main(env: Mapping[str, str] = os.environ,
         return 0
 
     runners = None
-    if not dedicated and attempt in ("", "1") and any(owned_label(label) for label in labels):
+    if not dedicated and any(owned_label(label) for label in labels):
         runners = read()
-    owned, owned_why = (dedicated, "the dedicated builder") if dedicated else owned_route(labels, runners, attempt)
+    owned, owned_why = (dedicated, "the dedicated builder") if dedicated else owned_route(labels, runners)
 
     snapshot = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
@@ -204,11 +254,16 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     blacksmith, blacksmith_why = blacksmith_route((env.get("CANDIDATE") or "").strip(), snapshot, now,
                                                   (env.get("EXCLUDE") or "").strip())
+    if only_verify:
+        write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
+                                             f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
+        return 0
 
     runner = owned or blacksmith
-    write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner},
+    write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner,
+                       "attempt": attempt or "1"},
                  [f"dedicated: {dedicated or 'none'} ({dedicated_why})", f"owned: {owned or 'none'} ({owned_why})",
-                  f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}"])
+                  f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}", f"attempt: {attempt or '1'}"])
     return 0
 
 

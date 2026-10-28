@@ -262,7 +262,10 @@ async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
     let check = json!({"sessionId": session, "text": "", "attachCheck": true});
     daemon.request(method::MUX_SUBSESSION_SEND, check).await?;
     let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths).await?;
+    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths, &|line| {
+        tracing::info!(session = %session, "{line}");
+    })
+    .await?;
     args["attachments"] = Value::Array(blocks);
     Ok(args)
 }

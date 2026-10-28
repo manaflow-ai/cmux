@@ -35,6 +35,11 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// else a Cloud machine id. Lets a window wait for its machine to
     /// reconnect after relaunch instead of falling back to a local workspace.
     public var machine: String?
+    /// The machine of each listed workspace that is not on this Mac (workspace key -> machine id).
+    /// After a relaunch a workspace on a Cloud machine that has not reported its tree (the idle
+    /// auto-pause parked it, its link is still connecting) stays in this window until that machine
+    /// answers, instead of reading as gone (`WindowManager.isDead`).
+    public var workspaceMachines: [String: String]
     /// Selected screen within that workspace (screen resource id).
     public var screenID: ResourceID?
     /// Screen coordinates (AppKit, bottom-left origin).
@@ -84,6 +89,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.workspaceKey = workspaceKey
         self.workspaceKeys = workspaceKeys
         self.machine = machine
+        self.workspaceMachines = [:]
         self.screenID = screenID
         self.frame = frame
         self.display = display
@@ -113,6 +119,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case selectedTabs = "selected_tabs"
         case focusedPane = "focused_pane"
         case focusedPanes = "focused_panes"
+        case workspaceMachines = "workspace_machines"
         case multiView = "multi_view"
     }
 
@@ -128,6 +135,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         workspaceKeys = try c.decodeIfPresent([WorkspaceKey].self, forKey: .workspaceKeys) ?? []
         display = try c.decodeIfPresent(String.self, forKey: .display)
         machine = try c.decodeIfPresent(String.self, forKey: .machine)
+        workspaceMachines = try c.decodeIfPresent([String: String].self, forKey: .workspaceMachines) ?? [:]
         screenID = try c.decodeIfPresent(ResourceID.self, forKey: .screenID)
         frame = try c.decodeIfPresent(WindowFrame.self, forKey: .frame)
         isFullScreen = try c.decodeIfPresent(Bool.self, forKey: .isFullScreen) ?? false

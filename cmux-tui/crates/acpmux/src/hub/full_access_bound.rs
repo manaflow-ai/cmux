@@ -16,7 +16,8 @@
 //!   (`RemoteFloor::undeclared_mode`); for a host a restart left, read back from its log first;
 //! - option: any config option holds a full-access value, the `mode` one included (a harness can
 //!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access);
-//! - reported: its harness reported full access while nothing watched it (`StartReports`).
+//! - reported: its harness reported full access while nothing watched it (`StartReports`), or in
+//!   a report the inbound loop has not applied yet (`FloorState::unapplied_full_access`).
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
@@ -71,18 +72,36 @@ impl FullAccessView {
 
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
+        // One snapshot, under the meta lock: the tap counts a report under it (`session_tap`),
+        // and `write_mode_state` applies the report and takes its count back under it, so the
+        // view sees a report counted, applied, or not yet come (reviews 3 to 5 of #26052).
+        let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(test)]
+        between_view_reads(session);
+        let reported = session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let meta = session.meta();
+        let asked = session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let meta = m.clone();
+        drop(m);
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
-            options: config_options(&meta).cloned().collect(),
+            // With the values a bare `set_config_option` answer took (`FloorState::asked_options`).
+            options: config_options(&meta).cloned().chain(asked).collect(),
             // The argv its agent started with; before any start, the creation's.
             argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
-            reported: false,
+            reported,
         }
     }
+}
+
+/// A harness or report session id as the full-access bound matches it: an empty or all-whitespace
+/// id names no session (reviews 70 and 74 of #23322). Every id that enters `StartReports` passes
+/// here: a report's (`note`), and the harness session a `session/new` answer names (`of`,
+/// `of_answer`), for a probe and a pooled agent alike.
+pub(crate) fn known_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|s| !s.trim().is_empty())
 }
 
 /// The sessions whose mode or a config option a harness reported in full access while nothing
@@ -122,8 +141,8 @@ impl StartReports {
         if self.all || !Self::reports_full_access(params) {
             return;
         }
-        // A blank id names no session (review 70): it counts for all, as a missing one does.
-        let Some(sid) = params["sessionId"].as_str().filter(|s| !s.trim().is_empty()) else {
+        // A blank id names no session (`known_id`): it counts for all, as a missing one does.
+        let Some(sid) = known_id(params["sessionId"].as_str()) else {
             self.all = true;
             return;
         };
@@ -139,11 +158,15 @@ impl StartReports {
     /// Whether the harness reported full access for its session `harness_session` (a subagent's
     /// are not its own, `on_update`); for any session when it is not known (none, or a blank id).
     pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
-        // A blank id names no session (review 74): any report counts for it.
-        let harness_session = harness_session.filter(|s| !s.trim().is_empty());
+        // A blank id names no session (`known_id`): any report counts for it.
         self.all
-            || harness_session
+            || known_id(harness_session)
                 .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
+    }
+
+    /// `of` for the harness session the `session/new` answer `new` names (none: not known).
+    pub(crate) fn of_answer(&self, new: Option<&Value>) -> bool {
+        self.of(new.and_then(|r| r["sessionId"].as_str()))
     }
 }
 
@@ -195,10 +218,10 @@ pub(super) type WriteSeam = std::sync::Mutex<
 /// How long an MDM off push waits for the family messages and answers checked under the old
 /// bound to be written before it cuts them (`hold_until_written`).
 #[cfg(not(test))]
-const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+pub(super) const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 /// Tests: short, so a test sees a push cut and try again in a few seconds.
 #[cfg(test)]
-const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+pub(super) const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// MDM's bound as one operation reads it, once, at its entry (`Hub::mdm_snapshot`): every check
 /// of that operation ranks under it, so no two of them read different pushes (review 86 of
@@ -212,9 +235,9 @@ pub(super) struct MdmSnapshot {
 /// The family gate held for one message or answer (`Hub::family_gate`), the bound read once it
 /// was taken, and the off pushes' cuts since.
 pub(super) struct FamilyHold {
-    gate: tokio::sync::OwnedRwLockReadGuard<()>,
+    pub(super) gate: tokio::sync::OwnedRwLockReadGuard<()>,
     pub(super) bound: MdmSnapshot,
-    cut: tokio::sync::watch::Receiver<u64>,
+    pub(super) cut: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Hub {
@@ -274,23 +297,7 @@ impl Hub {
         hold: FamilyHold,
     ) -> crate::agent::Fence {
         let fence = crate::agent::Fence::default();
-        let FamilyHold { gate, bound, mut cut } = hold;
-        let (held, id) = (fence.clone(), session.id.clone());
-        // task-owner: ends once the message settles (every carrier settles it) or is cut; each
-        // try to end its writer below is bounded.
-        tokio::spawn(async move {
-            tokio::select! {
-                biased;
-                () = held.settled() => {}
-                _ = cut.changed() => {
-                    while !held.cut_or_end(FAMILY_WRITE_BUDGET).await {
-                        tracing::warn!(session = %id, checked_at = bound.generation, "an MDM off push cut a family message whose agent did not end in time; trying again");
-                        tokio::time::sleep(FAMILY_WRITE_BUDGET).await;
-                    }
-                }
-            }
-            drop(gate);
-        });
+        Self::hold_fences(&session.id, hold, vec![fence.clone()]);
         fence
     }
 
@@ -305,7 +312,8 @@ impl Hub {
 
     /// Whether approve-all (the policy form of full access) may answer requests itself: always,
     /// unless MDM or the team policy forces `sessions.allowFullAccess` off. The person's own off
-    /// never capped a policy before #23322, and with MDM unset nothing changes.
+    /// never capped a policy before #23322, and with MDM unset nothing changes. One read: an
+    /// operation that reads the off more than once takes an `OffLatch` instead.
     pub(crate) fn approve_all_allowed(&self) -> bool {
         !self.full_access_managed_off()
     }
@@ -316,41 +324,42 @@ impl Hub {
         self.full_access_managed() == Some(false)
     }
 
-    /// Whether MDM forces full access off while `session`'s agent runs in it (`runs_full_access`)
-    /// or its end is pending (`full_access_end_pending`): `child_for` then hands it out only
-    /// through `ensure_child`, which ends it first (review 2 of #26034).
-    pub(super) fn managed_off_runs_full_access(&self, session: &Session) -> bool {
-        self.full_access_managed_off()
+    /// Whether MDM forces full access off, as the operation that took `off` sees it, while
+    /// `session`'s agent runs in it (`runs_full_access`) or its end is pending
+    /// (`full_access_end_pending`): `child_for` then hands it out only through `ensure_child`,
+    /// which ends it first (review 2 of #26034).
+    pub(super) fn managed_off_runs_full_access(&self, off: &OffLatch, session: &Session) -> bool {
+        off.off()
             && (session.floor.full_access_end_pending.load(Ordering::SeqCst)
                 || runs_full_access(&FullAccessView::of_session(session)).is_some())
     }
 
     /// Refuses to start an agent from a profile that pins full access in its argv while MDM
-    /// forces it off: an upper bound the person's own profile does not override. Without MDM a
-    /// pinned profile runs as it always has.
+    /// forces it off, as the start that took `off` sees it: an upper bound the person's own
+    /// profile does not override. Without MDM a pinned profile runs as it always has.
     pub(super) fn refuse_pinned_full_access(
         &self,
+        off: &OffLatch,
         profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
-        if self.full_access_managed_off()
-            && runs_full_access(&FullAccessView::of_argv(&profile.argv)).is_some()
-        {
+        if off.off() && runs_full_access(&FullAccessView::of_argv(&profile.argv)).is_some() {
             return Err(super::start_mode::full_access_off());
         }
         Ok(())
     }
 
     /// A start that passed `refuse_pinned_full_access` and then awaited (a cold Claude start, which
-    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile. When the
-    /// started agent runs in it by `view`, the agent stops and the chat stays open and idle. Without
-    /// MDM's off nothing changes.
+    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile, which the
+    /// start's `off` counts. When the started agent runs in it by `view`, the agent stops and the
+    /// chat stays open and idle. Without MDM's off nothing changes.
     pub(super) async fn refuse_started_in_full_access(
         &self,
         session: &Arc<Session>,
+        off: &OffLatch,
         view: &FullAccessView,
     ) -> Result<(), RpcError> {
-        if self.full_access_managed_off() && runs_full_access(view).is_some() {
-            self.stop_full_access_agent(session).await;
+        if off.off() && runs_full_access(view).is_some() {
+            self.stop_full_access_agent(session, true).await;
             return Err(super::start_mode::full_access_off());
         }
         Ok(())
@@ -378,7 +387,9 @@ impl Hub {
         Ok(Some(OffWatch { offs: latch.offs.clone(), seen: latch.seen }))
     }
 
-    /// MDM's off as a start that begins now sees it (`OffLatch`).
+    /// MDM's off as an operation that begins now sees it (`OffLatch`): its one read. A start, a
+    /// pooled start, a pooled agent's report, a mode switch and an ask each take one at their
+    /// entry and pass it down (reviews 73, 75 and 77 of #23322).
     pub(super) fn off_latch(&self) -> OffLatch {
         // The count and the state, read together (review 75): an off counted after this changes
         // the count.
@@ -397,6 +408,9 @@ impl Hub {
     /// It runs at every push of the off, as one may follow an agent that entered full access
     /// since. `changed`: this push turned it off; the pool drains only then.
     pub(super) async fn full_access_turned_off(&self, changed: bool) {
+        // A restart's adoption holds again the fenced lines its hosts may not have written
+        // (`hosts.rs` `hold_unwritten`): the push waits until it ran, so it waits for those too.
+        let _ = self.adoption_ready.subscribe().wait_for(|ready| *ready).await;
         while tokio::time::timeout(FAMILY_WRITE_BUDGET, self.family_gate.write()).await.is_err() {
             self.family_cut.send_modify(|n| *n += 1);
         }
@@ -439,34 +453,110 @@ impl Hub {
     }
 
     /// Whether `session`'s agent counts as in full access under MDM's off: by what acpmux keeps
-    /// of it or its left host reported (`runs_full_access_by_any_record`), or because an end of it failed and its host may still run
-    /// (`FloorState::full_access_end_pending`, review 51 of #23322).
+    /// of it or its left host reported (`runs_full_access_by_records`), because an end of it
+    /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
+    /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
+    /// because the host records cannot be read while this daemon hears no agent of it
+    /// (`host_unknown`), or because this daemon no longer hears its host (`host_unheard`, review
+    /// 64).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
-        session.floor.full_access_end_pending.load(Ordering::SeqCst)
-            || self.runs_full_access_by_any_record(session)
+        if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        if Self::host_replaying(session).await {
+            return true;
+        }
+        let records = Self::read_host_records();
+        Self::host_unknown(session, records.as_ref()).await
+            || self.runs_full_access_by_records(session, records.as_ref())
+            || Self::host_unheard(session).await
+    }
+
+    /// Whether the host records could not be read (`records`) while `session` has no agent this
+    /// daemon hears: a host a restart left may run unadopted, and what it kept in its buffer is in
+    /// no log, so under MDM's off it counts as full access until the records can be read and the
+    /// host ended (review 3 of #26055). An agent this daemon hears is judged by what it reported.
+    async fn host_unknown(session: &Session, records: Option<&super::hosts::HostRecords>) -> bool {
+        if records.is_some() {
+            return false;
+        }
+        let child = session.child.lock().await.clone();
+        match child {
+            Some(child) => !child.is_alive().await,
+            None => true,
+        }
+    }
+
+    /// Whether `session`'s agent host may hold reports this daemon has not seen: its link broke
+    /// (an entry could not be logged), its reader stopped (`ChildAgent::is_stopped`), or the link
+    /// closed while the host still runs. What it reported since
+    /// is unknown, so under MDM's off it counts as full access (review 64 of #23322); a request
+    /// would reattach it, but the push does not wait for one. Host records that cannot be read
+    /// do not prove the host gone (`host_record_gone`, review 67). A slot held past its bound
+    /// counts too, as for `host_replaying`.
+    async fn host_unheard(session: &Session) -> bool {
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        let Ok(slot) = tokio::time::timeout(wait, session.child.lock()).await else { return true };
+        let child = (*slot).clone();
+        drop(slot);
+        let Some(child) = child.filter(|c| c.host_record().is_some()) else { return false };
+        child.is_broken()
+            || child.is_stopped()
+            || (!child.is_alive().await && !Self::host_record_gone(&session.id))
+    }
+
+    /// Whether `session`'s agent host was reattached and its replay is not all in the log yet:
+    /// what it kept while its link was down is unknown until then, so under MDM's off it counts as
+    /// full access, and its log is not read back (nor `left_host_read` kept) before the replay is
+    /// in it (review 1 of #26057).
+    ///
+    /// The wait for the agent slot is bounded, as an end's is (review 81 of #23322): a slot held
+    /// past it (a stop waiting on its host) keeps no push waiting. The replay is then not known,
+    /// so the agent counts as in full access; the end that follows marks itself pending while the
+    /// slot stays held (`end_managed_full_access`).
+    async fn host_replaying(session: &Session) -> bool {
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        match tokio::time::timeout(wait, session.child.lock()).await {
+            Ok(slot) => slot.as_ref().is_some_and(|c| c.replay_pending()),
+            Err(_) => true,
+        }
     }
 
     /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a
-    /// restart left, by what that host reported since it started (`reported_by_left_host`). Once
-    /// that read finds no full access, what this daemon keeps is complete (every later report
+    /// restart left, by what that host reported since it started (`reported_by_left_host`);
+    /// `records`, the host records as read (`read_host_records`), None when they could not be.
+    /// Once that read finds no full access, what this daemon keeps is complete (every later report
     /// reaches it live), so the log is read once per host, not at each check
-    /// (`FloorState::left_host_read`, cleared at each `host_started`). A log that cannot be read
-    /// says nothing either way: under MDM's off the host counts as in full access (review 61).
-    /// Host records that cannot be read do not prove the host gone, so its log is read back then
-    /// too (`host_record_gone`, review 67).
-    fn runs_full_access_by_any_record(&self, session: &Session) -> bool {
+    /// (`FloorState::left_host_read`, cleared at each `host_started`), kept and trusted only while
+    /// the host records can be read (review 69): records that cannot may leave a live host
+    /// unproven, so its log is read again at each check meanwhile. A host whose own record this
+    /// build cannot read is never adopted, so its log does not hear what it did since: under MDM's
+    /// off it counts as in full access (review 2 of #26055). A log that cannot be read says nothing
+    /// either way: under MDM's off the host counts as in full access (review 61). Host records
+    /// that cannot be read do not prove the host gone, so its log is read back then too
+    /// (`host_record_gone`, review 67).
+    fn runs_full_access_by_records(
+        &self,
+        session: &Session,
+        records: Option<&super::hosts::HostRecords>,
+    ) -> bool {
         if runs_full_access(&FullAccessView::of_session(session)).is_some() {
             return true;
         }
-        if Self::host_record_gone(&session.id)
-            || session.floor.left_host_read.load(Ordering::SeqCst)
-        {
+        if records.is_some_and(|r| !r.live.contains(&session.id)) {
+            return false;
+        }
+        if records.is_some_and(|r| r.unreadable.contains(&session.id)) {
+            return true;
+        }
+        // A kept read holds only while the records can be read (review 2 of #26055).
+        if records.is_some() && session.floor.left_host_read.load(Ordering::SeqCst) {
             return false;
         }
         let reported = self
             .reported_by_left_host(session)
             .is_none_or(|view| runs_full_access(&view).is_some());
-        if !reported {
+        if !reported && records.is_some() {
             session.floor.left_host_read.store(true, Ordering::SeqCst);
         }
         reported
@@ -491,7 +581,7 @@ impl Hub {
     fn reported_by_left_host(&self, session: &Session) -> Option<FullAccessView> {
         use crate::rpc::method;
         let own = session.meta().agent_session_id;
-        let own = own.as_deref().filter(|s| !s.trim().is_empty());
+        let own = known_id(own.as_deref());
         let mut modes: Option<Value> = None;
         let mut mode: Option<String> = None;
         let mut options: Option<Value> = None;
@@ -547,7 +637,8 @@ impl Hub {
             let its_own = || {
                 e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                     || own.is_some_and(|own| {
-                        e.msg.pointer("/params/sessionId").and_then(Value::as_str) == Some(own)
+                        known_id(e.msg.pointer("/params/sessionId").and_then(Value::as_str))
+                            == Some(own)
                     })
             };
             let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
@@ -592,8 +683,20 @@ impl Hub {
                                 .or(mode.take());
                         }
                         method::SESSION_SET_CONFIG_OPTION => {
-                            if let Some(o) = res.get("configOptions").filter(|o| !o.is_null()) {
-                                options = Some(o.clone());
+                            // An answer without its options took the value asked (review 60).
+                            match res.get("configOptions").filter(|o| !o.is_null()) {
+                                Some(o) => options = Some(o.clone()),
+                                None => {
+                                    if let Some(asked) = asked_option(&params) {
+                                        let mut all = options
+                                            .as_ref()
+                                            .and_then(Value::as_array)
+                                            .cloned()
+                                            .unwrap_or_default();
+                                        merge_asked_option(&mut all, asked);
+                                        options = Some(Value::Array(all));
+                                    }
+                                }
                             }
                             if params.get("configId").and_then(Value::as_str) == Some("mode") {
                                 mode = text(res.get("currentModeId")).or(mode.take());
@@ -655,6 +758,16 @@ impl Hub {
             if !self.counts_as_full_access(&session).await {
                 continue;
             }
+            // What waits on an agent this daemon no longer hears is answered first: a start
+            // waiting on its `initialize` holds the spawn lock below, and its link may have broken
+            // while MDM was unset, when nothing failed it (review 3 of #26059). The agent slot is
+            // waited on only so long, as the end's is: a slot held elsewhere keeps no push
+            // waiting, and the end below marks itself pending.
+            let held = tokio::time::timeout(super::shutdown::SHUTDOWN_GRACE, session.child.lock());
+            let child = held.await.ok().and_then(|slot| (*slot).clone());
+            if let Some(child) = child.filter(|c| c.host_record().is_some()) {
+                child.fail_pending_if_unheard().await;
+            }
             let Ok(_spawning) = tokio::time::timeout(wait, session.spawn_lock.lock()).await else {
                 tracing::warn!(session = %session.id, "MDM forces full access off: its agent is busy starting or stopping; its end is tried again");
                 session.floor.full_access_end_pending.store(true, Ordering::SeqCst);
@@ -683,6 +796,12 @@ impl Hub {
             return FullAccessEnd::StillRunning;
         };
         let child = slot.take();
+        // Under the slot's lock the inbound loop checks a mode or option report under: one it
+        // checked before this is applied before this, and one after is dropped, not applied to
+        // the agent after it (`permissions.rs`, reviews 3, 5 and 6 of #26052).
+        if let Some(child) = &child {
+            session.floor.retired_through.fetch_max(child.generation, Ordering::SeqCst);
+        }
         drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
         if let Some(child) = &child {
@@ -706,6 +825,10 @@ impl Hub {
             if tokio::time::timeout(grace * 2, child.terminate(grace)).await.is_err() {
                 tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
             }
+            // What waited on it is answered now: a reader that stopped reads no exit for it
+            // (review 65 of #23322).
+            child.fail_pending().await;
+            self.cancel_pending_permissions(session);
         }
         if !Self::host_record_gone(&session.id) {
             self.end_unadopted_host(session).await;
@@ -717,10 +840,18 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        // What its agent reported and nothing applied goes with it; a report it still sends is
+        // not counted (its tap's epoch is gone, review 4 of #26052).
+        {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
         // What only the ended agent said goes with it: the mode it reported without declaring
-        // modes, and a full-access value of any option (the next agent reports its own, and
-        // `replay_config` skips a null).
+        // modes, the values bare answers took, and a full-access value of any option (the next
+        // agent reports its own, and `replay_config` skips a null).
         *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clear();
         let scrubbed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let mut scrubbed = false;
@@ -745,6 +876,23 @@ impl Hub {
     }
 }
 
+/// The option a `set_config_option` request asks for, as an option record:
+/// `{"id": configId, "currentValue": value}`.
+pub(super) fn asked_option(params: &Value) -> Option<Value> {
+    let id = params.get("configId").and_then(Value::as_str)?;
+    let value = params.get("value").filter(|v| !v.is_null())?;
+    Some(json!({"id": id, "currentValue": value}))
+}
+
+/// Puts `asked` (`asked_option`) into `options`: the option of its id takes its value, or it is
+/// added.
+pub(super) fn merge_asked_option(options: &mut Vec<Value>, asked: Value) {
+    match options.iter_mut().find(|o| o.get("id") == asked.get("id")) {
+        Some(o) => o["currentValue"] = asked["currentValue"].clone(),
+        None => options.push(asked),
+    }
+}
+
 impl Hub {
     /// `session` is idle unless it was closed.
     fn idle_unless_closed(&self, session: &Session) {
@@ -757,6 +905,16 @@ impl Hub {
 /// The string at `key` of an object, if any.
 fn text_at(v: Option<&Value>, key: &str) -> Option<String> {
     v.and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// Whether `params` of a `session/update` the session's harness sent reports full access for the
+/// session itself, not one of its subagents (`on_update` skips those): counted by the tap as it
+/// is logged and taken back once the inbound loop applied it (`FloorState::unapplied_full_access`).
+pub(super) fn own_full_access_report(session: &Session, params: &Value) -> bool {
+    StartReports::reports_full_access(params)
+        && !params["sessionId"].as_str().is_some_and(|sid| {
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
+        })
 }
 
 /// What `end_if_runs_full_access` did.
@@ -778,14 +936,85 @@ thread_local! {
 }
 
 #[cfg(test)]
+thread_local! {
+    /// Test seam (review 3 of #26052): runs between `FullAccessView::of_session`'s reads.
+    pub(super) static BETWEEN_VIEW_READS: std::cell::Cell<Option<fn(&Session)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn between_view_reads(session: &Session) {
+    if let Some(f) = BETWEEN_VIEW_READS.take() {
+        f(session);
+    }
+}
+
+#[cfg(test)]
 fn after_off_count(hub: &Hub) {
     if let Some(f) = AFTER_OFF_COUNT.take() {
         f(hub);
     }
 }
 
-/// MDM's off as one start (a probe, a pooled agent) saw it: on when it was off as the start
-/// began, or began while it ran, though an unset followed (reviews 71 and 73 of #23322).
+#[cfg(test)]
+thread_local! {
+    /// Test seam (review 123): runs as a start (`ensure_child`) or an ask (`handle_permission_for`)
+    /// is entered, before it waits on anything.
+    pub(super) static AT_OPERATION_ENTRY: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs the `AT_OPERATION_ENTRY` seam, once.
+#[cfg(test)]
+pub(super) fn operation_entry(hub: &Hub) {
+    if let Some(f) = AT_OPERATION_ENTRY.take() {
+        f(hub);
+    }
+}
+
+/// Test seam (debug builds): the pooled starts begun (`pool_want`), for `Hub::claim_blip_seam`.
+#[cfg(debug_assertions)]
+pub(super) static POOL_STARTS: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(0).0);
+
+impl Hub {
+    /// Test seam (debug builds) at a pool claim, right after its read of MDM's off: when the file
+    /// `ACPMUX_TEST_OFF_BLIP_FILE` names exists, the off comes and goes once; a file that says
+    /// "then-start" then waits (at most 10 s) for a pooled start to begin, so the start reads the
+    /// off after the claim did and the claim waits on it (reviews 121, 122 and 124 of #23322).
+    #[cfg(debug_assertions)]
+    pub(super) async fn claim_blip_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
+        let Ok(what) = std::fs::read_to_string(&file) else { return };
+        let mut starts = POOL_STARTS.subscribe();
+        let seen = *starts.borrow_and_update();
+        if std::fs::remove_file(file).is_err() {
+            return;
+        }
+        self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
+        self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        if what.trim() == "then-start" {
+            let begun = starts.wait_for(|n| *n > seen);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), begun).await;
+        }
+    }
+
+    /// Test seam (debug builds): when the file `ACPMUX_TEST_OFF_BLIP_FILE` names exists, MDM's off
+    /// comes and goes once, at the next pooled start, after it read the off (reviews 73, 75 and 77
+    /// of #23322). A pool claim has its own (`claim_blip_seam`).
+    #[cfg(debug_assertions)]
+    pub(super) fn off_blip_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
+        if std::fs::remove_file(file).is_ok() {
+            self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
+            self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
+    }
+}
+
+/// MDM's off as one operation (a start, a probe, a pooled agent, a switch, an ask) saw it: on
+/// when it was off as the operation began, or began while it ran, though an unset followed
+/// (reviews 71, 73, 75 and 77 of #23322). The operation's only read of MDM's off. A pooled
+/// entry keeps its start's (`Pooled::started`), so an off it lived through counts at its take.
+#[derive(Clone)]
 pub(super) struct OffLatch {
     offs: tokio::sync::watch::Receiver<u64>,
     seen: u64,
@@ -803,6 +1032,24 @@ impl OffLatch {
     /// lock of the start-mode state either.
     pub(super) fn began(&self) -> bool {
         *self.offs.borrow() != self.seen
+    }
+
+    /// The earlier of two reads (`self` and `other`, of one daemon): on whenever either is. The
+    /// off count only grows, so the read with the lower count saw every off the later one saw. A
+    /// pooled entry's start and claim reads join the chat's that takes it (review 122 of #23322).
+    pub(super) fn merge(&self, other: &OffLatch) -> OffLatch {
+        let seen = self.seen.min(other.seen);
+        let was_off = (self.seen == seen && self.was_off) || (other.seen == seen && other.was_off);
+        OffLatch { offs: self.offs.clone(), seen, was_off }
+    }
+
+    /// Whether a full-access mode may run for this operation: the settings file under MDM's off
+    /// as the operation saw it (`Hub::full_access_allowed`).
+    pub(super) fn allows_full_access(&self) -> bool {
+        full_access_allowed_by(
+            self.off().then_some(false),
+            super::start_mode::file_allows_full_access(),
+        )
     }
 
     /// Resolves once the start's harness reported full access (`any`; `reported` is notified on
@@ -987,6 +1234,82 @@ mod tests {
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
 
+    /// The other side of `a_report_tapped_and_applied_while_the_view_is_read_is_seen`.
+    static VIEW_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static REPORT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static DONE_IN_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Reviews 3 to 5 of #26052: a report the tap counts and the inbound loop applies (it sets
+    /// the mode, then takes back the count) while the view is read is in the view: a view read
+    /// while a report came and went never says the agent asks. `BETWEEN_VIEW_READS` holds the
+    /// read 300 ms; the tap and `on_update` run on another thread meanwhile, counted only, or
+    /// counted and applied.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_tapped_and_applied_while_the_view_is_read_is_seen() {
+        for applied in [false, true] {
+            let (hub, chat, _) = two_chats_on(&[], false).await;
+            chat.meta.lock().unwrap().modes =
+                Some(json!({"currentModeId": "normal", "availableModes": []}));
+            for flag in [&VIEW_READ, &REPORT_DONE, &DONE_IN_READ] {
+                flag.store(false, Ordering::SeqCst);
+            }
+            let tap = hub.session_tap(&chat);
+            let params = json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}});
+            let report = crate::rpc::Message::Notification {
+                method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+                params: Some(params.clone()),
+            };
+            let (h, c) = (hub.clone(), chat.clone());
+            let reporter = tokio::task::spawn_blocking(move || {
+                while !VIEW_READ.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                tap(crate::agent::Direction::In, &report, None);
+                if applied {
+                    h.on_update(&c, Some(&params), false);
+                }
+                REPORT_DONE.store(true, Ordering::SeqCst);
+            });
+            BETWEEN_VIEW_READS.set(Some(|_: &Session| {
+                VIEW_READ.store(true, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                DONE_IN_READ.store(REPORT_DONE.load(Ordering::SeqCst), Ordering::SeqCst);
+            }));
+            let view = FullAccessView::of_session(&chat);
+            reporter.await.unwrap();
+            assert!(
+                !DONE_IN_READ.load(Ordering::SeqCst) || runs_full_access(&view).is_some(),
+                "a report that came and went while the view was read is missed ({applied})"
+            );
+        }
+    }
+
+    /// Review 4 of #26052: a report the off's ended agent sends after its end is not counted for
+    /// the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_ended_agent_is_not_counted() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        // The ended agent's tap.
+        let tap = hub.session_tap(&chat);
+        hub.end_managed_full_access(&chat).await;
+        let report = crate::rpc::Message::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "ended",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+        };
+        // Once its exit was handled (which drops the count too): the report comes after it.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tap(crate::agent::Direction::In, &report, None);
+        assert_eq!(
+            chat.floor.unapplied_full_access.load(Ordering::SeqCst),
+            0,
+            "an ended agent's late report was counted"
+        );
+    }
+
     /// Review 1 of #26034: an off push never waits without bound on a session whose spawn lock
     /// another operation holds (a start that cannot end its agent). That session's end is left
     /// pending for the next check, and the push returns.
@@ -1027,6 +1350,175 @@ mod tests {
         assert!(chat.floor.full_access_end_pending.load(Ordering::SeqCst));
     }
 
+    /// Review 6 of #26052: a mode report of an agent MDM's off ended, still queued while eight
+    /// agents after it start and end, is not applied to the ninth: it is not the current agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_queued_across_nine_ends_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after all the rest.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        hub.end_managed_full_access(&chat).await;
+        for _ in 0..8 {
+            hub.child_for(&chat).await.expect("an agent");
+            hub.end_managed_full_access(&chat).await;
+        }
+        let last = hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "an ended agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the last agent");
+        assert_eq!(current.generation, last.generation);
+    }
+
+    /// Review 7 of #26052, out of scope there: an agent a start's cap stopped
+    /// (`stop_full_access_agent`, a cold or pooled start found in full access) retires its mode
+    /// reports as MDM's end does: one it still had queued is not applied to the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_agent_a_cap_stopped_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after the next agent.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        hub.stop_full_access_agent(&chat, true).await;
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "a stopped agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the next agent");
+        assert_eq!(current.generation, next.generation);
+    }
+
+    /// Review 2 of #26257: the MDM off a start read holds for its stop, though an unset lands while
+    /// the start's mode change out of full access waits and the harness then refuses it: the
+    /// stopped agent's queued report is not the next agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cap_stop_after_an_unset_during_its_mode_change_retires_the_agent() {
+        let env = ["FAKE_FULL_ACCESS=1", "FAKE_SET_MODE_FAIL=1", "FAKE_SET_MODE_DELAY_MS=600"];
+        let (hub, chat, _) = two_chats_on(&env, false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        let off = hub.off_latch();
+        // The harness reports full access; set as the chat holds it, with no check woken.
+        if let Some(modes) = chat.meta.lock().unwrap().modes.as_mut() {
+            modes["currentModeId"] = json!("full-access");
+        }
+        // A mode the next agent never starts in (with MDM unset it may start in full access).
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "strict"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        let profile = hub.config.read().await.profile("fake").cloned().expect("its profile");
+        let unset = {
+            let hub = hub.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                hub.apply_full_access_push(None).await;
+            })
+        };
+        let capped = hub.cap_full_access(&chat, &first, &profile, &off).await;
+        unset.await.unwrap();
+        assert!(capped.is_err(), "the start was not refused");
+        assert!(!hub.full_access_managed_off(), "the unset did not land first");
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("strict"),
+            "a stopped agent's late report set the mode of the agent after it"
+        );
+    }
+
+    /// Review 1 of #26257: a stop for the person's own off (MDM unset) retires nothing, as before:
+    /// a report the stopped agent still had queued is applied as it was on base.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_stop_for_the_persons_own_off_retires_nothing() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "strict"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        let epoch = chat.floor.report_epoch.load(Ordering::SeqCst);
+        hub.stop_full_access_agent(&chat, false).await;
+        assert_eq!(chat.floor.retired_through.load(Ordering::SeqCst), 0, "a stop retired an agent");
+        assert_eq!(chat.floor.report_epoch.load(Ordering::SeqCst), epoch, "a stop moved the epoch");
+        hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_eq!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("strict"),
+            "with MDM unset a stopped agent's queued report was dropped"
+        );
+    }
+
+    /// Review 3 of #26057: under MDM's off, `child_for`'s fast path does not hand out an agent
+    /// whose reattached host's replay is not all in the log (`ChildAgent::replay_pending`), though
+    /// what the chat holds of it asks: the start judges it, as the off's teardown does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_replaying_agent_is_not_handed_out_under_mdm_off() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        crate::agent::TEST_REPLAYING.store(first.generation, Ordering::SeqCst);
+        let next = hub.child_for(&chat).await;
+        crate::agent::TEST_REPLAYING.store(0, Ordering::SeqCst);
+        assert!(
+            next.as_ref().map_or(true, |next| next.generation != first.generation),
+            "an agent whose replay is not all in the log was handed out under MDM's off"
+        );
+    }
+
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
     /// `child_for`'s fast path, though what it reports no longer says full access: the start
     /// ends it first.
@@ -1043,10 +1535,99 @@ mod tests {
         );
     }
 
+    /// Review 69 of #23322: a left host's log read back while the host records could not be read
+    /// is not kept as the last word: a later check reads the log again and finds what the host
+    /// reported since.
+    #[tokio::test]
+    async fn a_left_host_read_while_its_records_were_unreadable_is_read_again() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        assert!(
+            !hub.runs_full_access_by_records(&chat, None),
+            "a log that asks read as full access"
+        );
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": chat.meta().agent_session_id,
+            "update": {"sessionUpdate": "current_mode_update", "currentModeId": "full-access"}}});
+        hub.append(&chat, "in", "current_mode_update", update);
+        assert!(
+            hub.runs_full_access_by_records(&chat, None),
+            "a read while the host records could not be read hid the host's later full access"
+        );
+    }
+
+    /// Review 2 of #26055: a host whose own record this build cannot read may run on unproven, and
+    /// it is never adopted, so its log never hears what it did since: under MDM's off it counts as
+    /// full access, whatever its log says.
+    #[tokio::test]
+    async fn a_host_whose_record_cannot_be_read_counts_as_full_access() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let ids = std::collections::HashSet::from([chat.id.clone()]);
+        let records = super::super::hosts::HostRecords { live: ids.clone(), unreadable: ids };
+        assert!(
+            hub.runs_full_access_by_records(&chat, Some(&records)),
+            "a host whose record cannot be read was judged by its log"
+        );
+    }
+
+    /// Review 2 of #26055, round 2: a log read kept while the host records could be read
+    /// (`left_host_read`) does not outlast them. Once the host's own record cannot be read, the
+    /// host counts as full access; while the records cannot be read at all, its log is read again.
+    #[tokio::test]
+    async fn a_kept_left_host_read_does_not_outlast_readable_records() {
+        use super::super::hosts::HostRecords;
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let ids = std::collections::HashSet::from([chat.id.clone()]);
+        let readable = HostRecords { live: ids.clone(), unreadable: Default::default() };
+        assert!(
+            !hub.runs_full_access_by_records(&chat, Some(&readable)),
+            "a log that asks read as full access"
+        );
+        let unreadable = HostRecords { live: ids.clone(), unreadable: ids };
+        assert!(
+            hub.runs_full_access_by_records(&chat, Some(&unreadable)),
+            "a kept read hid a host whose record cannot be read now"
+        );
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": chat.meta().agent_session_id,
+            "update": {"sessionUpdate": "current_mode_update", "currentModeId": "full-access"}}});
+        hub.append(&chat, "in", "current_mode_update", update);
+        assert!(
+            hub.runs_full_access_by_records(&chat, None),
+            "a kept read hid the host's later full access while the records could not be read"
+        );
+    }
+
     /// A hub with two open chats on a stand-in agent that fails over to itself with
     /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
         two_chats_on(&[], true).await
+    }
+
+    /// Reviews 70 and 74 of #23322 (`known_id`): the read-back of a host a restart left
+    /// (`reported_by_left_host`) takes a blank agent session id, the chat's or a report's, for no
+    /// session, so a subagent's report of full access under one is not the chat's own. Under the
+    /// chat's own id it is.
+    #[tokio::test]
+    async fn a_left_hosts_read_back_takes_a_blank_session_id_for_no_session() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let own_reports = |sid: &str| {
+            chat.meta.lock().unwrap().agent_session_id = Some(sid.to_owned());
+            let update = json!({"sessionUpdate": "current_mode_update",
+                                "currentModeId": "bypassPermissions"});
+            let meta = json!({"acpmux": {"subagent": {"id": "fake-subagent"}}});
+            let params = json!({"sessionId": sid, "update": update, "_meta": meta});
+            hub.append(&chat, "in", "current_mode_update", json!({"params": params}));
+            let view = hub.reported_by_left_host(&chat).expect("the log reads back");
+            view.mode.as_deref() == Some("bypassPermissions")
+        };
+        for blank in ["", " ", "\t\n"] {
+            assert!(!own_reports(blank), "{blank:?} named the chat's own session");
+        }
+        assert!(own_reports("fake-own"), "the chat's own report did not count");
     }
 
     /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code),
@@ -1093,6 +1674,23 @@ mod tests {
         let r = hub.receiver_check(&parent, &child).await;
         assert!(r.is_err(), "an approve-all parent messaged an approve-edits child under the off");
         assert_eq!(hub.effective_policy(&parent.meta()).await, PermissionPolicy::Ask);
+    }
+
+    /// A new chat held to its caller while MDM forces full access off is held to the policy its
+    /// caller is set to run, not to approve-all capped as ask: once the off is unset it is still
+    /// no laxer than its caller (`hold_subsession`, `hold_to_starter`).
+    #[tokio::test]
+    async fn a_chat_held_to_its_caller_under_an_mdm_off_is_no_laxer_once_it_is_unset() {
+        let (hub, parent, child) = two_chats_on(&[], false).await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveEdits).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveAll).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let _ = hub.hold_subsession(&parent.meta(), &child).await;
+        hub.apply_full_access_push(None).await;
+        assert!(
+            !hub.policy_laxer_under(&child.meta(), &parent.meta(), hub.mdm_snapshot()).await,
+            "a chat held under the off runs approve-all under an approve-edits caller after the unset"
+        );
     }
 
     /// Review 33 of #23322: a family message checked under the old bound (an approve-all
@@ -1318,6 +1916,111 @@ mod tests {
         assert_eq!(end, "turn_error", "a message the off push cut was written after it returned");
     }
 
+    /// Review 40 of #23322: an ancestor's answer checked under the old bound holds an off push
+    /// until the answer is written to the asking agent, not only handed to the ask.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_waits_for_an_ancestors_answer_until_it_is_written() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let asking = {
+            let (hub, child) = (hub.clone(), child.clone());
+            let text = vec![json!({"type": "text", "text": "question: Pick?"})];
+            tokio::spawn(async move {
+                hub.prompt_with(&child, text, "test", false, PromptOptions::default()).await
+            })
+        };
+        let pending = async {
+            loop {
+                if let Some(id) = child.permissions.lock().unwrap().pending.keys().next() {
+                    return id.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        let id = tokio::time::timeout(WAIT, pending).await.expect("the child asks");
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        let push = push_off(&hub);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let _ = release.send(());
+        tokio::time::timeout(WAIT, push).await.expect("the push returns").unwrap();
+        let answered = answer.await.unwrap();
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert!(
+            !returned,
+            "an off push returned while an answer checked under the old bound was queued"
+        );
+    }
+
+    /// Starts a turn on `child` that asks the question "Pick?": the ask's permission id.
+    async fn ask_pick(
+        hub: &Arc<Hub>,
+        child: &Arc<Session>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let asking = {
+            let (hub, child) = (hub.clone(), child.clone());
+            let text = vec![json!({"type": "text", "text": "question: Pick?"})];
+            tokio::spawn(async move {
+                let _ =
+                    hub.prompt_with(&child, text, "test", false, PromptOptions::default()).await;
+            })
+        };
+        let pending = async {
+            loop {
+                if let Some(id) = child.permissions.lock().unwrap().pending.keys().next() {
+                    return id.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        (tokio::time::timeout(WAIT, pending).await.expect("the child asks"), asking)
+    }
+
+    /// Review 81 of #23322: two ancestors answer one question at once. The answer that lost
+    /// never takes away the fence of the one that won, so an off push still waits for the
+    /// winning answer until it is written.
+    #[tokio::test]
+    async fn a_losing_ancestor_answer_leaves_the_winners_answer_fenced() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        // The later answer is checked first and pauses right before it answers.
+        let (at_tx, at) = tokio::sync::oneshot::channel();
+        let (go, go_rx) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((at_tx, go_rx));
+        let late = {
+            let (hub, parent, child, id) = (hub.clone(), parent.clone(), child.clone(), id.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "B"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, at).await.expect("the later answer is checked").unwrap();
+        // It goes on only once this thread waits: the first answer wins, then the later one
+        // loses, before the asking task writes the winner.
+        let _ = go.send(());
+        let first = hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await;
+        let late = late.await.unwrap();
+        assert!(first.is_ok() != late.is_ok(), "one answer wins: {first:?}, {late:?}");
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        let push = push_off(&hub);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let _ = release.send(());
+        tokio::time::timeout(WAIT, push).await.expect("the push returns").unwrap();
+        asking.abort();
+        assert!(
+            !returned,
+            "an off push returned while the winning answer, checked under the old bound, was queued"
+        );
+    }
+
     /// Review 81 of #23322: a message its agent's writer already took when the transport stops
     /// taking input is cut by ending that agent at once. The push returns in bounded time even
     /// while the chat's agent slot is held elsewhere (a stop waiting on its host), and the
@@ -1361,6 +2064,96 @@ mod tests {
         assert_eq!(end, "turn_error", "a message the off push cut reached its agent");
     }
 
+    /// Review 84 of #23322: an answer that lost to another settles its fence, so the next off
+    /// push does not wait on it.
+    #[tokio::test]
+    async fn a_losing_ancestor_answer_holds_no_later_push() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        // The later answer is checked first and pauses right before it answers.
+        let (at_tx, at) = tokio::sync::oneshot::channel();
+        let (go, go_rx) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((at_tx, go_rx));
+        let late = {
+            let (hub, parent, child, id) = (hub.clone(), parent.clone(), child.clone(), id.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "B"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, at).await.expect("the later answer is checked").unwrap();
+        let first = hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await;
+        let _ = go.send(());
+        let late = late.await.unwrap();
+        assert!(first.is_ok() && late.is_err(), "the first answer wins: {first:?}, {late:?}");
+        // The winner is written.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let started = std::time::Instant::now();
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        asking.abort();
+        let took = started.elapsed();
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "an off push waited {took:?} on an answer that lost"
+        );
+    }
+
+    /// Review 84 of #23322: an answer the off push cut while queued never reaches the agent,
+    /// which still waits for one: the question is asked again, under the bound now.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cut_ancestor_answer_is_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let answered = answer.await.unwrap();
+        let again = async {
+            while child.permissions.lock().unwrap().pending.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        let asked = tokio::time::timeout(std::time::Duration::from_secs(5), again).await;
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert!(asked.is_ok(), "a cut answer left its agent waiting on a question nobody is asked");
+    }
+
+    /// Review 88 of #23322: a cut answer is asked again only of the agent that asked it: once
+    /// another agent took the session (a failover), whose request ids start over, its request
+    /// is not answered on that agent's ids.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cut_answer_is_not_asked_again_once_another_agent_took_the_session() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        // Another live agent takes the session while the one that asked still runs.
+        let other = hub.child_for(&parent).await.expect("the parent's agent");
+        let asked_of = child.child.lock().await.replace(other);
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let answered = answer.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let again = child.permissions.lock().unwrap().pending.len();
+        *child.child.lock().await = asked_of;
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert_eq!(again, 0, "a cut answer was asked again for an agent that did not ask it");
+    }
+
     /// Review 86 of #23322: a family prompt that fails before its write (its PDF attachment has
     /// no folder to go to) settles its fence, so the next off push does not wait on it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1383,6 +2176,207 @@ mod tests {
         assert!(
             took < std::time::Duration::from_millis(500),
             "an off push waited {took:?} on a prompt that failed before its write"
+        );
+    }
+
+    /// Review 86 of #23322: a question asked again after a restart (`reregister_permission`)
+    /// whose ancestor's answer an off push cut is not asked again once a stop cancelled it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cut_answer_to_a_cancelled_question_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let request = child.permissions.lock().unwrap().pending[&id].request.clone();
+        let agent = hub.child_for(&child).await.expect("a running agent");
+        let again = "asked-again".to_owned();
+        hub.reregister_permission(
+            &child,
+            &agent,
+            json!(9999),
+            again.clone(),
+            request,
+            "test",
+            None,
+        )
+        .await;
+        let (arrived, release) = pause_input(&hub, &child, "\"id\":9999").await;
+        let answer = {
+            let (hub, parent, child, again) =
+                (hub.clone(), parent.clone(), child.clone(), again.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &again, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        hub.cancel_pending_permissions(&child);
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let _ = answer.await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let reasked = child.permissions.lock().unwrap().pending.contains_key(&again);
+        asking.abort();
+        assert!(!reasked, "a question a stop cancelled was asked again");
+    }
+
+    /// Review 88 of #23322, round 4: a Stop that comes once an ancestor's answer won, before its
+    /// reply goes out, still cancels the question: a cut of that answer does not ask it again
+    /// under the epoch the Stop started.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cut_answer_whose_question_a_later_stop_cancelled_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let request = child.permissions.lock().unwrap().pending[&id].request.clone();
+        let agent = hub.child_for(&child).await.expect("a running agent");
+        let again = "asked-again".to_owned();
+        hub.reregister_permission(
+            &child,
+            &agent,
+            json!(9999),
+            again.clone(),
+            request,
+            "test",
+            None,
+        )
+        .await;
+        // A Stop between the answer's win and its reply (its question already answered, so
+        // only its epoch moves).
+        child.permission_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (arrived, release) = pause_input(&hub, &child, "\"id\":9999").await;
+        let answer = {
+            let (hub, parent, child, again) =
+                (hub.clone(), parent.clone(), child.clone(), again.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &again, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let _ = answer.await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let reasked = child.permissions.lock().unwrap().pending.contains_key(&again);
+        asking.abort();
+        assert!(!reasked, "a question a stop cancelled was asked again");
+    }
+
+    /// Review 88 of #23322, round 7: the agent withdraws its question while an ancestor's answer
+    /// to it waits in the writer, and an off push then cuts that answer. The withdrawal is heard:
+    /// the question is not asked again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_question_withdrawn_while_its_cut_answer_was_queued_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (request, incarnation) = {
+            let state = child.permissions.lock().unwrap();
+            let p = &state.pending[&id];
+            (
+                p.agent_request.clone().expect("the agent's request"),
+                p.agent_host_incarnation.clone(),
+            )
+        };
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        hub.withdraw_permission(&child, incarnation.as_deref(), &request);
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let answered = answer.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let reasked = child.permissions.lock().unwrap().pending.len();
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert_eq!(reasked, 0, "a question its agent withdrew was asked again");
+    }
+
+    /// Review 88 of #23322, round 7: the same after a restart (`reregister_permission`): a
+    /// withdrawal while the cut answer was queued is heard, and the question is not asked again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_restarts_question_withdrawn_while_its_cut_answer_was_queued_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let request = child.permissions.lock().unwrap().pending[&id].request.clone();
+        let agent = hub.child_for(&child).await.expect("a running agent");
+        let again = "asked-again".to_owned();
+        // Open as a restart's recovery leaves it (`recovery_work`).
+        hub.register_agent_request(&child, &json!(9999), Some("test"));
+        hub.reregister_permission(
+            &child,
+            &agent,
+            json!(9999),
+            again.clone(),
+            request,
+            "test",
+            None,
+        )
+        .await;
+        let (arrived, release) = pause_input(&hub, &child, "\"id\":9999").await;
+        let answer = {
+            let (hub, parent, child, again) =
+                (hub.clone(), parent.clone(), child.clone(), again.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &again, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        hub.withdraw_permission(&child, Some("test"), &json!(9999));
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let _ = answer.await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let reasked = child.permissions.lock().unwrap().pending.contains_key(&again);
+        asking.abort();
+        assert!(!reasked, "a question its agent withdrew was asked again after a restart");
+    }
+
+    /// Review 130 of #23322: a restart's question whose ancestor answer an off push cut is asked
+    /// again only of the agent that asked it: once another live agent took the session (a
+    /// failover), it is not re-registered for that agent.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_restarts_cut_answer_is_not_asked_again_once_another_agent_took_the_session() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let request = child.permissions.lock().unwrap().pending[&id].request.clone();
+        let agent = hub.child_for(&child).await.expect("a running agent");
+        let again = "asked-again".to_owned();
+        hub.register_agent_request(&child, &json!(9999), Some("test"));
+        hub.reregister_permission(
+            &child,
+            &agent,
+            json!(9999),
+            again.clone(),
+            request,
+            "test",
+            None,
+        )
+        .await;
+        let (arrived, release) = pause_input(&hub, &child, "\"id\":9999").await;
+        let answer = {
+            let (hub, parent, child, again) =
+                (hub.clone(), parent.clone(), child.clone(), again.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &again, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        // Another live agent takes the session while the one that asked still runs.
+        let other = hub.child_for(&parent).await.expect("the parent's agent");
+        let asked_of = child.child.lock().await.replace(other);
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let _ = answer.await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let reasked = child.permissions.lock().unwrap().pending.contains_key(&again);
+        *child.child.lock().await = asked_of;
+        asking.abort();
+        assert!(
+            !reasked,
+            "a restart's cut answer was asked again for an agent that did not ask it"
         );
     }
 
@@ -1425,3 +2419,7 @@ mod tests {
         assert_eq!(end, "auto_resume_skipped", "a family turn was continued after the off push");
     }
 }
+
+#[cfg(test)]
+#[path = "one_read_tests.rs"]
+mod one_read_tests;

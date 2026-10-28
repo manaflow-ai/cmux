@@ -120,12 +120,18 @@ import SwiftUI
     /// F6: Chief's unseen question shows on the pin and counts as Needs You.
     @Test func unseenQuestionIsNeedsYou() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
-        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: ChiefOutbox(file: file))
+        let preferences = ChiefPreferences(defaults: try #require(UserDefaults(suiteName: "chief-seen-\(UUID().uuidString)")))
+        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences, outbox: ChiefOutbox(file: file))
         try await waitUntil("Chief's first message") { session.lastMessage != nil }
         #expect(session.isWaitingOnYou)
         #expect(session.needsYou)
         session.markSeen()
         #expect(!session.isWaitingOnYou)
+        // QA 2026-10-27: after a relaunch the question seen before stays seen
+        // (the marker was in memory only, so every old question came back).
+        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences, outbox: ChiefOutbox(file: file))
+        try await waitUntil("Chief's first message after a relaunch") { relaunched.lastMessage != nil }
+        #expect(!relaunched.isWaitingOnYou)
     }
     #endif
 }

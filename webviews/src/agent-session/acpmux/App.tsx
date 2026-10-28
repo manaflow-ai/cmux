@@ -117,6 +117,7 @@ import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
+import { pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
@@ -363,6 +364,7 @@ import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
+import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { avatarRows } from "./header/avatarRow";
@@ -4453,6 +4455,8 @@ function AcpmuxPane() {
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -5613,6 +5617,7 @@ function AcpmuxPane() {
       }),
       ...(connected &&
         loginCommand &&
+        !cloudMachineID &&
         snapshot.summary?.hostKind !== "cloud" && {
           reauthenticate: () =>
             void callNative("tab.open", {
@@ -5622,10 +5627,20 @@ function AcpmuxPane() {
               run: true,
             }).catch(() => undefined),
         }),
+      transferCloudCredentials: cloudCredentialRecovery(
+        connected && cloudCredentialRecoveryAvailable,
+        cloudMachineID,
+        snapshot.sessionId,
+        snapshot.summary?.harness,
+        callNative,
+        (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+        () => directClient.current ?? undefined,
+      ),
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
+        hostKind: cloudMachineID ? "cloud" : snapshot.summary?.hostKind,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -5644,6 +5659,8 @@ function AcpmuxPane() {
       connected,
       hunkReview,
       loginCommand,
+      cloudMachineID,
+      cloudCredentialRecoveryAvailable,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
@@ -6186,6 +6203,10 @@ function AcpmuxPane() {
   );
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
+  // Its output apart from what it read, when every call carried the split; held by its numbers, as
+  // a new snapshot's split is a new object.
+  const split = snapshot.isWorking ? snapshot.turnTokenSplit : undefined;
+  const splitKey = split ? `${split.output}/${split.input}/${split.cacheRead}/${split.cacheWrite}` : "";
   const counted = useRef({
     summary: snapshot.summary,
     runningAgents,
@@ -6291,6 +6312,7 @@ function AcpmuxPane() {
       commands: runningCommands.length,
       sessions: runningSessions.length,
       tokens: turnTokens,
+      split,
       openAgents: () => {
         const {
           runningAgents: agents,
@@ -6317,7 +6339,16 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, showToolRow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the split is new on every snapshot; its key is not
+  }, [
+    runningAgents.length,
+    runningCommands.length,
+    runningSessions.length,
+    turnTokens,
+    splitKey,
+    showSubagent,
+    showToolRow,
+  ]);
   // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
@@ -6964,7 +6995,9 @@ function AcpmuxPane() {
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,
-        call: (method, params) => callNative(method, params),
+        // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).
+        call: async (method, params) => (await pageAction(() => window.cmuxAcpmuxActions, method))(params ?? {}),
+        ready: async (method) => void (await pageAction(() => window.cmuxAcpmuxActions, method)),
         selectSession: (sessionId) => automationView.current?.selectSession(sessionId),
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
@@ -7044,12 +7077,18 @@ function AcpmuxPane() {
           folderNeeded?: { reason?: unknown };
           pastTurns?: unknown;
           machineName?: unknown;
+          cloudMachineID?: unknown;
+          cloudCredentialRecoveryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
           sandboxState?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
+        setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
+        setCloudMachineID(
+          typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
+        );
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
