@@ -74,16 +74,16 @@ struct ApprovalBannerTests {
         answerer.pending["sess-1"] = Self.bash
         let service = try await deliver(Self.needsInput, answerer: answerer)
         let posted = try #require(service.desktop.posted.last)
-        service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true)
-        for _ in 0..<200 where answerer.answered.isEmpty { await Task.yield() }
+        // The answer runs off main (a background task); the test waits for it.
+        _ = try await #require(service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true)).value
         #expect(answerer.answered.map(\.approval) == [Self.bash])
         #expect(answerer.answered.map(\.allow) == [true])
 
         let denied = Answerer()
         denied.pending["sess-1"] = Self.bash
         let other = try await deliver(Self.needsInput, answerer: denied)
-        other.answerApproval(banner: try #require(other.desktop.posted.last).id, surface: SurfaceID(rawValue: 1), allow: false)
-        for _ in 0..<200 where denied.answered.isEmpty { await Task.yield() }
+        let deny = other.answerApproval(banner: try #require(other.desktop.posted.last).id, surface: SurfaceID(rawValue: 1), allow: false)
+        _ = try await #require(deny).value
         #expect(denied.answered.map(\.allow) == [false])
     }
 
@@ -113,7 +113,7 @@ struct ApprovalBannerTests {
         let answerer = Answerer()
         answerer.pending["sess-1"] = Self.bash
         let service = try await deliver(Self.needsInput, answerer: answerer)
-        service.answerApproval(banner: "cmux-notification-1", surface: SurfaceID(rawValue: 1), allow: true)
+        #expect(service.answerApproval(banner: "cmux-notification-1", surface: SurfaceID(rawValue: 1), allow: true) == nil)
         for _ in 0..<50 { await Task.yield() }
         #expect(answerer.answered.isEmpty)
     }
@@ -195,11 +195,10 @@ struct ApprovalBannerTests {
         for _ in 0..<200 where service.desktop.posted.isEmpty { await Task.yield() }
         try ask(8, service, located)
         for _ in 0..<200 where service.desktop.posted.count < 2 { await Task.yield() }
-        service.answerApproval(banner: "cmux-notification-7", surface: SurfaceID(rawValue: 1), allow: true)
+        #expect(service.answerApproval(banner: "cmux-notification-7", surface: SurfaceID(rawValue: 1), allow: true) == nil)
         for _ in 0..<50 { await Task.yield() }
         #expect(answerer.answered.isEmpty, "the older banner's prompt is the newer one's now")
-        service.answerApproval(banner: "cmux-notification-8", surface: SurfaceID(rawValue: 1), allow: true)
-        for _ in 0..<200 where answerer.answered.isEmpty { await Task.yield() }
+        _ = try await #require(service.answerApproval(banner: "cmux-notification-8", surface: SurfaceID(rawValue: 1), allow: true)).value
         #expect(answerer.answered.map(\.allow) == [true])
     }
 }
