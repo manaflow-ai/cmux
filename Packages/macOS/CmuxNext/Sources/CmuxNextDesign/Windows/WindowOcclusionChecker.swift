@@ -206,11 +206,16 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }  // raw-observer-allow: reads the sender
         on(NSWindow.willEnterFullScreenNotification) { [weak self] in self?.fullscreenTransition = $0 }  // raw-observer-allow: reads the sender
         on(NSWindow.willExitFullScreenNotification) { [weak self] in self?.fullscreenTransition = $0 }  // raw-observer-allow: reads the sender
-        // A child window's own occlusion or main change starts no pass: it is not in `orderedWindows`, is never
-        // judged and moves with its parent, so it changes no verdict. A new tab or split orders overlay panels,
-        // divider catchers and page windows as children, and each pass waits on the window server for the order
-        // (Chrome: `-windowCanTriggerOcclusionUpdates:`, components/remote_cocoa/app_shim/window_occlusion_checker_mac.mm).
-        let topLevelPass: @MainActor (NSWindow) -> Void = { [weak self] window in if window.parent == nil { self?.schedule() } }
+        // A child window's own occlusion or main change starts no pass while every tracked window is on screen:
+        // a child is never judged and moves with its parent, and a new tab or split orders overlay panels, divider
+        // catchers and page windows as children, each pass waiting on the window server for the order (Chrome:
+        // `-windowCanTriggerOcclusionUpdates:`, components/remote_cocoa/app_shim/window_occlusion_checker_mac.mm).
+        // While one is off screen a child's change may uncover it (an opaque page child of a glass window), and a
+        // tracked window that became a child must be reported back on screen (crbug.com/1337390): then it passes.
+        let topLevelPass: @MainActor (NSWindow) -> Void = { [weak self] window in
+            guard let self, window.parent == nil || !offScreen.isEmpty else { return }
+            schedule()
+        }
         on(NSWindow.didChangeOcclusionStateNotification, topLevelPass)  // raw-observer-allow: reads the sender
         on(NSWindow.didBecomeMainNotification, topLevelPass)  // raw-observer-allow: reads the sender
         on(NSWindow.didResignMainNotification, topLevelPass)  // raw-observer-allow: reads the sender
