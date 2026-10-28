@@ -498,6 +498,8 @@ type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
   sessionId?: string;
+  /// The current transcript row width, used by prompt disclosure fast paths.
+  rowWidth?: number;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -909,7 +911,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
+  function MessageRow({ row, rowWidth, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
@@ -989,6 +991,7 @@ const MessageRow = memo(
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
+                rowWidth={rowWidth}
                 pending={
                   steerControls(row)
                     ? (actions) => (
@@ -4134,6 +4137,7 @@ export function VirtualTranscript({
                       <Component
                         row={row}
                         sessionId={sessionId}
+                        rowWidth={transcriptRowWidth(width)}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}

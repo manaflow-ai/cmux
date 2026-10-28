@@ -1341,8 +1341,31 @@ function isPlainUserPrompt(text: string): boolean {
 /// transcript column. Its bubble can therefore use the model estimate without forcing a Range
 /// measurement during the send's first layout effect; longer or non-ASCII text keeps the measured
 /// path so font and narrow-column wrapping remain exact.
-export function isShortPlainUserPrompt(text: string): boolean {
-  return text.length <= 64 && /^[\x20-\x7e]*$/.test(text) && isPlainUserPrompt(text);
+const plainPromptPrepared = new Map<string, PreparedText | null>();
+
+/**
+ * Whether the literal prompt is known to fit inside the disclosure threshold at the current
+ * transcript geometry. The first-paint shortcut is only safe with both width and font metrics;
+ * callers without them must keep PromptText's measured path.
+ */
+export function isShortPlainUserPrompt(text: string, rowWidth?: number): boolean {
+  if (!(text.length <= 64 && /^[\x20-\x7e]*$/.test(text) && isPlainUserPrompt(text))) return false;
+  if (rowWidth === undefined) return false;
+  const { measureFont, lineHeight } = metrics();
+  const contentWidth = Math.max(80, USER_BUBBLE_SHARE * rowWidth - USER_BUBBLE_SIDES);
+  const key = `${measureFont}\n${contentWidth}\n${text}`;
+  let prepared = plainPromptPrepared.get(key);
+  if (prepared === undefined) {
+    try {
+      prepared = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
+    } catch {
+      prepared = null;
+    }
+    plainPromptPrepared.set(key, prepared);
+    if (plainPromptPrepared.size > 128) plainPromptPrepared.delete(plainPromptPrepared.keys().next().value!);
+  }
+  if (!prepared) return false;
+  return layout(prepared, contentWidth, lineHeight).height <= COLLAPSED_PROMPT_LINES * lineHeight + 1;
 }
 
 function measuredRowHeight(
