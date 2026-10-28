@@ -6,6 +6,19 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct MobileSSHDisconnectOwnershipTests {
+    @Test func canceledAutomaticOpenCannotStartAfterDisconnect() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ssh-auto-disconnect-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let computers = MobileSSHComputers(directory: directory)
+        let host = SSHHostRecord(name: "box", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(host)
+        let opening = try #require(computers.autoConnect(hostID: host.id))
+        await computers.disconnect(hostID: host.id)
+        await opening.value
+        #expect(computers.statusByHost[host.id] == .idle)
+        #expect(!computers.canAutoConnect(hostID: host.id))
+    }
+
     @Test func slowTeardownCannotRemoveReplacementProviderOrResetItsStatus() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ssh-disconnect-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
