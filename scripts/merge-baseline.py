@@ -13,10 +13,13 @@ a conflict, written as ordinary conflict markers around that entry.
                are the header (ours). A line whose trailing tab-separated
                fields are numbers is keyed by its leading fields (the numbers
                are its value); any other line is its own key.
-  .json        nested objects of counts (indent=1, sorted keys, the
-               generators' format), merged leaf by leaf; an object left empty
-               is dropped. A file in any other shape, or an entry both
-               sides changed, is a conflict: both whole files between markers.
+  .json        nested objects of counts in a generator's format (indent=1,
+               sorted keys or the writer's own key order, which the result
+               keeps), merged key by key; an object left empty is dropped.
+               Both sides lowering the same count keeps the higher one. A
+               file in any other shape, or an entry both sides changed in
+               any other way (a raise), is a conflict: both whole files
+               between markers.
 
 Usage (git): merge-baseline.py %O %A %B %P; writes the result to %A and exits
 1 on a conflict.
@@ -81,20 +84,44 @@ def merge_lines(base: str, ours: str, theirs: str) -> tuple[str, bool]:
     return "\n".join(out) + "\n", conflict
 
 
-def flatten(value, prefix=()):
-    if isinstance(value, dict):
-        leaves = {}
-        for key, child in value.items():
-            leaves.update(flatten(child, prefix + (key,)))
-        return leaves
-    return {prefix: value}
-
-
 def whole_file_conflict(ours: str, theirs: str) -> tuple[str, bool]:
     """Both sides whole between markers, so the file never looks resolved."""
     def ended(text: str) -> str:
         return text if text.endswith("\n") or not text else text + "\n"
     return f"<<<<<<< ours\n{ended(ours)}=======\n{ended(theirs)}>>>>>>> theirs\n", True
+
+
+def is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def merge_leaf(base, ours, theirs):
+    """(result, conflict) for one leaf. Both sides lowering the same count keeps the higher: the merged code can still
+    hold hits only one side removed, and a ratchet never rises above its base (a later --update-baseline lowers it)."""
+    result, clash = merge_value(base, ours, theirs)
+    if clash and is_count(base) and is_count(ours) and is_count(theirs) and ours < base and theirs < base:
+        return max(ours, theirs), False
+    return result, clash
+
+
+def merge_node(base, ours, theirs, sort: bool, top: bool = False):
+    """(result, conflict) for nested objects, merged key by key; MISSING means absent. Keys keep ours' order, then
+    theirs' new keys (sorted when the file is). An object left empty is dropped."""
+    nodes = [node for node in (base, ours, theirs) if node is not MISSING]
+    if not all(isinstance(node, dict) for node in nodes):
+        return merge_leaf(base, ours, theirs)
+    pick = lambda node, key: node.get(key, MISSING) if isinstance(node, dict) else MISSING
+    keys = list(ours) if isinstance(ours, dict) else []
+    keys += [key for key in (theirs if isinstance(theirs, dict) else {}) if key not in keys]
+    keys += [key for key in (base if isinstance(base, dict) else {}) if key not in keys]
+    merged = {}
+    for key in sorted(keys) if sort else keys:
+        result, clash = merge_node(pick(base, key), pick(ours, key), pick(theirs, key), sort)
+        if clash:
+            return None, True
+        if result is not MISSING:
+            merged[key] = result
+    return (merged if merged or top else MISSING), False
 
 
 def merge_json(base: str, ours: str, theirs: str) -> tuple[str, bool]:
@@ -104,24 +131,14 @@ def merge_json(base: str, ours: str, theirs: str) -> tuple[str, bool]:
         return whole_file_conflict(ours, theirs)
     if not all(isinstance(document, dict) for document in documents):
         return whole_file_conflict(ours, theirs)
-    if json.dumps(documents[1], indent=1, sort_keys=True) + "\n" != ours:
-        return whole_file_conflict(ours, theirs)  # not the generators' format: leave it to a person
-    base_leaves, our_leaves, their_leaves = (flatten(document) for document in documents)
-    merged: dict = {}
-    for path in sorted(set(base_leaves) | set(our_leaves) | set(their_leaves)):
-        result, clash = merge_value(base_leaves.get(path, MISSING), our_leaves.get(path, MISSING),
-                                    their_leaves.get(path, MISSING))
-        if clash:
-            return whole_file_conflict(ours, theirs)
-        if result is MISSING:
-            continue
-        node = merged
-        for key in path[:-1]:
-            node = node.setdefault(key, {})
-            if not isinstance(node, dict):
-                return whole_file_conflict(ours, theirs)
-        node[path[-1]] = result
-    return json.dumps(merged, indent=1, sort_keys=True) + "\n", False
+    # The generators' formats: indent=1 with sorted keys, or in the writer's own key order (rust_panic_ratchet.py).
+    sort = json.dumps(documents[1], indent=1, sort_keys=True) + "\n" == ours
+    if not sort and json.dumps(documents[1], indent=1) + "\n" != ours:
+        return whole_file_conflict(ours, theirs)  # not a generator's format: leave it to a person
+    merged, clash = merge_node(*documents, sort=sort, top=True)
+    if clash:
+        return whole_file_conflict(ours, theirs)
+    return json.dumps(merged, indent=1, sort_keys=sort) + "\n", False
 
 
 def main(argv: list[str]) -> int:
