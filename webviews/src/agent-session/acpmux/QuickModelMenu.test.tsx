@@ -303,7 +303,7 @@ test("inline effort picks a different model and its level together; model names 
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
   expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
-  expect(labels(list())).toContain("effort.title");
+  expect(labels(list())).toContain("Effort");
 });
 
 test("provider submenu and expanded rows keep the current model's Effort fallback", async () => {
@@ -362,7 +362,7 @@ test("provider submenu and expanded rows keep the current model's Effort fallbac
     await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
     await settle();
     expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
-    expect(labels(list())).toContain("effort.title");
+    expect(labels(list())).toContain("Effort");
     await act(async () => {
       root!.unmount();
       root = undefined;
