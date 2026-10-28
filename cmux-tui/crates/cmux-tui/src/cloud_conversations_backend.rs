@@ -37,6 +37,8 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// A streamed attachment file has no total deadline (it may be any size);
 /// it fails when no bytes moved, or no reply came after the last, this long.
 const UPLOAD_STALL: Duration = Duration::from_secs(2 * 60);
+/// How long the reply to a streamed upload may take after its last byte.
+const UPLOAD_REPLY: Duration = UPLOAD_STALL;
 /// One read of a streamed attachment file.
 const UPLOAD_CHUNK_BYTES: usize = 1024 * 1024;
 /// One ranged attachment read (at most 4 MiB).
@@ -99,16 +101,24 @@ fn elapsed_ms(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// Resolves once [`UPLOAD_STALL`] passed since the body last moved. It ends
-/// with its `select!`, when the upload answers first.
+/// How much longer the upload may go without progress before it is given
+/// up: zero once it stalled. `idle` is the time since the body last moved;
+/// `sent` says the whole body went (the upload waits for its reply).
+fn stall_left(idle: Duration, sent: bool) -> Duration {
+    let _ = sent;
+    UPLOAD_STALL.saturating_sub(idle)
+}
+
+/// Resolves once [`stall_left`] says the upload stalled. It ends with its
+/// `select!`, when the upload answers first.
 async fn stalled(started: Instant, moved: Arc<AtomicU64>) {
-    let stall = u64::try_from(UPLOAD_STALL.as_millis()).unwrap_or(u64::MAX);
     loop {
         let idle = elapsed_ms(started).saturating_sub(moved.load(Ordering::Relaxed));
-        if idle >= stall {
+        let left = stall_left(Duration::from_millis(idle), false);
+        if left.is_zero() {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(stall - idle)).await;
+        tokio::time::sleep(left).await;
     }
 }
 
@@ -414,6 +424,23 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// Review of #26498: a slow uplink or a slow final answer is not a stall.
+    /// One read of the body is small enough that hyper asks for the next one
+    /// within the window at a few KB/s, and the wait for the reply after the
+    /// last byte has its own, longer window.
+    #[test]
+    fn a_slow_upload_or_a_slow_reply_is_not_a_stall() {
+        // 64 KiB at 1 KB/s is about 64 s between reads: inside the window.
+        assert!(UPLOAD_CHUNK_BYTES <= 64 * 1024, "one read is {UPLOAD_CHUNK_BYTES} bytes");
+        let read_gap = Duration::from_secs((UPLOAD_CHUNK_BYTES / 1024) as u64);
+        assert!(!stall_left(read_gap, false).is_zero());
+        // The whole body went three minutes ago and the slot is still committing it.
+        assert!(!stall_left(Duration::from_secs(3 * 60), true).is_zero());
+        // A body that stopped moving, or a reply that never comes, still ends.
+        assert!(stall_left(UPLOAD_STALL, false).is_zero());
+        assert!(stall_left(UPLOAD_REPLY, true).is_zero());
+    }
 
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
     fn one_http_exchange(reply: &'static str) -> (String, mpsc::Receiver<(String, String)>) {
