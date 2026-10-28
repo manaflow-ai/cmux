@@ -5,11 +5,18 @@ public import CmuxNextCloud
 @MainActor public protocol CodeRouterAccountSource: Sendable {
     var codeRouterAccountID: String? { get }
     var teamID: String? { get }
+    /// Advances whenever the signed-in account or selected team changes. The
+    /// value must advance even when a switch returns to the same identifiers,
+    /// so an awaited token read cannot accept credentials from an older scope.
+    var codeRouterScopeVersion: (session: UInt64, team: UInt64) { get }
     func tokens() async throws -> (access: String, refresh: String)
 }
 
 extension CloudAuth: CodeRouterAccountSource {
     public var codeRouterAccountID: String? { isSignedIn ? user?.id : nil }
+    public var codeRouterScopeVersion: (session: UInt64, team: UInt64) {
+        (session: coordinator.authSessionGeneration, team: coordinator.authTeamScopeGeneration)
+    }
 }
 
 extension CodeRouterClient {
@@ -20,16 +27,30 @@ extension CodeRouterClient {
                            session: URLSession = .shared, timeout: Duration = .seconds(15)) {
         let userID = account.codeRouterAccountID
         let teamID = account.teamID
+        let scopeVersion = account.codeRouterScopeVersion
         let tokens: Tokens = { @MainActor in
             func checkScope() throws {
                 try Task.checkCancellation()
                 guard userID != nil else { throw CodeRouterError.notSignedIn }
-                guard account.codeRouterAccountID == userID, account.teamID == teamID else {
+                guard account.codeRouterAccountID == userID,
+                      account.teamID == teamID,
+                      account.codeRouterScopeVersion == scopeVersion else {
                     throw CodeRouterError.scopeChanged
                 }
             }
             try checkScope()
-            let pair = try await account.tokens()
+            let pair: (access: String, refresh: String)
+            do {
+                pair = try await account.tokens()
+            } catch {
+                // AuthCoordinator cancels a token read when its session moves.
+                // Preserve the useful scope classification instead of letting
+                // CodeRouterClient turn that cancellation into notSignedIn.
+                if account.codeRouterScopeVersion != scopeVersion {
+                    throw CodeRouterError.scopeChanged
+                }
+                throw error
+            }
             try checkScope()
             return pair
         }

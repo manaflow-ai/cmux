@@ -10,10 +10,18 @@ struct CodeRouterAccountScopeTests {
         var codeRouterAccountID: String? = "first-user"
         var teamID: String? = "first-team"
         var tokenGate: Gate?
+        var cancelTokenRead = false
+        private var scopeVersion = (session: UInt64(0), team: UInt64(0))
+
+        var codeRouterScopeVersion: (session: UInt64, team: UInt64) { scopeVersion }
+
+        func advanceSession() { scopeVersion.session &+= 1 }
+        func advanceTeam() { scopeVersion.team &+= 1 }
 
         func tokens() async throws -> (access: String, refresh: String) {
             let pair = (access: "fixture-access", refresh: "fixture-refresh")
             if let tokenGate { await tokenGate.pause() }
+            if cancelTokenRead { throw CancellationError() }
             return pair
         }
     }
@@ -55,10 +63,18 @@ struct CodeRouterAccountScopeTests {
 
     private func change(_ account: Account, to change: Change) {
         switch change {
-        case .user: account.codeRouterAccountID = "second-user"
-        case .team: account.teamID = "second-team"
-        case .personal: account.teamID = nil
-        case .signedOut: account.codeRouterAccountID = nil
+        case .user:
+            account.advanceSession()
+            account.codeRouterAccountID = "second-user"
+        case .team:
+            account.advanceTeam()
+            account.teamID = "second-team"
+        case .personal:
+            account.advanceTeam()
+            account.teamID = nil
+        case .signedOut:
+            account.advanceSession()
+            account.codeRouterAccountID = nil
         }
     }
 
@@ -121,6 +137,48 @@ struct CodeRouterAccountScopeTests {
         self.change(account, to: change)
         await gate.resume()
         #expect(await !operation.value)
+        #expect(Transport.requests.withLock { $0.count } == 0)
+    }
+
+    @Test func returningToOriginalIdentifiersAfterScopeSwitchUploadsNothing() async throws {
+        let account = Account()
+        let gate = Gate()
+        account.tokenGate = gate
+        let (client, session) = try fixture(account)
+        defer { session.invalidateAndCancel() }
+        let operation = Task { await upload(client) }
+        await gate.waitUntilPaused()
+        account.advanceSession()
+        account.codeRouterAccountID = "second-user"
+        account.advanceSession()
+        account.codeRouterAccountID = "first-user"
+        await gate.resume()
+        #expect(await !operation.value)
+        #expect(Transport.requests.withLock { $0.count } == 0)
+    }
+
+    @Test func cancelledTokenReadAfterScopeSwitchReportsScopeChanged() async throws {
+        let account = Account()
+        let gate = Gate()
+        account.tokenGate = gate
+        account.cancelTokenRead = true
+        let (client, session) = try fixture(account)
+        defer { session.invalidateAndCancel() }
+        let operation = Task {
+            do {
+                _ = try await client.request("GET", "/api/coderouter/accounts")
+                return CodeRouterError.transport("request unexpectedly succeeded")
+            } catch let error as CodeRouterError {
+                return error
+            } catch {
+                return CodeRouterError.transport(String(describing: error))
+            }
+        }
+        await gate.waitUntilPaused()
+        account.advanceSession()
+        account.codeRouterAccountID = "second-user"
+        await gate.resume()
+        #expect(await operation.value == .scopeChanged)
         #expect(Transport.requests.withLock { $0.count } == 0)
     }
 
