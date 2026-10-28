@@ -282,4 +282,11 @@ public nonisolated final class TerminalContentsGate: Sendable {
 
     func enter() { pending.wrappingAdd(1, ordering: .relaxed) }
     func leave() { pending.wrappingSubtract(1, ordering: .relaxed) }
+
+    /// Surfaces shown again that wait for their first frame (``TerminalShowRecord``): while 0 the hook looks
+    /// up no show record. Separate from ``isOpen``, so it never opens the echo stages' path.
+    private let showsPending = Atomic<Int>(0)
+    var showsWaiting: Bool { showsPending.load(ordering: .relaxed) > 0 }
+    func showEntered() { showsPending.wrappingAdd(1, ordering: .relaxed) }
+    func showLeft() { showsPending.wrappingSubtract(1, ordering: .relaxed) }
 }

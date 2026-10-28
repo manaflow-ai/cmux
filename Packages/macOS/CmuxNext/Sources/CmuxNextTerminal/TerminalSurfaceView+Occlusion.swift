@@ -34,6 +34,9 @@ extension TerminalSurfaceView {
         defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if pause == nil { showRecord.unpaused() }
+        #endif
         heldFrame.hold(volatile: pause != nil, in: frameSource)
         TerminalHostFramePresenter.setOcclusion(of: self, visible: pause == nil)  // shown: drawn frame in this commit
     }

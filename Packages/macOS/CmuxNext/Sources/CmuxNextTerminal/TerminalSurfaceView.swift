@@ -107,6 +107,11 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     }
 
     var lastOcclusionVisible: Bool?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// When the pause last ended and the layer's next frame after it (`debug.surfaces` `show`); record only.
+    /// Its gate is the one every terminal layer's hook reads (``TypingFrameProbe``).
+    let showRecord: TerminalShowRecord
+    #endif
     /// When the paused surface lets its GPU memory go (``TerminalGPUResidencyGate``).
     var gpu: TerminalGPUResidencyGate
     /// Away, outside the keep-alive band: paused, the surface lets its GPU memory go.
@@ -210,6 +215,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         self.vsyncSource = vsyncSource
         self.cursorLayer = cursorLayer
+        #if DEBUG || CMUX_BENCH_HOOKS
+        showRecord = TerminalShowRecord(gate: echoStages.contentsGate)
+        #endif
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
@@ -327,6 +335,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         if let layer {
             cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            showRecord.attach(to: layer)
+            #endif
             TypingFrameProbe.install(on: layer, stages: stages, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
