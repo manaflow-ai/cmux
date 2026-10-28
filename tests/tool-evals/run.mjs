@@ -11,6 +11,7 @@ import { capture, normalize } from "../agent-evals/snapshot.mjs";
 import { caseVerdict, cliTool, gradeCalls, gradeState, verdict } from "./grade.mjs";
 import { openSession } from "./session.mjs";
 import { runClaudeSdk, runCodexAppServer } from "./agents-sdk.mjs";
+import { shellProfile } from "./live-guard.mjs";
 import { TASKS } from "../agent-evals/tasks.mjs";
 
 const pexec = promisify(execFile);
@@ -175,18 +176,7 @@ function shellFixtures(sample) {
     `#!/bin/bash\nrole=""\nwhile [ $# -gt 0 ]; do case "$1" in --role) role="$2"; shift 2;; --role=*) role="\${1#--role=}"; shift;; *) shift;; esac; done\n[ -z "$role" ] && { echo "usage: cmux-eval-agent --role NAME" >&2; exit 2; }\necho "\${CMUX_TUI_TERMINAL_ID:-unknown}" > ${JSON.stringify(join(dir, "markers"))}/$role\necho "agent $role ready"\nexec sleep 3600\n`,
   );
   chmodSync(stub, 0o755);
-  writeFileSync(
-    join(dir, "sandbox.sb"),
-    [
-      "(version 1)",
-      "(allow default)",
-      '(deny network-outbound (remote unix-socket (path-regex #"cmux")))',
-      `(allow network-outbound (remote unix-socket (path-regex #"/${session.name.replace(/[.-]/g, "\\$&")}\\.sock$")))`,
-      "(deny file-write* (subpath \"/Users\"))",
-      `(allow file-write* (subpath ${JSON.stringify(session.work)}) (subpath ${JSON.stringify(dir)}))`,
-      "",
-    ].join("\n"),
-  );
+  writeFileSync(join(dir, "sandbox.sb"), shellProfile({ sessionName: session.name, work: session.work, dir }));
   sample.shellEnv = { ...session.env, PATH: `${join(dir, "bin")}:${dirname(CLI)}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin`, HOME: session.work };
 }
 
