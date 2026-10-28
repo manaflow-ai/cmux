@@ -256,7 +256,7 @@ test("running nested tool metadata invalidates the child summary", () => {
   const child = (update: object) => feed(fold, update, { subagent: "child" });
   child({ sessionUpdate: "tool_call", toolCallId: "live", title: "Before", kind: "think", status: "in_progress" });
   expect(sessionSummary(fold.views().child!).subagents).toEqual([{ id: "live", title: "Before", state: "running" }]);
-  child({ sessionUpdate: "tool_call_update", toolCallId: "live", title: "After", status: "in_progress" });
+  child({ sessionUpdate: "tool_call_update", toolCallId: "live", name: "After", status: "in_progress" });
   expect(sessionSummary(fold.views().child!).subagents).toEqual([{ id: "live", title: "After", state: "running" }]);
   child({
     sessionUpdate: "tool_call_update",

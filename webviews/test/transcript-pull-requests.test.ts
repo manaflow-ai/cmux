@@ -824,6 +824,11 @@ test("ambiguous create output never invents opened PRs", () => {
   expect(sessionPullRequests(rows)).toEqual([]);
 });
 
+test("escaped payload separators stay inside one shell command", () => {
+  const rows = [activity([shell("gh pr edit 41 -R acme/app --title x\\; gh pr close 42 -R acme/app")], 1)];
+  expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([41]);
+});
+
 test("title payload stripping preserves separators and later mutations", () => {
   const rows = [activity([shell("gh pr edit 41 -R acme/app --title x; gh pr close 42 -R acme/app")], 1)];
   expect(transcriptPullRequests(rows)).toEqual(
