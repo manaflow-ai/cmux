@@ -31,23 +31,29 @@ struct NotificationPopoverRow: View, Equatable {
 
     private var shortcutHint: String? { showsShortcutHint ? shortcut : nil }
     private var showsClearButton: Bool { isHovering && shortcutHint == nil }
+
     private var workspaceColor: Color? {
         workspaceColorHex
             .flatMap { WorkspaceTabColorSettings.displayNSColor(hex: $0, colorScheme: colorScheme, forceBright: true) }
             .map(Color.init(nsColor:))
     }
 
-    private func edgeBar(_ mark: NotificationRowEdgeMarks.Mark) -> some View {
-        let fill: Color
-        switch mark {
-        case .none: fill = .clear
-        case .workspaceColor: fill = workspaceColor ?? .clear
-        case .unread: fill = cmuxAccent.color
-        }
-        return Rectangle()
-            .fill(fill)
+    private func rail(_ rail: NotificationRowMarks.Rail) -> some View {
+        Rectangle()
+            .fill(rail == .workspaceColor ? workspaceColor ?? .clear : .clear)
             .frame(width: 2.5)
             .padding(.vertical, 6)
+    }
+
+    /// The unread dot, centered on the headline's capitals. Read rows keep the space so every
+    /// row's text starts at the same x.
+    private func unreadDot(_ shows: Bool) -> some View {
+        Circle()
+            .fill(shows ? cmuxAccent.color : Color.clear)
+            .frame(width: 6, height: 6)
+            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 4.5 }
+            .padding(.horizontal, 5)
+            .accessibilityHidden(true)
     }
 
     var body: some View {
@@ -134,70 +140,71 @@ struct NotificationPopoverRow: View, Equatable {
     }
 
     private var rowContent: some View {
-        let marks = NotificationRowEdgeMarks(hasWorkspaceColor: workspaceColor != nil, isRead: notification.isRead)
+        let marks = NotificationRowMarks(hasWorkspaceColor: workspaceColor != nil, isRead: notification.isRead)
         return HStack(spacing: 0) {
-            edgeBar(marks.leading)
+            rail(marks.rail)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                unreadDot(marks.showsUnreadDot)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let workspaceTitle, !workspaceTitle.isEmpty {
+                            Text(workspaceTitle)
+                                .cmuxFont(size: 12.5, weight: .semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                                .accessibilityIdentifier(
+                                    "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
+                                )
+                        } else {
+                            Text(notification.title)
+                                .cmuxFont(size: 12.5, weight: .semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                            .cmuxFont(size: 10.5)
+                            .foregroundColor(.secondary)
+                            // Room for the hover clear button, which the hint replaces.
+                            .padding(.trailing, shortcutHint == nil ? 34 : 0)
+                            .layoutPriority(2)
+                        // In the header, after the time, so it can never cover it.
+                        if let shortcutHint {
+                            ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                                // The pill is taller than this line's text; lay it out at the text's
+                                // height so holding the modifier doesn't grow the row and jump the list.
+                                .padding(.vertical, -2)
+                                .padding(.trailing, 10)
+                                .shortcutHintTransition()
+                                // Decorative: a click on the hint must reach the row's Button underneath.
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                                .layoutPriority(3)
+                        }
+                    }
+
                     if let workspaceTitle, !workspaceTitle.isEmpty {
-                        Text(workspaceTitle)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                            .accessibilityIdentifier(
-                                "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
-                            )
-                    } else {
                         Text(notification.title)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
+                            .cmuxFont(size: 10.5, weight: .medium)
+                            .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
-                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary)
-                        // Room for the hover clear button, which the hint replaces.
-                        .padding(.trailing, shortcutHint == nil ? 34 : 0)
-                        .layoutPriority(2)
-                    // In the header, after the time, so it can never cover it.
-                    if let shortcutHint {
-                        ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
-                            // The pill is taller than this line's text; lay it out at the text's
-                            // height so holding the modifier doesn't grow the row and jump the list.
-                            .padding(.vertical, -2)
-                            .padding(.trailing, 10)
-                            .shortcutHintTransition()
-                            // Decorative: a click on the hint must reach the row's Button underneath.
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                            .layoutPriority(3)
+
+                    if !notification.body.isEmpty {
+                        Text(notification.body)
+                            .cmuxFont(size: 11.5)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                }
-
-                if let workspaceTitle, !workspaceTitle.isEmpty {
-                    Text(notification.title)
-                        .cmuxFont(size: 10.5, weight: .medium)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .cmuxFont(size: 11.5)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.leading, 10)
             .padding(.vertical, 8)
 
             Spacer(minLength: 0)
-
-            edgeBar(marks.trailing)
         }
         .frame(minHeight: Self.rowHeight)
         .padding(.leading, 4)
