@@ -284,6 +284,7 @@ describe("acpmuxSend", () => {
   test("a long pipeline after the send, and many here-documents, are one pass", () => {
     const started = performance.now();
     expect(read(`acpmux send a b${" | cat".repeat(5000)}`)?.text).toBe("b");
+    expect(read(`bash -c '${"cat | ".repeat(5000)}acpmux send a -' <<< 'forwarded'`)?.text).toBe("forwarded\n");
     const docs = `${"cat <<E; ".repeat(5000)}\n${"E\n".repeat(5000)}acpmux send a b`;
     expect(shellCommands(docs)).toHaveLength(5001);
     expect(performance.now() - started).toBeLessThan(1000);

@@ -741,10 +741,31 @@ function readAcpmuxSend(
   // is only for a standalone writer; cross-tool Bash calls use the bounded turn map instead.
   const uncertainControlFlow =
     commands.length > 1 || commands.some((command) => command.op !== "" && command.op !== ";");
+  // A chain of bare cats only forwards the wrapper's already-captured stdin. Other compound
+  // shell work remains opaque; no prefix may replace stdin, write, expand or group commands.
+  const forwardingPipeline =
+    commands.length > 1 &&
+    commands.every(
+      (command, index) =>
+        !command.grouped &&
+        !command.writes &&
+        !command.runs?.length &&
+        !command.redirectUnsafe &&
+        !command.stdinUnsafe &&
+        (index === commands.length - 1
+          ? command.op === "" || command.op === ";"
+          : command.op === "|" &&
+            command.words.length === 1 &&
+            program(command.words[0]) === "cat" &&
+            !command.stdin &&
+            !command.stdinRedirects),
+    );
   if (uncertainControlFlow) {
     recordedFiles.clear();
-    inheritedStdin = undefined;
-    if (provenance) provenance.unsafe = true;
+    if (!forwardingPipeline) {
+      inheritedStdin = undefined;
+      if (provenance) provenance.unsafe = true;
+    }
   }
   let found: AcpmuxSend | undefined;
   let at = -1;
@@ -857,6 +878,7 @@ function readAcpmuxSend(
     if (command.writes || busy.length) others += 1;
     else if (index === at) continue;
     else if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
+    else if (forwardingPipeline && index < at) continue;
     // A filter reads the send's output only when nothing else is its stdin (`| tail -1 < log`).
     else if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!))
       continue;
@@ -909,46 +931,52 @@ function onlyReads(script: string, depth: number): boolean {
 }
 
 /// The text the command at `index` reads from stdin, when the line holds it: its here-document or
-/// here-string, or an `echo`, `printf` or bare `cat <<EOF` piped into it.
+/// here-string, or an `echo`, `printf` or a chain of bare cats piped into it.
 function stdinOf(
   commands: readonly ShellCommand[],
   index: number,
   recordedFiles: ReadonlyMap<string, ShellWord>,
   inheritedStdin?: ShellWord | "file",
 ): ShellWord | "file" | undefined {
-  const command = commands[index]!;
-  // Any competing stdin source (including a later fd-0 output or here-string) makes the final
-  // source ambiguous; do not fall back to a recorded file when stdinUnsafe is set.
-  if (command.stdinUnsafe) return undefined;
-  const own = command.stdin;
-  if (own) {
-    if (own === "file" && command.stdinFile?.literal) return recordedFiles.get(command.stdinFile.text) ?? own;
-    return own;
+  // Walk bare-cat input pipes iteratively so even a long forwarding chain uses constant stack.
+  while (true) {
+    const command = commands[index]!;
+    // Any competing stdin source (including a later fd-0 output or here-string) makes the final
+    // source ambiguous; do not fall back to a recorded file when stdinUnsafe is set.
+    if (command.stdinUnsafe) return undefined;
+    const own = command.stdin;
+    if (own) {
+      if (own === "file" && command.stdinFile?.literal) return recordedFiles.get(command.stdinFile.text) ?? own;
+      return own;
+    }
+    const before = commands[index - 1];
+    // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
+    if (before?.op !== "|") return inheritedStdin;
+    if (before.stdout || before.stdinUnsafe) return undefined;
+    const words = unwrapped(before.words);
+    const name = program(words[0]);
+    if (name === "cat" && words.length === 1) {
+      index -= 1;
+      continue;
+    }
+    if (name === "echo") {
+      const args = words.slice(1);
+      while (args[0] && /^-[neE]+$/.test(args[0].text)) args.shift();
+      const text = args.map((word) => word.text).join(" ");
+      // zsh's echo, and bash's with -e, turn backslash escapes into characters.
+      return { text, literal: !text.includes("\\") && args.every((word) => word.literal) };
+    }
+    // `printf 'text\n'`: its format is the text when it formats nothing.
+    if (name === "printf" && words.length === 2) {
+      const format = words[1]!;
+      return {
+        text: format.text.replace(/\\n/g, "\n").replace(/\\t/g, "\t"),
+        literal: format.literal && !/[%\\]/.test(format.text.replace(/\\[nt]/g, "")),
+      };
+    }
+    if (name === "printf") return { text: "", literal: false };
+    return undefined;
   }
-  const before = commands[index - 1];
-  // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
-  if (before?.op !== "|") return inheritedStdin;
-  if (before.stdout || before.stdinUnsafe) return undefined;
-  const words = unwrapped(before.words);
-  const name = program(words[0]);
-  if (name === "cat" && words.length === 1) return before.stdin;
-  if (name === "echo") {
-    const args = words.slice(1);
-    while (args[0] && /^-[neE]+$/.test(args[0].text)) args.shift();
-    const text = args.map((word) => word.text).join(" ");
-    // zsh's echo, and bash's with -e, turn backslash escapes into characters.
-    return { text, literal: !text.includes("\\") && args.every((word) => word.literal) };
-  }
-  // `printf 'text\n'`: its format is the text when it formats nothing.
-  if (name === "printf" && words.length === 2) {
-    const format = words[1]!;
-    return {
-      text: format.text.replace(/\\n/g, "\n").replace(/\\t/g, "\t"),
-      literal: format.literal && !/[%\\]/.test(format.text.replace(/\\[nt]/g, "")),
-    };
-  }
-  if (name === "printf") return { text: "", literal: false };
-  return undefined;
 }
 
 /// `acpmux send [OPTIONS] [SESSION] [PROMPT]...`, read as clap reads it: options anywhere until
