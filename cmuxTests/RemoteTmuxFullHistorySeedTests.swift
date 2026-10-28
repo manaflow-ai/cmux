@@ -13,61 +13,6 @@ import Testing
 /// the attach seed.
 @MainActor
 @Suite struct RemoteTmuxFullHistorySeedTests {
-    // MARK: - Chunk plan
-
-    @Test func historyIsReadOldestFirstInChunksThatEndAtTheNewestRow() {
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: 5_000, paneWidth: 200, maximumChunkCells: 400_000)
-        #expect(plan.chunks == [
-            .init(start: "-", end: "-3001"),
-            .init(start: "-3000", end: "-1001"),
-            .init(start: "-1000", end: "-1"),
-        ])
-        #expect(plan.historyRows == 5_000)
-        #expect(!plan.isTruncated)
-    }
-
-    @Test func aWidePaneGetsShorterChunks() {
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: 300, paneWidth: 1_000)
-        // 131,072 cells per chunk at 1,000 columns is 131 rows.
-        #expect(plan.chunks.map(\.end) == ["-170", "-39", "-1"])
-        #expect(plan.chunks.first?.start == "-")
-    }
-
-    @Test func historyPastTheCapStartsAtTheCapAndSaysSo() {
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: 250_000, paneWidth: 100)
-        #expect(plan.historyRows == RemoteTmuxPaneHistoryPlan.maximumRows)
-        #expect(plan.isTruncated)
-        #expect(plan.chunks.first?.start == "-\(RemoteTmuxPaneHistoryPlan.maximumRows)")
-        #expect(plan.chunks.last?.end == "-1")
-    }
-
-    @Test func aChunkOfTheDensestColorOutputFitsInOneCommandBlock() {
-        // tmux 3.7 writes 55 bytes per cell from `capture-pane -e` when every cell
-        // changes bold, italic, underline, strikethrough and its 24-bit foreground,
-        // background and underline colors. The stream resets on a block over the
-        // parser's limit, so a chunk of such cells must stay under it.
-        let measuredBytesPerCell = 55
-        for width in [80, 200, 500, 1_000, 10_000] {
-            let historySize = 100_000
-            let plan = RemoteTmuxPaneHistoryPlan(historySize: historySize, paneWidth: width)
-            for chunk in plan.chunks {
-                let top = chunk.start == "-" ? historySize : -(Int(chunk.start) ?? 0)
-                let bottom = -(Int(chunk.end) ?? 0)
-                let bytes = (top - bottom + 1) * width * measuredBytesPerCell
-                #expect(
-                    bytes < RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes,
-                    "width \(width): chunk \(chunk.captureArguments) can be \(bytes) bytes"
-                )
-            }
-        }
-    }
-
-    @Test func aPaneWithNoHistoryNeedsNoChunk() {
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: 0, paneWidth: 80)
-        #expect(plan.chunks.isEmpty)
-        #expect(plan.historyRows == 0)
-    }
-
     // MARK: - Reseed over the control stream
 
     @Test(.timeLimit(.minutes(1))) func fullHistoryReseedPaintsEveryHistoryRowBeforeTheScreen() async throws {

@@ -33,7 +33,11 @@ extension RemoteTmuxControlConnection {
         guard let line = reply.lines?.first,
               let shape = RemoteTmuxPaneHistoryShape(reply: line) else { return .failed }
         if shape.isAlternateScreen { return .alternateScreen }
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: shape.historySize, paneWidth: shape.paneWidth)
+        let plan = RemoteTmuxPaneHistoryPlan(
+            historySize: shape.historySize,
+            paneWidth: shape.paneWidth,
+            maximumCommandBlockBytes: RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes
+        )
         return await withCheckedContinuation { continuation in
             let started = startFullHistorySeed(paneId: paneId, plan: plan) { painted in
                 guard let painted else { return continuation.resume(returning: .failed) }
