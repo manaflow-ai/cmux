@@ -10,6 +10,8 @@ import Foundation
 /// - `CMUX_MOBILE_LIST_COUNT=N`: rows to seed (workspaces, tabs) or replayed turns (chat, diff).
 /// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity).
 /// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits.
+/// - `CMUX_MOBILE_LIST_SEND=1` (chat): type and send a prompt through the composer after the chat
+///   opens (the mock's own turn, or the long answer with `LIST_STREAM=1`), as a person does.
 /// - `CMUX_MOBILE_LIST_PASSES=N`: top to bottom and back N times at `CMUX_MOBILE_LIST_SPEED` pt/s
 ///   (default 2400), one frame-interval window per direction (needs `CMUX_MOBILE_FRAMELOG=1`).
 /// - `CMUX_MOBILE_LIST_EXIT_WHEN_DONE=1`: exit after the last pass (the rig waits for the exit).
@@ -20,6 +22,9 @@ public struct ListStressSettings: Equatable, Sendable {
     public var count: Int
     public var liveHz: Double?
     public var streams: Bool
+    public var sends: Bool
+    /// `CMUX_MOBILE_LIST_OPEN_DELAY=S`: seconds before a transcript opens (default 1), so `SAMPLE` catches the open.
+    public var openDelay: Double
     public var passes: Int
     public var speed: Double
     public var settle: Double
@@ -33,6 +38,8 @@ public struct ListStressSettings: Equatable, Sendable {
         count = environment["CMUX_MOBILE_LIST_COUNT"].flatMap(Int.init) ?? 0
         liveHz = environment["CMUX_MOBILE_LIST_LIVE_HZ"].flatMap(Double.init)
         streams = environment["CMUX_MOBILE_LIST_STREAM"] == "1"
+        sends = environment["CMUX_MOBILE_LIST_SEND"] == "1"
+        openDelay = environment["CMUX_MOBILE_LIST_OPEN_DELAY"].flatMap(Double.init) ?? 1
         passes = environment["CMUX_MOBILE_LIST_PASSES"].flatMap(Int.init) ?? 2
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400
         settle = environment["CMUX_MOBILE_LIST_SETTLE"].flatMap(Double.init) ?? 4

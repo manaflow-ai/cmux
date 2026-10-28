@@ -9,6 +9,7 @@ public struct AgentChatPreview: View {
     let store: AgentChatStore
     var topInset: CGFloat
     var bottomInset: CGFloat
+    @State private var model = AgentChatPreviewModel()
 
     public init(store: AgentChatStore, topInset: CGFloat, bottomInset: CGFloat) {
         self.store = store
@@ -35,7 +36,7 @@ public struct AgentChatPreview: View {
     }
 
     @ViewBuilder private var content: some View {
-        if store.turns.isEmpty {
+        if !store.hasTurns {
             VStack(spacing: 12) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 22))
@@ -46,13 +47,54 @@ public struct AgentChatPreview: View {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 240)
         } else {
+            let rows = model.tail(of: store)
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(store.turns.suffix(2)) { turn in
-                    TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id)
-                        .padding(.bottom, 24)
+                ForEach(rows) { row in
+                    ChatRowView(row: row, context: model.context(store))
+                        .padding(.top, row.gap)
                 }
             }
+            .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
         }
+    }
+}
+
+/// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its
+/// tail), cut to what a bottom-aligned card can show. The card stays alive beside the
+/// live page, so drawing the whole chat laid out every streamed answer in full (its
+/// tables and code) on every frame.
+@MainActor
+final class AgentChatPreviewModel {
+    /// More than a page of estimated height: rows above it are clipped off the card.
+    static let budget: CGFloat = 2400
+    private var builder: ChatTranscriptBuilder?
+    private var rowContext: ChatRowContext?
+
+    func context(_ store: AgentChatStore) -> ChatRowContext {
+        if let rowContext, rowContext.store === store { return rowContext }
+        let context = ChatRowContext(store: store, surface: AgentChatSurface())
+        rowContext = context
+        return context
+    }
+
+    func tail(of store: AgentChatStore) -> [ChatRow] {
+        if builder?.diffs !== store.diffs { builder = ChatTranscriptBuilder(diffs: store.diffs) }
+        guard let builder else { return [] }
+        let turns = store.turns
+        // The newest two turns, as the card showed before.
+        let shown = Array(turns.suffix(2))
+        let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
+                                  askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false)
+        var out: [ChatRow] = []
+        var height: CGFloat = 0
+        for row in built.flatMap(\.rows).reversed() {
+            // The session line belongs to the chat's first turn only.
+            if row.id == "session-start", turns.count > 2 { continue }
+            out.append(row)
+            height += row.gap + row.estimatedHeight(width: 350)
+            if height > Self.budget { break }
+        }
+        return out.reversed()
     }
 }
 #endif
