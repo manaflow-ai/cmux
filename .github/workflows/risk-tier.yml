@@ -90,7 +90,6 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
-          skip-token-revoke: true
       - name: Grade the pull request
         id: grade
         env:

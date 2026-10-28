@@ -62,7 +62,6 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
-          skip-token-revoke: true
       - name: Check the pull request against open freezes
         env:
           GH_TOKEN: ${{ steps.glaeda-token.outputs.token || github.token }}

@@ -9,8 +9,10 @@ Every mint of an installation token costs that budget a call even when nothing
 reads with it: actions/create-github-app-token's post step revokes the token with
 DELETE /installation/token, authenticated as the installation. So:
 
-- a read-only glaeda-route token is not revoked (it expires within the hour on an
-  ephemeral runner): skip-token-revoke: true;
+- a glaeda-route token minted read-only on contents, pull requests or actions (data a
+  public repository shows anyway) is not revoked; it expires within the hour on an
+  ephemeral runner: skip-token-revoke: true. Any other scope (issues, administration,
+  the org's runners) or any write permission keeps the revoke;
 - a job mints the token only when it will read with it: backend-migrations after
   git shows the migration tree changed, CI failure attribution only when the
   cmux-bot mint (its preferred read token) gave nothing;
@@ -60,25 +62,30 @@ def step(document: dict, job: str, step_id: str) -> tuple[int, dict]:
     return index, steps[index]
 
 
-class ReadOnlyMintsAreNotRevoked(unittest.TestCase):
-    def test_every_read_only_glaeda_route_mint_skips_the_revoke_call(self) -> None:
+# Scopes a leftover token may hold: data a public repository shows anyway.
+UNREVOKED_SCOPES = {"permission-contents", "permission-pull-requests", "permission-actions"}
+
+
+def leftover_ok(mint: dict) -> bool:
+    permissions = {k: v for k, v in mint["with"].items() if k.startswith("permission-")}
+    return bool(permissions) and set(permissions) <= UNREVOKED_SCOPES and all(v == "read" for v in permissions.values())
+
+
+class OnlyNarrowReadTokensAreLeftUnrevoked(unittest.TestCase):
+    def test_every_narrow_read_mint_skips_the_revoke_call(self) -> None:
         checked = 0
         for name, job, mint in glaeda_mints():
-            if name in EXEMPT or name.startswith(EXEMPT_PREFIXES):
+            if name in EXEMPT or name.startswith(EXEMPT_PREFIXES) or not leftover_ok(mint):
                 continue
-            permissions = {k: v for k, v in mint["with"].items() if k.startswith("permission-")}
-            if not permissions or any(v != "read" for v in permissions.values()):
-                continue  # a write token is still revoked when its job ends
             checked += 1
             with self.subTest(workflow=name, job=job, step=mint.get("id")):
                 self.assertIs(mint["with"].get("skip-token-revoke"), True)
-        # The high-volume readers (CI, risk tier, merge freeze, pr-media, ...) are all covered.
-        self.assertGreaterEqual(checked, 20)
+        # backend-migrations, pr-media (plan and tour), CI's admitted-build read, the rescues, UI tests.
+        self.assertGreaterEqual(checked, 7)
 
-    def test_write_tokens_are_still_revoked(self) -> None:
+    def test_every_other_mint_is_still_revoked(self) -> None:
         for name, job, mint in glaeda_mints():
-            permissions = {k: v for k, v in mint["with"].items() if k.startswith("permission-")}
-            if not permissions or any(v != "read" for v in permissions.values()):
+            if not leftover_ok(mint):
                 with self.subTest(workflow=name, job=job, step=mint.get("id")):
                     self.assertNotIn("skip-token-revoke", mint["with"])
 

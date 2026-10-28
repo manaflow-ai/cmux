@@ -255,7 +255,6 @@ jobs:
           permission-organization-self-hosted-runners: read
           # On a re-run, the jobs of the attempt before (admission_placement.failed_members()).
           permission-actions: read
-          skip-token-revoke: true
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -268,7 +267,6 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-actions: read
-          skip-token-revoke: true
       - name: Place compile admission
         id: place
         continue-on-error: true
@@ -1779,7 +1777,6 @@ jobs:
           permission-organization-self-hosted-runners: read
           # The gui and Blacksmith backlogs: the jobs of in-flight CI runs (late_placement.gui_backlog()).
           permission-actions: read
-          skip-token-revoke: true
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -1792,7 +1789,6 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-actions: read
-          skip-token-revoke: true
       - name: Place the jobs after admission
         id: place
         continue-on-error: true
