@@ -70,6 +70,14 @@ struct ColdCmdNRowSlotTests {
             let anchor = try #require(before.firstIndex(of: current.id), "middle workspace is not drawn: \(before)")
             try #require(anchor + 1 < before.count, "need a row following the selected middle workspace: \(before)")
 
+            // An updater can leave the first cold layout one projection behind while AppKit has no
+            // realized row geometry yet. Keep that state across the first Cmd-N so it cannot expose
+            // the daemon's temporary tail placement as a visible bottom frame.
+            let document = try #require(SidebarDocStore.current)
+            document.shownVersion = document.version &- 1
+            controller.sidebar.model.setSections([])
+            controller.sidebar.container.sidebarView.renderNow()
+
             var frames: [[String]] = []
             let previousOnApply = list.onApply
             defer { list.onApply = previousOnApply }
