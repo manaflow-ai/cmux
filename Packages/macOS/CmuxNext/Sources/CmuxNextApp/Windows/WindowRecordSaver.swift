@@ -143,7 +143,6 @@ final class WindowRecordSaver {
     /// nil: the action that asked for the save did its work, only its record is not kept.
     @discardableResult
     func saveNow() async -> (any Error)? {
-        guard !manager.savedWindowsUnread else { return nil }
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()

@@ -16,7 +16,7 @@ public struct SavedWindowsRead: Sendable {
     public var attempts: Int
     public var attemptTimeout: Duration
 
-    public init(attempts: Int = 3, attemptTimeout: Duration = .seconds(10)) {
+    public init(attempts: Int = 1, attemptTimeout: Duration = .seconds(2)) {
         self.attempts = attempts
         self.attemptTimeout = attemptTimeout
     }
