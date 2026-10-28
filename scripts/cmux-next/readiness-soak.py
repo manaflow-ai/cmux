@@ -767,6 +767,13 @@ class Soak:
             f"sys_power={out['system_power_mw']}mW owned_e={out['owned_energy_mw']}mW disk={out['disk']} :: {cells}")
         memory = (out["daemon"].get("server_stats") or {}).get("memory")
         regions = {pid: {k: v[:2] for k, v in r.items() if k.startswith(("MALLOC", "Physical"))} for pid, r in out["daemon"]["regions"].items()}
+        # The daemon's footprint next to its journal record ring (the lead for its hourly growth: bounded by
+        # 8192 records / 128 MiB), so a cap shows as the ring leveling off and the footprint with it.
+        ring = (memory or {}).get("journal_ring") or {}
+        daemon = out["kinds"].get("daemon") or {}
+        out["daemon"]["journal_ring"] = ring
+        say(f"DAEMON-RING h={hour} daemon_mem={daemon.get('mem_mb')}MB ring_records={ring.get('records')}/{ring.get('max_records')} "
+            f"ring_bytes={ring.get('resident_estimate_bytes')}/{ring.get('max_estimate_bytes')}")
         say(f"DAEMON-MEM h={hour} memory={json.dumps(memory)[:1500]} regions={json.dumps(regions)[:1500]}")
 
     # ---- report --------------------------------------------------------------------------
