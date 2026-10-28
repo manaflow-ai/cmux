@@ -1042,6 +1042,8 @@ mark {
 
 .accounts-fact {
   display: flex;
+  /* The label is smaller than its value: share a baseline, not a top edge. */
+  align-items: baseline;
   gap: 8px;
 }
 
