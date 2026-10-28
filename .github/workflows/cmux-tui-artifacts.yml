@@ -2949,24 +2949,45 @@ jobs:
         run: |
           set -euo pipefail
           # Reads through files.cmux.com, as users read the tree. curl's --retry
-          # covers timeouts and 5xx but not a transfer error (exit 92, an HTTP/2
-          # reset, run 40670486094; 18, 56): those, and a read cut for
-          # trickling, are read again from a fresh URL, since the edge serves one
-          # cache key from one transfer (#26810). An HTTP error (exit 22, a 404
-          # included) fails at once.
+          # never retries a transfer error (exit 92, an HTTP/2 reset, run
+          # 40670486094), and the edge serves one cache key from one transfer,
+          # which can trickle at 4-35 KB/s (#26752). As verify_published_manifest.py
+          # does (#26810), each read again goes to a fresh URL and asks only for
+          # the bytes still missing (-C -). get() returns 22 for a 404 only (an
+          # absent object), fails at once on another 4xx, and reads again after a
+          # 5xx, 429 or transfer error. It fails after 3 reads in a row bring no
+          # new byte, or once 600 s have passed.
           get() {
-            local url="$1" out="$2" attempt status
-            for attempt in 1 2 3; do
+            local url="$1" out="$2" attempt=0 stalls=0 status code before after deadline=$((SECONDS + 600))
+            rm -f "$out"
+            while :; do
+              attempt=$((attempt + 1))
+              before="$(wc -c 2>/dev/null < "$out" || echo 0)"
               status=0
-              curl -fsSL --proto '=https' --connect-timeout 20 --max-time 300 --speed-limit 102400 --speed-time 30 \
-                --retry 2 --retry-delay 5 -o "$out" "$url?verify=$GITHUB_RUN_ID-check-$attempt" || status=$?
-              if [[ "$status" == 0 || "$status" == 22 ]]; then
-                return "$status"
+              code="$(curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 -C - -w '%{http_code}' \
+                -o "$out" "$url?verify=$GITHUB_RUN_ID-check-$attempt")" || status=$?
+              if [[ "$status" == 0 ]]; then
+                return 0
+              elif [[ "$status" == 22 && "$code" == 416 && "$before" -gt 0 ]]; then
+                return 0 # already whole; the digest check below decides
+              elif [[ "$status" == 22 && "$code" == 404 ]]; then
+                rm -f "$out"
+                return 22
+              elif [[ "$status" == 22 && "$code" =~ ^4 && "$code" != 408 && "$code" != 429 ]]; then
+                echo "read of $url failed: HTTP $code" >&2
+                return 1
+              elif [[ "$status" == 33 ]]; then
+                rm -f "$out" # the server would not resume; start over
               fi
-              echo "read of $url failed (curl exit $status), attempt $attempt of 3" >&2
-              if (( attempt < 3 )); then sleep $((attempt * 10)); fi
+              after="$(wc -c 2>/dev/null < "$out" || echo 0)"
+              if (( after > before )); then stalls=0; else stalls=$((stalls + 1)); fi
+              echo "read $attempt of $url failed (curl exit $status, HTTP $code, $after bytes so far)" >&2
+              if (( stalls >= 3 || SECONDS >= deadline )); then
+                echo "read of $url failed: $stalls reads in a row brought no new byte or 600 s passed" >&2
+                return 1
+              fi
+              sleep $((stalls * 5))
             done
-            return "$status"
           }
           verify_tree() {
           local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
