@@ -106,8 +106,8 @@ public final class RemoteMachinesSidebar {
     @ObservationIgnored private let refresh = DemandTimer(owner: "sidebar.remoteMachines")
     /// The peer list read in flight.
     @ObservationIgnored private var peerRead: Task<Void, Never>?
-    /// Bumped by each pushed change (`peerStateChanged`) that moves the list or asks for it: a read
-    /// in flight then answers from before it, so its answer is dropped and the list read again.
+    /// Bumped by each push (`peerStateChanged`): a read in flight then may answer from before it, so
+    /// its answer is dropped and the list read again.
     @ObservationIgnored private var peerPushes = 0
 
     public init(lanes: AgentLaneStore = .shared) {
@@ -144,16 +144,15 @@ public final class RemoteMachinesSidebar {
     /// or its watch (re)opened (`peer` nil). A listed peer's header follows at once and a repeat
     /// changes nothing; an unknown peer, an offline for one already down (it may be removed), or a
     /// reopened watch reads the list again (one read at a time, as a rebuild does). Nothing runs
-    /// before `bind` or after `stop()`. A read in flight when a push lands is read again after it.
+    /// before `bind` or after `stop()`. A read in flight when any push lands (one that changes nothing
+    /// shown too: the read may have sampled the link between two pushes) is read again after it.
     public func peerStateChanged(peer: String?, state: String?) {
         guard laneWatch != nil else { return }
+        peerPushes += 1
         switch Self.push(peer: peer, state: state, onto: peers) {
         case .same: return
-        case .read:
-            peerPushes += 1
-            askForPeers()
+        case .read: askForPeers()
         case .list(let next):
-            peerPushes += 1
             peers = next
             rebuild()
         }
