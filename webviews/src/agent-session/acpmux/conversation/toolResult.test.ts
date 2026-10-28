@@ -44,6 +44,9 @@ test("envelopes inside envelopes and JSON text inside text unwrap too", () => {
 test("Markdown text reads as Markdown", () => {
   const text = "## Open issues\n\n- **#12** Crash on launch";
   expect(toolResult(JSON.stringify([{ type: "text", text }]))).toEqual({ text, lang: "markdown" });
+  expect(toolResult(text)).toEqual({ text, lang: "markdown" });
+  expect(toolResult("The **service** is healthy.").lang).toBe("markdown");
+  expect(toolResult(text, undefined, false, { kind: "execute" }).lang).toBe("text");
 });
 
 test("clear emphasis is Markdown, and a web reader can opt prose into the renderer", () => {

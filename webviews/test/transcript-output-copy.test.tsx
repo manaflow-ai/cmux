@@ -25,7 +25,7 @@ let clipboard: string[] = [];
 let refuse = false;
 
 beforeAll(() => {
-  ({ window } = new JSDOM("<!doctype html><div id=root></div>"));
+  ({ window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }));
   Object.defineProperty(window.navigator, "clipboard", {
     value: {
       writeText: async (text: string) => {
@@ -63,6 +63,7 @@ afterAll(() => {
 
 async function render(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");
+  if (root) act(() => root!.unmount());
   root = createRoot(host);
   await act(async () => root!.render(node));
 }
@@ -151,6 +152,23 @@ test("a long Markdown result can show every line and toggle to Raw", async () =>
   await click(raw);
   expect(host.querySelector(".cv-tool-output__markdown")).toBeNull();
   expect(host.querySelector("pre.cv-tool-output")?.textContent).toContain("## Result 0");
+});
+
+test("Find reveals the full rendered fetch result and copy keeps its complete source", async () => {
+  const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
+  const { FindReveal, activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");
+  const output = `${"## Section\n\nA paragraph.\n\n".repeat(20)}The **service** is healthy.`;
+  const item = call("fetch", output, undefined, "Fetch https://example.test/report");
+  expect(activityText(item)).toContain("The service is healthy.");
+  await render(
+    <FindReveal.Provider value={{ rowId: "row-1", card: false, needle: "service is healthy", repaint: () => {} }}>
+      <ToolRow item={item} />
+    </FindReveal.Provider>,
+  );
+  expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("all");
+  expect(host.querySelector(".cv-tool-output__markdown strong")?.textContent).toBe("service");
+  expect(menuPartAt(host.querySelector(".cv-tool-output-card"))?.output).toBe(output);
 });
 
 test("an output of exactly 400 lines and a final newline shows whole", async () => {
