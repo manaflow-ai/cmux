@@ -6,6 +6,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, typ
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
+import { assignRef } from "./assignRef";
 import { cx } from "./cx";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
@@ -82,8 +83,7 @@ export function Combobox({
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   const attachField = useCallback(
     (node: HTMLInputElement | null) => {
-      if (typeof inputRef === "function") inputRef(node);
-      else if (inputRef) inputRef.current = node;
+      assignRef(inputRef, node);
       if (host) setField(node);
     },
     [host, inputRef],

@@ -23,6 +23,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useOraclePanel } from "./oraclePanel";
+import { assignRef } from "./assignRef";
 
 export interface MenuProps {
   open?: boolean;
@@ -41,6 +42,10 @@ interface MenuContextValue {
   opener: RefObject<Element | null>;
   /** The last input in the open menu was a key (Base UI's close type names how it opened). */
   keyed: RefObject<boolean>;
+  /** Writes `trigger` (the menu button's ref callback). */
+  setTrigger(node: HTMLButtonElement | null): void;
+  /** Writes `keyed`, from the popup's event handlers. */
+  setKeyed(value: boolean): void;
   beginPointer(event: PointerEvent<HTMLElement>): void;
   /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
   takePress(): boolean;
@@ -78,6 +83,12 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
     trigger,
     opener,
     keyed,
+    setTrigger(node) {
+      trigger.current = node;
+    },
+    setKeyed(value) {
+      keyed.current = value;
+    },
     beginPointer(event) {
       pressed.current = false;
       if (!isMousePress(event)) return;
@@ -190,8 +201,8 @@ export function MenuButton({
   return (
     <BaseMenu.Trigger
       ref={(node: HTMLButtonElement | null) => {
-        if (context) context.trigger.current = node;
-        if (buttonRef) buttonRef.current = node;
+        context?.setTrigger(node);
+        assignRef(buttonRef, node);
       }}
       className={cx("ui-button", className)}
       aria-label={label}
@@ -337,10 +348,10 @@ export function MenuPopup({
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
           onPointerDown={() => {
-            if (menu) menu.keyed.current = false;
+            menu?.setKeyed(false);
           }}
           onKeyDown={(event) => {
-            if (menu) menu.keyed.current = true;
+            menu?.setKeyed(true);
             // Escape puts the keyboard back on the menu button (escapeFocus.ts). Its own Escape
             // only, not a submenu's (React carries that one up through the portal).
             if (

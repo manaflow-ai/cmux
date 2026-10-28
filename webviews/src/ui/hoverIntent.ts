@@ -4,7 +4,7 @@
 // file and fails when the numbers drift): the first tooltip of a group waits, a neighbor's then
 // shows at once while the group is warm, and the warmth cools a moment after the last one hid.
 // Hover cards wait longer, and the safe triangle (`aimingAt`) keeps a card a pointer heads into.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 /**
  * The timing, in ms. AppKit's tooltip waits `NSInitialToolTipDelay` (about 1000 ms at the default
@@ -214,18 +214,17 @@ export class HoverIntent<T> {
  */
 export function useHoverIntent<T>(options: { delay?: number; group?: HoverGroup; clock?: HoverClock } = {}) {
   const [state, setState] = useState<{ shown: T | null; instant: boolean }>({ shown: null, instant: false });
-  const intent = useRef<HoverIntent<T> | null>(null);
-  if (!intent.current)
-    intent.current = new HoverIntent<T>({
-      ...options,
-      show: (target, instant) => setState({ shown: target, instant }),
-      hide: () => setState({ shown: null, instant: false }),
-    });
-  useEffect(() => {
-    const current = intent.current;
-    return () => current?.dispose();
-  }, []);
-  const controller = intent.current;
+  // Created once, on the first render (lazy state), so the controller is stable and no ref is
+  // written during render.
+  const [controller] = useState(
+    () =>
+      new HoverIntent<T>({
+        ...options,
+        show: (target, instant) => setState({ shown: target, instant }),
+        hide: () => setState({ shown: null, instant: false }),
+      }),
+  );
+  useEffect(() => () => controller.dispose(), [controller]);
   // Stable across renders, so memoized children keep their props.
   const actions = useMemo(
     () => ({

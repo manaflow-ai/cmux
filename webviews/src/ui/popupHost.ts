@@ -7,7 +7,7 @@
 // change; a click there comes back as the page row's own click (a menu) or mouse-down (a list that
 // keeps the focus in its field). Pages without a host (Settings) never escape: their menus fit and
 // scroll in the page.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
 
 export interface PopupItem {
@@ -262,9 +262,12 @@ export function useEscapingPopup(
   }: EscapeOptions,
 ) {
   const anchorRef = useRef(anchor);
-  anchorRef.current = anchor;
   const dismissRef = useRef(onDismiss);
-  dismissRef.current = onDismiss;
+  // The latest anchor and dismiss, for the listeners below: written after each commit, not in render.
+  useLayoutEffect(() => {
+    anchorRef.current = anchor;
+    dismissRef.current = onDismiss;
+  });
   useEffect(() => {
     if (!host || !element) return;
     const me = {};
