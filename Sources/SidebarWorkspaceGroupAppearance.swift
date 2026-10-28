@@ -29,7 +29,9 @@ struct SidebarWorkspaceGroupAppearance {
     }
 
     /// The group color each grouped workspace inherits, keyed by workspace id.
-    /// Ungrouped workspaces and groups without a color have no entry.
+    /// Membership is the sidebar's effective one, so a workspace whose stale
+    /// group id leaves it drawn at the root inherits nothing. Ungrouped
+    /// workspaces and groups without a color have no entry.
     static func inheritedColorHexes(
         workspaces: [Workspace],
         groups: [WorkspaceGroup],
@@ -37,6 +39,10 @@ struct SidebarWorkspaceGroupAppearance {
     ) -> [UUID: String] {
         guard !groups.isEmpty else { return [:] }
         let workspaceById = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+        let membership = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+            tabs: workspaces,
+            groupsById: Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        )
         var colorHexByGroupId: [UUID: String] = [:]
         for group in groups {
             let appearance = Self(group: group, workspaceById: workspaceById, configStore: configStore)
@@ -45,7 +51,7 @@ struct SidebarWorkspaceGroupAppearance {
         guard !colorHexByGroupId.isEmpty else { return [:] }
         var colorHexByWorkspaceId: [UUID: String] = [:]
         for workspace in workspaces {
-            guard let groupId = workspace.groupId else { continue }
+            guard let groupId = membership[workspace.id] ?? nil else { continue }
             colorHexByWorkspaceId[workspace.id] = colorHexByGroupId[groupId]
         }
         return colorHexByWorkspaceId

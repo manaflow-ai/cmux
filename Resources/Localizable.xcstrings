@@ -472112,7 +472112,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Group Color"
+            "value": "ពណ៌ក្រុម"
           }
         },
         "ko": {
@@ -671893,6 +671893,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Власний колір групи"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ក្រុមផ្ទាល់ខ្លួន"
           }
         }
       }

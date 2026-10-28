@@ -101,6 +101,25 @@ struct SidebarWorkspaceGroupColorTests {
         #expect(colors == [anchor.id: Self.groupColor, member.id: Self.groupColor])
     }
 
+    @Test func workspaceWithAStaleGroupIdInheritsNothing() throws {
+        let (root, configStore) = try Self.makeConfigStore(byCwdColor: nil)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stray = Workspace(title: "Stray", initialSurface: .cloudVMLoading)
+        defer { stray.teardownAllPanels() }
+        // The group's anchor isn't a live workspace (a restore or an in-flight anchor promotion),
+        // so the sidebar draws `stray` at the root, and it must not draw the group's color.
+        let group = Self.makeGroup(anchorWorkspaceId: UUID(), customColor: Self.groupColor)
+        stray.groupId = group.id
+
+        let colors = SidebarWorkspaceGroupAppearance.inheritedColorHexes(
+            workspaces: [stray],
+            groups: [group],
+            configStore: configStore
+        )
+
+        #expect(colors.isEmpty)
+    }
+
     @Test func groupWithoutOwnColorUsesItsByCwdConfigColor() throws {
         let configColor = "#7A4FD8"
         let (root, configStore) = try Self.makeConfigStore(byCwdColor: configColor)
