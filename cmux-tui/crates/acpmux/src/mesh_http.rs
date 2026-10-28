@@ -64,18 +64,23 @@ type Token = (Zeroizing<String>, u64);
 
 /// The token on the command's stdout: bare, or `{"access_token"|"accessToken", "expires_at"|...}`.
 fn parse_token(stdout: &str) -> Result<Token, String> {
+    /// Read straight into its fields: the token is allocated once and moved, never copied, and
+    /// any other field is skipped unread.
+    #[derive(Deserialize)]
+    struct Minted {
+        #[serde(default, alias = "accessToken")]
+        access_token: Option<String>,
+        #[serde(default, alias = "expiresAt")]
+        expires_at: Option<u64>,
+    }
     let text = stdout.trim();
-    let (token, expires) = match serde_json::from_str::<Value>(text) {
-        Ok(v @ Value::Object(_)) => {
-            let field = |a: &str, b: &str| v.get(a).or_else(|| v.get(b)).cloned();
-            let token =
-                field("access_token", "accessToken").and_then(|t| t.as_str().map(str::to_owned));
-            let expires = field("expires_at", "expiresAt").and_then(|e| e.as_u64()).unwrap_or(0);
-            (token.unwrap_or_default(), expires)
-        }
-        _ => (text.to_owned(), 0),
+    let (token, expires) = if text.starts_with('{') {
+        let minted: Minted =
+            serde_json::from_str(text).map_err(|_| "the token command printed no token")?;
+        (Zeroizing::new(minted.access_token.unwrap_or_default()), minted.expires_at.unwrap_or(0))
+    } else {
+        (Zeroizing::new(text.to_owned()), 0)
     };
-    let token = Zeroizing::new(token);
     if token.is_empty() || token.len() > 16_384 || !token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err("the token command printed no token".into());
     }
@@ -230,8 +235,10 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
 }
 
 fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, HubError> {
+    // Never serde's message: it quotes the value it refused, which could be anything the answer
+    // carried.
     serde_json::from_value(value)
-        .map_err(|e| HubError::unavailable(format!("the hub's answer: {e}")))
+        .map_err(|_| HubError::unavailable("the hub's answer is not the shape its contract gives"))
 }
 
 const CALL_WAIT: Duration = Duration::from_secs(30);
@@ -326,6 +333,13 @@ mod tests {
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();
         assert!(e.to_string().contains("too much"), "{e}");
+    }
+
+    #[test]
+    fn a_malformed_answer_logs_none_of_its_values() {
+        let reply = json!({"daemonId": "inst_1", "ttlSeconds": "Bearer abc.def"});
+        let e = decode::<HeartbeatReply>(reply).unwrap_err();
+        assert!(!e.to_string().contains("abc.def"), "{e}");
     }
 
     #[test]

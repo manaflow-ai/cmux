@@ -93,8 +93,10 @@ struct FakeHub {
     down: bool,
     /// The inbox answers at once, never long-polling.
     impatient: bool,
-    /// Every inbox call is refused for good (a bad credential).
+    /// Every call is refused for good (a bad credential).
     refusing: bool,
+    /// Only inbox calls are refused for good; heartbeats are taken.
+    refusing_inbox: bool,
     /// The inbox long-polls for a minute, far past the test's wait.
     long: bool,
 }
@@ -132,7 +134,7 @@ impl MeshHub for FakeHub {
             if self.down {
                 return Err(HubError::unavailable("the hub is down"));
             }
-            if self.refusing {
+            if self.refusing || self.refusing_inbox {
                 return Err(HubError::refused("401 mesh.unauthorized"));
             }
             let wait = if self.long { Duration::from_secs(60) } else { wait };
@@ -347,13 +349,26 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
-    // A refusal (a bad credential) is not retried: one call of each, then the relay is off.
-    let hub = hub();
+    // A refused heartbeat (a bad credential) is not retried, and the inbox, which waits for the
+    // hub to name this daemon, never polls: one call in all, then the relay is off.
+    let refused = hub();
     let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
-    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refusal").await;
+    let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
+    ends(&relay, "a refused heartbeat").await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (1, 1));
+    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (0, 1));
+    relay.stop().await;
+
+    // The hub takes heartbeats but refuses the inbox: both loops end, the heartbeat with an
+    // empty one, so the address book does not list sessions no message can reach.
+    let refused = hub();
+    let fake = Arc::new(FakeHub { refusing_inbox: true, ..FakeHub::default() });
+    let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
+    ends(&relay, "a refused inbox").await;
+    let beats = fake.with(|s| s.heartbeats.len());
+    assert!(fake.with(|s| s.heartbeats.last().is_some_and(|b| b.sessions.is_empty())));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (1, beats));
     relay.stop().await;
 }
 
