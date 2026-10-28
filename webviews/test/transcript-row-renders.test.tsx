@@ -237,6 +237,72 @@ for (const pixels of [1, 2, 4])
       }
     });
 
+for (const gesture of ["pointer", "canceled wheel"] as const)
+  test(`a no-op upward gesture (${gesture}) does not turn a later native clamp into reader motion`, async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const history = Array.from({ length: 60 }, (_, index) =>
+      row(`no-op-${gesture}-${index}`, index % 2 === 0 ? "user" : "assistant", { text: `Line ${index}` }),
+    );
+    for (const entry of history) drawnHeights.set(entry.id, 80);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={history}
+            sessionId={`no-op-${gesture}`}
+            registry={registry}
+            expanded={new Set()}
+            onToggleActivity={() => {}}
+          />,
+        ),
+      );
+      const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
+      let physical = scroller.scrollTop;
+      Object.defineProperty(scroller, "scrollTop", {
+        configurable: true,
+        get: () => Math.min(physical, Math.max(0, parseFloat(spacer.style.height) - VIEWPORT)),
+        set: (value: number) => { physical = Math.round(value); },
+      });
+      Object.defineProperty(scroller, "scrollHeight", {
+        configurable: true,
+        get: () => parseFloat(spacer.style.height),
+      });
+      const logical = () =>
+        scroller.scrollTop - (parseFloat(scroller.style.getPropertyValue("--acpmux-scroll-origin")) || 0);
+      const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+      const anchor = mounted.find(
+        (node) => parseFloat(node.style.top) + drawnHeight(node.dataset.rowId!) > logical(),
+      )!;
+      const above = mounted
+        .filter((node) => parseFloat(node.style.top) + drawnHeight(node.dataset.rowId!) <= logical())
+        .at(-1)!;
+      expect(anchor).toBeDefined();
+      expect(above).toBeDefined();
+      const before = parseFloat(anchor.style.top) - logical();
+      await act(async () => {
+        if (gesture === "pointer") {
+          // A content-selection drag points upwards but never scrolls the viewport.
+          anchor.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, clientY: 200, buttons: 1 }));
+          anchor.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, clientY: 180, buttons: 1 }));
+          anchor.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true, clientY: 180, buttons: 0 }));
+        } else {
+          // A nested control cancels the native wheel after transcript capture observed it.
+          anchor.addEventListener("wheel", (event) => event.preventDefault(), { once: true });
+          expect(anchor.dispatchEvent(new dom.window.WheelEvent("wheel", {
+            bubbles: true, cancelable: true, deltaY: -1,
+          }))).toBe(false);
+        }
+        drawnHeights.set(above.dataset.rowId!, drawnHeight(above.dataset.rowId!) - 20);
+        observers.get(above)!([{ target: above }]);
+      });
+      expect(parseFloat(anchor.style.top) - logical()).toBe(before);
+    } finally {
+      await act(async () => root.unmount());
+      for (const entry of history) drawnHeights.delete(entry.id);
+    }
+  });
+
 // The hover reveal of a turn's footer is cached by the row under the pointer. A footer that appears,
 // or stops being the last turn's, while the pointer rests on that turn must still show on the next
 // pointer move inside the same row.
