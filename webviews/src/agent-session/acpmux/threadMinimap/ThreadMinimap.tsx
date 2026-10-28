@@ -19,6 +19,7 @@ import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
@@ -137,6 +138,7 @@ export function ThreadMinimap({
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
   const [experiment] = useState(() => experimentArm(threadMinimapLayout));
+  const [heightArm] = useState(() => experimentArm(threadMinimapHeight));
   const arm = useThreadMinimapArm() ?? experiment;
   /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
@@ -241,7 +243,14 @@ export function ThreadMinimap({
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
-  const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
+  const height = railHeight(
+    turns.length,
+    windowHeight,
+    viewportHeight,
+    foot,
+    onScreen.last - onScreen.first + 1,
+    railHeightConfig(heightArm),
+  );
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
   const placement = useRailPlacement(scroller, width, columnWidth);
@@ -731,6 +740,10 @@ export function ThreadMinimap({
   };
   const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
+  const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
+    const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
+    return y >= 0 && y < turns.length * ROW_PITCH;
+  };
   // When the pane cannot fit the compact rail beside the transcript, leave its edge strip live and
   // reveal the rail over the text only while the strip, rail, card or keyboard focus holds it open.
   const magnified = hovered;
@@ -824,6 +837,7 @@ export function ThreadMinimap({
           }}
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
+            if (!inTickContent(event, event.currentTarget)) return;
             pressing.current = true;
             swallowClick.current = false;
             const state = { pointer: event.pointerId, y: event.clientY, moved: false };
@@ -846,6 +860,14 @@ export function ThreadMinimap({
           onPointerMove={(event) => {
             pointerY.current = event.clientY;
             const state = scrub.current;
+            if (!inTickContent(event, event.currentTarget)) {
+              if (!state?.moved) {
+                setHovered(undefined);
+                setCardRow(undefined);
+                if (!within(card.current, event.relatedTarget)) intend(null);
+              }
+              return;
+            }
             if (!state) return;
             if (!state.moved) {
               if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
