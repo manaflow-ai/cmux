@@ -148,13 +148,13 @@ extension AppServices {
         let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame (p06-scheduler-219)
         let pumpFrames = features.isEnabled(.cefPumpFrameDeadline) ? mainWork : nil // pump slices to the frame (p03-rendering-116)
         let hangFollowsVisibility = features.isEnabled(.chromiumHangFollowsVisibility) // Chrome's hidden-tab hang rules (p01-process-072)
+        // Host mode exists only in Debug and bench builds (chromiumHostSupervisor), so its switches are bench-only and
+        // read only there.
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
-        // Host mode only: hosted pages' input through the host's input ring. Host mode exists only in
-        // Debug and bench builds (chromiumHostSupervisor), so the switch is bench-only and read only there.
-        #if DEBUG || CMUX_BENCH_HOOKS
+        // Host mode only: hosted pages' input through the host's input ring.
         chromiumRuntime.source.routesHostInput = features.isEnabled(.chromiumHostInputRing)
-        #endif
         // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
         chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
@@ -167,6 +167,7 @@ extension AppServices {
         // Host mode only: "Chromium is busy" after 2 s of undispatched input (p01-process-084).
         chromiumRuntime.source.watchesHostHangs = features.isEnabled(.chromiumHostHangBanner)
         chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks, p01-process-229
+        #endif
         chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
