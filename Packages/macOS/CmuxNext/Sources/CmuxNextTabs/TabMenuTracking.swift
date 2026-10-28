@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 // MARK: - Menus keep the trailing buttons
 
@@ -7,7 +8,7 @@ import AppKit
 @MainActor final class TabMenuTracking {
     private weak var strip: TabStripView?
     /// End-of-tracking observer of the menu the strip returned last.
-    private var endObserver: (any NSObjectProtocol)?
+    private var endObserver: MainActorObservation?
 
     init(strip: TabStripView) { self.strip = strip }
 
@@ -16,17 +17,14 @@ import AppKit
     func begin(_ menu: NSMenu) {
         end()
         strip?.buttonReveal.menuOpen = true
-        endObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didEndTrackingNotification, object: menu, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.end() } // main-proof: observer on queue: .main
+        endObserver = MainActorObservation(NSMenu.didEndTrackingNotification, object: menu) { [weak self] in
+            self?.end()
         }
     }
 
     /// The menu closed. AppKit sends no exit event for a pointer that left
     /// during menu tracking, so the pointer is checked here.
     func end() {
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         guard let strip, strip.buttonReveal.menuOpen else { return }
         strip.buttonReveal.menuOpen = false

@@ -196,15 +196,15 @@ async fn full_access_off_keeps_every_chat_out_of_full_access() {
         .await;
     assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
 
-    // Turned back on (or the key removed): full access switches again, and a pick of it carries to
-    // new chats as before (the latest pick wins).
+    // Turned back on (or the key removed): full access switches again, and new chats start in the
+    // default, full access, again.
     std::fs::write(&settings, r#"{"sessions": {}}"#).unwrap();
     let r = app
         .call("session/set_mode", json!({"sessionId": chat, "modeId": "agent-full-access"}))
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
-    // Off again: that saved pick no longer starts new chats in full access.
+    // Off again: the default no longer starts new chats in full access.
     std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": false}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let _ = std::fs::remove_dir_all(&dir);

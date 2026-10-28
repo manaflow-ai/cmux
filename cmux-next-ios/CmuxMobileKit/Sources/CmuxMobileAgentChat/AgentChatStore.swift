@@ -152,8 +152,10 @@ public final class AgentChatStore {
     public private(set) var models: [ACPModelInfo] = []
     public private(set) var currentModelID: String?
     public private(set) var modes: [ACPMode] = []
-    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:)``).
+    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:fullAccess:)``).
     private var offeredModes: [ACPMode] = []
+    /// This phone's Full-access setting covers it (``AgentSessionEvent/fullAccess(_:)``).
+    private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
     /// The title the agent gave the session (`session_info_update`).
@@ -199,6 +201,10 @@ public final class AgentChatStore {
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
     public var withdrawnDraft: ReturnedDraft?
+    /// What this phone attached to each prompt it sent, by prompt id: the Mac's record of the
+    /// prompt names its images only (and no files), so the sent bubble keeps what was sent.
+    @ObservationIgnored private var sentAttachments: [String: [AgentAttachment]] = [:]
+    @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
@@ -284,8 +290,10 @@ public final class AgentChatStore {
             pending.text == text && pending.attachments.map(\.id) == attachments.map(\.id) ? pending.promptID : nil
         }
         resendable = nil
+        let promptID = resend ?? UUID().uuidString.lowercased()
+        keepSent(attachments, promptID: promptID)
         source.send(.prompt(text: text, attachments: attachments, steer: steer,
-                            promptID: resend ?? UUID().uuidString.lowercased(), resend: resend != nil))
+                            promptID: promptID, resend: resend != nil))
     }
 
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
@@ -342,7 +350,34 @@ public final class AgentChatStore {
         source.send(.moveQueued(promptId: id, index: from + offset))
     }
 
+    /// The most prompts whose attachments wait for the Mac's record (each holds its bytes).
+    static let maxSentAttachmentPrompts = 8
+
+    /// Keeps what a prompt sent until its record arrives; a returned draft sent again under a new
+    /// id drops the old id's entry, and the oldest go past the cap.
+    private func keepSent(_ attachments: [AgentAttachment], promptID: String) {
+        let ids = Set(attachments.map(\.id))
+        if !ids.isEmpty {
+            for (id, kept) in sentAttachments where id != promptID && Set(kept.map(\.id)) == ids { sentAttachments[id] = nil }
+        }
+        sentOrder.removeAll { $0 == promptID || sentAttachments[$0] == nil }
+        guard !attachments.isEmpty else { return }
+        sentAttachments[promptID] = attachments
+        sentOrder.append(promptID)
+        while sentOrder.count > Self.maxSentAttachmentPrompts { sentAttachments[sentOrder.removeFirst()] = nil }
+    }
+
+    /// Kept prompts in the order they were sent (the cap drops the oldest).
+    var sentAttachmentPromptCount: Int { sentAttachments.count }
+
     // MARK: Reducer
+
+    /// A turn's attachments: what this phone sent (with their bytes), else what the Mac's record
+    /// names (its images, whose bytes `AgentSessionSource.attachmentData` reads on demand).
+    static func sentAttachments(_ sent: [AgentAttachment]?, recorded: [AgentAttachment]) -> [AgentAttachment] {
+        guard let sent, !sent.isEmpty else { return recorded }
+        return sent
+    }
 
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
@@ -353,8 +388,11 @@ public final class AgentChatStore {
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
-                turns.append(AgentTurn(id: turnId, prompt: text, attachments: attachments, promptAt: at))
+                turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                                       promptAt: at))
             }
+            // The turn holds them now.
+            sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
             queue.append(QueuedPrompt(id: promptId, text: text))
@@ -448,8 +486,11 @@ public final class AgentChatStore {
             currentModelID = current
         case .modesAvailable(let modes, let current):
             offeredModes = modes
-            self.modes = ACPMode.phoneChoices(modes, current: current)
+            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
+        case .fullAccess(let on):
+            fullAccess = on
+            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
         case .clientError(let message):
@@ -581,7 +622,7 @@ public final class AgentChatStore {
             availableCommands = commands
         case .currentMode(let mode):
             currentModeID = mode
-            modes = ACPMode.phoneChoices(offeredModes, current: mode)
+            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
         case .configOptions(let options):
             configOptions = options
         case .usage(let used, let size):

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The static look (cx-sya4n: blinking and pulsing lights give a teammate headaches):
 /// `appearance.statusIndicator.animation: "static"`, and always Reduce Motion, stills every

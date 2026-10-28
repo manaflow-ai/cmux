@@ -7,10 +7,11 @@ import CmuxNextDiff
 /// `cmux.diff.chooseFolder` asks with the cmux picker instead of the system
 /// panel.
 extension DiffPageService: DiffViewerOpening {
-    func openDiff(directory: String, in pane: PaneController, focus: Bool,
+    func openDiff(directory: String, turn: DiffTurn?, showTurn: Bool, in pane: PaneController, focus: Bool,
                   created: (@MainActor (SurfaceID) -> Void)?) async throws {
         do {
-            try await open(folder: URL(fileURLWithPath: directory, isDirectory: true), in: pane, focus: focus, created: created)
+            try await open(folder: URL(fileURLWithPath: directory, isDirectory: true), source: turn != nil && showTurn ? .turn : .default,
+                           turn: turn, in: pane, focus: focus, created: created)
         } catch {
             throw ActionFailure(message: DiffPageStrings.notRepository)
         }

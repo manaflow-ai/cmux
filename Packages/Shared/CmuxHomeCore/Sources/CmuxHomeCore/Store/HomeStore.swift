@@ -61,9 +61,17 @@ public final class HomeStore {
     @ObservationIgnored var liveRowReads: Set<String> = []
 
     @ObservationIgnored public let source: any HomeSource
-    // Every input of `transcript(for:)` drops its cache when it changes.
-    @ObservationIgnored var mirror = HomeMirror() { didSet { transcriptCache.removeAll() } }
-    @ObservationIgnored var log = IntentLog() { didSet { transcriptCache.removeAll() } }
+    // Every input of `transcript(for:)` drops its cache when it changes. Both are the owner state
+    // the client cache holds: a write to what it holds schedules a cache write
+    // (`ownerStateChanged`); typing, connection and row changes schedule none.
+    @ObservationIgnored var mirror = HomeMirror() {
+        didSet { transcriptCache.removeAll(); ownerStateChanged() }
+    }
+    @ObservationIgnored var log = IntentLog() {
+        didSet { transcriptCache.removeAll(); ownerStateChanged() }
+    }
+    /// `mirror.cacheChanges` and `log.cacheChanges` at the last cache write scheduled or restored.
+    @ObservationIgnored var cachedOwnerState = (mirror: UInt64(0), log: UInt64(0))
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
@@ -173,7 +181,7 @@ public final class HomeStore {
         self.clock = clock
         self.cache = cache
         self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock)
-        viewCache.ownerSnapshot = { [weak self] in self?.ownerCacheSnapshot() ?? HomeCacheSnapshot() }
+        viewCache.ownerState = { [weak self] in self?.ownerCacheState() ?? HomeCacheState() }
     }
 
     /// Starts consuming owner events. Idempotent.
@@ -199,9 +207,10 @@ public final class HomeStore {
         }
     }
 
-    /// Ends this store (sign-out, account switch). Every later op is refused.
+    /// Ends this store (sign-out, account switch). Every later op is refused. The last cache
+    /// batch goes to the cache actor without a wait; `await flushCache()` waits for the disk.
     public func stop() {
-        viewCache.flush()
+        viewCache.writeNow()
         stopped = true
         eventTask?.cancel()
         eventTask = nil
@@ -311,7 +320,6 @@ public final class HomeStore {
     func bumpTranscript(_ id: ConversationID) {
         transcriptCache[id] = nil
         transcriptVersion[id, default: 0] += 1
-        scheduleCacheWrite()
     }
 
     struct UploadJob {
@@ -338,8 +346,11 @@ public final class HomeStore {
         var uploadedAfterSweep = false
     }
 
+    /// Rows from the mirror, the log and who types. Equal rows are not assigned: an assignment
+    /// notifies every observer of `rows` even when nothing changed. Rows are not in the client
+    /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
-        rows = mirror.inboxRows(log: log, typing: Set(typing.keys))
-        scheduleCacheWrite()
+        let next = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        if next != rows { rows = next }
     }
 }

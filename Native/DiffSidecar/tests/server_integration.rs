@@ -1058,6 +1058,140 @@ fn rpc_page_scheme_names_patches_for_the_page_host() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Hide white space: `ignoreWhitespace` on sessionOpen and branchChange
+/// makes the patch `git diff --ignore-all-space`, and the reply says so. The
+/// handshake names the capability.
+#[test]
+fn rpc_sessions_hide_white_space_when_asked() {
+    let token = "0123456789abcdef";
+    let group = "whitespace-test";
+    let (root, repo) = branch_test_root("whitespace-test", token, group);
+    let cmux = Path::new(env!("CARGO_BIN_EXE_diff-sidecar-test-host"));
+    // One white space change and one real change in the work tree.
+    std::fs::write(repo.join("story.txt"), b"one\n  two\nTHREE\n").expect("write edit");
+
+    let handshake = stdio_rpc_json(
+        &root,
+        cmux,
+        &[],
+        &serde_json::json!({"id": "probe", "version": 1, "method": "protocolHandshake"}),
+    );
+    assert!(
+        handshake["result"]["value"]["capabilities"]
+            .as_array()
+            .expect("capabilities")
+            .contains(&serde_json::json!(
+                cmux_diff_sidecar::protocol::IGNORE_WHITESPACE_CAPABILITY
+            )),
+        "{handshake}"
+    );
+
+    let open = |ignore: Option<bool>| {
+        let mut params = serde_json::json!({
+            "source": {"kind": "unstaged", "repoRoot": repo},
+            "capabilityToken": token
+        });
+        if let Some(ignore) = ignore {
+            params["ignoreWhitespace"] = serde_json::json!(ignore);
+        }
+        stdio_rpc_json(
+            &root,
+            cmux,
+            &[],
+            &serde_json::json!({"id": "open", "version": 1, "method": "sessionOpen", "params": params}),
+        )
+    };
+    let shown_args = ["diff", "--no-ext-diff", "--no-color", "--binary", "--"];
+    let hidden_args = [
+        "diff",
+        "--no-ext-diff",
+        "--no-color",
+        "--binary",
+        "--ignore-all-space",
+        "--",
+    ];
+    for ignore in [None, Some(false)] {
+        let shown = open(ignore);
+        assert_eq!(shown["result"]["type"], "sessionOpened", "{shown}");
+        assert_eq!(
+            shown["result"]["value"]["ignoreWhitespace"], false,
+            "{shown}"
+        );
+        assert_eq!(
+            session_patch(&root, token, &shown, "cmux-diff-viewer://"),
+            git_stdout(&repo, &shown_args)
+        );
+    }
+    let hidden = open(Some(true));
+    assert_eq!(hidden["result"]["type"], "sessionOpened", "{hidden}");
+    assert_eq!(
+        hidden["result"]["value"]["ignoreWhitespace"], true,
+        "{hidden}"
+    );
+    let patch = session_patch(&root, token, &hidden, "cmux-diff-viewer://");
+    assert_eq!(patch, git_stdout(&repo, &hidden_args));
+    let text = String::from_utf8_lossy(&patch);
+    assert!(
+        text.contains("+THREE") && !text.contains("+  two"),
+        "{text}"
+    );
+
+    // A branch change keeps the choice for its new session.
+    let mut change = branch_change_request(group, &repo, "main", token);
+    change["params"]["ignoreWhitespace"] = serde_json::json!(true);
+    let changed = stdio_rpc_json(&root, cmux, &[], &change);
+    assert_eq!(changed["result"]["type"], "sessionOpened", "{changed}");
+    assert_eq!(
+        changed["result"]["value"]["ignoreWhitespace"], true,
+        "{changed}"
+    );
+    let merge_base = String::from_utf8(git_stdout(&repo, &["merge-base", "HEAD", "main"]))
+        .expect("merge base")
+        .trim()
+        .to_owned();
+    assert_eq!(
+        session_patch(&root, token, &changed, "cmux-diff-viewer://"),
+        git_stdout(
+            &repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-color",
+                "--binary",
+                "--ignore-all-space",
+                &merge_base,
+                "--"
+            ]
+        )
+    );
+
+    // A patch source is fixed text: it opens as it is and says white space is shown.
+    let patch_source = stdio_rpc_json(
+        &root,
+        cmux,
+        &[],
+        &serde_json::json!({
+            "id": "open-patch",
+            "version": 1,
+            "method": "sessionOpen",
+            "params": {
+                "source": {"kind": "patch", "path": "/viewer.html"},
+                "capabilityToken": token,
+                "ignoreWhitespace": true
+            }
+        }),
+    );
+    assert_eq!(
+        patch_source["result"]["type"], "sessionOpened",
+        "{patch_source}"
+    );
+    assert_eq!(
+        patch_source["result"]["value"]["ignoreWhitespace"], false,
+        "{patch_source}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// The branch base follows the session host's `Repository::base_branch`
 /// through cmux-git, with no session host running.
 #[test]

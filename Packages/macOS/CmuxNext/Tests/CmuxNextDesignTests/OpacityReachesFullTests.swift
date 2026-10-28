@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// "Opacity should go all the way to 100%" (2026-10-21): every Opacity over a background picture
 /// (window, workspace, pane; Settings, `cmux appearance set`, stored values) reaches 100%, and at

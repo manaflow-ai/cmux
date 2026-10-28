@@ -52,6 +52,8 @@ public struct SidebarDebugRow: Sendable {
     /// The row draws a progress bar (`WorkspaceRowContent.progress`), and the agent-working slot.
     public var progress: Bool = false
     public var showsWorking: Bool = false
+    /// The row's view draws the archived look (dimmed, archiving-DESIGN.md).
+    public var archived: Bool = false
 
     /// The row with what its view draws now: its fill, hover and disclosure.
     func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
@@ -59,6 +61,7 @@ public struct SidebarDebugRow: Sendable {
         let disclosure = view?.debugDisclosure
         row.fill = view?.debugFill == true
         row.hovered = view?.isHovered == true
+        row.archived = view?.debugArchived == true
         (row.disclosureIcon, row.disclosureFrame, row.disclosureShown) = (disclosure?.icon, disclosure?.frame, disclosure?.shown == true)
         return row
     }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { runChild } from "./helpers/run-child";
 import {
   DEVBOX_AWAITING_REBAKE,
+  DEVBOX_SOURCE_PROVABLE_SCHEMA,
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
@@ -336,7 +337,8 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     expect(result.upgraded).toEqual(["freestyle-desktop-v1", "freestyle-base-v1"]);
     expect(result.skipped).toEqual([]);
     for (const entry of result.manifest.images) {
-      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_SCHEMA), schema: DEVBOX_SOURCE_SCHEMA });
+      // Up to the formula git can prove: schema 3's payloads only a bake proves.
+      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_PROVABLE_SCHEMA), schema: DEVBOX_SOURCE_PROVABLE_SCHEMA });
     }
     expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
     // Idempotent: nothing left to upgrade.

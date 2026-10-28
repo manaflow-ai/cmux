@@ -4,9 +4,11 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # pr_runner_pool.py may put a pull request run's macOS jobs on a persistent
 # pool (owned Macs). GitHub never re-routes a queued job, so when that pool is
 # busy the run would wait for it indefinitely. This workflow watches such a run
-# and, when one of its jobs has waited past CI_OWNED_POOL_RESCUE_SECONDS,
-# cancels the run and re-runs it; the retry attempt never takes a persistent
-# pool, so it lands on Blacksmith. A job an owned runner refused at job start
+# and, when one of its jobs has waited past the five-minute queue alarm (or the
+# longer configured allowance for a picker-managed pool), cancels the run and
+# re-runs it. For cmux-next, the retry is admitted through fast checks, a free
+# owned Mac, then Blacksmith macOS; other workflows keep their existing retry
+# policy. A job an owned runner refused at job start
 # (it failed in seconds, before any step succeeded) gets its failed jobs re-run
 # instead, which moves them to the picker's retry_runner on Blacksmith.
 # scripts/ci/owned_pool_rescue.py has the rules.
@@ -59,6 +61,7 @@ on:
       - CI
       - iOS simulator tests
       - Iroh release gate
+      - cmux NEXT DEV daily
       # Side lanes can create a gated Mac job after workflow_run(requested).
       # Wake the rescue directly so a runner-hook refusal is retried without
       # waiting for the periodic sweeper.
@@ -110,6 +113,7 @@ env:
     .github/workflows/ci.yml
     .github/workflows/test-ios.yml
     .github/workflows/iroh-release-gate.yml
+    .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/agent-brands.yml
     .github/workflows/auth-refresh-tests.yml
     .github/workflows/cmux-next-base-autofix.yml

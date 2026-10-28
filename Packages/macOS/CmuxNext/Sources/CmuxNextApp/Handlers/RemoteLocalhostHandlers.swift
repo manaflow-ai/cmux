@@ -7,7 +7,7 @@ import CmuxNextRemoteLocalhostService
 enum RemoteLocalhostHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        registry.bind("workspace.setRemoteLocalhost", requires: DaemonCapabilities.shared.personalRemoteLocalhost,
+        registry.bind("workspace.setRemoteLocalhost", requires: DaemonCapability.personalRemoteLocalhost.rawValue,
                       daemon: services.machines.local, run: { invocation in
             try services.registry.setWorkspaceLocalhost(invocation, workspace: {
                 let (model, _) = try context.workspace(invocation)

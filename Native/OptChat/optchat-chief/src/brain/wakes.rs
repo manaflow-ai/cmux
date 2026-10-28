@@ -23,8 +23,40 @@ impl Brain {
         if self.phase != Phase::Running {
             return Ok("outcome: noop. no turn is running".to_owned());
         }
+        self.refuse_unanswered("stop")?;
         self.end_turn_by_tool("stop");
         Ok("outcome: done. the turn ends now; nothing more is posted".to_owned())
+    }
+
+    /// `stop` and `sleep` while a person message this turn saw has no reply:
+    /// refused, so the turn replies now instead of a retry turn later
+    /// (reply_ledger.rs). A tapback counts as the reply.
+    fn refuse_unanswered(&self, tool: &str) -> Result<(), String> {
+        let open = self.unanswered_in_turn();
+        if open.is_empty() {
+            return Ok(());
+        }
+        let main = self.state.conversation.clone().unwrap_or_default();
+        let names: Vec<String> = open
+            .iter()
+            .map(|a| {
+                let line = self
+                    .chat
+                    .logged_id(&format!("{main}#{}", a.seq))
+                    .map(|id| format!("line {id}"))
+                    .unwrap_or_else(|| format!("message {}", a.id));
+                format!("{line} \"{}\"", a.preview)
+            })
+            .collect();
+        Err(format!(
+            "{tool}: refused, the user's {} no reply yet: {}. Reply first in words (send, reply, or your final text), or react when it only acknowledges; then {tool}.",
+            if names.len() == 1 {
+                "message has"
+            } else {
+                "messages have"
+            },
+            names.join(", ")
+        ))
     }
 
     /// Marks the running turn as ended by the Chief's own tool and asks its
@@ -41,6 +73,9 @@ impl Brain {
     /// The `sleep` tool: saves a wake (or clears them all for 0 seconds) and
     /// ends the running turn.
     pub(super) fn sleep(&mut self, call: SleepCall) -> Result<String, String> {
+        if self.phase == Phase::Running && call.seconds > 0 {
+            self.refuse_unanswered("sleep")?;
+        }
         if call.seconds == 0 {
             let n = self.state.wakes.len();
             self.state.wakes.clear();

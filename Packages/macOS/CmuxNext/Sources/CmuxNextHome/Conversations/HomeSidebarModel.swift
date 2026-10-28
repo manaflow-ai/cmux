@@ -84,12 +84,12 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public init(rows: [InboxRow], pins: HomePins, me: ParticipantID?, query: String = "", contacts: [HomeContact] = [],
                 unreadMarks: Set<ConversationID> = [], chiefAvatars: [String: HomeChiefAvatar] = [:],
                 defaultChiefAvatar: HomeChiefAvatar? = nil, chiefHarnesses: [String: String] = [:],
-                chiefRoster: HomeChiefRoster = HomeChiefRoster(),
+                chiefRoster: HomeChiefRoster = HomeChiefRoster(), chiefNames: [ConversationID: String] = [:],
                 now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
         let (pinnedRows, rest) = pins.split(rows)
         self.init(pinned: pinnedRows, rest: rest, all: rows, me: me, query: query, contacts: contacts, unreadMarks: unreadMarks,
                   chiefAvatars: chiefAvatars, defaultChiefAvatar: defaultChiefAvatar, chiefHarnesses: chiefHarnesses,
-                  chiefRoster: chiefRoster, now: now, calendar: calendar, locale: locale)
+                  chiefRoster: chiefRoster, chiefNames: chiefNames, now: now, calendar: calendar, locale: locale)
     }
 
     /// The list in an order made elsewhere (the owner's `home-inbox` rows): `rows` in list order, the
@@ -97,18 +97,18 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public init(ordered rows: [InboxRow], pinned: Set<ConversationID>, me: ParticipantID?, query: String = "",
                 contacts: [HomeContact] = [], unreadMarks: Set<ConversationID> = [], chiefAvatars: [String: HomeChiefAvatar] = [:],
                 defaultChiefAvatar: HomeChiefAvatar? = nil, chiefHarnesses: [String: String] = [:],
-                chiefRoster: HomeChiefRoster = HomeChiefRoster(), now: Date = Date(),
+                chiefRoster: HomeChiefRoster = HomeChiefRoster(), chiefNames: [ConversationID: String] = [:], now: Date = Date(),
                 calendar: Calendar = .current, locale: Locale = .current) {
         self.init(pinned: rows.filter { pinned.contains($0.id) }, rest: rows.filter { !pinned.contains($0.id) }, all: rows, me: me,
                   query: query, contacts: contacts, unreadMarks: unreadMarks, chiefAvatars: chiefAvatars,
                   defaultChiefAvatar: defaultChiefAvatar, chiefHarnesses: chiefHarnesses,
-                  chiefRoster: chiefRoster, now: now, calendar: calendar, locale: locale)
+                  chiefRoster: chiefRoster, chiefNames: chiefNames, now: now, calendar: calendar, locale: locale)
     }
 
     private init(pinned pinnedRows: [InboxRow], rest: [InboxRow], all rows: [InboxRow], me: ParticipantID?, query: String,
                  contacts: [HomeContact], unreadMarks: Set<ConversationID>, chiefAvatars: [String: HomeChiefAvatar],
                  defaultChiefAvatar: HomeChiefAvatar?, chiefHarnesses: [String: String], chiefRoster: HomeChiefRoster,
-                 now: Date, calendar: Calendar, locale: Locale) {
+                 chiefNames: [ConversationID: String], now: Date, calendar: Calendar, locale: Locale) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let match = { (row: InboxRow) in needle.isEmpty || row.matches(needle, me: me) }
         var pinnedRows = pinnedRows.filter(match)
@@ -124,6 +124,11 @@ public struct HomeSidebarModel: Hashable, Sendable {
                 let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
                 item.chiefAvatar = chief.flatMap { chiefAvatars[$0] } ?? defaultChiefAvatar
                 item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
+                // The Chief's own name (renamed in its header or Settings), else the title the row has.
+                if let name = chiefNames[row.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != item.title {
+                    item.accessibilityLabel = name + item.accessibilityLabel.dropFirst(item.title.count)
+                    item.title = name
+                }
                 item.isMainChief = row.id == chiefRoster.main
                 item.place = chiefRoster.places[row.id]
                 item.listBadge = chiefRoster.tag(for: row.id, engine: item.backendBadge)

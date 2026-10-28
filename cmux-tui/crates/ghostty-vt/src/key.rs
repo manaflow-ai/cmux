@@ -100,6 +100,9 @@ pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
             "ctrl" | "control" => mods = mods | Mods::CTRL,
             "alt" | "option" => mods = mods | Mods::ALT,
             "shift" => mods = mods | Mods::SHIFT,
+            // Command on macOS: a Kitty-protocol program reads Cmd-C, Cmd-Z, Cmd-A
+            // (legacy encoding sends nothing for it, as Ghostty does).
+            "super" | "cmd" | "command" => mods = mods | Mods::SUPER,
             "" => return None,
             other => {
                 if key_name.is_some() {

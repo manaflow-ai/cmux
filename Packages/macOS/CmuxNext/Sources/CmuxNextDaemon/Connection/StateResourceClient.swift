@@ -153,7 +153,7 @@ extension StateResourceClient {
     /// are; without it the daemon keeps its focused workspace.
     @discardableResult
     public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
-        let supportsFocus = await connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateFocus) == true
+        let supportsFocus = await connection.identity?.supports(DaemonCapability.workspaceCreateFocus.rawValue) == true
         let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
                                                                      focus: focus, daemonSupportsFocus: supportsFocus)
         return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)

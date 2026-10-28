@@ -3,11 +3,12 @@
 .acpmux-file-menu{position:relative;display:inline-flex}
 .acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
 .ui-positioner>.acpmux-file-menu-list{position:static;top:auto;right:auto}
-.acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
+.acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap}
 .acpmux-file-menu-item:hover,.acpmux-file-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:none}
 /* The scope pill is a menu button; its menu opens under it, from its left edge. */
-.acpmux-scope-menu{position:relative;display:inline-flex;min-width:0}
-button.acpmux-diff-scope{border:0;color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-scope-menu{position:relative;display:inline-flex;min-width:0;max-width:100%}
+/* The pill never runs out of its box: it shrinks with it and the scope name ellipsizes. */
+button.acpmux-diff-scope{min-width:0;max-width:100%;overflow:hidden;border:0;color:var(--agent-text);font:inherit}
 button.acpmux-diff-scope:hover,button.acpmux-diff-scope[aria-expanded="true"]{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-scope-chevron{margin-left:-4px;color:var(--agent-muted)}
@@ -20,7 +21,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-changes-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:240px;height:100%;padding:24px;box-sizing:border-box;text-align:center;color:var(--agent-text)}
 .acpmux-changes-state strong{font-size:15px;font-weight:500}
 .acpmux-changes-state-body{color:var(--agent-muted);font-size:13px}
-.acpmux-changes-retry{margin-top:10px;height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-changes-retry{margin-top:10px;height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit}
 .acpmux-changes-retry:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-changes-retry:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 /* The toolbar's options button reads pressed while its menu is open; disabled rows are muted. */
@@ -28,15 +29,15 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-file-menu-item[aria-disabled="true"]{color:var(--agent-muted);background:none}
 /* Under the header: the Branch scope's branch and base, and the tracked-only banner. */
 .acpmux-diff-notes{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--agent-border)}
-.acpmux-turn-note{color:var(--agent-muted);font-size:12px;line-height:16px}
+.acpmux-turn-note,.acpmux-diff-no-tests{color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-branch-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
-.acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-pull-request-create:hover:enabled{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-pull-request-create:active:enabled{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-pull-request-create:disabled{color:var(--agent-muted)}
 .acpmux-pull-request-create:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-pull-request{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
-.acpmux-pull-request[role=alert]{white-space:normal;color:var(--acpmux-del)}
+.acpmux-pull-request[role=alert]{white-space:normal;color:var(--agent-status-failure)}
 .acpmux-pull-request a{color:var(--agent-accent);text-decoration:none}
 .acpmux-pull-request a:hover{text-decoration:underline}
 .acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);white-space:nowrap}
@@ -48,7 +49,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-changes-banner-title{font-weight:600}
 .acpmux-changes-banner-body{color:var(--agent-muted)}
 .acpmux-changes-banner-divider{flex:none;width:1px;height:24px;background:var(--agent-border)}
-.acpmux-changes-banner-action,.acpmux-changes-banner-refresh{flex:none;height:24px;padding:0 9px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap;cursor:default}
+.acpmux-changes-banner-action,.acpmux-changes-banner-refresh{flex:none;height:24px;padding:0 9px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap}
 .acpmux-changes-banner-action{background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text)}
 .acpmux-changes-banner-action:hover,.acpmux-changes-banner-refresh:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)));color:var(--agent-text)}
 .acpmux-changes-banner-action:focus-visible,.acpmux-changes-banner-refresh:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
@@ -84,8 +85,8 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 /* Why a file did not open, under the changes header until the next open. */
 .acpmux-diff-notice{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
 /* Hunk review: each hunk's Reject and Accept under its last changed line, and the bar that sends the rejected ones back. */
-.acpmux-hunk-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated);font:12px system-ui,-apple-system,sans-serif;color:var(--agent-muted)}
-.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-hunk-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated);font:12px var(--font-ui);color:var(--agent-muted)}
+.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-hunk-reject{background:color-mix(in srgb,var(--acpmux-del) 30%,var(--agent-surface-elevated))}
 .acpmux-hunk-accept{background:color-mix(in srgb,var(--acpmux-add) 30%,var(--agent-surface-elevated))}
 .acpmux-hunk-undo:hover,.acpmux-hunk-stage:hover,.acpmux-revert-send:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
@@ -105,29 +106,28 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
 .acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}
-@media (prefers-reduced-motion:no-preference){.acpmux-file-menu-list{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* Commit and Push: text buttons in the toolbar pill, the commit form and the latest write's status line under the header. */
 .acpmux-diff-notice-text{flex:1;min-width:0}
 /* Pull request review threads (cx-ncc.77.2): under their line in the diff, or above it when the line is gone. */
 .acpmux-review-unplaced{display:flex;flex-direction:column;gap:6px;padding:6px 12px}
-.acpmux-review-thread{margin:6px 12px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated);color:var(--agent-text);font-family:system-ui,-apple-system,sans-serif;font-size:var(--text-body)}
+.acpmux-review-thread{margin:6px 12px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-review-unplaced .acpmux-review-thread{margin:0}
 .acpmux-review-thread[data-resolved]{color:var(--agent-muted)}
-.acpmux-review-thread summary{overflow:hidden;cursor:default;font-size:var(--text-detail);white-space:nowrap;text-overflow:ellipsis}
+.acpmux-review-thread summary{overflow:hidden;font-size:var(--text-detail);white-space:nowrap;text-overflow:ellipsis;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-review-summary-text::before{content:"\00B7";margin:0 6px}
-.acpmux-review-outdated{margin-bottom:4px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-review-outdated{margin-bottom:4px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-review-comments{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
 .acpmux-review-thread details .acpmux-review-comments{margin-top:6px}
-.acpmux-review-author{font-weight:600;font-size:var(--text-detail)}
+.acpmux-review-author{font-weight:600;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-review-author a{color:inherit;text-decoration:none}
 .acpmux-review-author a:hover{text-decoration:underline}
 .acpmux-review-author a:focus-visible,.acpmux-review-thread summary:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px;border-radius:4px}
 /* Comment bodies are Markdown at the thread's size, with paragraph gaps to match. */
 .acpmux-review-body .cv-h{font-size:inherit;line-height:inherit}
 .acpmux-review-body.cv-md{margin-top:2px;color:inherit;--cv-font-size:var(--text-body);--cv-line-height:18px;--cv-para-after:6px;overflow-wrap:anywhere;user-select:text}
-.acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail)}
-.acpmux-review-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-review-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-review-address:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-review-address:active{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-review-address:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}

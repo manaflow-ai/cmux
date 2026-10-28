@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Status icon candidate sets (cx-kxa2, Lawrence 2026-10-08: "make sure we
 /// have better notif icons for osc 7501 things ... make sure i can try a

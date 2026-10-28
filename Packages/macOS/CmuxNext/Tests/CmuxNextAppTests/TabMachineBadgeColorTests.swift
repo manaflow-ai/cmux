@@ -9,8 +9,8 @@ import Testing
 @MainActor @Suite(.serialized) struct TabMachineBadgeColorTests {
     /// The badge's color and textTertiary, both in the cell's theme scope, sRGB.
     static func badge(picks: MachineColorOverrides) throws -> (badge: NSColor, tertiary: NSColor) {
-        ThemeStore.shared.setMachineColors(picks)
-        defer { ThemeStore.shared.setMachineColors(.none) }
+        ThemeScope.app.store.setMachineColors(picks)
+        defer { ThemeScope.app.store.setMachineColors(.none) }
         let item = TabItem(id: TabID("remote"), title: "Remote", machineBadge: "big-red")
         let strip = TabStripView(model: TabStripModel(tabs: [item], selectedID: item.id))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight), styleMask: [.borderless],

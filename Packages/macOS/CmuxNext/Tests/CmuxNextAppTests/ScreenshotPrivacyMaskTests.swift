@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import Testing
 import WebKit
+import CmuxNextScreenshots
 
 /// An agent's `cmux window|pane|tab screenshot` (Leo 2026-10-21: "cmux only lets a person run the
 /// window screenshot action. doesnt seem right"). The app's capture cannot reproduce the browser

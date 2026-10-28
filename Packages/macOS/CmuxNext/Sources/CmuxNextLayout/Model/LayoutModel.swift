@@ -50,6 +50,13 @@ public final class LayoutModel {
     public var focusFollowsMouse: Bool {
         focusFollowsMouseOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusFollowsMouse : false)
     }
+    /// Pins `layout.scrollModifier` (tests, the demo); nil follows cmux.json.
+    public var scrollModifierOverride: LayoutScrollModifier?
+    /// Which scroll moves the layout (cmux.json `layout.scrollModifier`, `LayoutRootView+Scroll`):
+    /// the override, else the live setting while `followsDesignMetrics` is on, else `.command`.
+    public var scrollModifier: LayoutScrollModifier {
+        scrollModifierOverride ?? (followsDesignMetrics ? DesignSettings.shared.layoutScrollModifier : .command)
+    }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -166,6 +173,14 @@ public final class LayoutModel {
     @ObservationIgnored var splitOverrides: [SplitID: Override] = [:]
     /// Panes a pending close hides from the shown screens (`showPaneClose`).
     @ObservationIgnored var paneCloses: [PaneID: PaneCloseHold] = [:]
+    /// The last pending close's order (`PaneCloseHold.sequence`).
+    @ObservationIgnored var paneCloseSequence = 0
+    /// Fit-screen widths of shown column closes that landed while another close on their screen was
+    /// pending, not sent yet (`flushLandedCloseSizes`).
+    @ObservationIgnored var landedCloseWidths: [ColumnID: Double] = [:]
+    /// Even ratios of shown closes that landed while another close on their screen was pending, not
+    /// sent yet (`flushLandedCloseSizes`).
+    @ObservationIgnored var landedCloseRatios: [SplitID: Double] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
@@ -190,7 +205,7 @@ public final class LayoutModel {
 
     /// The last daemon snapshot, without local overrides. Restored when a
     /// transaction is rejected.
-    @ObservationIgnored private var daemonScreens: [LayoutScreen] = []
+    @ObservationIgnored private(set) var daemonScreens: [LayoutScreen] = []
 
     public init(screens: [LayoutScreen] = [], activeScreenID: ScreenID? = nil, focusedPane: PaneID? = nil) {
         self.screens = screens
@@ -206,7 +221,14 @@ public final class LayoutModel {
     /// its nearest surviving neighbor before it (else after it, else the first).
     public func apply(screens newScreens: [LayoutScreen]) {
         let previous = daemonScreens
-        defer { applyCloseSizing(from: previous, to: newScreens) }
+        // Shown closes whose pane leaves the daemon's tree now: their column widths are reconciled
+        // across the closes still pending (`noteLandedColumnClose`), not taken from the raw trees.
+        let landed = Set(paneCloses.keys.filter { pane in !newScreens.contains { $0.layout.contains(pane) } })
+        noteLandedCloses(from: previous, to: newScreens, landed: landed) // before the overlay below reads them
+        defer {
+            applyCloseSizing(from: previous, to: newScreens, landed: landed)
+            flushLandedCloseSizes()
+        }
         daemonScreens = newScreens
         resolvePaneCloses(in: newScreens)
         splitOverrides = splitOverrides.filter { !$0.value.settled }
@@ -275,9 +297,7 @@ public final class LayoutModel {
         var result = source
         for index in result.indices {
             var layout = result[index].layout
-            for pane in paneCloses.keys where layout.contains(pane) {
-                if let after = Self.removingSplitPane(pane, from: layout) { layout = after }
-            }
+            layout = overlayingPaneCloses(layout)
             for (split, override) in splitOverrides {
                 guard let incoming = layout.ratio(of: split) else { continue }
                 if abs(incoming - override.value) < 0.002 {
@@ -397,6 +417,20 @@ public final class LayoutModel {
               let ratio = tree.equalizedRatio(for: split) else { return }
         explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
         setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+    }
+
+    /// Drops the sent (ended) ratio overrides of `splits`: a newer change owns their ratios now. A
+    /// live gesture's or a pending split's override stays.
+    func supersedeSentRatios(_ splits: Set<SplitID>) {
+        guard !splits.isEmpty else { return }
+        splitOverrides = splitOverrides.filter { !splits.contains($0.key) || !$0.value.ended }
+    }
+
+    /// Drops the sent (ended) width overrides of `columns`: a newer change owns their widths now. A
+    /// live gesture's override stays.
+    func supersedeSentWidths(_ columns: Set<ColumnID>) {
+        guard !columns.isEmpty else { return }
+        widthOverrides = widthOverrides.filter { !columns.contains($0.key) || !$0.value.ended }
     }
 
     /// Sets a column width locally; reports only the `.ended` value, like `setSplitRatio`.

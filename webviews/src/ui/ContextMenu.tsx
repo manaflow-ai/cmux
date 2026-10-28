@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
 
@@ -10,8 +11,12 @@ export interface ContextMenuItem {
   label: ReactNode;
   /** An icon before the label, as macOS shows on items such as Hide (HideableChrome.tsx). */
   icon?: ReactNode;
+  /** The icon in the app's native menu: an SF Symbol or an icon pack name (nativeMenu.ts). */
+  symbol?: string;
   ariaLabel?: string;
   disabled?: boolean;
+  /** A toggle action; false still renders as a checkbox menu item. */
+  checked?: boolean;
   destructive?: boolean;
   separatorBefore?: boolean;
   onSelect(): void;
@@ -42,6 +47,27 @@ export interface ContextMenuProps {
 const RETURN_FOCUS =
   "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
 
+/**
+ * The rows the app's native menu shows, or null when a row has no text to show (a composed label
+ * with no `ariaLabel`): the page then draws the menu.
+ */
+function nativeRows(items: readonly ContextMenuItem[]): NativeMenuRow[] | null {
+  const rows: NativeMenuRow[] = [];
+  for (const item of items) {
+    const label = typeof item.label === "string" ? item.label : item.ariaLabel;
+    if (!label) return null;
+    if (item.separatorBefore) rows.push({ id: `separator:${item.id}`, label: "", separator: true });
+    rows.push({
+      id: item.id,
+      label,
+      ...(item.symbol ? { symbol: item.symbol } : {}),
+      ...(item.disabled ? { disabled: true } : {}),
+      ...(item.checked !== undefined ? { checked: item.checked } : {}),
+    });
+  }
+  return rows;
+}
+
 /** Inline, as the placement is: the agent pane does not load ui.css. */
 const MENU_ICON = {
   display: "inline-flex",
@@ -63,7 +89,9 @@ const MENU_ICON = {
  * own any later focus changes. Like a native menu, it opens down and right of the pointer and
  * flips up or left where that would leave the window. The keyboard opens it too: Shift-F10 or the
  * context-menu key on a focused control inside the host opens it at that control's bottom start
- * corner, so every surface with a right-click menu has a keyboard path.
+ * corner, so every surface with a right-click menu has a keyboard path. In the app the menu is a
+ * standard macOS menu the host draws (nativeMenu.ts); the page draws its own only without a host,
+ * or when the host refuses.
  */
 export function ContextMenu({
   items,
@@ -193,7 +221,31 @@ export function ContextMenu({
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-        setPoint({ x: event.clientX, y: event.clientY });
+        const at = { x: event.clientX, y: event.clientY };
+        const native = nativeMenu();
+        const rows = native && nativeRows(items);
+        if (!native || !rows) {
+          setPoint(at);
+          return;
+        }
+        // The rows as they were at the right-click: the menu runs the one chosen from them.
+        const shown = items;
+        native({ items: rows, point: at }).then(
+          (reply) => {
+            // An older legacy bridge can acknowledge an unknown method with a successful null
+            // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
+            // page menu so a right-click never disappears without an actionable surface.
+            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+              setPoint(at);
+              return;
+            }
+            const chosen = shown.find((item) => item.id === pickedId(reply));
+            if (chosen) run(chosen);
+            else close(true);
+          },
+          // A host without the native menu (an older app): the page draws it.
+          () => setPoint(at),
+        );
       }}
     >
       {children}
@@ -233,7 +285,8 @@ export function ContextMenu({
                     {item.separatorBefore ? <hr className="ui-separator" /> : null}
                     <button
                       type="button"
-                      role="menuitem"
+                      role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                      aria-checked={item.checked}
                       className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
                       disabled={item.disabled}
                       aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
@@ -243,7 +296,11 @@ export function ContextMenu({
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
-                      {item.icon ? (
+                      {item.checked !== undefined ? (
+                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                          {item.checked ? "✓" : null}
+                        </span>
+                      ) : item.icon ? (
                         <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
                           {item.icon}
                         </span>

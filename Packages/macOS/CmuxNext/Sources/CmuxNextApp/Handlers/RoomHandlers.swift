@@ -11,7 +11,7 @@ enum RoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let local: @MainActor () -> DaemonService? = { context.services.machines.local }
         func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> Void) {
-            registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: local(), run: { invocation in
+            registry.bind(id, requires: DaemonCapability.profiles.rawValue, daemon: local(), run: { invocation in
                 try context.requireRooms()
                 try run(invocation)
             })
@@ -84,16 +84,22 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             // Neither argument named (the palette or the space menu with nothing collected): ask
             // for the directory, never clear. Clearing takes both named empty (`cwd=` `env=`).
+            // The answer names `cwd` alone, which keeps the space's environment.
             guard RoomDefaultsArguments.names(invocation) else {
                 guard invocation.origin == .user,
-                      context.services.registry.ask("space.setDefaults", RoomDefaultsArguments.keepingEnv(of: room.defaults, invocation),
+                      context.services.registry.ask("space.setDefaults", invocation,
                                                     ActionArgumentAsk(argument: "cwd", initialText: room.defaults?.cwd)) else {
                     throw ActionFailure.invalidTarget(RoomStrings.defaultsArgumentRequired)
                 }
                 return
             }
-            let defaults = try RoomDefaultsArguments.parse(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
+            let patch = try RoomDefaultsArguments.patch(invocation)
+            RoomDefaultsUpdates.apply(patch, to: room.id, context)
+        }
+        // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
+        bind("space.clearDefaults") { invocation in
+            let room = try context.room(invocation)
+            RoomDefaultsUpdates.apply(.clear, to: room.id, context)
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
@@ -225,5 +231,46 @@ enum RoomHandlers {
     static func update(_ id: ProfileID, _ context: AppActionContext,
                        _ body: @escaping @Sendable (DaemonConnection, ProfileID) async throws -> Void) {
         context.services.machines.local.send("update-profile") { try await body($0, id) }
+    }
+}
+
+/// Set and Clear Space Terminal Defaults… for one space, one at a time, each merging its named fields
+/// into the defaults the daemon holds when it runs (`list-personal`), never into the app's mirror,
+/// which lags a reply: two quick partial runs (`--cwd /a`, then `--env '{"X":"1"}'`) would both read
+/// the old mirror, and the second's whole-object write would drop the first's field.
+@MainActor
+enum RoomDefaultsUpdates {
+    /// The newest run per space; the next run waits for it. Each entry ends with its run and is then
+    /// removed, unless a newer run replaced it.
+    private static var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
+
+    /// Ends its stream when the command's body has run, or when the body is dropped unrun (no daemon
+    /// connection): the body holds the only reference, so the next run never waits forever.
+    private final class Finish: Sendable {
+        let signal: AsyncStream<Void>.Continuation
+        init(_ signal: AsyncStream<Void>.Continuation) { self.signal = signal }
+        nonisolated deinit { signal.finish() }
+    }
+
+    /// Whether a run for `id` has not finished yet (its write may not have reached the mirror).
+    static func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
+
+    static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
+        let previous = tails[id]?.done
+        // Nothing is ever yielded; the stream only ends, so one slot is plenty.
+        let (finished, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let finish = Finish(signal)
+        let token = UUID()
+        tails[id] = (token, Task { @MainActor in
+            for await _ in finished {}
+            if tails[id]?.token == token { tails[id] = nil }
+        })
+        context.services.machines.local.send("update-profile") { connection in
+            defer { finish.signal.finish() }
+            await previous?.value
+            let current = try await connection.listPersonal().profiles.first(where: { $0.id == id })?.defaults
+            let defaults = patch.applied(to: current)
+            try await connection.updateProfile(id, defaults: defaults.isEmpty ? .clear : .set(defaults))
+        }
     }
 }

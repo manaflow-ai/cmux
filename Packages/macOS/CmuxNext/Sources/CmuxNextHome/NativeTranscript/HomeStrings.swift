@@ -119,6 +119,13 @@ enum HomeStrings {
                defaultValue: "Tell it what you want done. It handles quick things itself and hands longer work to agents, each in its own workspace you can watch and join. It reports back here.",
                bundle: .module)
     }
+    /// The Chief's first-open message above the hero: what Chief is, what it does with agents and
+    /// workspaces, and how to start (`HomeFirstRunIntro`).
+    static var firstRunIntro: String {
+        String(localized: "home.firstRun.intro",
+               defaultValue: "Hi, I'm Chief, your assistant in cmux. Tell me what you want done.\nI handle quick things myself. Bigger jobs go to agents, each in its own workspace you can watch and join.\nTo start, type below or pick a suggestion.",
+               bundle: .module)
+    }
     /// The first-run row that shows the floating Chief pet (`home.toggleChiefPet`).
     static var firstRunShowPet: String {
         String(localized: "home.firstRun.showPet", defaultValue: "Show Chief Pet", bundle: .module)

@@ -5,6 +5,19 @@
 use super::*;
 
 wire_enum! {
+    HomeDeliveryState {
+        Queued = "queued",
+        Sent = "sent",
+        Delivered = "delivered",
+        Bounced = "bounced",
+        Complained = "complained",
+        Failed = "failed",
+        Suppressed = "suppressed",
+        RefusedEnv = "refused_env",
+    }
+}
+
+wire_enum! {
     HomeGrantableRole {
         Admin = "admin",
         Member = "member",
@@ -591,6 +604,7 @@ wire_enum! {
         GithubRepoScope = "github.repoScope",
         GithubRequireOrgAdmin = "github.requireOrgAdmin",
         GithubRepoAllowList = "github.repoAllowList",
+        GithubAllowWorkflows = "github.allowWorkflows",
         IntegrationsAllowedProviders = "integrations.allowedProviders",
         McpServer = "mcp.server",
         McpRemoteTransport = "mcp.remoteTransport",
@@ -884,20 +898,4 @@ pub enum Step {
 pub struct StepSleep {
     pub r#type: LitSleep,
     pub seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepNote {
-    pub r#type: LitNote,
-    pub text: String,
-}
-
-wire_enum! {
-    StepOpOp {
-        AutomationList = "automation.list",
-        AutomationGet = "automation.get",
-        AutomationRunsList = "automation.runs.list",
-        AutomationRun = "automation.run",
-        UsageSummary = "usage.summary",
-    }
 }

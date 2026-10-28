@@ -20,6 +20,9 @@ Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0
 """
 import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, bundle_id  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True, help="the tagged .app bundle")
@@ -31,6 +34,7 @@ parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -47,7 +51,7 @@ app = None
 
 
 def run(*args, timeout=30):
-    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -71,7 +75,8 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name, args=None, timeout=60):
-    return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=timeout)
+    # origin script: the control socket refuses origin user (dc82dca5497), so every setup open failed.
+    return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
 
 
 def wait(check, seconds, step=0.25):
@@ -190,22 +195,22 @@ def cleanup():
 
 
 def main():
-    global app
-    if os.path.exists(SOCKET):
-        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
-        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
-        os.remove(SOCKET)
+    global app, SOCKET
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    try:
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = launcher.process
+    SOCKET = launcher.socket
+    ENV["CMUX_SOCKET_PATH"] = SOCKET
     print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
     made = run("workspace", "create", "--name", "paletteopen-e2e")
     tab = re.search(r"value\.tab_id\s+(tab_\S+)", made.stdout)
     workspace = re.search(r"value\.workspace_id\s+(\S+)", made.stdout)

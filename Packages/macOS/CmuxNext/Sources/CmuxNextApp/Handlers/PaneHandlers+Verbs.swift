@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
 
@@ -50,7 +51,8 @@ extension PaneHandlers {
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
             let controller = ctx.services.paneController(for: pane)
-            let shown = ctx.services.activeDaemon.connection == nil ? nil : controller?.showPaneClose()
+            // The pane's own daemon decides: a remote pane's close waits for no local connection.
+            let shown = ctx.services.daemon(for: pane).connection == nil ? nil : controller?.showPaneClose()
             ctx.send("close-pane") { connection in
                 do {
                     try await connection.closePane(handle)
@@ -73,21 +75,27 @@ extension PaneHandlers {
             let kept = Set((screen?.columns ?? []).filter { $0.dock?.isPinned == true }.flatMap(\.layout.paneIDs))
             let others = (screen?.panes ?? []).filter { $0 !== pane && !kept.contains($0.handle) }
             guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
-            // One gesture: one question and one toast decision over every closing tab (cx-lb4al).
-            CloseUndoToasts.close(others.compactMap { ctx.services.paneController(for: $0) }.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
-            for other in others where ctx.services.paneController(for: other) == nil {
+            // Read before the close: the closing panes leave the layout at once, and a pane looked up
+            // after it has no view and got a second close the daemon refused (`unknown pane`).
+            let shown = others.compactMap { ctx.services.paneController(for: $0) }
+            let unshown = others.filter { ctx.services.paneController(for: $0) == nil }
+            // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
+            CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
+            for other in unshown {
                 let handle = other.handle
                 ctx.send("close-pane") { try await $0.closePane(handle) }
             }
         })
-        registry.bind("renamePane", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
+        // The name shows in the input's turn (a store intent); a refusal puts the old one back.
+        registry.bindEffect("renamePane", effect: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return .done }
             let handle = pane.handle
             if let name = invocation["name"]?.stringValue {
-                ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
-                return
+                guard ctx.connection() != nil else { return .done }
+                return ctx.daemon.intentEffect("rename-pane", .renamePane(pane: handle, name: name)) { try await $0.renamePane(handle, to: name) }
             }
             ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
+            return .done
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }

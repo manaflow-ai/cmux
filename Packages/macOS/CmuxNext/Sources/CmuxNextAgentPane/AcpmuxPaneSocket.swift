@@ -49,7 +49,28 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let options: AcpmuxPermissionOptions
     private let sessions: AcpmuxPaneSessions
     private let decisions: AcpmuxDecisionContexts
+    private let replacements: AcpmuxPaneReplacements
+    /// The transport's id for this socket's connection (``AcpmuxPaneReplacements``).
+    private let connection: Int
+
+    /// A page frame with this decoded `method` is about to go out on this socket: false refuses it
+    /// (a start or open while a Sandboxed send runs, ``AcpmuxPaneReplacements``).
+    func sendingPageFrame(method: String?) -> Bool {
+        replacements.sending(method: method, connection: connection)
+    }
+
+    /// A start or open refused now while a Sandboxed send runs (``AcpmuxPaneReplacements/refuses(method:)``).
+    func refusesPageFrame(method: String?) -> Bool {
+        replacements.refuses(method: method)
+    }
+
+    /// A page frame ``sendingPageFrame(method:)`` let through did not go out.
+    func pageFrameNotSent(method: String?) {
+        replacements.notSent(method: method, connection: connection)
+    }
     private let ids: AcpmuxRequestIds
+    /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.
+    private let agentReplies: AgentPaneAgentReply.Send?
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
@@ -57,14 +78,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         ids: AcpmuxRequestIds, signal: @escaping @Sendable () -> Void) {
+         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
         self.options = options
         self.sessions = sessions
         self.decisions = decisions
+        self.replacements = replacements
+        self.connection = connection
         self.ids = ids
+        self.agentReplies = agentReplies
         self.signal = signal
     }
 
@@ -169,12 +193,30 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     sessions.observeFolder(object, replyTo: method)
                     if wire != nil { sessions.observeTabSession(object, replyTo: method) }
                     decisions.observe(object, replyTo: method)
+                    replacements.observe(object, replyTo: method, connection: connection)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)
+                case .complete(let object, let pageID, let subject):
+                    switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
+                                                    canSend: agentReplies != nil) {
+                    case .answer(let frame): if let frame { page.append(frame) }
+                    case .send(let reply): sendReply(reply, pageID: pageID)
+                    }
                 }
             }
             enqueue(page, awaited: awaited)
             batch = takeRaw()
+        }
+    }
+
+    /// Sends a reply in place on as its chat; the page gets the answer once the daemon took it or
+    /// refused it, after the frames already queued.
+    private func sendReply(_ reply: AgentPaneAgentReply, pageID: String) {
+        guard let agentReplies else { return }
+        // task-owner: one reply's send; its answer joins the page queue, which a closed socket drops
+        Task { [weak self] in
+            let answer = await AgentPaneAgentReply.sent(reply, pageID: pageID, send: agentReplies)
+            if let answer { self?.inject(answer) }
         }
     }
 

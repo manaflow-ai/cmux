@@ -171,6 +171,7 @@
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
+    "cmux-next-daemon-macos-shadow.yml#cmux-next-daemon-macos-shadow": "macos-runtime-tests",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#fast-tier": "apple-app-build",
@@ -180,17 +181,9 @@
     "cmux-next.yml#swift-canary-fleet": "apple-app-build",
     "cmux-next.yml#swift-test": "apple-swift-tests",
     "cmux-terminal-client-xcframework.yml#build": "apple-app-build",
-    "cmux-tui-artifacts.yml#cmux-next-daemon-tests": {
-      "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "cmux-tui-artifacts.yml#macos-cross-runtime-x86_64": "macos-runtime-tests",
     "cmux-tui-build-package.yml#build": "rust-darwin-release-build",
     "cmux-tui.yml#macos": {
-      "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
-    "cmux-tui.yml#macos-relay": {
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
@@ -217,7 +210,6 @@
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
-    "nightly.yml#nightly-next-macos15-launch": "macos-runtime-tests",
     "nightly.yml#prepare-nightly-variant": "apple-app-build",
     "nightly.yml#publish-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",

@@ -18,7 +18,8 @@ import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import { arrivalKey, splitCommands, type BackgroundCommand } from "./processes";
+import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
+import { InspectorFold } from "./InspectorSection";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -92,7 +93,7 @@ export function TasksSection({
           }}
         >
           <Icon name="terminal" size={ROW_ICON} row />
-          <span className="acpmux-chat-inspector-task__command">{command.command}</span>
+          <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
         </button>
@@ -128,15 +129,10 @@ export function TasksSection({
       )}
       {finished.length > 0 && (
         <>
-          <button
-            type="button"
-            className="acpmux-chat-inspector-fold"
-            aria-expanded={showFinished}
-            onClick={() => setShowFinished(!showFinished)}
-          >
+          <InspectorFold open={showFinished} onToggle={() => setShowFinished(!showFinished)}>
             <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
             {t("rail.finished", { count: finished.length })}
-          </button>
+          </InspectorFold>
           {showFinished && (
             <ul className="acpmux-chat-inspector-list" data-finished="">
               {finished.map((command) =>
@@ -158,10 +154,24 @@ export function TasksSection({
 
 /// Stop: off once sent, until the registry's update ends the row; when acpmux or the harness
 /// refuses, it says so and can be tried again (as a subagent's Stop, SubagentGroup.tsx).
-export function StopButton({ id, name, stop }: { id: string; name: string; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({
+  id,
+  name,
+  label: idleLabel,
+  stop,
+}: {
+  id: string;
+  name: string;
+  /// What it says before a failed stop, in place of "Stop <name>" (the tray: "Stop only this command").
+  label?: string;
+  stop: (id: string) => Promise<unknown>;
+}) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name });
+  const label =
+    state !== "failed" && idleLabel
+      ? idleLabel
+      : t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name });
   return (
     <button
       type="button"

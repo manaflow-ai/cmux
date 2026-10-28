@@ -28,12 +28,12 @@ extension WorkspaceContentController {
             }
         case .setColumnDock(_, let anyPane, let dock, let transaction):
             // Hidden until the daemon serves it; a stale intent rolls back.
-            guard daemon.supports(DaemonCapabilities.shared.dockColumns), let handle = handles.panes[anyPane] else {
+            guard daemon.supports(DaemonCapability.dockColumns.rawValue), let handle = handles.panes[anyPane] else {
                 return layoutModel.rejectTransaction(transaction)
             }
             // A top or bottom dock needs edge-docks-v1; a daemon without it
             // would refuse the edge, so the intent rolls back here.
-            if dock?.edge.isBand == true, !daemon.supports(DaemonCapabilities.shared.edgeDocks) {
+            if dock?.edge.isBand == true, !daemon.supports(DaemonCapability.edgeDocks.rawValue) {
                 return layoutModel.rejectTransaction(transaction)
             }
             let daemonTransaction = nextDaemonTransaction()
@@ -44,14 +44,17 @@ extension WorkspaceContentController {
         case .setRowHeights(let column, let heights, let fit):
             setRowHeights(column, heights: heights, fit: fit)
         case .newRow(let below, let height):
-            guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.panes[below] else {
-                return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows))
+            guard daemon.supports(DaemonCapability.rows.rawValue), let handle = handles.panes[below] else {
+                return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapability.rows.rawValue))
             }
-            let cwd = panes[below]?.selectedTab?.cwd
-            let key = workspace.key
-            spawnPane("new-row") {
-                try await RowCommands($0).newRow(below: handle, height: height, options: SpawnOptions(cwd: cwd, workspace: key))
+            let options = SpawnOptions(cwd: panes[below]?.selectedTab?.cwd, workspace: workspace.key)
+            let command = NewRowCommand(pane: handle, height: height, options: options)
+            guard command.isOptimistic(on: daemon) else {
+                spawnPane("new-row") { try await RowCommands($0).newRow(below: handle, height: height, options: options) }
+                return
             }
+            let provisional = ProvisionalPane(rowHeight: height)
+            createInKeysTurn("newRow", provisional: provisional) { command.intendNow(on: self.daemon, provisional: provisional) }
         case .selectScreen(let screen):
             // Every screen switch (switcher click, screen actions) focuses the
             // screen's most recently focused pane (its active
@@ -66,14 +69,8 @@ extension WorkspaceContentController {
             return
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
-        case .newColumn(let after, let width):
-            guard let handle = handles.panes[after] else { return }
-            let cwd = panes[after]?.selectedTab?.cwd
-            let key = workspace.key
-            let request = layoutModel.prepareNewColumn(nextTo: after)
-            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
-                try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
-            }
+        case .newColumn(let after, _):
+            newColumn(after: after, options: SpawnOptions(cwd: panes[after]?.selectedTab?.cwd, workspace: workspace.key))
         case .split(let pane, let axis):
             guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
@@ -96,11 +93,70 @@ extension WorkspaceContentController {
 
     /// A new terminal column right of `after`, its shell spawned with `options` (a person's new
     /// terminal from Home's pinned dock alone, `ChatColumnPlacement.openBesideDock`).
+    ///
+    /// On a daemon with client keys the column shows, focused, in this turn (instant-new-surfaces,
+    /// as Cmd-D's split): a provisional pane in a provisional column at the planned width, with the
+    /// width changes it brings, laid out and mounted before the key's frame; the daemon's pane
+    /// takes it over under the same public id. Otherwise it waits for the reply.
     func newColumn(after: LayoutPaneID, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
-        spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
-            try await $0.newColumn(rightOf: handle, width: request.width, options: options)
+        let command = NewColumnCommand(pane: handle, width: request.width, options: options)
+        guard command.isOptimistic(on: daemon) else {
+            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) { connection in
+                try await connection.newColumn(rightOf: handle, width: request.width, options: options)
+            }
+            return
+        }
+        var widths: [DaemonColumnID: Double] = [:]
+        var treeWidth: Double?
+        let columns = daemon.store.screen(containing: handle)?.columns ?? []
+        for change in request.widthChanges {
+            guard let pane = change.panes.lazy.compactMap({ self.handles.panes[$0] }).first else { continue }
+            if let column = columns.first(where: { $0.layout.paneIDs.contains(pane) }) {
+                widths[column.id] = change.width
+            } else if columns.isEmpty {
+                treeWidth = change.width
+            }
+        }
+        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
+        createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+            command.intendNow(on: self.daemon, provisional: provisional)
+        }
+    }
+
+    /// One optimistic pane create (New Column, New Row) in the key's turn: focus expects the
+    /// provisional tab, typed keys wait for it (`CreationInputCoordinator`), the intent puts it in
+    /// the store, and `applyCurrent` lays it out and mounts it before the key's frame. `then` runs
+    /// once the daemon made it.
+    private func createInKeysTurn(_ label: String, provisional: ProvisionalPane, then: (@MainActor () -> Void)? = nil,
+                                  _ intend: () -> @MainActor () async throws -> SurfaceCreated) {
+        let intent = beginFocusIntent()
+        focus.expect(.tab(provisional.tabID), generation: intent)
+        let window = layoutView.window
+        let keyRouter = services.keyRouter
+        let keys = keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
+                                                            earlyTab: daemon.queuesCreatingInput ? provisional.tabID : nil,
+                                                            tab: provisional.tabID)
+        let send = BenchSpans.measure("\(label).intend") { intend() }
+        BenchSpans.measure("\(label).layout") { applyCurrent() }
+        let logger = daemon.logger
+        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
+        // After the create before it (a fast second press may target its stand-in).
+        let previous = pendingCreate
+        pendingCreate = Task { [services, state] in
+            var landed = false
+            defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            await previous?.value
+            do {
+                _ = try await send()
+                BenchSpans.mark("\(label).reply.optimistic")
+                landed = true
+                then?()
+            } catch {
+                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+            withExtendedLifetime((services, state)) {}
         }
     }
 
@@ -126,7 +182,7 @@ extension WorkspaceContentController {
     /// over the mirror until the daemon settles or refuses it (rows.md Z1;
     /// the layout model keeps no copy).
     private func setRowHeights(_ column: LayoutColumnID, heights: [RowHeight], fit: Bool) {
-        guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.columns[column] else { return }
+        guard daemon.supports(DaemonCapability.rows.rawValue), let handle = handles.columns[column] else { return }
         var mapped: [RowHeightValue] = []
         for height in heights {
             guard let row = handles.rows[height.row] else { return }

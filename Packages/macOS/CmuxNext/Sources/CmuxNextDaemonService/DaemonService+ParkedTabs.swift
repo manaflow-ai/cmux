@@ -8,7 +8,7 @@ extension DaemonService {
     /// its first show. Each tab restarts once (`restart-tab`); a failed one
     /// stays dead with its Restart button.
     public func wakeParkedTabs(in workspace: WorkspaceModel) {
-        guard supports(DaemonCapabilities.shared.tabRestartKeptLayout), let connection else { return }
+        guard supports(DaemonCapability.tabRestartKeptLayout.rawValue), let connection else { return }
         let surfaces = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             .filter { $0.kind == .pty && $0.dead && $0.relaunch?.onShow == true && !wakingParkedTabs.contains($0.surface) }
             .map(\.surface)

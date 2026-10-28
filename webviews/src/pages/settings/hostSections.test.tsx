@@ -110,6 +110,38 @@ test("a space and a browser profile with a stored image or SVG icon draw it from
   browser.unmount();
 });
 
+test("Development shows only when the host is a DEV build, however it is reached", async () => {
+  const dev = await renderPage({ path: "/settings/development" });
+  expect(dev.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("development");
+  expect(dev.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).not.toBeNull();
+  expect(dev.container.querySelector('[data-section-link="development"]')).not.toBeNull();
+  dev.unmount();
+  // NIGHTLY and Release: the deep link (and the relay key's focus link) open the default page.
+  for (const path of ["/settings/development", "/settings/development?focus=macScreen.debug.relayOnly"]) {
+    const page = await renderPage({
+      path,
+      setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+    });
+    expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+    expect(page.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).toBeNull();
+    expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+    page.unmount();
+  }
+});
+
+test("Devices shows in NIGHTLY and Release builds too, from the sidebar and its deep link", async () => {
+  // Mac Screen's sharing switch, permissions and relays live only here; release builds use the
+  // built-in device hub, so a non-DEV host must still list and open the category.
+  const page = await renderPage({
+    path: "/settings/devices",
+    setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+  });
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("devices");
+  expect(page.container.querySelector('[data-section-link="devices"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+  page.unmount();
+});
+
 test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
   // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
   // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
@@ -128,7 +160,11 @@ test("Machines offers Add Device…, which opens the one Add Device card through
 test("Devices lists every device with its role and state, and the recent activity", async () => {
   const page = await renderPage({ path: "/settings/machines" });
   const rows = page.container.querySelectorAll('[data-card="devices"] [data-device-row]');
-  expect(Array.from(rows).map((row) => row.getAttribute("data-device-row"))).toEqual(["peer:mini-7", "phone:p1"]);
+  expect(Array.from(rows).map((row) => row.getAttribute("data-device-row"))).toEqual([
+    "peer:mini-7",
+    "paired:dv_leo",
+    "phone:p1",
+  ]);
   expect(page.container.textContent).toContain("Runs your agents · Connected");
   expect(page.container.querySelector("[data-device-activity]")?.textContent).toContain("Added mini-7");
   page.unmount();
@@ -146,6 +182,40 @@ test("Remove asks once more, then removes the device everywhere and the list upd
   const call = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.remove").at(-1)!;
   expect(call.params).toEqual({ id: "peer:mini-7" });
   expect(remove()).toBeNull();
+  page.unmount();
+});
+
+test("only a paired client machine or phone has a Full access switch, off until turned on, saying what it allows", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const card = page.container.querySelector('[data-card="devices"]')!;
+  const lines = card.querySelectorAll("[data-device-full-access]");
+  expect(Array.from(lines).map((line) => line.getAttribute("data-device-full-access"))).toEqual([
+    "paired:dv_leo",
+    "phone:p1",
+  ]);
+  const line = () => card.querySelector('[data-device-full-access="paired:dv_leo"]')!;
+  const toggle = () => line().querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  expect(line().textContent).toContain("Full access");
+  expect(line().textContent).toContain("Its chats edit files and run commands here without asking");
+  await act(async () => toggle().click());
+  await settle();
+  const on = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
+  expect(on.params).toEqual({ id: "paired:dv_leo", on: true });
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
+  // Revoking is the same switch, and takes effect with the call.
+  await act(async () => toggle().click());
+  await settle();
+  const off = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
+  expect(off.params).toEqual({ id: "paired:dv_leo", on: false });
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  // A phone paired with this Mac: the same switch, by its phone row's id.
+  const phone = card.querySelector('[data-device-full-access="phone:p1"]')!;
+  expect(phone.querySelector('[role="switch"]')!.getAttribute("aria-checked")).toBe("false");
+  await act(async () => phone.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+  await settle();
+  const phoneOn = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
+  expect(phoneOn.params).toEqual({ id: "phone:p1", on: true });
   page.unmount();
 });
 
@@ -182,5 +252,45 @@ test("a machine row picks its color and Automatic takes the pick back", async ()
     value: { "big-red": "cyan" },
   });
   expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
+  page.unmount();
+});
+
+test("a Cloud machine cmux made has its Dedicated agent machine switch; other machines have none", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const cloud = {
+    id: "cloud:vm_1",
+    title: "sample-vm",
+    subtitle: null,
+    active: true,
+    vm_host: { on: true, busy: false, error: null },
+  };
+  expect(page.container.querySelector("[data-machine-vm-host]")).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [...page.provider.host.machines, cloud] });
+  });
+  await settle();
+  const switches = page.container.querySelectorAll("[data-machine-vm-host]");
+  expect(switches.length).toBe(1);
+  expect(switches[0]!.getAttribute("data-machine-vm-host")).toBe("cloud:vm_1");
+  const toggle = switches[0]!.querySelector('[role="switch"]') as HTMLElement;
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  await act(async () => toggle.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.machines.vm_host")).toEqual([{ id: "cloud:vm_1", on: false }]);
+  const after = page.container.querySelector('[data-machine-vm-host="cloud:vm_1"] [role="switch"]');
+  expect(after?.getAttribute("aria-checked")).toBe("false");
+  // The machine's own refusal shows under the switch.
+  await act(async () => {
+    page.provider.setHost({
+      ...page.provider.host,
+      machines: page.provider.host.machines.map((m) =>
+        m.id === "cloud:vm_1" ? { ...m, vm_host: { on: false, busy: false, error: "vmHost stays off here" } } : m,
+      ),
+    });
+  });
+  await settle();
+  expect(page.container.querySelector('[data-machine-vm-host] [role="alert"]')?.textContent).toBe(
+    "vmHost stays off here",
+  );
   page.unmount();
 });

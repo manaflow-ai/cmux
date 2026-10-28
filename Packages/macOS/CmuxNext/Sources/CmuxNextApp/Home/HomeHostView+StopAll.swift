@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextDesign
+import Foundation
 
 /// The stop button and Stop All Agents (the coordinator 2026-10-20): a click,
 /// Esc and Cmd-. stop only the Chief's turn (the shared stop action);
@@ -31,14 +33,28 @@ extension HomeHostView {
             case .success(let answer):
                 guard let window else { return }
                 let names = answer.subagents
-                let action = names.isEmpty ? nil : CmuxToast.Action(title: HomeStopAllStrings.restart)
-                let toast = CmuxToast(id: "home.stopAllAgents", message: HomeStopAllStrings.message(for: answer), action: action)
-                let handle = CmuxToastCenter.shared.show(toast, in: window)
+                let handle = CmuxToastCenter.shared.show(.stopAll(answer), in: window)
                 handle.onAction = {
                     // task-owner: one chief.stop {restart}; ends with its answer
                     Task { @MainActor in if await control.restart(names) != nil { NSSound.beep() } }
                 }
             }
         }
+    }
+}
+
+extension CmuxToast {
+    /// The Stop all agents toast for the daemon's answer: what stopped, how many could not be
+    /// stopped (which and why in its tooltip), the note about any still starting, and Restart
+    /// when subagents stopped (never for one that could not be stopped).
+    static func stopAll(_ answer: ChiefStopAll, duration: Duration = .seconds(6)) -> CmuxToast {
+        let action = answer.subagents.isEmpty ? nil : CmuxToast.Action(title: HomeStopAllStrings.restart)
+        return CmuxToast(id: "home.stopAllAgents", message: HomeStopAllStrings.message(for: answer),
+                         detail: HomeStopAllStrings.detail(for: answer), action: action, duration: duration)
+    }
+
+    /// The toast for an answer's JSON, decoded as the daemon's answer is (`debug.toast {stop_all}`).
+    static func stopAll(decoding answer: Data, duration: Duration = .seconds(6)) throws -> CmuxToast {
+        stopAll(try JSONDecoder().decode(ChiefStopAll.self, from: answer), duration: duration)
     }
 }

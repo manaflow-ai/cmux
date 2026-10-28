@@ -28,6 +28,12 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         case dragOut
         /// The six-level tree in a narrow sidebar: the indent stops at the cap, labels keep their width.
         case narrow
+        /// A tall group (ten members) among short groups and loose rows, for group drag captures
+        /// (`debug.sidebar_group_drag`; Lawrence 2026-10-23, "groups that are too tall").
+        case tallGroup
+        /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
+        /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
+        case needsYou
     }
 
     /// The state this fixture captures.
@@ -35,20 +41,27 @@ public nonisolated struct SidebarNestedFixture: Sendable {
     /// The sidebar rows: one local machine section holding the scenario's group tree.
     public let sections: [SidebarSection]
 
+    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
+    public var parents: [WorkspaceID: WorkspaceID] {
+        guard scenario == .needsYou else { return [:] }
+        let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
+    }
+
     /// The sidebar width the scenario is captured at.
     public var width: Double { scenario == .narrow ? 196 : 288 }
     /// The old rails (one per group, stopping at its own last member), for ``Scenario/before``.
     public var legacyRails: Bool { scenario == .before }
 
-    /// A drop mark the scenario shows: into a group, or between rows at a level.
+    /// Where the scenario's drag is held: over a group's header, or at a row's bottom edge at a level.
     public enum Drop: Hashable, Sendable {
-        /// A drop into the group: the indicator outlines its block.
+        /// A drop into the group: its header shows the drop fill.
         case into(GroupID)
-        /// A drop right after the workspace row, landing at `level`: the indicator draws a line at that level's x.
+        /// A drop right after the workspace row, landing at `level`: the gap opens at that level's x.
         case after(WorkspaceID, level: Int)
     }
 
-    /// The drop mark of a drag scenario; nil for the others.
+    /// The drop of a drag scenario; nil for the others.
     public var drop: Drop? {
         switch scenario {
         case .dragInto: .into(GroupID("g-builders"))
@@ -80,13 +93,27 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.sixLevels(folded: [])
         case .collapsed:
             nodes = Self.sixLevels(folded: ["g-builders", "g-sidebar"])
+        case .tallGroup:
+            nodes = Self.tallGroup
+        case .needsYou:
+            nodes = Self.needsYouRows.map(SidebarNode.workspace)
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false) -> SidebarWorkspace {
-        SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, unread: unread, activity: busy ? .busy(progress: nil) : .idle)
+    private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false,
+                           activity: StatusIndicatorState? = nil) -> SidebarWorkspace {
+        SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, unread: unread, activity: activity ?? (busy ? .busy(progress: nil) : .idle))
     }
+
+    /// ``Scenario/needsYou``'s rows, in model order (``parents`` nests them).
+    private static let needsYouRows: [SidebarWorkspace] = [
+        ws("release", "Release week"), ws("settings", "Settings pass"),
+        ws("shrink", "Shrink large files", activity: .waiting(kind: .question)),
+        ws("notes", "Release notes", activity: .working), ws("changelog", "Changelog", activity: .waiting(kind: .permission)),
+        ws("flaky", "Flaky test hunt", activity: .error), ws("login", "Cloud sign-in", activity: .waiting(kind: .auth)),
+        ws("docs", "Docs sweep", unread: .dot), ws("icons", "Icon pass", unread: .count(2)), ws("api", "API cleanup", busy: true),
+    ]
 
     private static func group(_ id: String, _ name: String, _ color: GroupColor, parent: String? = nil, folded: Bool = false,
                               _ members: [SidebarWorkspace]) -> SidebarNode {
@@ -122,6 +149,20 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         group("panes", "Panes & layout", .cyan, [ws("split-spring", "Split spring"), ws("cmd-d", "Cmd-D in Home")]),
         group("perf", "Perf", .yellow, parent: "panes", [ws("tab-switch", "Tab switch"), ws("idle-cpu", "Idle CPU")]),
         group("nightly", "Nightly & CI", .red, [ws("updates", "Updates keep sessions alive"), ws("ios-testflight", "iOS TestFlight")]),
+    ]
+
+    private static let tallGroup: [SidebarNode] = [
+        .workspace(ws("readme", "README pass")),
+        .workspace(ws("release", "Release notes")),
+        group("perf", "Perf", .yellow, [
+            ws("tab-switch", "Tab switch"), ws("pane-lifecycle", "Pane lifecycle"), ws("host-slim", "Terminal host slim"),
+            ws("idle-cpu", "Idle CPU", busy: true), ws("pane-drag", "Pane drag"), ws("daemon-latency", "Daemon latency", unread: .dot),
+            ws("rex-perf", "Rex perf"), ws("ws-switch", "Workspace switch"), ws("scroll", "Scroll jank"), ws("launch", "Cold launch"),
+        ]),
+        group("home", "Home & chat", .green, [ws("replies", "Replies animation")]),
+        group("nightly", "Nightly & CI", .red, [ws("updates", "Updates keep sessions alive"), ws("ios-testflight", "iOS TestFlight")]),
+        .workspace(ws("scratch", "Scratch")),
+        .workspace(ws("notes", "Notes")),
     ]
 
     private static func sixLevels(folded: Set<String>) -> [SidebarNode] {

@@ -94,7 +94,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     private static func hasPane(_ window: WindowController) -> Bool {
-        window.workspaceContent.map { !$0.panes.isEmpty } ?? false
+        window.workspaceContent.map { !$0.modelPanes.isEmpty } ?? false
     }
 
     /// Shows the workspace of `window` that holds a Settings tab (a daemon page tab, or an app-only
@@ -102,7 +102,7 @@ final class SettingsWindowService: InternalPageProvider {
     private func revealSettingsTab(of window: WindowController) {
         let page = InternalPageID.settings
         func holds(_ content: WorkspaceContentController) -> Bool {
-            services.pages.tab(of: page, inPanes: content.panes.values.map(\.paneKey)) != nil
+            services.pages.tab(of: page, inPanes: content.modelPanes.map(\.id)) != nil
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
@@ -139,11 +139,15 @@ final class SettingsWindowService: InternalPageProvider {
         return "\(route)&workspace=\(id)"
     }
 
-    static func route(section: SettingsSection?, setting: String?) -> String? {
+    /// The Development section (and its keys) exists only in DEV builds: elsewhere a request for
+    /// it opens Settings on the default page (the page hides the category the same way).
+    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isDebugBuild) -> String? {
         if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
+            guard descriptor.section != .development || devBuild else { return nil }
             return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
         }
-        return section.map { "#/settings/\($0.rawValue)" }
+        guard let section, section != .development || devBuild else { return nil }
+        return "#/settings/\(section.rawValue)"
     }
 
     // MARK: InternalPageProvider
@@ -175,7 +179,7 @@ final class SettingsWindowService: InternalPageProvider {
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
+        guard local.supports(DaemonCapability.profiles.rawValue) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)

@@ -6,6 +6,7 @@ import CmuxNextTabs
 import Foundation
 import ImageIO
 import Observation
+import CmuxNextIcons
 
 /// Stored icon assets (`image:` / `svg:sha256-<hex>`) as images to draw. Each asset is read from
 /// its owner once (`get-blob`), decoded off the main actor and kept; a reader observing
@@ -31,7 +32,7 @@ final class IconAssetImages {
     func image(_ icon: String, owner: DaemonService?) -> SidebarFavicon? {
         guard let value = IconValue(wire: icon), Self.isAsset(value) else { return nil }
         if let image = images[icon] { return image }
-        guard !requested.contains(icon), let owner, owner.supports(DaemonCapabilities.shared.iconAssets),
+        guard !requested.contains(icon), let owner, owner.supports(DaemonCapability.iconAssets.rawValue),
               let connection = owner.connection else { return nil }
         requested.insert(icon)
         Task { [weak self] in

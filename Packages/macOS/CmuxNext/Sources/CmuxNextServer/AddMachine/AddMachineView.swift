@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The Add Machine card (palette "Add Machine…", Settings > Machines, the Machines section, the
 /// sidebar menu) and Check Machine: the host field with the tailnet's machines under it, then the
-/// seven steps filling in live, then ready or failed. One layout per ``AddMachineModel/Phase``;
+/// eight steps filling in live, then ready or failed. One layout per ``AddMachineModel/Phase``;
 /// every button shows and binds its key, and the click and the key run the same
 /// ``AddMachineModel/perform(_:)``.
 struct AddMachineView: View {
@@ -186,10 +186,12 @@ struct AddMachineCandidateList: View {
         .accessibilityAddTraits(picked ? .isSelected : [])
     }
 
-    /// Why a peer cannot be picked, in the order a person would fix it.
+    /// Why a peer cannot be picked, in the order a person would fix it, or that it is an agent peer
+    /// the app does not have yet (pickable).
     static func badge(_ candidate: HostCandidate) -> String? {
-        if candidate.alreadyPeer { return AddMachineStrings.candidateAdded }
+        if candidate.inApp { return AddMachineStrings.candidateAdded }
         if !candidate.online { return AddMachineStrings.candidateOffline }
+        if candidate.alreadyPeer { return AddMachineStrings.candidateAgentPeer }
         if candidate.sshOK == false { return AddMachineStrings.candidateSSHOff }
         return nil
     }

@@ -1,0 +1,42 @@
+{
+  "id": "assistant-a672-look-dont-ask",
+  "owner": "a672",
+  "about": "facts the Chief can look up are looked up, not asked for (user 12597: why aren't you reading it for me?)",
+  "stubs": [
+    {
+      "cmd": "cmux",
+      "match": "browser",
+      "stdout": "Blacksmith Support <support@blacksmith.sh> Oct 25 5:10 PM\nSubject: GitHub's runner registration limit is delaying jobs in manaflow-ai\nHi! GitHub limits self-hosted runner registrations to 1,500 per 5 minutes per org. manaflow-ai has 277 jobs queued; the oldest waited 1388 min. Fix: ask GitHub Support to raise the limit, or start fewer jobs per run.\n"
+    },
+    {
+      "cmd": "cmux",
+      "match": "identify",
+      "stdout": "{\"beside\": {\"pane\": \"pane_44dd55ee66ff\"}}"
+    }
+  ],
+  "history": [
+    {
+      "kind": "note",
+      "text": "The person's mail is Gmail, signed in inside the cmux browser (accounts u/0 and u/1). Read it with `cmux browser` commands (open, snapshot, eval)."
+    }
+  ],
+  "turns": [
+    {
+      "text": "Blacksmith emailed me about some GitHub runner limit. what does it say and what do we do?",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "cmux",
+          "match": "browser"
+        },
+        {
+          "type": "reply_matches",
+          "re": "1,?500"
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

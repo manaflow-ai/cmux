@@ -47,12 +47,20 @@ pub fn refusal(message: &str) -> Option<String> {
 /// option (one that could carry an approval or sandbox setting) is refused.
 pub const FREE_CONFIG_IDS: &[&str] = &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
 
+/// Methods that prompt a chat named only indirectly, so this filter cannot read its mode:
+/// `_acpmux/steer` names a brief, and acpmux turns it into a `session/prompt` to the brief's
+/// chat (`server/requests/briefs.rs`). The iPhone app never sends one; it is held to the
+/// Full-access rule (refused here, or marked on a phone's own credential).
+pub const INDIRECT_PROMPT_METHODS: &[&str] = &["_acpmux/steer"];
+
 /// Whether one request keeps its agent asking: a mode set names a phone mode, a
-/// config set names a free option or the mode.
+/// config set names a free option or the mode, and no request prompts a chat this
+/// filter cannot check.
 fn asks(request: &Value) -> bool {
     let params = request.get("params");
     let field = |k: &str| params.and_then(|p| p.get(k));
     match request.get("method").and_then(Value::as_str) {
+        Some(m) if INDIRECT_PROMPT_METHODS.contains(&m) => false,
         Some("session/set_mode") => mode_ok(field("modeId")),
         Some("session/set_config_option") => match field("configId").and_then(Value::as_str) {
             Some("mode") => mode_ok(field("value")),
@@ -114,6 +122,28 @@ pub fn mode_refusal(id: &Value, current_mode: Option<&str>) -> Option<String> {
         })
         .to_string(),
     )
+}
+
+/// `message` with every request marked `_meta.acpmux.requireFullAccess` (acpmux
+/// `server/remote_guard.rs`): what this filter refuses, sent on a phone's own acpmux
+/// credential, which acpmux runs only when that phone's Full-access setting (set on the
+/// Mac, off by default) covers it. None when a request has no params object to mark: it
+/// is refused here then.
+pub fn marked(message: &str) -> Option<String> {
+    let mut value: Value = serde_json::from_str(message).ok()?;
+    let requests: Vec<&mut Value> = match &mut value {
+        Value::Array(items) => items.iter_mut().collect(),
+        other => vec![other],
+    };
+    for request in requests {
+        if request.get("method").is_none() {
+            continue;
+        }
+        let meta = request.get_mut("params")?.as_object_mut()?.entry("_meta").or_insert_with(|| json!({}));
+        let acpmux = meta.as_object_mut()?.entry("acpmux").or_insert_with(|| json!({}));
+        acpmux.as_object_mut()?.insert("requireFullAccess".into(), Value::Bool(true));
+    }
+    Some(value.to_string())
 }
 
 fn mode_ok(mode: Option<&Value>) -> bool {
@@ -208,6 +238,33 @@ mod tests {
             let r = json!({"jsonrpc": "2.0", "id": 3, "method": m, "params": {"sessionId": "s1"}});
             assert!(controlled_session(&r.to_string()).is_some(), "{m}");
         }
+    }
+
+    /// On a phone's own credential, what the filter refuses goes on marked, for acpmux to
+    /// run only when that phone's Full-access setting covers it.
+    #[test]
+    fn a_refused_request_is_marked_for_acpmux_to_decide() {
+        let marked_set: Value =
+            serde_json::from_str(&marked(&set_mode("agent-full-access")).unwrap()).unwrap();
+        assert_eq!(marked_set["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+        assert_eq!(marked_set["params"]["modeId"], "agent-full-access");
+        let prompt = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
+                            "params": {"sessionId": "s", "prompt": [], "_meta": {"acpmux": {"via": "x"}}}});
+        let batch = Value::Array(vec![prompt, serde_json::from_str(&set_mode("agent")).unwrap()]);
+        let marked_batch: Value = serde_json::from_str(&marked(&batch.to_string()).unwrap()).unwrap();
+        for request in marked_batch.as_array().unwrap() {
+            assert_eq!(request["params"]["_meta"]["acpmux"]["requireFullAccess"], true, "{request}");
+        }
+        assert_eq!(marked_batch[0]["params"]["_meta"]["acpmux"]["via"], "x", "the rest of _meta stays");
+        // A brief steer prompts a chat the filter cannot check: refused, or marked.
+        let steer = json!({"jsonrpc": "2.0", "id": 5, "method": "_acpmux/steer", "params": {"briefId": "b", "text": "go"}});
+        assert!(refusal(&steer.to_string()).is_some(), "refused on the dashboard token");
+        let marked_steer: Value = serde_json::from_str(&marked(&steer.to_string()).unwrap()).unwrap();
+        assert_eq!(marked_steer["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+        // No params object to mark: not forwarded.
+        let bare = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_mode"});
+        assert_eq!(marked(&bare.to_string()), None);
+        assert_eq!(marked("not json"), None);
     }
 
     #[test]

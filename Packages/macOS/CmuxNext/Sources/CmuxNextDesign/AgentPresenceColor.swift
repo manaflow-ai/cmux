@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// An agent's presence color (cx-gg84): one of the theme's ANSI accents,
 /// picked by a stable hash of the agent's key (its session id), so the same

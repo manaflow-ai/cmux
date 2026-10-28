@@ -3,23 +3,23 @@
 .acpmux-edited-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);cursor:pointer}
 .acpmux-edited-toggle:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-edited-toggle:focus-visible,.acpmux-edited-cancel:focus-visible,.acpmux-edited-viewdiff:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-edited-undone{flex:none;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-edited-undone{flex:none;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-confirm{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 12px;box-shadow:inset 0 -1px 0 var(--agent-border)}
 .acpmux-edited-confirm-text{flex:1;min-width:0;line-height:18px}
-.acpmux-edited-confirm-skip{color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-edited-confirm-skip{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 /* A path only failed calls named: "failed" where a row's counts go, as the transcript marks a failed call. */
-.acpmux-edited-failed{flex:none;color:var(--agent-danger);font-size:var(--text-detail)}
-.acpmux-edited-cancel{flex:none;height:22px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer}
+.acpmux-edited-failed{flex:none;color:var(--agent-status-failure);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-edited-cancel{flex:none;height:22px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-cancel:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent))}
 .acpmux-edited-undo-confirm{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
-.acpmux-edited-status{display:flex;align-items:center;gap:8px;min-height:22px;padding:0 12px 4px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-edited-status-changed{color:var(--agent-warning,var(--agent-muted))}
+.acpmux-edited-status{display:flex;align-items:center;gap:8px;min-height:22px;padding:0 12px 4px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-edited-status-changed{color:var(--agent-status-warning)}
 .acpmux-edited-viewdiff{height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer;text-decoration:underline}
 /* The card at Codex/Claude restraint (cx-ncc.99, 2026-10-14): one 1px theme rim, a 14px glyph with
    no tile, the title and the turn's +/- totals on one line, Undo as a text button and View
    changes as a hairline one; 26px rows put the path in the chat's monospace, the directory in the
    secondary color with its middle cut. Nothing is heavier than regular weight. */
-.acpmux-edited-sub{display:flex;align-items:baseline;gap:8px;flex:none;min-width:0;line-height:16px;font-size:var(--text-detail)}
+.acpmux-edited-sub{display:flex;align-items:baseline;gap:8px;flex:none;min-width:0;line-height:16px;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
 .acpmux-edited-dir-head{flex:none}
 .acpmux-edited-dir-tail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}

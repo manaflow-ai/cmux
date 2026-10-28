@@ -99,11 +99,13 @@ struct AcpmuxExecutableOverrideTests {
         #expect(!AcpmuxVersionHandoff.swapsOverride(runningPath: override.path, override: override, executable: other))
     }
 
-    @Test func aSwapStillNeedsAgentHosts() {
-        // The swap goes through `decide(replaced:)`: a daemon without agent hosts keeps running
-        // (its agents would end), same as a replaced bundle.
-        #expect(AcpmuxVersionHandoff.decide("a", "a", true, replaced: true) == .restart)
-        #expect(AcpmuxVersionHandoff.decide("a", "a", false, replaced: true) != .restart)
+    @Test func aSwapRestartsADaemonThatKeepsItsChats() {
+        // The swap goes through `decide(replaced:)`, same as a replaced bundle: a daemon with agent
+        // hosts, or with its chats on disk, restarts; only a memory store without agent hosts keeps
+        // running (its chats would be lost).
+        #expect(AcpmuxVersionHandoff.decide("a", "a", true, chatsOnDisk: false, replaced: true) == .restart)
+        #expect(AcpmuxVersionHandoff.decide("a", "a", false, chatsOnDisk: true, replaced: true) == .restart)
+        #expect(AcpmuxVersionHandoff.decide("a", "a", false, chatsOnDisk: false, replaced: true) != .restart)
     }
 }
 #endif

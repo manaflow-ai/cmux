@@ -95,7 +95,12 @@ test("opening it grows the message in place: the card holds the text and nothing
   await act(async () => toggle().click());
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
   const card = host.querySelector(".cv-agentmsg__card")!;
-  expect(card.textContent).toBe("first line\nsecond line");
+  // Markdown represents the source newline with a line break, not a text node.
+  expect(card.textContent).toBe("first linesecond line");
+  const breaks = card.querySelectorAll("br");
+  expect(breaks).toHaveLength(1);
+  expect(breaks[0]?.previousSibling?.textContent).toBe("first line");
+  expect(breaks[0]?.nextSibling?.textContent).toBe("second line");
   expect(card.classList.contains("selectable")).toBe(true);
   expect(toggle().getAttribute("aria-controls")).toBe(card.id);
   // One scroller in the card, the message's text, capped by the stylesheet (conversation.css).
@@ -172,13 +177,27 @@ for (const [delivery, output] of Object.entries(RESULTS))
     }
   });
 
-test("a failed result reads as one short muted word", async () => {
-  await render(sendMessage("grid-fix", JSON.stringify({ success: false, error: "No agent named grid-fix" })));
-  const row = host.querySelector(".cv-message")!;
-  expect(row.getAttribute("data-delivery")).toBe("failed");
-  expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe("Failed");
-  await act(async () => toggle().click());
-  expect(row.textContent).not.toContain("No agent named");
+test("a send that did not arrive says why, never Sent: a stopped agent, no such agent, or just Not delivered", async () => {
+  // Leo 2026-10-21: a card read "✓ Sent" over a success:false result.
+  const cases: [string, string][] = [
+    [
+      JSON.stringify({
+        success: false,
+        message: "Agent a5b7309ddf7afa44d was stopped by the user and won't be resumed.",
+      }),
+      "Not delivered: agent stopped",
+    ],
+    [JSON.stringify({ success: false, error: "No agent named grid-fix" }), "Not delivered: no such agent"],
+    [JSON.stringify({ success: false }), "Not delivered"],
+  ];
+  for (const [output, word] of cases) {
+    await render(sendMessage("grid-fix", output));
+    const row = host.querySelector(".cv-message")!;
+    expect(row.getAttribute("data-delivery")).toBe("failed");
+    expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe(word);
+    await act(async () => toggle().click());
+    for (const raw of ['{"success"', "won't be resumed", "No agent named"]) expect(row.textContent).not.toContain(raw);
+  }
 });
 
 async function renderNamed(to: string, names: Map<string, string>) {
@@ -198,19 +217,23 @@ async function renderNamed(to: string, names: Map<string, string>) {
   );
 }
 
-test("the recipient is the Agent call's description for its agentId, never the hex id", async () => {
+test("the recipient is the Agent call's description for its agentId, or a short id, never the hex id", async () => {
   await renderNamed("a39e817af38ddf5e7", new Map([["a39e817af38ddf5e7", "Fix grid jump"]]));
   const line = host.querySelector(".cv-agentmsg__line")!;
   expect(line.querySelector(".cv-agentmsg__name")?.textContent).toBe("Fix grid jump");
   expect(line.textContent).not.toContain("This agent");
   expect(host.textContent).not.toContain("a39e817af38ddf5e7");
-  // An id nothing names reads as a generic word.
+  // The full id is the chip's tooltip.
+  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a39e817af38ddf5e7");
+  // An id nothing names reads as a short id, the full one in the tooltip.
   await renderNamed("a5f0c2b9e1d4a7c3b", new Map());
-  expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("agent");
+  expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("a5f0c2b9");
+  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a5f0c2b9e1d4a7c3b");
   expect(host.textContent).not.toContain("a5f0c2b9e1d4a7c3b");
-  // A name the call gives (a teammate, an acpmux session) shows as it is.
+  // A name the call gives (a teammate, an acpmux session) shows as it is, with no tooltip.
   await renderNamed("grid-fix", new Map());
   expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("grid-fix");
+  expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
 });
 
 test("Copy is in the line's hover row, after the status word, not over the line's words", async () => {
@@ -267,4 +290,35 @@ test("the shared row draws a received message too: the caller's icon, a chip tha
   expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
   await act(async () => toggle().click());
   expect(host.querySelector(".cv-agentmsg__card")?.textContent).toBe("the whole message");
+});
+
+test("an acpmux_send call draws as the same collapsed message line, never an MCP row", async () => {
+  // Agents message lanes with the acpmux MCP server (acpmux_mcp.rs) instead of piping text into
+  // `acpmux send` in a shell.
+  const row = {
+    id: "activity-2",
+    kind: "activity",
+    at: 1_000,
+    settled: true,
+    items: [
+      {
+        kind: "tool",
+        text: "mcp__cmux__acpmux_send",
+        tool: {
+          id: "t2",
+          title: "mcp__cmux__acpmux_send",
+          kind: "other",
+          status: "completed",
+          inputSummary: JSON.stringify({ to: "build-box/lane-a", text: "Rebase on main.\nThen push." }),
+          output: "Sent to lane-a: steered into its running turn (promptId 0199).",
+        },
+      },
+    ],
+  };
+  await render(row);
+  const message = host.querySelector(".cv-agentmsg")!;
+  expect(message.getAttribute("data-direction")).toBe("sent");
+  expect(message.querySelector(".cv-agentmsg__name")?.textContent).toBe("build-box/lane-a");
+  expect(message.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
 });

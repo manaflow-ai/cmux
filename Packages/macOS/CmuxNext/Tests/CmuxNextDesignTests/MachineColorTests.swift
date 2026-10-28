@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// A machine keeps one color everywhere: MachineColor picks AgentPresenceColor's accent for the
 /// trimmed, lowercased name, the same pick the agent pane's machineColor.ts makes (its test pins

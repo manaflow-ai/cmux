@@ -162,10 +162,8 @@ expect "pull request, published" pull_request ready
 
 # A pull request job resolves its artifact by the SOURCE tree key of the merge
 # tree. GitHub runs pull_request_target only from the default branch, so no
-# workflow publishes a merge tree by itself (#18121, #18130). With
-# CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs only) the probe starts ONE
-# cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit and
-# defers: that run's publish starts the tree jobs (cmux_next_tree_notify.py).
+# workflow publishes a merge tree by itself (#18121, #18130). A missing merge
+# tree is reported for trusted fleet publication; no helper ref is created.
 posts() { grep -c "$1" "$TMP/posts.log" 2>/dev/null || true; }
 : > "$TMP/posts.log"
 
@@ -196,15 +194,15 @@ expect "pull request, changed hash, dispatch off (fork)" pull_request failed "no
 [[ "$(posts dispatches)" == 0 ]] || fail "(b) a fork PR (no CMUX_TUI_TREE_DISPATCH) must not dispatch"
 unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 export CMUX_TUI_TREE_DISPATCH=1
-expect "pull request, changed hash" pull_request deferred
-[[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "(b) a changed hash needs one pin ref and one dispatch: $(cat "$TMP/posts.log")"
-grep -q "cmux-tui-pin-${merge_sha:0:12}.*$merge_sha" "$TMP/posts.log" || fail "(b) the pin ref must point at the merge commit: $(cat "$TMP/posts.log")"
-# The post-marker probe sees the queued run: still one dispatch.
-expect "pull request, changed hash, second look" pull_request deferred
-[[ "$(posts dispatches)" == 1 ]] || fail "(b) a second probe must not dispatch again: $(cat "$TMP/posts.log")"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
+expect "pull request, changed hash" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(b) a changed hash must not create a ref or dispatch: $(cat "$TMP/posts.log")"
+# A second probe remains a read-only failure until a trusted publisher appears.
+expect "pull request, changed hash, second look" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(b) a second probe must not dispatch: $(cat "$TMP/posts.log")"
 
-# (c) The API refuses a ref at the merge commit: the PR head is pinned instead,
-# but only when its tree key is the merge's (a PR whose base left cmux-tui alone).
+# (c) A merge whose tree is not published is still reported without creating a
+# ref at either the merge commit or the PR head.
 : > "$TMP/posts.log"
 git_q -C "$TMP/src" checkout -b pr2 "$base_sha"
 echo head2 > "$TMP/src/cmux-tui/a"
@@ -215,11 +213,10 @@ git_q -C "$TMP/src" merge --no-ff -m merge2 pr2
 merge2_sha=$(git -C "$TMP/src" rev-parse HEAD)
 key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
 set_runs "$none"
-export REFUSE_REF_SHA="$merge2_sha" CMUX_TUI_TREE_HEAD_SHA="$head2_sha"
-expect "pull request, merge ref refused, head has the tree" pull_request deferred
-grep -q "cmux-tui-pin-${head2_sha:0:12}.*$head2_sha" "$TMP/posts.log" || fail "(c) the PR head must be pinned: $(cat "$TMP/posts.log")"
-[[ "$(posts dispatches)" == 1 ]] || fail "(c) one dispatch: $(cat "$TMP/posts.log")"
-unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
+export REFUSE_REF_SHA="$merge2_sha" CMUX_TUI_TREE_HEAD_SHA="$head2_sha" CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
+expect "pull request, merge ref refused, head has the tree" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(c) the PR head must not be published through a helper ref: $(cat "$TMP/posts.log")"
+unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 
 # (d) The pull request's own token may write nothing (HTTP 403 on the pin ref
 # and the dispatch): main's cmux-next-pr-merge-tree.yml (pull_request_target)

@@ -103,6 +103,40 @@
         }
       }
     },
+    "conversation.composer.openAttachment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル"
+          }
+        }
+      }
+    },
+    "conversation.composer.openAttachmentHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを開きます"
+          }
+        }
+      }
+    },
     "conversation.composer.removeAttachment": {
       "extractionState": "manual",
       "localizations": {
