@@ -104,3 +104,28 @@ rendered again, and fails only when its fastest run is still past it. A state th
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
 raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
+
+## Geometry audit
+
+`geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
+animations after play settles, and records DOM rectangles/computed styles next to each screenshot.
+`geometry-lint.ts` requires the screenshot hash, source-under-test SHA, dimensions/device scale,
+coordinate space, capture tuple and semantic groups. It compares only declared peers. Missing
+or unsupported evidence fails; it never treats a rectangle bottom as a text baseline or native
+view frames as accessibility frames.
+
+The first measured baseline covers Session Info's top-block label column, in both appearances.
+Its existing 2px drift was observed at the baseline revision; the baseline records that debt with
+its reason and maximum. Other surfaces and true text-baseline/native AX checks are explicit
+coverage gaps, not passing checks. Add measured selectors/rules as each audit surface is captured.
+Baseline debt changes require review; lint never regenerates or raises it automatically.
+
+The `Gallery geometry lint` job in gallery health runs on relevant changes and on
+`workflow_dispatch` with the boolean `geometry-audit` input. It uploads `gallery-geometry`, including
+screenshots, `.geometry.json`, the selected cases and `geometry-report/geometry-report.json`.
+The same bounded command works on a fleet test worker after building the gallery:
+
+```sh
+CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir /path/to/gallery \
+  --output-dir /path/to/evidence --expected-sha FULL_SOURCE_SHA
+```
