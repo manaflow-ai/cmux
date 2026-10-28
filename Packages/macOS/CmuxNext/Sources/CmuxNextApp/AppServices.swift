@@ -815,8 +815,8 @@ final class AppServices {
         pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         // A page tab view freed with its page still in it (2026-10-28, handoff/cef-parent-tracker-crash.md).
-        pages.onFreedAttached = { [weak self] page in
-            self?.crashKeys?.page.set(.unclosedAgentPaneMaker, CrashKeySlot.unclosedAgentPane(
+        pages.onFreedAttached = { [crashKeys] page in
+            crashKeys?.page.set(.unclosedAgentPaneMaker, CrashKeySlot.unclosedAgentPane(
                 maker: UInt8(truncatingIfNeeded: AgentPaneMaker.internalPage.rawValue), uptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)))
             Logger(subsystem: "com.cmuxterm.app.next", category: "agent.pane")
                 .fault("page tab view freed with its page inside; page=\(page.rawValue, privacy: .public)")
