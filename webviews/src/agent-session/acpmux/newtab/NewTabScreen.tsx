@@ -1,7 +1,6 @@
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -350,8 +349,10 @@ export function NewTabScreen(props: Props) {
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<MarkdownFieldHandle | null>(null);
   const fieldElement = () => field.current?.element() ?? null;
-  const fieldText = () =>
-    field.current?.text() ?? { value: text, selectionStart: text.length, selectionEnd: text.length };
+  const fieldText = useCallback(
+    () => field.current?.text() ?? { value: text, selectionStart: text.length, selectionEnd: text.length },
+    [text],
+  );
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -399,6 +400,7 @@ export function NewTabScreen(props: Props) {
     pending: reading,
     cancel,
     retry,
+    expand: (id) => field.current?.removeInline(id),
     placing: () => attachmentView === "inline",
   });
   inlinePlace.current = (chips) => inline.place(chips, "paste");
@@ -850,18 +852,19 @@ export function NewTabScreen(props: Props) {
     return () => {
       dictationField.current = null;
     };
-  }, [dictationField]);
+  }, [dictationField, fieldText]);
   // A key typed anywhere on the page goes into the field, the first key kept (Lawrence
   // 2026-10-09: "if i just start typing it needs to automatically start typing"). Another field
   // (a picker's search), a menu with its own keys, a chord and IME keep theirs.
   const typeAnywhere = useRef<(event: KeyboardEvent) => void>(() => undefined);
   typeAnywhere.current = (event) => {
     const input = field.current;
+    const editor = fieldElement();
     if (!input || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
     const target = event.target as Element | null;
     const element = target && typeof target.closest === "function" ? target : undefined;
-    if (target === input || (element && ownsKeys(element))) return;
+    if (target === editor || (element && ownsKeys(element))) return;
     // Space on a focused button presses it.
     if (event.key === " " && element?.closest('button, a, summary, [role="button"]')) return;
     event.preventDefault();
