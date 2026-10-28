@@ -336,7 +336,15 @@
          cell.inactive = inactive
          cell.crispEdge = crispSends[r.spec.key] != nil
          cell.configure(r.spec)
-@@ -1885,7 +2027,7 @@
+@@ -1878,14 +2020,14 @@
+         // Connector from the root's vertical center down to this bubble.
+         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
+             let cellTop = layout.frame(for: i).minY
+-            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) / 2 } ?? layout.rowsTop
++            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.connectorAnchorY ?? 0) } ?? layout.rowsTop
+             let myTop = layout.contentTop(i)
+             cell.setConnector(top: myTop - 8.5 > rootCenter ? rootCenter - cellTop : nil, bottom: myTop - 8.5 - cellTop, mirrored: p.outgoing)
+         } else {
              cell.setConnector(top: nil, bottom: 0, mirrored: false)
          }
          step(1)

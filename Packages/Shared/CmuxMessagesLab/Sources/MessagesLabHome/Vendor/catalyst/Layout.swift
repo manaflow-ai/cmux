@@ -223,6 +223,8 @@ struct RowSpec: Hashable {
     /// Height estimated from another width (lazy re-measure after a resize).
     var estimated = false
     var metrics: Metrics { Metrics(width: width) }
+    /// The height in this row a thread connector's arc hangs from (row coordinates): its vertical middle.
+    var connectorAnchorY: CGFloat { height / 2 }
 
     /// Cheap hash: the key plus geometry. Equality still compares everything,
     /// so specs that differ only in content collide and are told apart by ==.
