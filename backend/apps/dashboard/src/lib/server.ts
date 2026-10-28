@@ -121,12 +121,15 @@ export type ApiResult<T> = { readonly status: number; readonly body: T }
  * POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401.
  * `team` (cx-5xew) names the team to act in (x-cmux-team); the API checks the membership.
  */
-const postImpl = async <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
+const postImpl = <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => callImpl<T>("POST", path, payload, team)
+
+/** One API call with the cookie's access token (GET sends no body); refreshes once on a missing token or a 401. */
+const callImpl = async <T,>(method: "GET" | "POST", path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
     const res = await fetch(`${apiUrl()}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...teamHeaders(team) },
-      body: JSON.stringify(payload)
+      method,
+      headers: { ...(method === "POST" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
+      ...(method === "POST" ? { body: JSON.stringify(payload) } : {})
     })
     return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
   }
@@ -186,3 +189,19 @@ export const wireCredential = createServerFn({ method: "POST" }).handler(async (
   if (minted.status === 200 && typeof minted.body.ticket === "string") return { protocol: `ticket.${minted.body.ticket}`, apiUrl: apiUrl() }
   return { protocol: null, apiUrl: apiUrl() }
 })
+
+/** GET /v1/billing/summary for the team in the URL: the billing page's one read (paid-plans-DESIGN.md §3). */
+export const billingSummary = createServerFn({ method: "POST" })
+  .validator((d: { team?: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return callImpl<{ ok: boolean; value?: Json; error?: { code: string; message: string } }>("GET", "/v1/billing/summary", null, data.team)
+  })
+
+/** POST /v1/credits/topup: a test-mode payment page for `usd` of credits; the browser opens the answered URL. */
+export const creditsTopup = createServerFn({ method: "POST" })
+  .validator((d: { usd: number; team?: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return callImpl<{ ok: boolean; value?: { url: string }; error?: { code: string; message: string } }>("POST", "/v1/credits/topup", { usd: data.usd }, data.team)
+  })
