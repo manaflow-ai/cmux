@@ -14,7 +14,11 @@ import Testing
         // Each item's last option, plus Other text where the item takes it (not ACP).
         var selections: [String: AgentQuestionAnswer.Selection] = [:]
         for item in question.items {
-            let last = try #require(item.options.last, "\(name): \(item.id) has no options")
+            guard let last = item.options.last else {
+                // A free-text item: its answer is the Other text.
+                selections[item.id] = .init(other: "free text")
+                continue
+            }
             let other = item.allowsOther && item.multiSelect ? "also this" : nil
             selections[item.id] = .init(optionIDs: [last.id], other: other)
         }

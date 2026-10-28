@@ -89,6 +89,9 @@ def handle_prompt(rid, params):
         text = head + text[len(head):]
         params = dict(params, prompt=[{"type": "text", "text": text}])
     arg = text.split(":", 1)[1].strip() if ":" in text else ""
+    if head in ("md", "flood", "tools", "seq", "long", "think"):
+        # A cancel that came while no turn ran must not end this one.
+        fake.cancelled.discard(sid)
     if text.startswith("md:"):
         n = int(arg or "10")
         body = f"# Long answer, {n} sections\n\n" + "".join(section(k) for k in range(1, n + 1)) + "Done: all sections streamed.\n"

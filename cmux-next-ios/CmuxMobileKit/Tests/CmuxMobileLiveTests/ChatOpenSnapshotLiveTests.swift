@@ -191,7 +191,7 @@ import Testing
                     let (records, more) = page(after: after)
                     return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(more),"events":[\#(records)]}"#)]
                 }
-                let history = (0..<Self.turns).flatMap(turnRecords).joined(separator: ",")
+                let history = (0..<Self.turns).flatMap(Self.turnRecords).joined(separator: ",")
                 return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"events":[\#(history)]}"#)]
             case "_acpmux/events":
                 let after = (params?["afterSeq"] as? NSNumber)?.intValue ?? 0
