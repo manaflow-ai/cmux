@@ -28,13 +28,17 @@ enum FrameTree {
         let selector = NSSelectorFromString("_frames:")
         guard webView.responds(to: selector) else { return [] }
         let imp = unsafeBitCast(webView.method(for: selector), to: FramesIMP.self)
-        // WebKit calls back on the main thread with the tree it owns.
+        // WebKit calls back on the main thread with the tree it owns: the node stays on the main actor.
         // A callback WebKit drops uncalled (abandoned) is an unknown tree: no frames.
-        let root = (try? await withOnceContinuation { (continuation: OnceContinuation<UncheckedNode, OnceContinuationError>) in
-            imp(webView, selector) { node in continuation.resume(returning: UncheckedNode(value: node)) }
-        })?.value
+        let reply = FrameTreeReply()
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            imp(webView, selector) { node in
+                reply.root = node
+                continuation.resume(returning: ())
+            }
+        }
         var out: [FrameRecord] = []
-        if let root { flatten(root, parent: nil, into: &out) }
+        if let root = reply.root { flatten(root, parent: nil, into: &out) }
         return out
     }
 
@@ -56,7 +60,7 @@ enum FrameTree {
     }
 }
 
-/// A frame-tree node handed across the callback; only read on the main actor.
-private nonisolated struct UncheckedNode: @unchecked Sendable {
-    let value: AnyObject?
+/// The frame-tree root WebKit's `_frames:` callback hands over, kept on the main actor until the read resumes.
+@MainActor private final class FrameTreeReply {
+    var root: AnyObject?
 }
