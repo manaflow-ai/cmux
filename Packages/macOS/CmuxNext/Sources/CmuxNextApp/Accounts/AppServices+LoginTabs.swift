@@ -44,7 +44,8 @@ extension AppServices {
             // the bounded wait removes its observer and timer when any of them finishes.
             let settled: @MainActor @Sendable () -> Bool = { [self] in
                 _ = paneMounts.generation
-                return controller.focusedPane != nil || daemon.connection !== connection
+                let mounted = controller.content?.workspace.id == workspace && controller.focusedPane != nil
+                return mounted || daemon.connection !== connection
                     || windows.registry.value.window(controller.state.id)?.isOpen != true
                     || controller.state.workspaceID != workspace
             }
