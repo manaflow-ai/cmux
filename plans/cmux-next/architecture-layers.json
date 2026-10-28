@@ -91,6 +91,7 @@
     "CmuxNextHome": {"layer": "ui"},
     "CmuxNextFilesUI": {"layer": "ui"},
     "CmuxNextFocusUI": {"layer": "ui"},
+    "CmuxNextTraceUI": {"layer": "ui", "note": "the trace recording indicator with Stop in each window's top row and its state (p09-observability-133)"},
     "CmuxNextSettingsWindow": {"layer": "ui"},
     "CmuxNextOnboarding": {"layer": "ui"},
     "CmuxNextServer": {"layer": "ui"},
