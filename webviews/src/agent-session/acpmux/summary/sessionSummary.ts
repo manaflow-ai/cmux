@@ -202,7 +202,15 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
           label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
           kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
         },
-        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
+        (() => {
+          const order = pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER;
+          const sourceKeyValue = sourceKey({
+            url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+            label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+            kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+          });
+          return seen.has(sourceKeyValue) || pr.kind !== "pullRequest" ? order : order - 0.0001;
+        })(),
       );
     }
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
