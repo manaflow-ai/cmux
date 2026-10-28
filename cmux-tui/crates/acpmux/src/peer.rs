@@ -22,6 +22,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 #[path = "peer_health.rs"]
 mod health;
 
+#[path = "peer_ssh.rs"]
+mod ssh_errors;
+
 #[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
@@ -375,7 +378,11 @@ impl Peer {
     async fn open_tunnel(
         &self,
     ) -> Result<
-        (tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>, u16),
+        (
+            tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>,
+            u16,
+            ssh_errors::Capture,
+        ),
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
@@ -383,15 +390,16 @@ impl Peer {
             .args(tunnel_argv(&host, remote_port))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("spawn ssh: {e}"))?;
+        let errors = ssh_errors::Capture::start(child.stderr.take());
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
         // Replacing the previous channel ends its ssh process.
         *self.tunnel.lock().await = Some(child);
-        Ok((tokio::io::join(stdout, stdin), remote_port))
+        Ok((tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
     /// The dashboard token (configured, else the remote daemon's own) and
@@ -419,7 +427,10 @@ impl Peer {
         // The read ends with the token `cat`, which fails when there is no
         // token: only an empty answer is a failed ssh.
         if out.stdout.is_empty() && !out.status.success() {
-            return Err(format!("ssh to {host} failed ({})", out.status));
+            return Err(ssh_errors::describe(
+                format!("ssh to {host} failed ({})", out.status),
+                ssh_errors::reason(&out.stderr),
+            ));
         }
         let (config, peer) = split_remote_read(&out.stdout);
         let peer = self.peer_token.clone().or(peer);
@@ -853,7 +864,12 @@ impl Peer {
             if restarting {
                 continue;
             }
-            let delay = backoff.next(crate::peer_link::jitter());
+            // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
+            let delay = self.link().retry_delay(
+                &mut backoff,
+                crate::store::now_ms(),
+                crate::peer_link::jitter(),
+            );
             match self.wait_backoff(delay).await {
                 BackoffWait::Done => {}
                 // The network that failed before the sleep may take a moment to come back: the
@@ -984,25 +1000,36 @@ impl Peer {
                 None => self.remote_tokens_settled().await?,
             };
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
-            let (stream, remote_port) = self.open_tunnel().await?;
-            let req = self.ws_request(
-                &format!("ws://127.0.0.1:{remote_port}"),
-                Some(&token),
-                peer_token.as_deref(),
-            )?;
-            // A peer forwards the pane's prompts and their images: the listener's limits.
-            let (ws, _) = tokio::time::timeout(
-                self.timings.connect,
-                tokio_tungstenite::client_async_with_config(
-                    req,
-                    stream,
-                    Some(crate::server::ws_config()),
-                ),
-            )
-            .await
-            .map_err(|_| connect_timed_out(self.timings.connect))?
-            .map_err(|e| e.to_string())?;
-            return self.serve(ws, out_rx).await;
+            let (stream, remote_port, errors) = self.open_tunnel().await?;
+            let outcome = async {
+                let req = self.ws_request(
+                    &format!("ws://127.0.0.1:{remote_port}"),
+                    Some(&token),
+                    peer_token.as_deref(),
+                )?;
+                // A peer forwards the pane's prompts and their images: the listener's limits.
+                let (ws, _) = tokio::time::timeout(
+                    self.timings.connect,
+                    tokio_tungstenite::client_async_with_config(
+                        req,
+                        stream,
+                        Some(crate::server::ws_config()),
+                    ),
+                )
+                .await
+                .map_err(|_| connect_timed_out(self.timings.connect))?
+                .map_err(|e| e.to_string())?;
+                self.serve(ws, out_rx).await
+            }
+            .await;
+            // End the owned SSH process now, including when its next attempt is an hour away.
+            if let Some(mut child) = self.tunnel.lock().await.take() {
+                let _ = child.start_kill();
+            }
+            return match outcome {
+                Ok(()) => Ok(()),
+                Err(error) => Err(ssh_errors::describe(error, errors.finish().await)),
+            };
         }
         *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // The peer token never crosses a network in clear.

@@ -275,7 +275,10 @@ fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
         ("user@example.invalid: Permission denied (publickey).", "Permission denied"),
         ("Host key verification failed.", "Host key verification failed"),
         ("ssh: connect to host example.invalid port 22: Connection timed out", "timed out"),
-    ].into_iter().enumerate() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         for configured in [false, true] {
             let tag = format!("ssh-reason-{index}-{configured}");
             let dir = tempfile::tempdir().unwrap();
@@ -293,8 +296,7 @@ fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
             }
             let added = unix(&daemon.home, "_acpmux/peer_add", params);
             assert!(added.get("error").is_none(), "{added}");
-            let listing = daemon_env::acpmux(&daemon.home)
-                .args(["host", "ls"]).output().unwrap();
+            let listing = daemon_env::acpmux(&daemon.home).args(["host", "ls"]).output().unwrap();
             assert!(listing.status.success(), "host ls failed");
             let text = String::from_utf8_lossy(&listing.stdout);
             assert!(text.contains(expected), "missing {expected}: {text}");

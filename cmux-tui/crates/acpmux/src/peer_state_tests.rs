@@ -284,7 +284,11 @@ async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
     running.await.unwrap();
     assert!(early.is_err(), "a day-old outage retried within two minutes");
     let refusal = tokio::time::timeout(
-        Duration::from_millis(1), peer.request(method::SESSION_NEW, json!({})),
-    ).await.expect("a parked peer refuses immediately").unwrap_err();
+        Duration::from_millis(1),
+        peer.request(method::SESSION_NEW, json!({})),
+    )
+    .await
+    .expect("a parked peer refuses immediately")
+    .unwrap_err();
     assert_eq!(reason(&refusal), Some("peer_unreachable"));
 }

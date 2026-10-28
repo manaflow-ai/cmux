@@ -258,6 +258,20 @@ impl Link {
     pub fn seed(&mut self, last_seen: Option<u64>) {
         if self.last_seen.is_none() {
             self.last_seen = last_seen;
+            self.down_since = last_seen;
+        }
+    }
+
+    /// A day without a successful handshake parks automatic retries. The first attempt
+    /// still runs immediately; an explicit reconnect replaces the instance and also runs
+    /// immediately. Existing rows and dead-link request refusal are independent of this delay.
+    pub fn retry_delay(&self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
+        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= DAY_MS) {
+            // Small positive jitter keeps many retired hosts from retrying in lockstep.
+            Duration::from_secs(3_600) + Duration::from_secs(60).mul_f64(jitter.clamp(0.0, 1.0))
+        } else {
+            backoff.next(jitter)
         }
     }
 
@@ -478,6 +492,24 @@ mod tests {
         assert_eq!(saved.state(), PeerState::Reconnecting);
         saved.seed(Some(1));
         assert_eq!(saved.last_seen, Some(500), "a seed never overrides what this run saw");
+    }
+
+    #[test]
+    fn retry_parking_survives_cache_seed_and_ends_at_a_successful_handshake() {
+        let mut link = Link::default();
+        let mut backoff = Backoff::default();
+        let day = 86_400_000;
+        link.seed(Some(1_000));
+        assert!(link.retry_delay(&mut backoff, 1_000 + day - 1, 0.0) <= Backoff::CAP);
+        assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 0.0), Duration::from_secs(3_600));
+        assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 1.0), Duration::from_secs(3_660));
+        link.opened(day + 2_000);
+        link.down(day + 2_001, STABLE);
+        assert!(link.retry_delay(&mut backoff, day + 2_001, 0.0) >= Duration::from_secs(3_600));
+        link.opened(day + 3_000);
+        link.ready(day + 3_001);
+        link.down(day + 3_002, STABLE);
+        assert!(link.retry_delay(&mut backoff, day + 3_002, 0.0) <= Backoff::CAP);
     }
 
     #[test]
