@@ -6,7 +6,11 @@
 // queueing on or off, Delete. Once acpmux starts it, the queue drops it and the prompt's own row
 // is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
+// A guest's prompt is not the owner's either (design/chat-multiplayer.md, "Held message card"): it
+// draws here as a message from that person, held with Approve and Decline while it waits for the
+// owner (acpmux `awaitingOwner`), then with the queue's label once approved.
 import type { ComposerAttachment } from "../attachments";
+import { isGuest } from "../multiplayer/participants";
 import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -14,9 +18,16 @@ type QueuedEntry = AcpmuxSnapshot["queue"][number];
 /// Whether a queue entry is another agent's message (direct.ts `queuedMessage` named its sender).
 export const isAgentEntry = (entry: QueuedEntry) => entry.message !== undefined;
 
+/// Whether a queue entry is a guest's prompt: held for the owner, or a guest's the owner approved.
+/// A teammate's prompt stays a composer-queue row under their name (ComposerQueue.tsx).
+export const isHeldEntry = (entry: QueuedEntry) => entry.awaitingOwner === true || isGuest(entry.author);
+
+/// Whether a queue entry draws in the transcript rather than as a composer-queue row.
+const inTranscript = (entry: QueuedEntry) => isAgentEntry(entry) || isHeldEntry(entry);
+
 /// The person's own queued prompts, in the queue's order: the composer's queue rows.
 export function ownQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
-  return queue.some(isAgentEntry) ? queue.filter((entry) => !isAgentEntry(entry)) : queue;
+  return queue.some(inTranscript) ? queue.filter((entry) => !inTranscript(entry)) : queue;
 }
 
 /// The transcript row id of queued message `promptId`.
@@ -27,12 +38,15 @@ export const queuedMessageRowId = (promptId: string) => `queued-message-${prompt
 const rowsByEntry = new WeakMap<QueuedEntry, AcpmuxRow>();
 let version = 0;
 
-/// The queue's agent messages as transcript rows (kind `QUEUED_MESSAGE`), in the queue's order.
-/// The same entries give the same array back, so the transcript's rows keep their identity.
+/// The queue's agent messages and guests' prompts as transcript rows (kind `QUEUED_MESSAGE`), in the
+/// queue's order. The same entries give the same array back, so the transcript's rows keep their identity.
 export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
   const rows: AcpmuxRow[] = [];
   for (const entry of queue) {
-    const message = entry.message;
+    const person = isHeldEntry(entry) ? entry.author : undefined;
+    const message =
+      entry.message ??
+      (isHeldEntry(entry) ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt } : undefined);
     if (!message) continue;
     let row = rowsByEntry.get(entry);
     if (!row) {
@@ -43,7 +57,12 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         kind: QUEUED_MESSAGE,
         text: message.text,
         incoming: { kind: "message", message },
-        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}) },
+        queuedMessage: {
+          promptId: entry.id,
+          ...(entry.next ? { next: true } : {}),
+          ...(person ? { person } : {}),
+          ...(entry.awaitingOwner ? { held: true } : {}),
+        },
         untyped: true,
         ...(entry.images?.length ? { images: entry.images } : {}),
       };

@@ -17,6 +17,11 @@ export function answerParams(
   item: NeedsYouItem,
   choice: NeedsYouAnswer,
 ): { method: string; params: Record<string, unknown> } | undefined {
+  if (item.kind === "held" && item.promptId)
+    return {
+      method: choice.id === "approve" ? "chat.queue.approve" : "chat.queue.decline",
+      params: { promptId: item.promptId },
+    };
   if (item.kind === "held")
     return item.peer ? { method: "chat.agentPair.resume", params: { peer: item.peer } } : undefined;
   if (!item.permissionId) return undefined;
@@ -37,7 +42,7 @@ export function useNeedsYou({
   callNative,
   sideSession,
 }: {
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows"> & { queue?: AcpmuxSnapshot["queue"] };
   callNative: CallNative;
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
@@ -45,13 +50,13 @@ export function useNeedsYou({
 }): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
-  const { sessions, asks, sessionId, rows } = snapshot;
+  const { sessions, asks, sessionId, rows, queue } = snapshot;
   const items = useMemo(
     () =>
       mode === "off" && !pillOn
         ? []
-        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows } }),
-    [mode, pillOn, sessions, asks, sessionId, rows],
+        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows, queue } }),
+    [mode, pillOn, sessions, asks, sessionId, rows, queue],
   );
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
@@ -63,7 +68,9 @@ export function useNeedsYou({
       if (item.turnId) void revealTurnWhenShown(item.turnId);
       else
         document
-          .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
+          .querySelector(
+            item.promptId ? ".cv-held[data-held]" : item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission",
+          )
           ?.scrollIntoView({ block: "nearest" });
     };
     if (item.sessionId === sessionId) return reveal();

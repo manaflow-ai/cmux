@@ -400,6 +400,7 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
+              features: ["queueApproval"],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
             },
@@ -545,6 +546,16 @@ export class MockAcpmuxSocket {
         if (!image) throw Object.assign(new Error(`no image ${id} in this chat`), { code: -32001 });
         return image;
       }
+      // A guest's held prompt: acpmux records the owner's answer (design/chat-multiplayer.md 4.1).
+      case "_acpmux/queue_approve":
+      case "_acpmux/queue_decline":
+        this.emit(target, {
+          mux: method === "_acpmux/queue_approve" ? "queue_approved" : "queue_declined",
+          msg: { promptId: params.promptId, revision: params.revision ?? 0 },
+        });
+        if (method === "_acpmux/queue_decline")
+          this.emit(target, { mux: "queue_removed", msg: { promptId: params.promptId, reason: "declined" } });
+        return {};
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};

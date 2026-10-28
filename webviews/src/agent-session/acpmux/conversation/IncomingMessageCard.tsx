@@ -59,6 +59,8 @@ import { cancelResize, playResize } from "./fold";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { wholeLineCut } from "./lineCut";
+import { Face } from "../multiplayer/Faces";
+import { isGuest, type Participant } from "../multiplayer/participants";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -76,6 +78,7 @@ export function IncomingMessageLine({
   id,
   message,
   messageAt,
+  person,
   images,
   onOpen,
   onReply,
@@ -87,6 +90,9 @@ export function IncomingMessageLine({
   message: IncomingMessage;
   /// The containing transcript row's epoch timestamp, used to date bare UTC times.
   messageAt?: number;
+  /// A person's message (a guest's held prompt, QueuedMessageCard.tsx): their face in the icon
+  /// column and their name, "<name> (guest)" for a link guest, in place of an agent's.
+  person?: Participant;
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
@@ -143,7 +149,8 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
+  // A person is never a chat: their name never finds one (a guest names themselves).
+  const sender = useSenderChat(person ? "" : message.name, person ? undefined : message.sessionId);
   const sessionId = sender.sessionId;
   const place = useSenderPlace(sessionId);
   const avatar = useAgentAvatar(sessionId);
@@ -227,7 +234,13 @@ export function IncomingMessageLine({
     ? t("subagents.openOnHost", { name: message.name, host: sender.host })
     : t("subagents.open", { name: message.name });
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = person
+    ? isGuest(person)
+      ? t("multiplayer.guestName", { name: person.name })
+      : person.name
+    : message.relation
+      ? t(RELATION_LABEL[message.relation], { name: message.name })
+      : message.name;
   const label = folded
     ? t("message.collapsedLabel", { from, preview: preview || t("message.noText") })
     : t("message.label", { from, to: t("message.self") });
@@ -368,7 +381,9 @@ export function IncomingMessageLine({
     <div className="cv-received" data-open={open || undefined} data-minimal={minimal || undefined}>
       <div className="cv-received__line">
         <span className="cv-received__icon">
-          {avatar ? (
+          {person ? (
+            <Face person={person} />
+          ) : avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
           ) : (
             <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />

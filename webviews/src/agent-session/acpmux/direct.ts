@@ -28,6 +28,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
+import { QUEUED_MESSAGE } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -492,6 +493,7 @@ function queuedEntry(
   message?: IncomingMessage,
   author?: Participant,
   inlineParts?: PromptContentPart[],
+  hold: Hold = {},
 ): QueuedPrompt {
   return {
     id,
@@ -502,8 +504,18 @@ function queuedEntry(
     ...(message ? { message } : {}),
     ...(author ? { author } : {}),
     ...(inlineParts?.length ? { inlineParts } : {}),
+    ...(hold.awaitingOwner ? { awaitingOwner: true } : {}),
+    ...(hold.revision !== undefined ? { revision: hold.revision } : {}),
   };
 }
+
+/// A guest's prompt's hold (acpmux `awaitingOwner`, `revision`): whether it waits for the owner,
+/// and the revision Approve names (a guest's edit makes a new one, `queue.stale` on an older).
+type Hold = { awaitingOwner?: boolean; revision?: number };
+const holdOf = (msg: any, had?: Hold): Hold => ({
+  awaitingOwner: typeof msg?.awaitingOwner === "boolean" ? msg.awaitingOwner : had?.awaitingOwner,
+  revision: typeof msg?.revision === "number" ? msg.revision : had?.revision,
+});
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
 /// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
@@ -637,6 +649,8 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
+      // A guest's prompt that waits for the owner (acpmux lists `awaitingOwner`; an older one, none).
+      holdOf(entry, had),
     );
   });
 }
@@ -1695,6 +1709,9 @@ export class AcpmuxDirectClient {
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
+      const features = initialized?._meta?.acpmux?.features;
+      // The owner's Approve and Decline of a guest's prompt (`_acpmux/queue_approve`).
+      this.queueApproval = Array.isArray(features) && features.includes("queueApproval");
       const origin = initialized?._meta?.acpmux?.origin;
       this.origin = origin === "local" || origin === "remote" || origin === "peer" ? origin : "unknown";
       this.handoffSupported = supportsHandoff(initialized);
@@ -3611,6 +3628,8 @@ export class AcpmuxDirectClient {
               undefined,
               promptAuthor(msg),
               recordedPromptParts(msg, entry.inlineParts) ?? entry.inlineParts,
+              // A guest's own edit keeps it waiting for the owner, at a new revision.
+              holdOf(msg, entry),
             )
           : entry,
       );
@@ -3637,6 +3656,7 @@ export class AcpmuxDirectClient {
                 entry.message,
                 entry.author,
                 entry.inlineParts,
+                entry,
               ),
         );
     } else if (event.kind === "queued") {
@@ -3663,9 +3683,17 @@ export class AcpmuxDirectClient {
               msg,
               this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
             ) ?? this.optimisticPromptParts.get(id),
+            // A guest's prompt waits for the owner's Approve or Decline (QueuedMessageCard.tsx).
+            holdOf(msg),
           ),
         ];
       }
+    } else if (event.kind === "queue_approved") {
+      // The owner approved a guest's prompt: it waits in the queue as any prompt does now.
+      const id = String(msg.promptId ?? "");
+      this.queue = this.queue.map((entry) =>
+        entry.id === id && entry.awaitingOwner ? { ...entry, awaitingOwner: undefined } : entry,
+      );
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
       if (id && this.optimisticPromptRows.has(id)) {
@@ -3674,7 +3702,12 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
-    } else if (event.kind === "queue_removed" || event.kind === "dequeued" || event.kind === "prompt_refused") {
+    } else if (
+      event.kind === "queue_removed" ||
+      event.kind === "dequeued" ||
+      event.kind === "prompt_refused" ||
+      event.kind === "queue_declined"
+    ) {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
       this.queueAuthors.delete(id);
@@ -4256,6 +4289,10 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
+      } else if (event.kind === "queue_declined") {
+        // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
+        this.declinedRow(event);
+        this.reduceLiveState(event);
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
@@ -4724,6 +4761,7 @@ export class AcpmuxDirectClient {
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
       queue: this.shownQueue(),
+      ...(this.queueApproval ? { queueApproval: true } : {}),
       ...(this.queueWithdrawn.length ? { queueWithdrawn: this.queueWithdrawn } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
@@ -5423,6 +5461,35 @@ export class AcpmuxDirectClient {
       this.stopGaveUp = true;
       this.notice(translate("stop.forced"));
     }, STOP_GRACE_MS);
+  }
+  /// The owner's Approve (`_acpmux/queue_approve`) or Decline (`_acpmux/queue_decline`) of a guest's
+  /// prompt that waits for them (conversation/QueuedMessageCard.tsx); rejects when acpmux refused it.
+  /// Approve names the revision the owner saw: a guest's edit since is refused (`queue.stale`).
+  answerHeld(promptId: string, approve: boolean): Promise<unknown> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    if (!approve) return this.request("_acpmux/queue_decline", { sessionId, promptId });
+    const revision = this.queue.find((entry) => entry.id === promptId)?.revision ?? 0;
+    return this.request("_acpmux/queue_approve", { sessionId, promptId, revision });
+  }
+  /// Whether this acpmux serves the owner's Approve and Decline (initialize feature `queueApproval`).
+  private queueApproval = false;
+  /// A declined guest prompt's row (`queue_declined`), from its queue entry while the pane still has it.
+  private declinedRow(event: EventRecord): void {
+    const promptId = String(event.msg?.promptId ?? "");
+    const entry = this.queue.find((each) => each.id === promptId);
+    const text = entry?.prompt ?? (typeof event.msg?.text === "string" ? event.msg.text : "");
+    if (!promptId || !entry?.author) return;
+    this.rows.set(`declined-${promptId}`, {
+      id: `declined-${promptId}`,
+      version: 1,
+      at: event.at,
+      kind: QUEUED_MESSAGE,
+      text,
+      incoming: { kind: "message", message: { name: entry.author.name, text, raw: text } },
+      queuedMessage: { promptId, person: entry.author, declined: true },
+      untyped: true,
+    });
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
