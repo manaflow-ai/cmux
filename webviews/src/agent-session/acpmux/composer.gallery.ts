@@ -13,6 +13,8 @@ import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
 const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
+/// Where the host saved Attach Screenshot…'s capture as taken (AgentChatUploads, the chat's upload folder).
+const CAPTURE_ORIGINAL = "/Users/dev/Library/Application Support/cmux/Chat Uploads/sessions/1/capture/0/Screenshot.png";
 const VIDEO_INFO = {
   durationMs: 42_400,
   width: 1920,
@@ -1601,7 +1603,7 @@ export default agentPaneEntry({
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
-      note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns, saves the original for the agent and puts focus back in the prompt.",
+      note: "Play: + > Attach Screenshot… asks the host for a region capture, which saves the original in the chat's uploads within the click's own gesture and answers a preview with the original's path; the chip carries both, the page sends no bytes back, and focus returns to the prompt.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1618,6 +1620,8 @@ export default agentPaneEntry({
           name: "Screenshot.png",
           mimeType: "image/png",
           data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          // The host staged the capture as taken (AgentPaneCapture.stage) in the click's gesture.
+          original: { path: CAPTURE_ORIGINAL, name: "Screenshot.png" },
         },
       },
       play: async (ctx) => {
@@ -1631,15 +1635,42 @@ export default agentPaneEntry({
         const asked = log.find(({ method }) => method === "composer.capture");
         if ((asked?.params as { mode?: string } | undefined)?.mode !== "screen")
           throw new Error(`capture asked ${JSON.stringify(asked)}`);
-        // The chip carries the page's preview; the capture itself is the person's original and is
-        // saved for the agent as a pasted screenshot's is, at any size.
+        // The chip carries the preview and the original's path (the kept draft names it), so the
+        // prompt links the capture as taken. The click's one gesture went to the capture: the page
+        // never sends the bytes back, which would need a second.
         await ctx.waitFor(() =>
           log.some(
             ({ method, params }) =>
-              method === "chat.upload.finish" &&
-              String((params as { token?: string } | undefined)?.token).endsWith("Screenshot.png"),
+              method === "chat.draftAttachments" &&
+              (params as { attachments?: { kind?: string; originalPath?: string }[] } | undefined)?.attachments?.some(
+                (chip) => chip.kind === "image" && chip.originalPath === CAPTURE_ORIGINAL,
+              ),
           ),
         );
+        const sentBack = log.find(({ method }) => method === "chat.upload.begin" || method === "chat.upload");
+        if (sentBack) throw new Error(`the page sent the capture back: ${sentBack.method}`);
+      },
+    },
+    "gesture-credit-once": {
+      note: "The pane bridge's stand-in keeps the app's gesture rule: one click is one credit, so a second call that needs a gesture is refused until the next.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView as unknown as {
+          webkit: { messageHandlers: { agentSession: { postMessage(message: unknown): Promise<unknown> } } };
+        };
+        const begin = () =>
+          view.webkit.messageHandlers.agentSession.postMessage({
+            method: "chat.upload.begin",
+            params: { name: "a.bin", size: 1 },
+          }) as Promise<{ ok?: boolean; error?: { code?: string } }>;
+        await ctx.click({ selector: ".acpmux-md" });
+        const first = await begin();
+        if (!first.ok) throw new Error(`the click's credit was refused: ${JSON.stringify(first)}`);
+        const second = await begin();
+        if (second.error?.code !== "transport.gesture_required")
+          throw new Error(`a second call used the same click: ${JSON.stringify(second)}`);
+        await ctx.click({ selector: ".acpmux-md" });
+        if (!(await begin()).ok) throw new Error("a new click gave no new credit");
       },
     },
     "attach-window-cancelled": {

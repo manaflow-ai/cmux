@@ -1,7 +1,9 @@
 // Attach Screenshot… and Attach Window… in the composer's + menu (cx-ncc.71, Codex desktop app
-// parity): the host captures with macOS screencapture and the page attaches the image as a chip,
-// at any size, and saves its original for the agent; either way, focus returns to the prompt.
-// The composer gallery's plays answer the host call in Chromium.
+// parity): the host captures with macOS screencapture, saves the capture as taken in the chat's
+// uploads within the click's one gesture, and answers a preview with the original's path; the page
+// attaches both as one chip and never sends the bytes back. Either way, focus returns to the prompt.
+// The composer gallery's plays answer the host call in Chromium, on a bridge stand-in that keeps the
+// app's one-credit-per-gesture rule.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -63,7 +65,12 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
     return result;
   };
 
-  test("Attach Screenshot… attaches the host's region capture", async () => {
+  test("the bridge stand-in gives one gesture credit per click", async () => {
+    const result = await play("gesture-credit-once");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("Attach Screenshot… attaches the host's region capture with its original's path, in one gesture", async () => {
     const result = await play("attach-screenshot");
     expect(playFailures(result.report)).toEqual([]);
   });
