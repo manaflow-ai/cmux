@@ -14,6 +14,8 @@ struct QuitConfirmPolicyTests {
                                        incognitoPrograms: [], remoteSessions: false)
     private static let agentWorking = QuitFacts(terminals: 0, programs: [], incognitoPrograms: [], remoteSessions: false,
                                                 agents: QuitAgentFacts(live: 1, inTurn: 1, inTurnNames: ["Fix tests"]))
+    private static let chiefWorking = QuitFacts(terminals: 0, programs: [], incognitoPrograms: [], remoteSessions: false,
+                                                agents: QuitAgentFacts(live: 0, inTurn: 0, inTurnNames: [], chiefInTurn: true))
 
     private func asks(_ decision: QuitDecision) -> QuitPrompt? {
         if case .ask(let prompt) = decision { return prompt }
@@ -35,6 +37,13 @@ struct QuitConfirmPolicyTests {
         #expect(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .dirtyOnly, facts: Self.idle) == .quit(.keep))
         #expect(asks(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .dirtyOnly, facts: Self.busy)) != nil)
         #expect(asks(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .dirtyOnly, facts: Self.agentWorking)) != nil)
+    }
+
+    /// The census reports a Home Chief turn apart from `inTurn`; a Chief that
+    /// is the only agent in a turn still asks, and the dialog says it keeps running.
+    @Test func dirtyOnlyAsksWhileOnlyTheChiefIsInATurn() {
+        let prompt = asks(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .dirtyOnly, facts: Self.chiefWorking))
+        #expect(prompt?.chiefKeepsRunning == true)
     }
 
     @Test func onlyAnInteractiveQuitAsks() {

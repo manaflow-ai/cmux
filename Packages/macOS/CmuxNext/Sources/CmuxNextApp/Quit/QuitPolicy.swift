@@ -30,7 +30,7 @@ enum QuitPolicy {
     /// reattach on the next launch; a remembered end choice applies as set.
     /// `confirm` (`app.confirmQuit`, classic's key) puts "Quit cmux?" back
     /// for an interactive quit: "always", or "dirty-only" while a program
-    /// runs or an agent is in a turn. Otherwise the one question left is
+    /// runs or an agent (the Home Chief too) is in a turn. Otherwise the one question left is
     /// incognito windows' running programs, which end with the windows and
     /// cannot come back. Either is asked at most once (#17501): never after
     /// the unsaved-changes question (`alreadyAsked`).
@@ -51,7 +51,8 @@ enum QuitPolicy {
         }
         let confirms = switch confirm {
         case .always: true
-        case .dirtyOnly: !facts.programs.isEmpty || (facts.agents?.inTurn ?? 0) > 0
+        // The Home Chief counts: the census keeps its turns out of `inTurn`.
+        case .dirtyOnly: !facts.programs.isEmpty || (facts.agents?.inTurn ?? 0) > 0 || facts.agents?.chiefInTurn == true
         case .never: false
         }
         guard !alreadyAsked, confirms || !facts.incognitoPrograms.isEmpty else { return .quit(remembered ?? .keep) }
