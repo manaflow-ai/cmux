@@ -99,8 +99,8 @@ test("the first nonempty child thought settles reply Sources without rescanning 
   think("Checking the next step");
   const settled = sessionSummary(fold.views().a!, "acme/app");
   expect(settled.sources.map((source) => source.url)).toEqual([
-    "https://github.com/acme/app/issues/7",
     "https://example.com/guide",
+    "https://github.com/acme/app/issues/7",
   ]);
   for (let index = 0; index < 50; index++) {
     think(" more");

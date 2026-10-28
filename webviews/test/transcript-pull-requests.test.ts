@@ -378,6 +378,17 @@ test("sources include fetched URLs, files read and MCP tools", () => {
   ]);
 });
 
+test("Sources keep transcript encounter order across fetched URLs and PR mentions", () => {
+  const rows = [
+    toolsRows(tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }))[0]!,
+    activity([shell("gh pr view 41 -R acme/app")], 2),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
+    { url: "https://github.com/acme/app/pull/41", label: "acme/app #41", kind: "pullRequest" },
+  ]);
+});
+
 test("update-branch is a Change and JSON titles preserve apostrophes", () => {
   const rows = toolsRows(
     shell("gh pr update-branch 41 -R acme/uploader"),

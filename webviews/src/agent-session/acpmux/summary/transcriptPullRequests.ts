@@ -38,6 +38,8 @@ export type SummaryPullRequest = {
   changed?: boolean;
   /// Only named, never acted on as a pull request: it may be an issue.
   mentioned?: boolean;
+  /// The first transcript row that named it, for Sources' encounter order.
+  firstTouched?: number;
   /// Where in the transcript the chat last touched or named it (rises with each row), for order.
   touched?: number;
 };
@@ -414,6 +416,8 @@ export function transcriptPullRequests(
         ? (known.get(ref.name) ?? (ref.orFolder ? folder : undefined))
         : folder;
 
+  // Issues and pull requests share a number space. Keep one record per repository/number so an
+  // `/issues/N` mention and a later (or earlier) PR reference cannot leave duplicate Sources.
   const found = new Map<string, SummaryPullRequest>();
   const note = (
     repo: string,
@@ -426,29 +430,24 @@ export function transcriptPullRequests(
   ) => {
     if (number <= 0) return;
     const prUrl = urlOf(repo, number),
-      issueUrl = issueUrlOf(repo, number);
+      issueUrl = issueUrlOf(repo, number),
+      identity = `${repo.toLowerCase()}#${number}`;
     // GitHub issues and PRs share a number space; /issues/N may redirect to a proven PR. Once a
     // record has been proven as a PR, later issue evidence (including comment fragments) reuses it.
-    const priorPullRequest = found.get(prUrl);
+    const prior = found.get(identity);
     if (
       (!kind && how !== "mentioned") ||
-      priorPullRequest?.kind === "pullRequest" ||
-      priorPullRequest?.changed ||
-      priorPullRequest?.opened
+      prior?.kind === "pullRequest"
     )
       kind = "pullRequest";
-    if (!kind && how === "mentioned" && found.has(issueUrl)) kind = "issue";
-    const priorIssue = kind === "pullRequest" ? found.get(issueUrl) : undefined;
-    if (kind === "pullRequest") found.delete(issueUrl);
-    if (kind === "issue" && !found.get(prUrl)?.kind) found.delete(prUrl);
+    if (!kind && prior?.kind) kind = prior.kind;
     const url = kind === "issue" ? issueUrl : prUrl;
-    const pr = found.get(url) ?? priorIssue;
+    const pr = prior;
     if (pr) {
       pr.url = url;
-      found.set(url, pr);
     }
     if (!pr) {
-      found.set(url, {
+      found.set(identity, {
         url,
         repo,
         number,
@@ -458,6 +457,7 @@ export function transcriptPullRequests(
         opened: how === "opened",
         ...(changed || how === "opened" ? { changed: true } : {}),
         ...(how === "mentioned" ? { mentioned: true } : {}),
+        firstTouched: at,
         touched: at,
       });
       return;
