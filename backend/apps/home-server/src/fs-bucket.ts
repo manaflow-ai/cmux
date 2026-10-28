@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import { createReadStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { open } from "node:fs/promises"
 import { dirname, join, relative, sep } from "node:path"
 
@@ -130,16 +130,7 @@ export class FsBucket {
       throw error
     }
     const meta: StoredMeta = { ...stored, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}), uploaded: Date.now() }
-    if (options.onlyIf?.etagDoesNotMatch === "*") {
-      // Link is an atomic create: unlike HEAD-then-rename, two concurrent
-      // writers cannot both win this conditional put.
-      try { linkSync(tmp, file) } catch (error) {
-        rmSync(tmp, { force: true })
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") return null
-        throw error
-      }
-      rmSync(tmp, { force: true })
-    } else renameSync(tmp, file)
+    renameSync(tmp, file)
     writeFileSync(`${file}.meta.json`, JSON.stringify(meta))
     return this.object(key, meta)
   }

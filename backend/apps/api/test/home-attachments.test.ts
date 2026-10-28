@@ -47,43 +47,11 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
 })
 
 describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
-  it("streams an original larger than one Worker request as ordered multipart pieces", async () => {
+  it("streams an original as ordered parts; each part PUT and the completion make the same R2 calls whatever the file's size", async () => {
     const alice = await signIn("att-multipart-alice")
     const { id } = await group(alice)
-    const body = new Uint8Array(32 * 1024 * 1024 + 17)
-    for (let i = 0; i < body.length; i++) body[i] = i % 251
-    const r = await intent(alice, id, body, { multipart: true })
-    expect(r.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT" })
-    const partSize = r.json.value.part_size as number
-    expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: new Uint8Array([1]), headers: { "content-length": "1", "x-cmux-part-number": "3" } })).status).toBe(400)
-    expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: new Uint8Array([1]), headers: { "content-length": "1", "x-cmux-part-number": "1" } })).status).toBe(400)
-    const parts: Array<{ part_number: number; byte_count: number; etag?: string }> = []
-    for (let start = 0, part = 1; start < body.length; start += partSize, part++) {
-      const piece = body.subarray(start, Math.min(body.length, start + partSize))
-      const request = () => ({ method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } } as const)
-      const reply = await worker.fetch(r.json.value.upload_url, request())
-      expect(reply.status).toBe(200)
-      // A repeated PUT of a stored part is refused before it reaches R2, so the stored part stays.
-      expect((await worker.fetch(r.json.value.upload_url, request())).status).toBe(409)
-      const value = ((await reply.json()) as any).value
-      parts.push({ part_number: part, byte_count: piece.byteLength, etag: value.etag })
-    }
-    const missing = parts.map((part) => ({ ...part, etag: "missing" }))
-    expect((await post("/v1/home/attachments/multipart/complete", alice.token, { conversation: id, slot: r.json.value.slot, parts: missing })).status).toBe(409)
-    const done = await post("/v1/home/attachments/multipart/complete", alice.token, { conversation: id, slot: r.json.value.slot, parts })
-    expect(done.status).toBe(200)
-    expect(done.json.value.state).toBe("stored")
-    const fetched = await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)
-    const downloaded = new Uint8Array(await fetched.arrayBuffer())
-    expect(downloaded.byteLength).toBe(body.byteLength)
-    expect(sha(downloaded)).toBe(sha(body))
-    expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects).toHaveLength(1)
-  })
-
-  it("each part PUT and the completion make the same R2 calls whatever the file's size (Workers cap subrequests per invocation)", async () => {
-    const alice = await signIn("att-multipart-calls")
-    const { id } = await group(alice)
     const { handleAttachmentMultipartComplete, handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    // Workers cap subrequests per invocation: count every R2 call each request makes.
     const counted = (calls: Array<string>) => {
       const wrap = <T extends object>(target: T, name: string): T =>
         new Proxy(target, {
@@ -102,33 +70,43 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     }
     const run = async (body: Uint8Array) => {
       const r = await intent(alice, id, body, { multipart: true, mime_type: "application/octet-stream", name: "a.bin", width: undefined, height: undefined })
+      expect(r.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT" })
       const size = r.json.value.part_size as number
       const token = new URL(r.json.value.upload_url).pathname.split("/").pop()!
+      const putPart = (piece: Uint8Array, part: number, env: object = testEnv) =>
+        handleAttachmentMultipartPart(new Request(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } }), env as typeof testEnv, id, token)
+      expect((await putPart(new Uint8Array([1]), 1)).status).toBe(400)
       const puts: Array<string> = []
       const parts: Array<{ part_number: number; byte_count: number; etag: string }> = []
       for (let start = 0, part = 1; start < body.length; start += size, part++) {
         const piece = body.subarray(start, start + size)
         const calls: Array<string> = []
-        const req = new Request(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } })
-        const res = await handleAttachmentMultipartPart(req, counted(calls), id, token)
+        const res = await putPart(piece, part, counted(calls))
         expect(res.status).toBe(200)
         parts.push({ part_number: part, byte_count: piece.byteLength, etag: ((await res.json()) as any).value.etag })
         puts.push(calls.join())
+        // A repeated PUT of a stored part is refused before it reaches R2, so the stored part stays.
+        expect((await putPart(piece, part)).status).toBe(409)
       }
-      const complete: Array<string> = []
-      const req = new Request("https://api.test/v1/home/attachments/multipart/complete", {
-        method: "POST",
-        headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
-        body: JSON.stringify({ conversation: id, slot: r.json.value.slot, parts })
-      })
-      expect((await handleAttachmentMultipartComplete(req, counted(complete))).status).toBe(200)
-      return { puts, complete }
+      const complete = (list: Array<unknown>, env: object = testEnv) =>
+        handleAttachmentMultipartComplete(
+          new Request("https://api.test/v1/home/attachments/multipart/complete", { method: "POST", headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" }, body: JSON.stringify({ conversation: id, slot: r.json.value.slot, parts: list }) }),
+          env as typeof testEnv
+        )
+      expect((await complete(parts.map((part) => ({ ...part, etag: "other" })))).status).toBe(409)
+      const calls: Array<string> = []
+      expect((await complete(parts, counted(calls))).status).toBe(200)
+      const downloaded = new Uint8Array(await (await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)).arrayBuffer())
+      expect([downloaded.byteLength, sha(downloaded)]).toEqual([body.byteLength, sha(body)])
+      return { puts, complete: calls }
     }
     const one = await run(new Uint8Array(32_000_017).fill(1))
-    const two = await run(new Uint8Array(32 * 1024 * 1024 + 17).fill(2))
+    const two = await run(new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => i % 251))
     expect([one.puts.length, two.puts.length]).toEqual([1, 2])
     expect(new Set([...one.puts, ...two.puts]).size).toBe(1)
     expect(two.complete).toEqual(one.complete)
+    // No temporary objects: each file is one object.
+    expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects).toHaveLength(2)
   })
 
   it("a part number is an integer from 1 to the planned part count (at most 10,000), on every part PUT and in the completion's list", async () => {

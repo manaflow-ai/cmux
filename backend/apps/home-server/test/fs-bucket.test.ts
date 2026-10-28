@@ -5,17 +5,10 @@ import { join } from "node:path"
 import { FsBucket } from "../src/fs-bucket.ts"
 
 describe("self-hosted attachment bucket", () => {
-  it("supports an atomic conditional write and resumable multipart objects", async () => {
+  it("streams resumable multipart objects and keeps listing cursors valid across deletes", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
       const bucket = new FsBucket(root)
-      const writes = await Promise.all([
-        bucket.put("home/v1/race.part", new Uint8Array([1]), { onlyIf: { etagDoesNotMatch: "*" } }),
-        bucket.put("home/v1/race.part", new Uint8Array([2]), { onlyIf: { etagDoesNotMatch: "*" } })
-      ])
-      expect(writes.filter(Boolean)).toHaveLength(1)
-      expect(writes.filter((write) => write === null)).toHaveLength(1)
-
       const upload = await bucket.createMultipartUpload("home/v1/original", { httpMetadata: { contentType: "application/octet-stream" } })
       const first = await upload.uploadPart(1, new Blob([new Uint8Array([1, 2, 3])]).stream())
       const second = await upload.uploadPart(2, new Blob([new Uint8Array([4, 5])]).stream())
