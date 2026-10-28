@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import Foundation
+@testable import CmuxNextWakeups
 @testable import CmuxNextTerminal
 @testable import CmuxNextTrace
 import GhosttyNextKit
@@ -125,6 +126,47 @@ import Testing
         secureInput.apply(GHOSTTY_SECURE_INPUT_OFF, for: view)
         #expect(calls.disables.load(ordering: .relaxed) == 1)
         #expect(!runtime.isKeyTimingSuppressed)
+    }
+
+    /// A view whose last reference goes away on another thread (a background task's capture) skipped its whole
+    /// deinit, so its secure-input request was never let go: system Secure Keyboard Entry, which is process-wide,
+    /// stayed on for the whole Mac (and the key-timing gate closed) until cmux quit.
+    @Test("A surface view released off the main thread still lets go of its secure input")
+    func aViewReleasedOffTheMainThreadLetsGo() async throws {
+        let runtime = TraceRuntime(role: .app)
+        let calls = SwitchCalls()
+        let secureInput = TerminalSecureInput(trace: runtime, system: calls.system, appActive: true)
+        let io = ScriptedTerminalIO()
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        // The view applies Ghostty's actions only for a live session (`applyAction`'s guard); this one stays
+        // alive on the main thread for the whole test, and holds its own view, not the one released below.
+        let session = TerminalSession(io: io, secureInput: secureInput, mainWork: mainWork)
+        let input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()),
+                                      typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
+        nonisolated(unsafe) var view: TerminalSurfaceView? = TerminalSurfaceView(
+            io: GHOSTTY_SURFACE_IO_MANUAL, input: input, session: nil, echoStages: GhosttyRuntime.shared.echoStages,
+            secureInput: secureInput, mainWork: mainWork)
+        view?.session = session
+        #expect(view?.applyAction(.secureInput(GHOSTTY_SECURE_INPUT_ON)) == true, "the view applied Ghostty's action")
+        try #require(secureInput.isEnabled, "the view holds a request")
+        #expect(runtime.isKeyTimingSuppressed)
+
+        // The last reference goes away on a background thread: the view's deinit runs there.
+        let released = DispatchSemaphore(value: 0)
+        let releaser = Thread {
+            view = nil
+            released.signal()
+        }
+        releaser.name = "TerminalSecureInputTests.offMainRelease"
+        releaser.qualityOfService = .userInitiated
+        releaser.start()
+        released.wait()
+        // The release reaches the main thread as a posted task: give it up to 2 s.
+        for _ in 0 ..< 200 where secureInput.isEnabled { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!secureInput.isEnabled, "the released view still holds secure input")
+        #expect(!runtime.isKeyTimingSuppressed)
+        #expect(calls.enables.load(ordering: .relaxed) == calls.disables.load(ordering: .relaxed), "every enable is balanced")
+        withExtendedLifetime(session) {}
     }
 
     @Test("Turning terminal secure input off keeps the gate closed while the system still reports secure input")
