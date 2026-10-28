@@ -58,11 +58,16 @@ fi
 ls -l "$app/Contents/Resources/bin/" | grep -E "cmux-holder|cmux-tui-host" || echo "holder-dogfood: the bundle has no cmux-holder"
 python3 scripts/cmux-next/bench_launch.py session || { echo "holder-dogfood: no GUI session on this host" >&2; exit 1; }
 vdisplay_pid=""
-# shellcheck disable=SC2329 # run by the trap below
+# shellcheck disable=SC2329 # run by the traps below
 stop_vdisplay() {
   if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
+  vdisplay_pid=""
 }
 trap stop_vdisplay EXIT
+# A cancelled step (TERM, INT or HUP) stops the helper too; SIGKILL leaves it to its own hold.
+trap 'stop_vdisplay; exit 143' TERM
+trap 'stop_vdisplay; exit 130' INT
+trap 'stop_vdisplay; exit 129' HUP
 if [[ -n "$vdisplay_hz" ]]; then
   vd="$out/vdisplay"
   mkdir -p "$vd/VDisplay.app/Contents/MacOS"
