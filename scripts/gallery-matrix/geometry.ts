@@ -357,7 +357,9 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
   const seen = new Set<string>();
   for (const { file, artifact } of artifacts) {
     if (artifact.revision.sha !== config.revision.sha) errors.push(`${file}: capture revision ${artifact.revision.sha} does not match config revision ${config.revision.sha}`);
-    if (artifact.revision.sha !== artifacts[0]?.artifact.revision.sha) errors.push(`${file}: mixed capture revisions`);
+    if (artifact.revision.source !== config.revision.source) errors.push(`${file}: capture source ${JSON.stringify(artifact.revision.source)} does not match config source ${JSON.stringify(config.revision.source)}`);
+    const firstRevision = artifacts[0]?.artifact.revision;
+    if (artifact.revision.sha !== firstRevision?.sha || artifact.revision.source !== firstRevision?.source) errors.push(`${file}: mixed capture revisions`);
     const key = captureKey(artifact.capture);
     if (seen.has(key)) errors.push(`${file}: duplicate capture ${key}`);
     seen.add(key);

@@ -98,6 +98,28 @@ test("rejects captures whose revision differs from the configured baseline", asy
   expect(report.errors).toContain(`fixture.geometry.json: capture revision abcdef0123456789 does not match config revision ${sha}`);
 });
 
+test("revision source must match the config and every artifact", async () => {
+  const wrong = artifact(); wrong.revision.source = "different-fixture";
+  const report = await lint(wrong);
+  expect(report.passed).toBe(false);
+  expect(report.errors).toContain('fixture.geometry.json: capture source "different-fixture" does not match config source "fixture"');
+
+  const baseline = config();
+  wrong.capture.theme = "dark";
+  baseline.required.push({ caseId: "rows", engine: "chromium", theme: "dark" });
+  const inputs = [{ file: "light.geometry.json", artifact: artifact() }, { file: "dark.geometry.json", artifact: wrong }];
+  const mixed = await lintGeometry(inputs, baseline);
+  expect(mixed.passed).toBe(false);
+  expect(mixed.errors).toContain("dark.geometry.json: mixed capture revisions");
+  // Matching each other is insufficient when both captures name the wrong source.
+  inputs[0]!.artifact.revision.source = wrong.revision.source;
+  const uniformlyWrong = await lintGeometry(inputs, baseline);
+  expect(uniformlyWrong.passed).toBe(false);
+  expect(uniformlyWrong.errors.filter((error) => error.includes("does not match config source"))).toHaveLength(2);
+  for (const { artifact: value } of inputs) value.revision.source = baseline.revision.source;
+  expect((await lintGeometry(inputs, baseline)).passed).toBe(true);
+});
+
 test("finding IDs preserve element boundaries", async () => {
   const first = artifact();
   first.elements[0]!.id = "a,b";
