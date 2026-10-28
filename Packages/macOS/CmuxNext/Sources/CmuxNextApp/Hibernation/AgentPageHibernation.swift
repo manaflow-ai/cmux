@@ -83,6 +83,11 @@ final class AgentPageHibernation {
     var hasFreezeDeadline: Bool { freezeDeadline.isScheduled }
     /// The page's freeze control: its Chromium tab, nil for a WebKit page (a seam for tests).
     var freezer: @MainActor (AgentPaneView) -> (any BrowserFreezing)? = { ($0.chromiumPage as? CEFPageChromiumPage)?.tab }
+    /// The page will show in Chromium but its browser is still being made: no freeze control yet, so
+    /// a due page is looked at again (a seam for tests).
+    var waitsForFreezer: @MainActor (AgentPaneView) -> Bool = { $0.waitsForChromium }
+    /// Every page is being asked what it holds (the quit's relaunch state): none freezes meanwhile.
+    private(set) var heldAwake = false
     /// Whether tab `key` draws now (`TabContentCache.isRendering`); injected by the App. A page built
     /// while its tab does not draw (restored or opened in the background) starts its hidden clock at
     /// the next plan, as an adopted browser tab does.
@@ -330,8 +335,9 @@ final class AgentPageHibernation {
             if let awake = awakeSince[key] { remaining = max(remaining, threshold - (current - awake).seconds) }
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
-            } else if keepsAwake(key) != nil {
-                // Still in its window (the hide comes before the pane swaps its content): look again.
+            } else if keepsAwake(key) != nil || store()?.existingView(key).map({ freezer($0) == nil }) ?? false {
+                // Still in its window (the hide comes before the pane swaps its content), or its
+                // Chromium browser is still being made: look again, backing off while it stays so.
                 let again = max(Self.onScreenRecheck, -remaining)
                 next = min(next ?? again, again)
             } else if !freeze(key) {
@@ -350,8 +356,8 @@ final class AgentPageHibernation {
     /// command run in it or another machine's chat does not keep it awake. `onScreen: false` leaves
     /// out whether its view is still in a window (planning: the pane takes it out after the hide).
     func keepsAwake(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
-        guard setting.isEnabled, setting.freezeSeconds != nil else { return .disabled }
-        guard let tabs = store(), let view = tabs.existingView(key), freezer(view) != nil else { return .unsupported }
+        guard setting.isEnabled, setting.freezeSeconds != nil, !heldAwake else { return .disabled }
+        guard let tabs = store(), let view = tabs.existingView(key), freezer(view) != nil || waitsForFreezer(view) else { return .unsupported }
         let stored = tabs.resolve(key)
         // A crashed page keeps its notice; a New Tab page follows its own parking (the spare pool).
         if view.showsCrashNotice || view.model.newTab != nil || tabs.newTabPages[stored] != nil { return .unsupported }
@@ -393,6 +399,19 @@ final class AgentPageHibernation {
             freezer(view)?.setFrozen(false)
         }
         logger.debug("thawed agent page \(key, privacy: .public)")
+    }
+
+    /// Every page is asked what it holds (`AgentTabStore.relaunchWakeStates`): frozen pages thaw now,
+    /// and none freezes until it ends; then the hidden ones are planned again.
+    func holdAwake(_ held: Bool) {
+        guard held != heldAwake else { return }
+        heldAwake = held
+        if held {
+            for key in frozen { thaw(key) }
+            freezeDeadline.cancel()
+        } else {
+            replan()
+        }
     }
 
     /// The transport has a push for frozen page `key`: it thaws before the push goes, and freezes

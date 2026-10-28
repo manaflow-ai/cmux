@@ -167,6 +167,44 @@ struct AgentPageFreezeTests {
         #expect(control.frozen, "a page woken for a push never froze again")
     }
 
+    /// A Chromium page's browser is made after its view: until then it has no freeze control. The
+    /// page is still planned, and freezes once its browser is there, with no other event.
+    @Test func aChatWhoseBrowserIsStillBeingMadeFreezesOnceItIsThere() throws {
+        let rig = AgentPageHibernationTests.Rig()
+        var attached = false
+        let control = Page()
+        rig.hibernation.freezer = { _ in attached ? control : nil }
+        rig.hibernation.waitsForFreezer = { _ in !attached }
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        _ = try rig.hiddenChat("tab_slow", session: "s-slow")
+        #expect(rig.hibernation.hasFreezeDeadline, "a page still making its browser armed no freeze deadline")
+        advance(rig, seconds: 31)
+        #expect(control.calls.isEmpty)
+        #expect(rig.hibernation.hasFreezeDeadline, "a due page with no browser yet was not looked at again")
+        attached = true
+        advance(rig, seconds: 1)
+        #expect(control.frozen, "the page froze neither when due nor once its browser was there")
+    }
+
+    /// The quit asks every chat page what it holds for the next launch (`relaunchWakeStates`): a
+    /// frozen page thaws first and none freezes until that ends.
+    @Test func theQuitsRelaunchStateThawsFrozenChatsAndKeepsThemAwake() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        _ = try rig.hiddenChat("tab_quit", session: "s-quit")
+        _ = try rig.hiddenChat("tab_later", session: "s-later")
+        advance(rig, seconds: 31)
+        let frozen = try #require(page(rig, "tab_quit"))
+        #expect(frozen.frozen)
+        rig.hibernation.holdAwake(true)
+        #expect(!frozen.frozen, "a frozen page was asked for its relaunch state")
+        #expect(rig.hibernation.keepsAwake("tab_quit") == .disabled)
+        advance(rig, seconds: 60)
+        #expect(!frozen.frozen, "a page froze while the quit collected its state")
+        rig.hibernation.holdAwake(false)
+        #expect(frozen.frozen, "a page still hidden past freezeHiddenTabs stayed awake after the quit's collection")
+    }
+
     /// Release asks the page what it holds and for its frame: a frozen page thaws first.
     @Test func aFrozenChatThawsBeforeItIsReleased() async throws {
         let rig = Self.rig()

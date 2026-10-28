@@ -10,6 +10,12 @@ extension AgentPaneView {
     /// The Chromium page that shows the chat now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { page?.chromiumPage }
 
+    /// The page shows in Chromium once its browser is made (``chromiumPage`` is nil until then).
+    public var waitsForChromium: Bool {
+        guard let page else { return false }
+        return page.engineDecision.engine == .cef && !page.showsChromium
+    }
+
     /// A picture of the page as it draws now; nil when there is none.
     public func pageSnapshot() async -> NSImage? {
         if let page { return await page.snapshot() }
