@@ -248,7 +248,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
         events: DispatchSource.FileSystemEvent,
         handler: @escaping @Sendable (DispatchSource.FileSystemEvent) -> Void
     ) -> (any DispatchSourceFileSystemObject)? {
-        let descriptor = open(path, O_EVTONLY | O_CLOEXEC)
+        let descriptor = blockingOpen(path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: events, queue: queue)
         source.setEventHandler { [weak source] in
@@ -293,7 +293,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
 
     private static func identity(of path: String) -> (dev: dev_t, ino: ino_t)? {
         var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
+        guard blockingStat(path, &info) == 0 else { return nil }
         return (info.st_dev, info.st_ino)
     }
 }

@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
+import CmuxNextCompat
 
 /// Files the person drops or pastes into a chat moved to a Cloud machine (cmuxterm-hq#1874 slice 6)
 /// that the composer can't attach: the page sends their bytes (``AgentPaneUpload``), and only for a
@@ -177,8 +178,8 @@ final class CloudUploads {
                   let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
                   data.count <= Self.stageChunkBytes, offset + data.count <= stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             do {
-                let handle = try FileHandle(forWritingTo: stage.file)
-                try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close()
+                let handle = try FileHandle.blockingForWriting(to: stage.file)
+                try handle.blockingSeekToEnd(); try handle.blockingWrite(contentsOf: data); try handle.close()
             } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             stage.received += data.count; stage.expires = Date().addingTimeInterval(Self.stageLifetime); stages[token] = stage
             armExpiry()
@@ -220,14 +221,14 @@ final class CloudUploads {
     /// Writes each file owner-only to `folder/<index>/<name>` (its own folder, so two files may share
     /// a name), with `cmux-pastes` and `folder` owner-only too; the paths, in order.
     private nonisolated static func write(_ files: [AgentPaneUpload], in folder: URL) throws -> [String] {
-        let manager = FileManager.default, owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
-        try manager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
-        try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner)
+        let owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+        try FileManager.checked.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner)
         return try files.enumerated().map { index, file in
             let parent = folder.appendingPathComponent(String(index), isDirectory: true)
-            try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
+            try FileManager.checked.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
             let url = parent.appendingPathComponent(file.name, isDirectory: false)
-            guard manager.createFile(atPath: url.path, contents: file.data, attributes: [.posixPermissions: 0o600]) else {
+            guard FileManager.checked.createFile(atPath: url.path, contents: file.data, attributes: [.posixPermissions: 0o600]) else {
                 throw CocoaError(.fileWriteUnknown)
             }
             return url.path

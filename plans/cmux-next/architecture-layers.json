@@ -4,6 +4,7 @@
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
+    "CmuxNextCompatCore": {"layer": "core", "note": "what the privileged server helper shares with the app (runOnOwnThread, the signing-team read); no swift-atomics"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextInputCoreTestSupport": {"layer": "core", "note": "FakeInputTap, the one test InputObserving; test targets only"},

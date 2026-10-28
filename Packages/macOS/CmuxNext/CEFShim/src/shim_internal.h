@@ -25,6 +25,18 @@
 
 namespace cmux_shim {
 
+// One underline of an IME composition as the fork reads it: its
+// cmux_ime_span_t (include/cef_cmux.h, Chrome's ExtractUnderlines): [start,
+// end) in the composition text in UTF-16 units, thick 1 for the selected
+// clause, colors 0xAARRGGBB (0: the page's text color).
+struct ForkImeSpan {
+  int start;
+  int end;
+  int thick;
+  uint32_t underline_color;
+  uint32_t background_color;
+};
+
 // Fork C API resolved with dlsym (include/cef_cmux.h in the artifact).
 struct ForkApi {
   int version = 0;
@@ -166,6 +178,14 @@ struct ForkApi {
   // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
   int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
   int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
+  // API version 31 (task p01-process-170): IME of a detached page and its
+  // composition bounds (shim_helper_host.mm). Used only when `version` >=
+  // kDetachedImeForkApi.
+  int (*browser_ime_set_composition)(int, const char*, const ForkImeSpan*, int, int, int, int, int) = nullptr;
+  int (*browser_ime_commit_text)(int, const char*, int, int) = nullptr;
+  int (*browser_ime_finish_composing)(int) = nullptr;
+  int (*browser_ime_cancel)(int) = nullptr;
+  int (*browser_composition_bounds_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
   // API 38 (p13-webui-017, numbered by the fork train p13-webui-086): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
@@ -185,6 +205,31 @@ struct ForkApi {
   // slice of the next CefDoMessageLoopWork call only, in microseconds.
   void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
+
+// The fork API that has the detached-page IME calls (task p01-process-170).
+inline constexpr int kDetachedImeForkApi = 31;
+
+}  // namespace cmux_shim
+
+// The detached page's IME ops (shim_helper_host.mm): optional exports of the
+// shim that cmux_cef_shim.h does not declare (plans/cmux-next/chromium-host-ops.json
+// optional_exports; the Chromium Host resolves them by name and names them in
+// its hello). Text is UTF-16LE, clauses are task p04-input-064's kIme layout
+// (per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick, little
+// endian), offsets UTF-16 units, -1, -1 no replacement range. Each does nothing
+// for a fork below API 31, a page that is not detached or a malformed buffer.
+extern "C" {
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_set_composition(int browser_id, const uint8_t* text, int text_length,
+                                                            const uint8_t* clauses, int clauses_length,
+                                                            int selection_start, int selection_end,
+                                                            int replace_start, int replace_end);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_commit_text(int browser_id, const uint8_t* text, int text_length,
+                                                        int replace_start, int replace_end);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_finish_composing(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_cancel_composition(int browser_id);
+}  // extern "C"
+
+namespace cmux_shim {
 
 struct Host {
   void* ctx = nullptr;

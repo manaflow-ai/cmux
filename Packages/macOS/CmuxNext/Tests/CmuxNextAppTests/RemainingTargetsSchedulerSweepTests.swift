@@ -87,7 +87,8 @@ import Testing
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)
         center.scanThisMac = { _ in [] }
         let host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] }, openSettings: { _ in },
-                                   importClassic: { _ in nil }, appEvents: events)
+                                   importClassic: { _ in nil }, work: BackgroundWork(label: "test.import-cards"),
+                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()), appEvents: events)
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         center.start(host: host, registry: registry)
         center.start(host: host, registry: registry)
@@ -110,7 +111,8 @@ import Testing
             return []
         }
         let host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] }, openSettings: { _ in },
-                                   importClassic: { _ in nil }, appEvents: AppEvents(center: center))
+                                   importClassic: { _ in nil }, work: BackgroundWork(label: "test.import-cards"),
+                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()), appEvents: AppEvents(center: center))
         cards.start(host: host, registry: ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases))
         #expect(runMainLoop { scans.count == 1 && !cards.isScanning }, "the first scan at start")
 

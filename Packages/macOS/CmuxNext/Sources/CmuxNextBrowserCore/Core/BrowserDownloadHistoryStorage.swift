@@ -1,5 +1,6 @@
 package import Darwin
 package import Foundation
+import CmuxNextCompat
 
 /// Descriptor-relative private storage for `downloads.json`.
 ///
@@ -46,7 +47,7 @@ package nonisolated struct BrowserDownloadHistoryStorage: BrowserDownloadHistory
 
         try Self.secure(descriptor, mode: 0o600, kind: S_IFREG)
         try Self.write(data, to: descriptor)
-        guard fsync(descriptor) == 0 else { throw Self.error() }
+        guard blockingFsync(descriptor) == 0 else { throw Self.error() }
         guard Darwin.close(descriptor) == 0 else { throw Self.error() }
         descriptor = -1
         let renamed = temporary.withCString { source in
@@ -70,7 +71,7 @@ package nonisolated struct BrowserDownloadHistoryStorage: BrowserDownloadHistory
         let parent = directory.deletingLastPathComponent()
         let name = try Self.component(directory.lastPathComponent)
         let parentDescriptor = parent.path.withCString {
-            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            blockingOpen($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         }
         guard parentDescriptor >= 0 else { throw Self.error() }
         defer { Darwin.close(parentDescriptor) }
@@ -92,7 +93,7 @@ package nonisolated struct BrowserDownloadHistoryStorage: BrowserDownloadHistory
     private func optionalDirectory() throws -> Int32? {
         _ = try Self.component(filename)
         let descriptor = directory.path.withCString {
-            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            blockingOpen($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         }
         guard descriptor >= 0 else {
             if errno == ENOENT { return nil }
@@ -124,7 +125,7 @@ package nonisolated struct BrowserDownloadHistoryStorage: BrowserDownloadHistory
             guard let base = bytes.baseAddress else { return }
             var offset = 0
             while offset < bytes.count {
-                let count = Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
+                let count = blockingWrite(descriptor, base.advanced(by: offset), bytes.count - offset)
                 if count < 0 {
                     if errno == EINTR { continue }
                     throw error()

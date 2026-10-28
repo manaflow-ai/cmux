@@ -22,7 +22,7 @@ fn payload(service: &RenderService, len: usize) -> Arc<BudgetedText> {
 
 fn stream_on(service: &RenderService, id: u64, lane: StreamLane) -> OutboundStream {
     let overflow = service.serialize_control(&json!({"event": "overflow", "stream": id})).unwrap();
-    OutboundStream { lane, ..OutboundStream::new(id, overflow) }
+    OutboundStream::with_sequence(id, overflow, false, lane)
 }
 
 fn reply(service: &RenderService, id: u64) -> Arc<BudgetedText> {
