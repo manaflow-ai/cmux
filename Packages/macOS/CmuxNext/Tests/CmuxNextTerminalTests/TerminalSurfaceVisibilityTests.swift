@@ -104,6 +104,77 @@ struct TerminalSurfaceVisibilityTests {
         #expect(reports.grids.count == before + 1)
         #expect(surface.windowNode.deferredCount == 0)
     }
+
+    // MARK: AppKit's unhide recomputes the draw pause (v2.2.5-opt: a terminal beside Home stayed paused "hidden")
+
+    /// v2.2.5-opt (handoff/v224-gate-triage.md): after a second Ctrl-` on Home the new tab's surface was in its
+    /// window, not hidden by AppKit (isHiddenOrHasHiddenAncestor false), its tab selected, and still paused
+    /// `hidden`: it drew nothing. Its pause was computed while a container above it was hidden; the container's
+    /// unhide changed no visibility node (the surface had joined the hidden container, so it never got
+    /// viewDidHide and its own node stayed visible), and only a node flip recomputed the pause.
+    @Test func aSurfaceCreatedUnderAHiddenContainerDrawsWhenTheContainerShows() throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let io = ScriptedTerminalIO()
+        let tab = VisibilityNode(root: "tab", own: .visible)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        container.isHidden = true
+        window.contentView = container
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: tab)
+        defer {
+            io.finish()
+            session.close()
+        }
+        session.view.frame = container.bounds
+        container.addSubview(session.view)
+        let surface = session.surfaceView
+        try #require(surface.window === window && surface.isHiddenOrHasHiddenAncestor)
+        #expect(surface.pause == .hidden, "a surface under a hidden container draws")
+
+        container.isHidden = false
+
+        #expect(!surface.isHiddenOrHasHiddenAncestor)
+        #expect(surface.pause == nil, "the container showed and the surface stayed paused \(String(describing: surface.pause))")
+    }
+
+    /// The second tab of a pane, as `PaneContentView` shows it: the new tab's terminal joins the pane's content
+    /// host hidden (parked), the first tab's view is retired (hidden), then the new one is unhidden. The new
+    /// terminal must draw.
+    @Test func aSecondTabShownByUnhidingItsParkedViewDraws() throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        window.contentView = host
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        let firstIO = ScriptedTerminalIO(), secondIO = ScriptedTerminalIO()
+        let first = TerminalSession(io: firstIO, mainWork: mainWork, node: VisibilityNode(root: "tab1", own: .visible))
+        let second = TerminalSession(io: secondIO, mainWork: mainWork, node: VisibilityNode(root: "tab2", own: .visible))
+        defer {
+            firstIO.finish()
+            secondIO.finish()
+            first.close()
+            second.close()
+        }
+        first.view.frame = host.bounds
+        host.addSubview(first.view)
+        #expect(first.surfaceView.pause == nil)
+
+        second.view.isHidden = true
+        second.view.frame = host.bounds
+        host.addSubview(second.view)
+        first.view.isHidden = true
+        second.view.isHidden = false
+
+        #expect(!second.surfaceView.isHiddenOrHasHiddenAncestor)
+        #expect(second.surfaceView.pause == nil, "the shown second tab stayed paused \(String(describing: second.surfaceView.pause))")
+        #expect(first.surfaceView.pause == .hidden, "the retired first tab still draws")
+    }
 }
 
 /// The grids a session reported, in its main-actor turn (``MainGridIO``).
