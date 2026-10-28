@@ -563,7 +563,7 @@ struct CrashDiagnosticSessionPolicyTests {
         )
     }
 
-    private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
+    func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
             processTitle: "Terminal",
             customTitle: nil,
@@ -580,7 +580,7 @@ struct CrashDiagnosticSessionPolicyTests {
         )
     }
 
-    private func terminalWorkspaceSnapshot(
+    func terminalWorkspaceSnapshot(
         currentDirectory: String,
         terminal: SessionTerminalPanelSnapshot = SessionTerminalPanelSnapshot()
     ) -> SessionWorkspaceSnapshot {
@@ -607,7 +607,7 @@ struct CrashDiagnosticSessionPolicyTests {
         )
     }
 
-    private func crashAndProjectSnapshot(
+    func crashAndProjectSnapshot(
         crashDirectory: String,
         projectDirectory: String,
         fontSize: Float
@@ -638,9 +638,9 @@ struct CrashDiagnosticSessionPolicyTests {
         )
     }
 
-    private func terminalPanelSnapshot(
+    func terminalPanelSnapshot(
         id: UUID,
-        directory: String,
+        directory: String?,
         terminal: SessionTerminalPanelSnapshot
     ) -> SessionPanelSnapshot {
         SessionPanelSnapshot(

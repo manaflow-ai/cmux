@@ -1,0 +1,115 @@
+public import Foundation
+
+/// What a session-snapshot window looks like to crash-duplicate detection.
+/// The app builds one for each window and merges the pairs where
+/// `isCrashDuplicate(of:)` holds: the same window written twice by a crash.
+public struct CrashWindowSignature: Equatable, Sendable {
+    /// Persisted window identity, when available.
+    public let windowId: UUID?
+    /// Number of workspaces in the window generation.
+    public let workspaceCount: Int
+    /// Every workspace's ID, in order, or nil when any workspace has none.
+    public let workspaceIDs: [UUID]?
+    /// Agent session checkpoints of the window's panels. Shared multiplexer
+    /// sessions (tmux, herdr) must not be included: two real windows can
+    /// attach the same one.
+    public let checkpointIDs: Set<String>
+    /// Non-blank custom workspace titles, trimmed.
+    public let workspaceTitles: [String]
+
+    private let sortedWorkspaceTitles: [String]
+    private let dock: CrashDockSignature?
+
+    /// Captures persisted identity and checkpoint evidence for one window.
+    /// - Parameters:
+    ///   - windowId: Persisted window ID, or nil for legacy snapshots.
+    ///   - workspaceCount: Number of workspaces in this generation.
+    ///   - workspaceIDs: Workspace IDs when every workspace has one.
+    ///   - checkpointIDs: Agent session checkpoints, excluding multiplexer sessions.
+    ///   - workspaceTitles: Trimmed, nonempty custom workspace titles.
+    ///   - dock: Complete dock comparison evidence, when a dock exists.
+    public nonisolated init(
+        windowId: UUID?,
+        workspaceCount: Int,
+        workspaceIDs: [UUID]?,
+        checkpointIDs: Set<String>,
+        workspaceTitles: [String],
+        dock: CrashDockSignature? = nil
+    ) {
+        self.windowId = windowId
+        self.workspaceCount = workspaceCount
+        self.workspaceIDs = workspaceIDs
+        self.checkpointIDs = checkpointIDs
+        self.workspaceTitles = workspaceTitles
+        self.sortedWorkspaceTitles = workspaceTitles.sorted()
+        self.dock = dock
+    }
+
+    /// Two windows are one when their persisted window docks are identical and:
+    /// - they share a window ID (or both predate window IDs) and either list
+    ///   the same workspace IDs with no checkpoints, or hold the same
+    ///   checkpoints with the same workspace count, or, with at least three
+    ///   titled workspaces and the same title multiset, share at least 75% of
+    ///   the smaller window's checkpoints (a later generation with a few new
+    ///   checkpoints);
+    /// - or they have different window IDs, the same workspace count and the
+    ///   same multiset of at least three titles, and every one of the smaller
+    ///   window's checkpoints (at least two) is in the other. One agent
+    ///   session runs in one place, so a window whose sessions all live in
+    ///   another window is a crash replay of it that was given a new ID.
+    ///   An unhashable dock never matches, so ambiguous dock state stays
+    ///   recoverable in both windows.
+    public nonisolated func isCrashDuplicate(of other: CrashWindowSignature) -> Bool {
+        guard dock == other.dock, dock == nil || dock?.contentFingerprint != nil else { return false }
+        guard mayShareIdentity(with: other) else {
+            return isReplayWithNewWindowID(of: other)
+        }
+        if let ownIDs = workspaceIDs, let otherIDs = other.workspaceIDs,
+           !ownIDs.isEmpty, ownIDs.count == otherIDs.count, Set(ownIDs) == Set(otherIDs), checkpointIDs.isEmpty, other.checkpointIDs.isEmpty {
+            return true
+        }
+        guard !checkpointIDs.isEmpty, !other.checkpointIDs.isEmpty else { return false }
+        if checkpointIDs == other.checkpointIDs, workspaceCount == other.workspaceCount {
+            return true
+        }
+        // The title rule needs at least three titled workspaces, so a
+        // one- or two-workspace window never merges on overlap alone.
+        guard workspaceCount == other.workspaceCount,
+              hasSameTitleMultiset(as: other) else { return false }
+        let overlap = checkpointIDs.intersection(other.checkpointIDs).count
+        let smaller = min(checkpointIDs.count, other.checkpointIDs.count)
+        return Double(overlap) / Double(smaller) >= 0.75
+    }
+
+
+}
+
+extension CrashWindowSignature {
+    private nonisolated func isReplayWithNewWindowID(of other: CrashWindowSignature) -> Bool {
+        guard workspaceCount == other.workspaceCount,
+              hasSameTitleMultiset(as: other) else {
+            return false
+        }
+        let (smaller, larger) = checkpointIDs.count <= other.checkpointIDs.count
+            ? (checkpointIDs, other.checkpointIDs)
+            : (other.checkpointIDs, checkpointIDs)
+        // Equal checkpoint sets can be two real windows intentionally sharing
+        // sessions. A replay with a fresh ID needs an additional checkpoint
+        // generation as evidence before one window can be removed.
+        return smaller.count >= 2 && smaller.isStrictSubset(of: larger)
+    }
+
+    private nonisolated func hasSameTitleMultiset(as other: CrashWindowSignature) -> Bool {
+        workspaceTitles.count >= max(3, workspaceCount - 2)
+            && workspaceTitles.count == other.workspaceTitles.count
+            && sortedWorkspaceTitles == other.sortedWorkspaceTitles
+    }
+
+    private nonisolated func mayShareIdentity(with other: CrashWindowSignature) -> Bool {
+        switch (windowId, other.windowId) {
+        case let (ownID?, otherID?): return ownID == otherID
+        case (nil, nil): return true
+        default: return false
+        }
+    }
+}

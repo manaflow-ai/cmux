@@ -440,7 +440,7 @@ struct AppDelegateDisplayConfigRestoreTests {
             closeCreatedWindow(appDelegate, windowId: restoredWindowId)
         }
         let restored = appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false)
-        #expect(restored)
+        #expect(restored == 1)
         #expect(!appDelegate.isApplyingSessionRestore)
         #expect(appDelegate.isScreenChangeCaptureSuppressed)
     }

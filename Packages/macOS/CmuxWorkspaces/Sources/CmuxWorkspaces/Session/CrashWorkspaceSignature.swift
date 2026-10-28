@@ -1,0 +1,101 @@
+public import Foundation
+
+/// Cached identity and restore evidence for one workspace generation.
+public struct CrashWorkspaceSignature: Sendable {
+    let stableID: UUID?
+    let workspaceID: UUID?
+    let checkpointIDs: Set<String>
+    let nonAgentPanelIDs: Set<UUID>
+    let preservedContentIDs: Set<String>?
+    let metadataFingerprint: String?
+    let agentPanels: [CrashAgentPanelSignature]?
+    let title: String?
+    let description: String?
+    let groupID: UUID?
+    let directory: String
+    let dock: CrashDockSignature?
+    /// The amount of useful restore metadata in this workspace.
+    public let fidelityScore: Int
+
+    /// Builds matching evidence once, before comparing workspace generations.
+    /// - Parameters:
+    ///   - stableID: Stable workspace identity, when recorded.
+    ///   - workspaceID: Persisted runtime identity, when recorded.
+    ///   - checkpointIDs: Agent checkpoints from the workspace and its dock.
+    ///   - title: Custom workspace title; blank titles cannot identify a workspace.
+    ///   - description: Custom description, which must match for title fallback.
+    ///   - groupID: Persisted group membership; differing memberships stay separate.
+    ///   - directory: Standardized workspace path; empty paths cannot identify a workspace.
+    ///   - dock: Dock identity, or nil when no dock was persisted.
+    ///   - fidelityScore: Restore metadata score used when checkpoint sets are equal.
+    ///   - nonAgentPanelIDs: Persisted panels without agent checkpoint identity.
+    ///   - metadataFingerprint: Exact comparison of user-authored workspace state; nil refuses merging.
+    ///   - agentPanels: Per-pane comparison evidence; nil refuses merging when any pane cannot be compared.
+    ///   - preservedContentIDs: Fingerprints of complete non-agent panel contents;
+    ///     nil refuses whole-copy selection when that content cannot be compared.
+    public nonisolated init(
+        stableID: UUID?, workspaceID: UUID?, checkpointIDs: Set<String>,
+        title: String?, description: String?, groupID: UUID?, directory: String,
+        dock: CrashDockSignature?, fidelityScore: Int, nonAgentPanelIDs: Set<UUID> = [],
+        preservedContentIDs: Set<String>? = [], metadataFingerprint: String? = "",
+        agentPanels: [CrashAgentPanelSignature]? = []
+    ) {
+        self.stableID = stableID
+        self.workspaceID = workspaceID
+        self.checkpointIDs = checkpointIDs
+        self.nonAgentPanelIDs = nonAgentPanelIDs
+        self.preservedContentIDs = preservedContentIDs
+        self.metadataFingerprint = metadataFingerprint
+        self.agentPanels = agentPanels
+        self.title = title
+        self.description = description
+        self.groupID = groupID
+        self.directory = directory
+        self.dock = dock
+        self.fidelityScore = fidelityScore
+    }
+
+    /// A whole copy may replace another only if it covers every panel identity.
+    nonisolated func canMerge(with other: Self) -> Bool {
+        metadataFingerprint != nil && metadataFingerprint == other.metadataFingerprint
+            && groupID == other.groupID && dock == other.dock
+            && (dock == nil || dock?.contentFingerprint != nil)
+            && (containsPanels(of: other) || other.containsPanels(of: self))
+    }
+
+    nonisolated func isPreferred(over other: Self) -> Bool {
+        let containsOther = containsPanels(of: other)
+        let otherContainsSelf = other.containsPanels(of: self)
+        if containsOther != otherContainsSelf {
+            return containsOther
+        }
+        return fidelityScore > other.fidelityScore
+    }
+
+    private nonisolated func containsPanels(of other: Self) -> Bool {
+        guard let ownContents = preservedContentIDs, let otherContents = other.preservedContentIDs else { return false }
+        return ownContents.isSuperset(of: otherContents) && checkpointIDs.isSuperset(of: other.checkpointIDs)
+            && nonAgentPanelIDs.isSuperset(of: other.nonAgentPanelIDs)
+            && containsAgentPanels(of: other)
+    }
+
+    /// Match each pane once, considering panes with more saved contents first.
+    /// An ambiguous assignment can retain an extra workspace, never discard a pane.
+    private nonisolated func containsAgentPanels(of other: Self) -> Bool {
+        guard let ownPanels = agentPanels, let otherPanels = other.agentPanels,
+              ownPanels.count >= otherPanels.count else { return false }
+        let candidates = Dictionary(grouping: ownPanels.indices, by: { ownPanels[$0].checkpointID })
+        let order = otherPanels.indices.sorted {
+            otherPanels[$0].contentFingerprints.count > otherPanels[$1].contentFingerprints.count
+        }
+        var consumed: Set<Int> = []
+        for index in order {
+            let panel = otherPanels[index]
+            guard let match = candidates[panel.checkpointID]?.first(where: {
+                !consumed.contains($0) && ownPanels[$0].contains(panel)
+            }) else { return false }
+            consumed.insert(match)
+        }
+        return true
+    }
+}

@@ -1489,7 +1489,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windows: [sessionWindowSnapshot(tabManager: restoredManager)]
         )
 
-        XCTAssertTrue(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false))
+        XCTAssertEqual(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false), 1)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let finalWindowIds = mainWindowIds()
@@ -1548,7 +1548,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windows: [sessionWindowSnapshot(tabManager: restoredManager, windowId: oldRestoredWindowId)]
         )
 
-        XCTAssertTrue(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false))
+        XCTAssertEqual(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false), 1)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let restoredWindowIds = mainWindowIds().subtracting(baselineWindowIds).subtracting([liveWindowId])

@@ -2,7 +2,7 @@ import Foundation
 import CmuxTerminalCore
 
 extension SessionPersistencePolicy {
-    static func defaultCmuxCrashDirectoryURL(
+    nonisolated static func defaultCmuxCrashDirectoryURL(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
         homeDirectory
@@ -12,7 +12,7 @@ extension SessionPersistencePolicy {
             .appendingPathComponent("crash", isDirectory: true)
     }
 
-    static func cmuxCrashDirectoryURLs(
+    nonisolated static func cmuxCrashDirectoryURLs(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [URL] {
@@ -32,7 +32,7 @@ extension SessionPersistencePolicy {
         }
     }
 
-    static func isCmuxCrashStorageURL(
+    nonisolated static func isCmuxCrashStorageURL(
         _ url: URL,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -45,7 +45,7 @@ extension SessionPersistencePolicy {
         )
     }
 
-    static func isCmuxCrashStoragePath(
+    nonisolated static func isCmuxCrashStoragePath(
         _ path: String,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -62,7 +62,7 @@ extension SessionPersistencePolicy {
         )
     }
 
-    static func pruningCmuxCrashDiagnosticWindows(
+    nonisolated static func pruningCmuxCrashDiagnosticWindows(
         from snapshot: AppSessionSnapshot,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -107,7 +107,7 @@ extension SessionPersistencePolicy {
         return (pruned, removedAny)
     }
 
-    static func isCmuxCrashDiagnosticWindow(
+    nonisolated static func isCmuxCrashDiagnosticWindow(
         _ window: SessionWindowSnapshot,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -129,7 +129,7 @@ extension SessionPersistencePolicy {
         return true
     }
 
-    private static func pruningCmuxCrashDiagnosticWorkspaces(
+    private nonisolated static func pruningCmuxCrashDiagnosticWorkspaces(
         from window: SessionWindowSnapshot,
         crashDirectoryComponents: [[String]],
         pathCache: inout [String: Bool]
@@ -161,13 +161,14 @@ extension SessionPersistencePolicy {
         tabManager.workspaceGroups = pruningWorkspaceGroups(
             window.tabManager.workspaceGroups,
             originalWorkspaces: originalWorkspaces,
-            keptWorkspaces: keptWorkspaces
+            keptWorkspaces: keptWorkspaces,
+            keptIndicesByOriginalIndex: Dictionary(uniqueKeysWithValues: keptOriginalIndices.enumerated().map { ($0.element, $0.offset) })
         )
         prunedWindow.tabManager = tabManager
         return (prunedWindow, true)
     }
 
-    private static func isCmuxCrashDiagnosticWorkspace(
+    private nonisolated static func isCmuxCrashDiagnosticWorkspace(
         _ workspace: SessionWorkspaceSnapshot,
         crashDirectoryComponents: [[String]],
         pathCache: inout [String: Bool]
@@ -202,7 +203,7 @@ extension SessionPersistencePolicy {
         return true
     }
 
-    private static func isPlainLocalTerminalPanel(_ panel: SessionPanelSnapshot) -> Bool {
+    private nonisolated static func isPlainLocalTerminalPanel(_ panel: SessionPanelSnapshot) -> Bool {
         guard case .terminal = panel.type,
               let terminal = panel.terminal else {
             return false
@@ -222,7 +223,7 @@ extension SessionPersistencePolicy {
         return true
     }
 
-    private static func workspaceCarriesRestorableUserState(_ workspace: SessionWorkspaceSnapshot) -> Bool {
+    private nonisolated static func workspaceCarriesRestorableUserState(_ workspace: SessionWorkspaceSnapshot) -> Bool {
         if !isNilOrBlank(workspace.customTitle)
             || !isNilOrBlank(workspace.customDescription)
             || !isNilOrBlank(workspace.customColor)
@@ -244,7 +245,7 @@ extension SessionPersistencePolicy {
         return false
     }
 
-    private static func panelCarriesRestorableUserState(_ panel: SessionPanelSnapshot) -> Bool {
+    private nonisolated static func panelCarriesRestorableUserState(_ panel: SessionPanelSnapshot) -> Bool {
         if !isNilOrBlank(panel.customTitle)
             || panel.isPinned
             || panel.isManuallyUnread
@@ -260,7 +261,7 @@ extension SessionPersistencePolicy {
         return false
     }
 
-    private static func terminalCarriesRestorableUserState(_ terminal: SessionTerminalPanelSnapshot) -> Bool {
+    private nonisolated static func terminalCarriesRestorableUserState(_ terminal: SessionTerminalPanelSnapshot) -> Bool {
         if let fontSize = terminal.fontSize,
            TerminalFontSizePolicy().acceptsPersistedBasePoints(fontSize) {
             return true
@@ -268,7 +269,7 @@ extension SessionPersistencePolicy {
         return !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
     }
 
-    private static func adjustedSelectedWorkspaceIndex(
+    private nonisolated static func adjustedSelectedWorkspaceIndex(
         original: Int?,
         keptOriginalIndices: [Int]
     ) -> Int? {
@@ -280,14 +281,16 @@ extension SessionPersistencePolicy {
         return keptOriginalIndices.lastIndex(where: { $0 < original }) ?? 0
     }
 
-    private static func pruningWorkspaceGroups(
+    nonisolated static func pruningWorkspaceGroups(
         _ groups: [SessionWorkspaceGroupSnapshot]?,
         originalWorkspaces: [SessionWorkspaceSnapshot],
-        keptWorkspaces: [SessionWorkspaceSnapshot]
+        keptWorkspaces: [SessionWorkspaceSnapshot],
+        identityReplacements: [UUID: UUID] = [:],
+        keptIndicesByOriginalIndex: [Int: Int] = [:]
     ) -> [SessionWorkspaceGroupSnapshot]? {
         guard let groups else { return nil }
-        let originalMembersByGroupId = Dictionary(grouping: originalWorkspaces, by: \.groupId)
-        let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces, by: \.groupId)
+        let originalMembersByGroupId = Dictionary(grouping: originalWorkspaces.indices, by: { originalWorkspaces[$0].groupId })
+        let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces.indices, by: { keptWorkspaces[$0].groupId })
         let occupiedGroupIds = Set(keptMembersByGroupId.keys.compactMap { $0 })
         let pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
             let keepsEmptyPinnedGroup = group.isPinned == true && group.anchorIsEmpty == true
@@ -300,21 +303,27 @@ extension SessionPersistencePolicy {
             }
 
             var copy = group
-            let originalAnchorWorkspaceId = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap { index in
-                originalMembers.indices.contains(index) ? originalMembers[index].workspaceId : nil
+            let originalAnchorIndex = group.anchorMemberIndex.flatMap { index in
+                originalMembers.indices.contains(index) ? originalMembers[index] : nil
             }
+            let originalAnchorWorkspaceId = group.anchorWorkspaceId
+                ?? originalAnchorIndex.flatMap { originalWorkspaces[$0].workspaceId }
+            // Legacy snapshots can have only an anchor index. Carry the exact
+            // source-to-output correspondence instead of assuming member order.
+            let indexedAnchor = originalAnchorIndex.flatMap { keptIndicesByOriginalIndex[$0] }
+                .flatMap { keptMembers.firstIndex(of: $0) }
             let newAnchorIndex = originalAnchorWorkspaceId.flatMap { anchorId in
-                keptMembers.firstIndex { $0.workspaceId == anchorId }
-            } ?? 0
+                keptMembers.firstIndex { keptWorkspaces[$0].workspaceId == (identityReplacements[anchorId] ?? anchorId) }
+            } ?? indexedAnchor ?? 0
             copy.anchorMemberIndex = newAnchorIndex
-            copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
+            copy.anchorWorkspaceId = keptWorkspaces[keptMembers[newAnchorIndex]].workspaceId
             copy.anchorIsEmpty = nil
             return copy
         }
         return pruned.isEmpty ? nil : pruned
     }
 
-    private static func isCmuxCrashStoragePath(
+    private nonisolated static func isCmuxCrashStoragePath(
         _ path: String,
         crashDirectoryComponents: [[String]],
         pathCache: inout [String: Bool]
@@ -339,7 +348,7 @@ extension SessionPersistencePolicy {
         return false
     }
 
-    private static func isPathComponents(
+    private nonisolated static func isPathComponents(
         _ candidateComponents: [String],
         inAnyCrashDirectory crashDirectoryComponents: [[String]]
     ) -> Bool {
@@ -349,15 +358,15 @@ extension SessionPersistencePolicy {
         }
     }
 
-    private static func pathComponents(for path: String) -> [String] {
+    private nonisolated static func pathComponents(for path: String) -> [String] {
         URL(fileURLWithPath: standardizedPath(path)).pathComponents
     }
 
-    private static func standardizedPath(_ path: String) -> String {
+    private nonisolated static func standardizedPath(_ path: String) -> String {
         ((path as NSString).expandingTildeInPath as NSString).standardizingPath
     }
 
-    private static func isNilOrBlank(_ value: String?) -> Bool {
+    private nonisolated static func isNilOrBlank(_ value: String?) -> Bool {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
     }
 }
