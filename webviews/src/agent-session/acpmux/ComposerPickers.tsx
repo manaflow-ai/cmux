@@ -21,7 +21,6 @@ import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
-import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -265,7 +264,7 @@ export function ComposerPickers({
             models: entry.models,
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
+            ...(entry.topModels ? { top: entry.topModels } : {}),
           })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),

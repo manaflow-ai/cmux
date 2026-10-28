@@ -370,7 +370,11 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
-  await step("vm-kind-default", "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
+  // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
+  // team record is shared). The agent-config and agent-hooks checks below prove
+  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
+  // `owner` through both checks, then writes the `team` boot default.
+  await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -550,6 +554,15 @@ try {
       `rm -rf /tmp/hook-merge-check /tmp/hook-status.json`,
       "echo agent-hooks-ok",
     ].join(" && "),
+  );
+  // The record every machine boots with (cmux-vm-kind-sync and the create replace it).
+  // It comes after agent-hooks: that step's hook-merge login shell needs the
+  // owner path too (a team record keeps no provider block).
+  // On a team record a login shell keeps none of a caller's model-plane env
+  // (cmux_prepare_shared_machine_model_env).
+  await step(
+    "vm-kind-default",
+    "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind && rm -rf /tmp/team-kind-check && env HOME=/tmp/team-kind-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -lc true && ! grep -rqs cmux-team-kind-check /tmp/team-kind-check && rm -rf /tmp/team-kind-check && echo team-kind-keeps-no-caller-env",
   );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
