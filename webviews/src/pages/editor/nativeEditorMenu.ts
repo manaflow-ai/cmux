@@ -40,10 +40,15 @@ export function editorMenuRows(editor: Pick<monaco.editor.ICodeEditor, "getActio
 /**
  * Opens the app's menu on a right-click in the editor, before Monaco sees it. As Monaco does, a
  * right-click outside the selection moves the caret there first.
+ *
+ * `commands`: rows the page replaces in Monaco's command registry (the Command Palette is the app's
+ * palette, view.ts). Monaco's own menu runs a row through that registry; `getAction(id).run()` runs
+ * Monaco's original action and would skip the replacement, so a replaced row runs its command here.
  */
 export function installNativeEditorMenu(
   editor: monaco.editor.ICodeEditor,
   container: HTMLElement,
+  commands: Readonly<Record<string, () => void>> = {},
 ): { dispose(): void } {
   const open = (event: MouseEvent) => {
     const native = nativeMenu();
@@ -60,7 +65,10 @@ export function installNativeEditorMenu(
       (reply) => {
         const id = pickedId(reply);
         editor.focus();
-        if (id) void editor.getAction(id)?.run();
+        if (!id) return;
+        const command = commands[id];
+        if (command) command();
+        else void editor.getAction(id)?.run();
       },
       () => undefined,
     );
