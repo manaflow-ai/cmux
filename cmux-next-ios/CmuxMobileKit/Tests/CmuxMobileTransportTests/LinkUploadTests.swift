@@ -6,16 +6,30 @@ import Testing
 /// A picked file streams from disk a chunk at a time, never read whole.
 @Suite struct LinkUploadTests {
     /// The Mac's `upload` service: keeps the open args, counts the bytes, then answers the path.
+    ///
+    /// It models the receiver after #26954, which removes the Mac's cap
+    /// (`upload_max_bytes` / `CMUX_MOBILE_UPLOAD_MAX_BYTES` in config.rs and
+    /// the `too_large` refusal in services.rs `receive_upload`): it takes any
+    /// declared size. The real receiver's policy is proven end to end by the
+    /// e2e test PR stacked on #26954 and #26959, not here.
     final class UploadLink: MacLink, @unchecked Sendable {
         let transport: TransportKind = .webRTC
         let states = AsyncStream<LinkState> { $0.finish() }
-        let channel = UploadChannel()
+        let channel: UploadChannel
+        /// The Mac refuses to open the channel (offline, a folder it won't write to).
+        let refusal: LinkError?
         private let lock = NSLock()
         private var opened: [String: String]?
+
+        init(scope: RecordingScope? = nil, refusal: LinkError? = nil) {
+            channel = UploadChannel(scope: scope)
+            self.refusal = refusal
+        }
 
         var args: [String: String]? { lock.withLock { opened } }
 
         func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+            if let refusal { throw refusal }
             lock.withLock { opened = args }
             return channel
         }
@@ -26,17 +40,26 @@ import Testing
 
     final class UploadChannel: LinkChannel, @unchecked Sendable {
         let id: UInt32 = 1
+        /// The file's scope, read at every write: open accesses then.
+        let scope: RecordingScope?
         private let lock = NSLock()
         private var bytes = 0
         private var largestWrite = 0
         private var answered = false
+        private var openAtWrites: Set<Int> = []
+
+        init(scope: RecordingScope? = nil) { self.scope = scope }
 
         var received: (bytes: Int, largestWrite: Int) { lock.withLock { (bytes, largestWrite) } }
+        /// How many accesses were open at each write (one value when it never changed).
+        var scopeOpenAtWrites: Set<Int> { lock.withLock { openAtWrites } }
 
         func send(_ data: Data) async throws {
+            let open = scope?.open
             lock.withLock {
                 bytes += data.count
                 largestWrite = max(largestWrite, data.count)
+                if let open { openAtWrites.insert(open) }
             }
         }
 
@@ -99,5 +122,59 @@ import Testing
             _ = try await LinkUpload.upload(.file(missing), name: "gone.bin", cwd: nil, over: link)
         }
         #expect(link.args == nil)
+    }
+
+    // MARK: Security scope (a Files pick is readable only inside it)
+
+    /// A picked file is read inside its security scope for the whole stream,
+    /// and the scope closes once the Mac answers.
+    @Test func aPickedFileStaysInItsScopeForTheWholeStream() async throws {
+        let size = LinkUpload.chunkBytes * 3 + 5
+        let url = try Self.sparseFile(size: size)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let scope = RecordingScope()
+        let link = UploadLink(scope: scope)
+
+        _ = try await LinkUpload.upload(.file(url), name: "big.bin", cwd: nil, over: link, scope: scope)
+
+        #expect(link.channel.received.bytes == size)
+        #expect(link.channel.scopeOpenAtWrites == [1])
+        #expect(scope.starts == 1)
+        #expect(scope.stops == 1)
+    }
+
+    /// A file the phone can't read: its scope still closes.
+    @Test func anUnreadableFileClosesItsScope() async {
+        let scope = RecordingScope()
+        let link = UploadLink()
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-gone.bin")
+
+        await #expect(throws: LinkUpload.Failure.self) {
+            _ = try await LinkUpload.upload(.file(missing), name: "gone.bin", cwd: nil, over: link, scope: scope)
+        }
+        #expect(scope.starts == 1)
+        #expect(scope.stops == 1)
+    }
+
+    /// The Mac refuses the upload before any byte goes: the scope closes too.
+    @Test func aRefusedUploadClosesItsScope() async throws {
+        let url = try Self.sparseFile(size: 10)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let scope = RecordingScope()
+        let link = UploadLink(refusal: LinkError(code: "offline", message: "the Mac isn't connected"))
+
+        await #expect(throws: LinkUpload.Failure.self) {
+            _ = try await LinkUpload.upload(.file(url), name: "a.bin", cwd: nil, over: link, scope: scope)
+        }
+        #expect(scope.starts == 1)
+        #expect(scope.stops == 1)
+    }
+
+    /// Bytes held in memory open no scope.
+    @Test func bytesInMemoryOpenNoScope() async throws {
+        let scope = RecordingScope()
+        _ = try await LinkUpload.upload(.data(Data([1, 2, 3])), name: "a.png", cwd: nil, over: UploadLink(), scope: scope)
+        #expect(scope.starts == 0)
+        #expect(scope.stops == 0)
     }
 }

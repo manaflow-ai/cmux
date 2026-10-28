@@ -42,16 +42,18 @@ public enum LinkUpload {
 
     /// Uploads `payload` as `name` and returns the file's absolute path on the Mac.
     /// Nonisolated async: the file reads run off the caller's actor.
-    public static func upload(_ payload: Payload, name: String, cwd: String?, over link: any MacLink) async throws -> String {
+    public static func upload(_ payload: Payload, name: String, cwd: String?, over link: any MacLink,
+                              scope: any SecurityScope = SystemSecurityScope()) async throws -> String {
         switch payload {
         case .data(let data):
             return try await send(name: name, size: data.count, cwd: cwd, over: link) { offset, count in
                 data.subdata(in: data.startIndex + offset..<data.startIndex + offset + count)
             }
         case .file(let url):
-            // A Files pick is security-scoped: its access stays open for the whole stream.
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            // A Files pick is security-scoped: its access stays open for the whole
+            // stream and closes when the upload ends, however it ends.
+            let access = ScopedFile(url, scope: scope).open()
+            defer { access.close() }
             let handle: FileHandle
             let size: Int
             do {
