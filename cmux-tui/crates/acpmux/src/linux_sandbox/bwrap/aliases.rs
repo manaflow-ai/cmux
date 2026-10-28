@@ -516,6 +516,64 @@ mod tests {
         assert!(reasons.iter().any(|r| r.contains("autofs")), "{reasons:?}");
     }
 
+    // Copied from big-red's /proc/self/mountinfo (Ubuntu with snapd).
+    const SNAPD_NS: &str = "34 1 0:29 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=6349032k,mode=755,inode64
+1190 34 0:29 /snapd/ns /run/snapd/ns rw,nosuid,nodev - tmpfs tmpfs rw,size=6349028k,nr_inodes=819200,mode=755,inode64
+4043 1190 0:5 mnt:[4026533090] /run/snapd/ns/snapd-desktop-integration.mnt rw - nsfs nsfs rw
+6714 1190 0:5 mnt:[4026532813] /run/snapd/ns/firmware-updater.mnt rw - nsfs nsfs rw
+";
+
+    #[test]
+    fn regression_snapd_nsfs_mounts_are_accepted() {
+        let info = format!("{ROOT}{SNAPD_NS}");
+        assert_eq!(parse_mountinfo(&info).map(|m| m.len()), Ok(5));
+        assert!(guarded_aliases(&[], &info).is_empty());
+        let trees = [
+            (Path::new("/home/u/repo"), 1, true),
+            (Path::new("/home/u/.ssh"), 1, false),
+            (Path::new("/run/snapd/ns"), 1190, false),
+        ];
+        let reasons = guarded_aliases(&trees, &info);
+        assert!(reasons.is_empty(), "{reasons:?}");
+        // Same namespace bound twice: still no host path alias.
+        let twice = info.replace("mnt:[4026532813]", "mnt:[4026533090]");
+        assert!(guarded_aliases(&trees, &twice).is_empty());
+    }
+
+    #[test]
+    fn nsfs_mounts_keep_the_guards_that_apply() {
+        let info = format!("{ROOT}{SNAPD_NS}");
+        let reasons = guarded_aliases(&[(Path::new("/run/snapd/ns"), 1190, true)], &info);
+        assert!(reasons.iter().any(|r| r.contains("non-local filesystem nsfs")), "{reasons:?}");
+        let ns = Path::new("/run/snapd/ns/firmware-updater.mnt");
+        let reasons = guarded_aliases(&[(ns, 6714, false)], &info);
+        assert!(reasons.iter().any(|r| r.contains("namespace file mount")), "{reasons:?}");
+        let trees = [(Path::new("/run/snapd"), 34, false)];
+        assert!(guarded_aliases(&trees, &info).is_empty());
+        let leak = format!("{info}7 1 0:29 /snapd /mnt/leak rw - tmpfs tmpfs rw\n");
+        let reasons = guarded_aliases(&trees, &leak);
+        assert!(reasons.contains(&"/run/snapd is also visible at /mnt/leak".into()), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_non_path_roots_outside_nsfs_are_refused() {
+        for line in [
+            "2 1 0:42 mnt:[4026533090] /mnt/x rw - tmpfs tmpfs rw",
+            "2 1 8:1 relative/root /mnt/x rw - ext4 root rw",
+            "2 1 0:5 mnt:[4026533090] relative/point rw - nsfs nsfs rw",
+            "2 1 0:5 mnt:[] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 mnt:[12a] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 :[12] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 mnt:[12]x /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 Mnt:[12] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 ../mnt:[12] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 /../x /mnt/x rw - nsfs nsfs rw",
+        ] {
+            let reasons = guarded_aliases(&[], &format!("{ROOT}{line}\n"));
+            assert_eq!(reasons, ["invalid mountinfo path"], "{line}");
+        }
+    }
+
     #[test]
     fn real_fdinfo_resolves_root_mount_id() {
         let id = resolved_mount_id(Path::new("/")).unwrap();
