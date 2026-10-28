@@ -6,7 +6,12 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
-import { transcriptPullRequests, transcriptSummaryVersion, type SummaryPullRequest } from "./transcriptPullRequests";
+import {
+  pullRequestSourceCommand,
+  transcriptPullRequests,
+  transcriptSummaryVersion,
+  type SummaryPullRequest,
+} from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
@@ -179,7 +184,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
-      const text = `${item.title} ${item.inputSummary ?? ""} ${item.output ?? ""}`;
+      const command = item.command ? pullRequestSourceCommand(item.command) : "";
+      const text = `${item.title} ${command} ${item.inputSummary ?? ""} ${item.output ?? ""}`;
       addUrls(text, rowIndex);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, rowIndex);

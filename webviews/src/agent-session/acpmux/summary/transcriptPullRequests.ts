@@ -137,6 +137,10 @@ const callText = (command: string) =>
     })
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
+/// Command text suitable for Sources scanning: payloads such as PR comment bodies are data, not
+/// activity or external references.
+export const pullRequestSourceCommand = (command: string): string => callText(command);
+
 /// Only explicit JSON title fields or a `.title` query are title evidence.
 function outputTitle(tool: Tool): string | undefined {
   const output = tool.output?.trim();
