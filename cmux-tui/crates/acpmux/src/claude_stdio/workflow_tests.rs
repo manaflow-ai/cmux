@@ -260,7 +260,7 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     t.inbound(&workflow_call("toolu_w")).await;
     t.inbound(&launched("toolu_w", "/nonexistent")).await;
     let agent = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "done",
-        "phaseTitle": "Review", "startedAt": 10, "resultPreview": "SHIP"});
+        "phaseTitle": "Review", "startedAt": 10, "effort": "high", "resultPreview": "SHIP"});
     t.inbound(&snapshot(json!([phase(1, "Review"), agent]))).await;
     let done = json!({"type": "system", "subtype": "task_notification", "task_id": "wx2", "tool_use_id": "toolu_w",
         "status": "completed", "usage": {"total_tokens": 52000, "tool_uses": 9, "duration_ms": 61000}});
@@ -282,7 +282,7 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     assert_eq!(
         last["workflowAgents"],
         json!([{"index": 1, "label": "review:#1", "state": "completed", "phase": "Review",
-            "startedAt": 10, "result": "SHIP"}])
+            "startedAt": 10, "effort": "high", "result": "SHIP"}])
     );
 }
 

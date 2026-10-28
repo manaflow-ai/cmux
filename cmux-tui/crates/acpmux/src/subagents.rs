@@ -52,12 +52,22 @@ pub fn is_subagents(params: &Value) -> bool {
 #[derive(Debug, Default)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
+    /// Bounded per-child text; projected only on existing lifecycle/progress events.
+    previews: HashMap<String, ChildPreview>,
     /// The session's own agent session id (its harness thread), once known:
     /// never one of its subagents.
     own: Option<String>,
     /// The background subagents still running: they outlive the turn that
     /// started them, so the session works on past it (`hub/work_below.rs`).
     background: HashSet<String>,
+}
+
+#[derive(Debug, Default)]
+struct ChildPreview {
+    text: String,
+    message_id: Option<String>,
+    streaming: bool,
+    tokens: Option<u64>,
 }
 
 impl SubagentTree {
@@ -92,8 +102,45 @@ impl SubagentTree {
             .and_then(Value::as_str)
             .filter(|sid| self.owns(sid))
             .map(str::to_owned);
-        let events =
+        if let (Some(child), Some(update)) = (owner.as_deref(), params.get("update")) {
+            let preview = self.previews.entry(child.to_owned()).or_default();
+            match update.get("sessionUpdate").and_then(Value::as_str) {
+                Some("agent_message_chunk") => {
+                    let id = update.get("messageId").and_then(Value::as_str).map(str::to_owned);
+                    if !preview.streaming || id != preview.message_id {
+                        preview.text.clear();
+                    }
+                    preview.streaming = true;
+                    preview.message_id = id;
+                    if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
+                        // One child, bounded bytes, no sibling walk and no new event per token.
+                        let left = LAST_MESSAGE_CHARS + 1 - preview.text.chars().count();
+                        preview.text.extend(text.chars().take(left));
+                    }
+                }
+                Some("usage_update") => {
+                    preview.tokens = update
+                        .get("totalTokens")
+                        .and_then(Value::as_u64)
+                        .or_else(|| update.get("used").and_then(Value::as_u64));
+                }
+                Some("agent_thought_chunk" | "config_option_update" | "session_info_update") => {}
+                _ => preview.streaming = false,
+            }
+        }
+        let mut events =
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
+        for event in &mut events {
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            if let Some(preview) = self.previews.get(id) {
+                if !preview.text.is_empty() && event.get("lastMessage").is_none() {
+                    event["lastMessage"] = json!(truncate_last_message(&preview.text));
+                }
+                if let Some(tokens) = preview.tokens {
+                    event["tokens"] = json!(tokens);
+                }
+            }
+        }
         let mut fields = Map::new();
         if let Some(owner) = &owner {
             fields.insert("subagent".into(), json!(owner));
@@ -154,7 +201,10 @@ impl SubagentTree {
                         } else {
                             key
                         };
-                        event.insert(key.into(), json!(truncate_last_message(&v)));
+                        event.insert(
+                            key.into(),
+                            json!(if key == "lastMessage" { truncate_last_message(&v) } else { v }),
+                        );
                     }
                 }
                 // The tool call that started it (Claude's Agent call), which a
@@ -186,9 +236,12 @@ impl SubagentTree {
                     event.insert("reason".into(), json!(reason));
                 }
                 // A failed Claude agent's error, and the agent id SendMessage resumes it by.
-                for key in ["agentId", "error"] {
+                for key in ["agentId", "error", "model", "effort", "lastMessage"] {
                     if let Some(v) = s(update, key) {
-                        event.insert(key.into(), json!(v));
+                        event.insert(
+                            key.into(),
+                            json!(if key == "lastMessage" { truncate_last_message(&v) } else { v }),
+                        );
                     }
                 }
                 vec![Value::Object(event)]
@@ -277,7 +330,11 @@ impl SubagentTree {
                     }
                     for key in ["model", "effort", "reasoningEffort", "lastMessage", "last_message"]
                     {
-                        if let Some(v) = update.get(key).and_then(Value::as_str) {
+                        if let Some(v) = update
+                            .get(key)
+                            .or_else(|| input.and_then(|i| i.get(key)))
+                            .and_then(Value::as_str)
+                        {
                             let key = if key == "reasoningEffort" {
                                 "effort"
                             } else if key == "last_message" {
@@ -415,7 +472,11 @@ const LAST_MESSAGE_CHARS: usize = 240;
 fn truncate_last_message(text: &str) -> String {
     let mut chars = text.chars();
     let value: String = chars.by_ref().take(LAST_MESSAGE_CHARS).collect();
-    if chars.next().is_some() { format!("{value}…") } else { value }
+    if chars.next().is_some() {
+        format!("{}…", value.chars().take(LAST_MESSAGE_CHARS - 1).collect::<String>())
+    } else {
+        value
+    }
 }
 
 #[cfg(test)]
@@ -541,7 +602,7 @@ mod codex_tests {
         );
         assert_eq!(native[0]["model"], "claude-opus");
         assert_eq!(native[0]["effort"], "high");
-        assert_eq!(native[0]["lastMessage"].as_str().unwrap().chars().count(), 241);
+        assert_eq!(native[0]["lastMessage"].as_str().unwrap().chars().count(), 240);
 
         let codex = subagents(
             &mut tree,
