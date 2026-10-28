@@ -7,15 +7,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
-// diffGitSource installs the viewer's git strings over the agent pane's string tables and switches
-// the pane's language to the viewer's (diff-viewer/git.ts). Both are process-wide, and bun runs
-// every file in one process, so they are saved here, before anything changes them, and restored
-// after: left as they are, later files read a table with only the git strings, in Japanese, and
-// render raw keys.
-const paneI18n = await import("../src/agent-session/acpmux/i18n");
-const paneLanguageBefore = paneI18n.currentLanguage();
-const paneStringsBefore = globalThis.__cmuxPaneStrings;
-
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
@@ -50,6 +41,16 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+
+// diffGitSource installs the viewer's git strings over the agent pane's string tables and switches
+// the pane's language to the viewer's (diff-viewer/git.ts). Both are process-wide, and bun runs
+// every file in one process, so they are saved here, before anything changes them, and restored
+// after: left as they are, later files read a table with only the git strings, in Japanese, and
+// render raw keys. i18n is imported only now, with the window in place: bun shares the module
+// cache, and a first import with no window never adds the pane's languagechange listener.
+const paneI18n = await import("../src/agent-session/acpmux/i18n");
+const paneLanguageBefore = paneI18n.currentLanguage();
+const paneStringsBefore = globalThis.__cmuxPaneStrings;
 
 Object.defineProperty(dom.window.navigator, "languages", { configurable: true, get: () => ["ja"] });
 
