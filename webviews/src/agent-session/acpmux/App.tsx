@@ -1831,10 +1831,15 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 /// Puts a following view at the latest row. Anything past the browser's rounding is corrected: the
 /// stack's eased growth (the queue's max-height move, #24718) comes in steps under
 /// `FOLLOW_BOTTOM_DEADBAND_PX`, and a deadband here left the view resting up to that far from its end,
-/// the last row under the stack.
+/// the last row under the stack. A fractional end is rounded up: WebKit floors a fractional offset
+/// while it rounds the content's height, so the end as written rested a pixel short of the
+/// scroller's own; past it, the browser clamps the offset to that end.
 function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  if (Math.abs(latest - node.scrollTop) <= 1) return false;
-  node.scrollTop = latest;
+  const end = Math.ceil(latest - 0.01);
+  // Where the write lands: a scroller already clamped there is at its end.
+  const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
+  if (Math.abs(lands - node.scrollTop) <= 0.5) return false;
+  node.scrollTop = end;
   return true;
 }
 
@@ -2187,13 +2192,22 @@ export function VirtualTranscript({
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
-    // A rail jump or a layout correction may move the live scroller after an event queued this
-    // frame. That event is stale; its state must not restore the old offset on the next commit.
-    if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) return;
-    acpmuxPerf.timed("flush.scroll", () => {
-      setScroll(scrollRef.current);
-      setFollowing(frame.atLatest);
-    });
+    // A rail jump, a wheel glide, a layout correction or any other frame callback may move the live
+    // scroller after an event queued this frame. That event is stale: its state must not restore the
+    // old offset, so the commit renders the live offset instead. Dropping the commit (as it once did)
+    // left the rows mounted where the scroll began for as long as a frame-driven scroll kept moving,
+    // so a jump or a fling painted blank frames all the way (transcript-fling, cached rows).
+    const live = ref.current?.scrollTop;
+    if (live !== undefined && Math.abs(live - frame.top) > 0.5)
+      scrollRef.current = { top: live, delta: live - scrollRef.current.top || scrollRef.current.delta };
+    // One commit a frame, flushed in the pacer's own frame callback: React would otherwise render an
+    // update made here in a later task, after the frame paints with the rows of the last offset.
+    acpmuxPerf.timed("flush.scroll", () =>
+      flushSync(() => {
+        setScroll(scrollRef.current);
+        setFollowing(followingRef.current);
+      }),
+    );
   });
   const queueScroll = (top: number, atLatest: boolean) => {
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the

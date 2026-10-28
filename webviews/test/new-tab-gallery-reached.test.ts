@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
@@ -71,19 +72,14 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
         expect(receipt.report?.error).toBeUndefined();
         const steps = receipt.report?.steps ?? [];
         expect(steps.length).toBeGreaterThan(0);
-        let observedSelectionShift = false;
         for (const step of steps) {
           expect(step.popupProblems ?? []).toEqual([]);
           expect(step.anchorMoves ?? []).toEqual([]);
-          for (const problem of step.problems ?? []) {
-            expect(variant === "picked" || variant === "picker-open").toBe(true);
-            expect(step.step).toMatch(/^click option /);
-            expect(problem).toMatch(/^layout shift [0-9.]+ \(limit 0\)$/);
-            expect(step.layoutShift).toBeGreaterThan(0);
-            observedSelectionShift = true;
-          }
         }
-        expect(receipt.report?.status).toBe(observedSelectionShift ? "fail" : "pass");
+        // Graded as every play test is (support/galleryPlay.ts): a thrown play, a moved anchor and a
+        // layout shift fail it; the runner's frame timing does not (cx-mfkky). Picking a project
+        // keeps its layout too, at CLS 0 (#26850; new-tab-headline-selection-cls.test.ts).
+        expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
         if (variant === "picked" || variant === "picker-open") {
           expect(receipt.headline).toContain("cmux");
           expect(receipt.menu).toBe(variant === "picker-open");
