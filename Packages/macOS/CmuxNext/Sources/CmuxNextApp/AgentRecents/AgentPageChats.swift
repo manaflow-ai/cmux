@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
