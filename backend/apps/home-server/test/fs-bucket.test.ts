@@ -571,9 +571,13 @@ describe("self-hosted attachment bucket", () => {
       // The upload directory itself, swapped for a link to a copy outside the root: its record and parts are not trusted.
       const multipart = join(root, ".multipart")
       const copy = join(parent, "multipart-copy")
+      // The copy holds other bytes under the same part etags, so reading anything through it shows.
       const linkMultipart = () => {
         rmSync(copy, { recursive: true, force: true })
         cpSync(multipart, copy, { recursive: true })
+        for (const entry of readdirSync(copy, { recursive: true, withFileTypes: true })) {
+          if (entry.isFile() && /^part\.\d+$/.test(entry.name)) writeFileSync(join(entry.parentPath, entry.name), "FORGED")
+        }
         swapForLink(multipart, copy)
       }
       const unlinkMultipart = () => {
@@ -586,9 +590,20 @@ describe("self-hosted attachment bucket", () => {
         return () => upload.uploadPart(2, "two")
       }, linkMultipart, unlinkMultipart)
       await atEveryCheckpoint("complete from .multipart", async () => {
+        await bucket.delete("home/v1/assembled")
         const upload = await bucket.createMultipartUpload("home/v1/assembled")
         const part = await upload.uploadPart(1, "one")
-        return () => upload.complete([part])
+        return async () => {
+          try {
+            return await upload.complete([part])
+          } finally {
+            // Refused or not, no object was assembled from bytes read through the link: a swap
+            // before the parts are read refuses the completion, one after it leaves the real bytes.
+            // (Read through a bucket without the seam, so the check itself adds no checkpoint.)
+            const stored = await new FsBucket(root).get("home/v1/assembled")
+            if (stored) expect(await new Response(stored.body!).text()).toBe("one")
+          }
+        }
       }, linkMultipart, unlinkMultipart)
 
       expect(await new Response((await bucket.get("a/secret"))!.body!).text()).toBe("inside")
