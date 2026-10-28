@@ -48,13 +48,28 @@ impl Rpc {
 struct Daemon {
     child: Child,
     socket: PathBuf,
+    listen: Option<String>,
 }
 
 impl Daemon {
     fn start(scratch: &Path, home: &Path) -> Self {
+        Self::start_inner(scratch, home, false)
+    }
+
+    fn start_with_peer_listener(scratch: &Path, home: &Path) -> Self {
+        Self::start_inner(scratch, home, true)
+    }
+
+    fn start_inner(scratch: &Path, home: &Path, peer_listener: bool) -> Self {
         let socket = scratch.join("s.sock");
         let mut child = daemon_env::acpmux(scratch)
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+            .args(
+                peer_listener
+                    .then_some("--listen")
+                    .into_iter()
+                    .chain(peer_listener.then_some("127.0.0.1:0")),
+            )
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
@@ -65,8 +80,10 @@ impl Daemon {
         let stdout = child.stdout.take().unwrap();
         for line in BufReader::new(stdout).lines() {
             let line = line.unwrap();
-            if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
-                return Self { child, socket };
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["ready"] == true
+            {
+                return Self { child, socket, listen: v["listen"].as_str().map(str::to_owned) };
             }
         }
         let _ = child.kill();
@@ -81,6 +98,19 @@ impl Daemon {
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().unwrap() * 1024
+    }
+
+    /// Peak resident bytes while this process has run. Linux exposes VmHWM;
+    /// other Unix targets use the current RSS as a conservative portable fallback.
+    fn hwm_bytes(&self) -> u64 {
+        if let Ok(status) = std::fs::read_to_string(format!("/proc/{}/status", self.child.id())) {
+            if let Some(kb) = status.lines().find_map(|line| {
+                line.strip_prefix("VmHWM:")?.split_whitespace().next()?.parse::<u64>().ok()
+            }) {
+                return kb * 1024;
+            }
+        }
+        self.rss_bytes()
     }
 }
 
@@ -146,6 +176,54 @@ fn write_session(home: &Path, id: &str, status: &str, with_log: bool) {
         let line = json!({"seq": 1, "at": 1_791_000_000_000u64, "dir": "mux", "kind": "created", "msg": {"harness": "claude"}});
         private_file(&dir.join("events").join("000001.ndjson"), &format!("{line}\n"));
     }
+}
+
+/// An object-heavy transcript fixture used by the peer snapshot benchmark. It keeps
+/// the shape fixed across all saturation sizes so RSS/HWM and CPU deltas compare
+/// the snapshot accounting rather than a changing payload.
+fn peer_event(id: &str, seq: u64) -> Value {
+    let objects: Vec<Value> = (0..32)
+        .map(|i| json!({
+            "key": format!("peer-{seq}-{i}"),
+            "value": {"text": "object-heavy-peer-snapshot-payload", "flags": {"a": true, "b": false, "n": i},
+                       "nested": {"session": id, "seq": seq, "labels": ["peer", "retained", "cache"]}}
+        }))
+        .collect();
+    json!({
+        "seq": seq, "at": 1_791_000_000_000u64 + seq, "dir": "in",
+        "kind": "agent_message_chunk",
+        "msg": {"method": "session/update", "params": {"sessionId": id,
+                "update": {"sessionUpdate": "agent_message_chunk", "content": objects,
+                "metadata": {"attempt": seq, "labels": ["peer", "retained", "cache"]}}}}
+    })
+}
+
+/// Writes a retained peer session with a deterministic transcript. Closed sessions
+/// with a log are retained by the daemon; closed sessions without one model purged
+/// late-save leftovers and are intentionally excluded from this fixture.
+fn write_peer_session(home: &Path, id: &str, status: &str, records: u64) {
+    let dir = home.join("sessions").join(id);
+    private_dir(&dir);
+    let mut metadata = chief_meta(id, status, 1_791_000_000_000);
+    metadata["lastSeq"] = json!(records);
+    metadata["eventCount"] = json!(records);
+    metadata["turnCount"] = json!(records);
+    private_file(&dir.join("session.json"), &metadata.to_string());
+    private_dir(&dir.join("events"));
+    let mut text = String::new();
+    for seq in 1..=records {
+        text.push_str(&peer_event(id, seq).to_string());
+        text.push('\n');
+    }
+    private_file(&dir.join("events").join("000001.ndjson"), &text);
+}
+
+fn websocket_token(home: &Path) -> String {
+    let config = std::fs::read_to_string(home.join("config.json")).unwrap();
+    serde_json::from_str::<Value>(&config).unwrap()["websocket"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 fn listed(rpc: &mut Rpc) -> Vec<String> {
@@ -217,7 +295,7 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     let rss_mb = daemon.rss_bytes() / (1024 * 1024);
     println!(
         "acpmux-memory: {}",
-        json!({"leftovers": leftovers, "chats": chats, "rss_mb": rss_mb, "budget_mb": budget_mb})
+        json!({"leftovers": leftovers, "chats": chats, "rss_kib": rss_kib, "budget_mb": budget_mb})
     );
     assert!(rss_mb <= budget_mb, "the daemon holds {rss_mb} MB (budget {budget_mb} MB)");
     drop(daemon);
@@ -394,4 +472,111 @@ fn a_wait_on_one_chat_by_name_and_by_id_reads_it_twice() {
     );
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A fixed remote peer cache workload plus N retained sessions. The six runs
+/// exercise both idle and closed rows at the cache sizes used by the Chief
+/// home, while ten retained closed peer chats keep N=0 meaningful.
+fn peer_memory_case(closed: bool, fillers: u64) -> u64 {
+    let dir = scratch(if closed { "peer-closed" } else { "peer-idle" });
+    let remote = dir.join("remote");
+    let local = dir.join("local");
+    private_dir(&remote);
+    private_dir(&remote.join("sessions"));
+    private_dir(&local);
+    private_dir(&local.join("sessions"));
+
+    // Ten retained closed chats are the fixed peer workload. Their rows and
+    // 400 object-heavy transcript records are identical in every case and
+    // saturate the peer snapshot memory budget even when N is zero.
+    const FIXED_PEERS: u64 = 10;
+    for i in 0..FIXED_PEERS {
+        write_peer_session(&remote, &format!("01a15910-0000-7000-8000-{i:012}"), "closed", 400);
+    }
+    // N fillers are retained sessions on the measured daemon, matching the
+    // Chief home states while the remote peer workload remains constant.
+    let status = if closed { "closed" } else { "idle" };
+    for i in 0..fillers {
+        write_peer_session(&local, &format!("01a15911-0000-7000-8000-{i:012}"), status, 1);
+    }
+
+    private_dir(&dir.join("remote-run"));
+    private_dir(&dir.join("local-run"));
+    let remote_daemon = Daemon::start_with_peer_listener(&dir.join("remote-run"), &remote);
+    let listen = remote_daemon.listen.clone().expect("peer listener address");
+    let peer_token = std::fs::read_to_string(remote.join("run").join("peer.token")).unwrap();
+    let token = websocket_token(&remote);
+    let local_daemon = Daemon::start(&dir.join("local-run"), &local);
+    let mut rpc = Rpc::connect(&local_daemon.socket);
+    rpc.call(
+        "_acpmux/peer_add",
+        json!({"name": "bench", "url": format!("ws://{listen}"), "token": token,
+               "peerToken": peer_token, "wait": true}),
+    );
+
+    // `wait: true` above settles the initial listing; the rows include the
+    // local fillers and every fixed remote session before capture starts.
+    let rows = rpc.call("_acpmux/sessions", json!({}));
+    assert!(
+        rows["sessions"].as_array().is_some_and(|v| v.len() >= (FIXED_PEERS + fillers) as usize),
+        "peer list did not settle: {rows}"
+    );
+    let cpu0 = cpu_ms(local_daemon.child.id());
+    // Repeat each exact page to exercise replacement and removed-record accounting.
+    for _pass in 0..2 {
+        for i in 0..FIXED_PEERS {
+            let id = format!("01a15910-0000-7000-8000-{i:012}");
+            rpc.call(
+                "_acpmux/attach",
+                json!({"sessionId": format!("bench/{id}"), "visible": false,
+                       "kinds": ["transcript"], "limit": 400, "maxBytes": 4 * 1024 * 1024}),
+            );
+            let snapshot = rpc.call(
+                "_acpmux/peer_snapshot",
+                json!({"sessionId": format!("bench/{id}"), "limit": 400,
+                       "maxBytes": 4 * 1024 * 1024}),
+            );
+            let events = snapshot.get("events").and_then(Value::as_array).expect("snapshot events");
+            assert!(
+                !events.is_empty() && snapshot["lastSeq"] == 400,
+                "snapshot lost records: {snapshot}"
+            );
+        }
+    }
+    let cpu_ms = cpu_ms(local_daemon.child.id()) - cpu0;
+    let rss_kib = local_daemon.rss_bytes() / 1024;
+    let hwm_kib = local_daemon.hwm_bytes() / 1024;
+    println!(
+        "acpmux-peer-snapshot-memory: {}",
+        serde_json::to_string(&json!({
+            "closed": closed, "fillers": fillers, "rss_kib": rss_kib,
+            "peak_rss_kib": hwm_kib, "cpu_ms": cpu_ms, "fixed_retained": FIXED_PEERS,
+            "records_per_fixed": 400, "payload": "object-heavy-nested"
+        }))
+        .unwrap()
+    );
+    drop(local_daemon);
+    drop(remote_daemon);
+    let _ = std::fs::remove_dir_all(&dir);
+    hwm_kib
+}
+
+/// Hermetic exact-daemon saturation evidence for peer snapshots. The fixed
+/// retained workload exercises removed-record accounting and the N fillers
+/// drive the cache through 0, 288 and 1000 sessions in both statuses.
+#[test]
+fn peer_snapshot_cache_saturation_stays_bounded_with_object_heavy_payloads() {
+    let mut results = Vec::new();
+    for &closed in &[false, true] {
+        for &fillers in &[0, 288, 1000] {
+            results.push(peer_memory_case(closed, fillers));
+        }
+    }
+    // Keep a broad guard against a runaway cache while leaving the measurements
+    // useful on small CI runners; the before/after RSS, HWM and CPU are printed
+    // for every case above and are compared by the perf harness.
+    assert!(
+        results.iter().all(|kb| *kb < 512 * 1024),
+        "peer snapshot cache exceeded 512 MB: {results:?}"
+    );
 }
