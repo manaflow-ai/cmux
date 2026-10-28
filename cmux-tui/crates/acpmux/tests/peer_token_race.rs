@@ -309,3 +309,41 @@ fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
         }
     }
 }
+
+/// Cached parking applies on boot, but an explicit reconnect of a never-reached host
+/// (lastSeen=null) still runs now. Both wait=true calls settle without waiting an hour.
+#[tokio::test(start_paused = true)]
+async fn cached_hourly_retry_survives_boot_and_manual_reconnect_is_immediate() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-park-boot");
+    let mut config = acpmux::config::Config::default();
+    config.store.mode = acpmux::config::StoreMode::Local;
+    let store = acpmux::store::open(&config.store, dir.path()).unwrap();
+    let hub = acpmux::hub::Hub::new(config, store);
+    let now = acpmux::store::now_ms();
+    std::fs::create_dir_all(dir.path().join("peers")).unwrap();
+    std::fs::write(
+        dir.path().join("peers/absent.json"),
+        json!({
+            "lastSeen": null, "downSince": now - 86_400_001,
+            "nextRetryAt": now + 3_600_000, "sessions": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), hub.add_peer("absent", "ws://", None, None, true))
+        .await
+        .expect("parked boot settles now")
+        .unwrap();
+    let boot_attempts = hub.peers()[0]["attempts"].as_u64().unwrap();
+    tokio::time::timeout(Duration::from_secs(1), hub.reconnect_peer("absent", true))
+        .await
+        .expect("explicit reconnect settles now")
+        .unwrap();
+    let manual_attempts = hub.peers()[0]["attempts"].as_u64().unwrap();
+    hub.remove_peer("absent").await.unwrap();
+    assert_eq!(boot_attempts, 0, "automatic boot must honor the cached hourly retry");
+    assert_eq!(
+        manual_attempts, 1,
+        "manual reconnect bypasses the saved wait, even without lastSeen"
+    );
+}
