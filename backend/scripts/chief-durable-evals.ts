@@ -174,8 +174,10 @@ const runCase = async (c: Case, brain: "pi" | "durable", rep: number): Promise<R
       const set = await http("PUT", `/v1/chiefs/${chief.id}/brain-impl`, { impl: "durable" })
       if (set.status !== 200) return { ...base, error: `brain-impl durable: ${set.status} ${JSON.stringify(set.body?.error)}` }
     }
-    const sent = await op("message.send", { conversation: conv, client_msg_id: `eval-${runTag}-${c.id}`, parts: [{ type: "text", text: c.turns[0]!.text }] })
-    if (sent.status !== 200) return { ...base, error: `message.send: ${sent.status}` }
+    // The message's client_msg_id must equal the op's idempotency key (home-core conversation/apply.ts).
+    const msgKey = `eval-${runTag}-${brain}-${rep}-${c.id}`.slice(0, 120)
+    const sent = await op("message.send", { conversation: conv, client_msg_id: msgKey, parts: [{ type: "text", text: c.turns[0]!.text }] }, msgKey)
+    if (sent.status !== 200 || sent.body?.ok === false) return { ...base, error: `message.send: ${sent.status} ${JSON.stringify(sent.body?.error ?? "")}` }
     const start = Date.now()
     const mine = async () => ((await read("conversation.history", { conversation: conv, limit: 50 })).body?.value?.messages ?? []).filter((m: any) => m.author === chief.id) as Array<any>
     const runs = async () => ((await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${conv}`)).body?.value?.runs ?? []) as Array<any>
