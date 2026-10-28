@@ -83,12 +83,13 @@ final class WindowOverlayLayer {
     /// The window's pointer moves (its page windows' too), heard only while a catcher area has no panel yet: the
     /// first move into an area makes its panel (``DividerMouseCatchers/pointerMoved(toScreen:)``).
     private var catcherPointer: InputSubscription?
-    /// The window's presses, drags and releases, heard only while a catcher area has no panel yet or a press
-    /// sent on holds the mouse: a press with no move before it still reaches the divider
-    /// (``DividerMouseCatchers/intercept(_:atScreen:)``).
+    /// The window's presses, drags and releases, heard only while a catcher area is wanted or a press sent on holds
+    /// the mouse: a press with no move before it still reaches the divider (``DividerMouseCatchers/intercept(_:atScreen:)``).
     private var catcherPresses: InputSubscription?
     /// The app's input tap, read when the catchers are made (nil: every catcher area gets its panel at once).
     private let inputTap: @MainActor () -> InputEventTap?
+    /// The pointer's screen point for the catchers (nil: the live pointer; tests pass their own).
+    private let catcherPointerLocation: (@MainActor () -> CGPoint)?
     /// A visible page window takes the mouse over the layout (``takesMouse(_:)``): its divider hit areas
     /// need catcher panels above it.
     private(set) var pageWindowsTakeMouse = false
@@ -131,11 +132,14 @@ final class WindowOverlayLayer {
     private(set) var evaluations = 0
 
     /// `center`: where windows post (tests pass their own); `inputTap`: the app's input tap (the divider catchers
-    /// wait for the pointer through it); `currentTurn`: the main run loop's turn number.
+    /// wait for the pointer through it); `pointerLocation`: the pointer for the catchers (nil: the live one);
+    /// `currentTurn`: the main run loop's turn number.
     init(window: NSWindow, signposter: Signposter = Signposter.cef, center: NotificationCenter = .default,
-         inputTap: @escaping @MainActor () -> InputEventTap? = { nil }, currentTurn: @escaping @MainActor () -> UInt64) {
+         inputTap: @escaping @MainActor () -> InputEventTap? = { nil }, pointerLocation: (@MainActor () -> CGPoint)? = nil,
+         currentTurn: @escaping @MainActor () -> UInt64) {
         self.window = window
         self.inputTap = inputTap
+        self.catcherPointerLocation = pointerLocation
         self.signposter = signposter
         self.currentTurn = currentTurn
         pageSurface = PageSurface.of(window)
@@ -490,7 +494,8 @@ final class WindowOverlayLayer {
 
     private func makeCatchers() -> DividerMouseCatchers {
         let tap = inputTap()
-        let made = DividerMouseCatchers(window: window, lazy: tap != nil)
+        let made = catcherPointerLocation.map { DividerMouseCatchers(window: window, lazy: tap != nil, pointerLocation: $0) }
+            ?? DividerMouseCatchers(window: window, lazy: tap != nil)
         made.onHover = { [weak self] id, hovered in
             if id == Self.sidebarResizeAreaID {
                 (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()

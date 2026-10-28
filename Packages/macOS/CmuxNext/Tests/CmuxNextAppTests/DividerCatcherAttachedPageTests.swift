@@ -88,7 +88,7 @@ import Testing
             self.tap = tap
             layer = WindowOverlayLayer(window: window,
                                        signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime),
-                                       inputTap: { tap }, currentTurn: { 0 })
+                                       inputTap: { tap }, pointerLocation: { .zero }, currentTurn: { 0 })
             window.overlay = layer
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -256,20 +256,46 @@ import Testing
         defer { layout.removeChild(page) }
         let catchers = try #require(layer.catchers, "a page window takes the mouse: the catchers exist")
         let point = CGPoint(x: area.rect.midX, y: area.rect.midY)
+        var ended: [Double] = []
+        layout.model.intentHandler = { intent in
+            if case .setSplitRatio(_, let ratio, _, let phase) = intent, phase == .ended { ended.append(ratio) }
+        }
 
         #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: CGPoint(x: 40, y: 40), on: page)) == .pass,
                 "a press off every divider is the page's")
         #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: point, on: page)) == .consume,
                 "the press over the divider went to the window, not the page")
         #expect(catchers.framesInWindow[area.id] == area.rect, "the press made the divider's panel: \(catchers.framesInWindow)")
-        let moved = CGPoint(x: point.x + 30, y: point.y)
+        let moved = CGPoint(x: point.x + 150, y: point.y)
         #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDragged, at: moved, on: page)) == .consume,
                 "the press's drag follows it to the window")
         #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: moved, on: page)) == .consume,
                 "the press's release follows it to the window")
-        #expect(catchers.wantsPresses == catchers.wantsPointer, "the release ended the forwarded press")
+        #expect(ended.count == 1 && (ended.first ?? 0.5) > 0.5, "the divider took the press and its drag: \(ended)")
         #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDragged, at: point, on: page)) == .pass,
                 "a drag after the release is the page's")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: point, on: page)) == .consume,
+                "a press queued on the page before its panel came still goes to the divider")
+        #expect(layout.tap.deliverIntercepts(layout.event(.rightMouseUp, at: point, on: page)) == .pass,
+                "another button's release leaves the press held")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: point, on: page)) == .consume)
+    }
+
+    /// A press sent on whose release never came (a menu or a modal took it) is over at the next press: that press,
+    /// on the page off every divider, and its release stay the page's.
+    @Test func aLostReleaseLeavesTheNextPressToThePage() throws {
+        let layout = Layout()
+        defer { layout.close() }
+        let layer = layout.layer
+        let area = try #require(layer.dividerAreas.first, "the split has a divider area")
+        let page = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        layout.addChild(page, over: CGRect(x: 0, y: 0, width: 1200, height: 800))
+        defer { layout.removeChild(page) }
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: CGPoint(x: area.rect.midX, y: area.rect.midY), on: page)) == .consume)
+
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: CGPoint(x: 40, y: 40), on: page)) == .pass)
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: CGPoint(x: 40, y: 40), on: page)) == .pass,
+                "the page's own release went to the divider")
     }
 
     /// The page window hides before the pointer came to a divider: no area waits any more, and a later move
@@ -288,7 +314,7 @@ import Testing
 
         #expect(!layer.pageWindowsTakeMouse)
         #expect(!catchers.wantsPointer, "an area of the hidden page window still waits for the pointer")
-        #expect(!catchers.wantsPresses)
+        #expect(!catchers.wantsPresses, "a hidden page window's areas still take presses")
         layout.tap.deliverObserve(layout.event(.mouseMoved, at: CGPoint(x: area.rect.midX, y: area.rect.midY)))
         #expect(layout.catcherPanels.isEmpty, "a panel was made with no page window")
     }
