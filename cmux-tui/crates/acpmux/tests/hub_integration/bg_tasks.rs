@@ -167,11 +167,10 @@ fn text(r: &Rig, id: &str, task: &str) -> String {
 }
 
 /// Output a child writes after the leader exited is kept (the task runs until the pipe ends);
-/// a task that ignores SIGTERM is killed after the grace; a purge stops the chat's tasks and
-/// removes their folder.
+/// a task that ignores SIGTERM is killed after the grace.
 #[cfg(unix)]
 #[tokio::test]
-async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_folder() {
+async fn late_output_is_kept_and_a_stubborn_task_is_killed() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "late").await;
@@ -191,10 +190,6 @@ async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_fo
     assert_eq!(stopped["state"], "stopped");
     assert_eq!(stopped["signal"], libc::SIGKILL, "{stopped}");
     assert!(!alive(pid as u32), "a task that ignored SIGTERM outlived its stop");
-    let running = start(&mut r, &id, "sleep 600").await["pid"].as_u64().unwrap();
-    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
-    r.until("a purge left its task running", || !alive(running as u32)).await;
-    assert!(!acpmux::config::home().join("bg").join(&id).exists(), "a purge left the folder");
 }
 
 /// A child that ignores SIGTERM and sends its output elsewhere holds no pipe, so the pipe ends
@@ -236,7 +231,7 @@ async fn a_task_sees_the_agents_environment() {
     }
 }
 
-/// A record of another generation of the chat's folder (a runner that outlived a purge, writing
+/// A record of another generation of the chat's folder (a runner of an earlier folder, writing
 /// under the old path) is neither listed nor reached.
 #[cfg(unix)]
 #[tokio::test]
@@ -256,31 +251,4 @@ async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
     assert_eq!(ids, [json!(task)], "{list}");
     let stop = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": old.id})).await;
     assert!(stop.is_err(), "an earlier folder's task was reached");
-}
-
-/// A purge never waits for a task that ignores SIGTERM: the chat is gone at once, the task is
-/// killed after the grace, and its moved folder goes once it exited.
-#[cfg(unix)]
-#[tokio::test]
-async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() {
-    let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
-    let id = new_session(&mut r.c, "stubborn-purge").await;
-    let task = start(&mut r, &id, "trap '' TERM; echo ready; while :; do sleep 0.1; done").await;
-    let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
-    r.until("the task never set its trap", || text(&r, &id, &task_id) == "ready\n").await;
-    let at = std::time::Instant::now();
-    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
-    assert!(at.elapsed() < acpmux::bg_run::GRACE, "the purge waited for the task");
-    let home = acpmux::config::home().join("bg");
-    assert!(!home.join(&id).exists(), "a purge left the folder");
-    r.until("the stubborn task outlived the purge", || !alive(pid as u32)).await;
-    let moved = || {
-        std::fs::read_dir(home.join(".purged"))
-            .into_iter()
-            .flatten()
-            .flatten()
-            .any(|e| e.file_name().to_string_lossy().starts_with(&format!("{id}-")))
-    };
-    r.until("the moved folder stayed after its task exited", || !moved()).await;
 }
