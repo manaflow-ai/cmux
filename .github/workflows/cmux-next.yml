@@ -2980,8 +2980,10 @@ jobs:
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
     # dependencies) and the selected suites. Admission (up to 20 min), cache
     # restore (~7 min) and the build (~6 min) used most of 60 before a full
-    # broad pass (~860 s on a slow mini) ran, so 90.
-    timeout-minutes: 90
+    # broad pass (~860 s on a slow mini) ran, so 90; the main-thread-heavy
+    # suites' serial step (up to 45 min, out of the broad pass since #26809)
+    # makes it 120.
+    timeout-minutes: 120
     outputs:
       # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty. A
       # reused pass of a folded run was recorded only with the generated files fresh.
@@ -2999,9 +3001,6 @@ jobs:
       # The generated files are checked here, on this job's package build, when path routing
       # picks this job (generated_host): no generated-files job builds the same package and tests.
       CMUX_NEXT_FOLD_GENERATED: ${{ needs.path_route.outputs.generated_host == 'swift-test' }}
-      # Suites the broad pass skips and a step of their own runs ("Run
-      # main-thread-heavy suites in their own process").
-      CMUX_NEXT_MAIN_THREAD_HEAVY: '(CmuxNextBrowserTests\.RemoteVideoPageTests|CmuxNextAppTests\.(SidebarHugeGroupTests|LayoutDragBench|PaneMotionBench|TabStripSelectionBench|TabSwitchCycleBench|TabSwitchPathBench|TabSwitchViewSwapBench|SidebarHoverCardRetargetBenchTests))\b'
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -3265,6 +3264,17 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
+      # The suites that drive the main thread for long stretches (Core Animation
+      # frame commits, real WebKit downloads), read from the test sources:
+      # the broad pass skips them and the step after it runs them alone.
+      - name: Find the main-thread-heavy suites
+        if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
+        run: |
+          set -euo pipefail
+          heavy="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests)"
+          echo "CMUX_NEXT_MAIN_THREAD_HEAVY=$heavy" >> "$GITHUB_ENV"
+          python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests --list | sed 's/^/main-thread heavy: /'
+
       # Samples and fails a run still going after 15 minutes, so a hang shows
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
@@ -3369,24 +3379,23 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter CommitBoundaryAppKitTests
 
       # Suites that hold the test process's main thread for minutes when they
-      # share it, run in their own process, one test at a time. The WebKit
-      # video page tests make real WebKit downloads, and WebKit decides a
-      # download's destination on the main thread inside a kernel call
-      # (SandboxExtension::createHandle -> __mac_syscall) that held it for 70
-      # to 300+ s. The frame benchmarks commit Core Animation transactions
-      # frame by frame on the main thread, and each commit lays out every
-      # window the process holds: in the shared pass SidebarHugeGroupTests'
-      # oneGroup10k (about 1 s alone) held it for over 11 minutes. While one
-      # of them runs, every main-actor test beside it stalls or fails on
-      # timing, and the stuck watchdog kills the run with hundreds of tests
-      # unfinished (#26809's runs 40660100939 and 40677563234). Alone they
-      # finish in seconds; a hang here is this step's red.
+      # share it (scripts/cmux-next/main-thread-heavy-suites.py says which),
+      # run in their own process, one test at a time. Each Core Animation
+      # commit lays out every window the process holds: in the shared pass
+      # SidebarHugeGroupTests' oneGroup10k (about 1 s alone) and
+      # SidebarLagTests held the main thread for 5 to 11+ minutes, and
+      # RemoteVideoPageTests' WebKit downloads held it in a kernel call
+      # (SandboxExtension::createHandle -> __mac_syscall) for 300+ s. Every
+      # main-actor test beside them stalled or failed on timing, and the stuck
+      # watchdog killed the run with hundreds of tests unfinished (#26809's
+      # runs 40660100939, 40677563234 and 40683540650). A hang or a red here
+      # is this step's red.
       - name: Run main-thread-heavy suites in their own process
-        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
-        timeout-minutes: 25
+        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && env.CMUX_NEXT_MAIN_THREAD_HEAVY != '') && steps.reuse.outputs.hit != 'true' }}
+        timeout-minutes: 45
         working-directory: Packages/macOS/CmuxNext
         env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "1200"
+          CMUX_NEXT_TEST_HANG_SECONDS: "2400"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$CMUX_NEXT_MAIN_THREAD_HEAVY"
 
       # Each isolated step below runs when its suites' target is selected and

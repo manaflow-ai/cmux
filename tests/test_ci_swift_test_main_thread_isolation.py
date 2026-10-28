@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Suites that hold the test process's main thread for minutes run in a process of their own.
 
-RemoteVideoPageTests makes real WebKit downloads; WebKit decides a download's destination on the main thread
-inside a kernel call that held it for 70 to 300+ s. The frame benchmarks commit Core Animation transactions
-frame by frame on the main thread, and each commit lays out every window the process holds:
-SidebarHugeGroupTests.oneGroup10k (about 1 s alone) held it for over 11 minutes in the shared pass. Either one
-stalled every main-actor test beside it, and the stuck watchdog killed the run with hundreds of tests unfinished.
-The broad pass skips them; a step of their own runs them, one test at a time.
+Each Core Animation commit in the shared swift test process lays out every window it holds:
+SidebarHugeGroupTests.oneGroup10k (about 1 s alone) and SidebarLagTests held the main thread for 5 to 11+
+minutes there, and RemoteVideoPageTests' WebKit downloads held it in a kernel call for 300+ s. Every
+main-actor test beside them stalled and the stuck watchdog killed the run. scripts/cmux-next/main-thread-heavy-suites.py
+names them from the test sources; the broad pass skips them and a serial step runs them.
 """
 
 from __future__ import annotations
 
-import re
+import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,38 +19,66 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
-HEAVY = ("CmuxNextBrowserTests.RemoteVideoPageTests", "CmuxNextAppTests.SidebarHugeGroupTests")
+SCRIPT = ROOT / "scripts" / "cmux-next" / "main-thread-heavy-suites.py"
+TESTS = ROOT / "Packages" / "macOS" / "CmuxNext" / "Tests"
 VAR = "CMUX_NEXT_MAIN_THREAD_HEAVY"
 
+spec = importlib.util.spec_from_file_location("heavy", SCRIPT)
+heavy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(heavy)
 
-class MainThreadIsolation(unittest.TestCase):
+
+class HeavySuites(unittest.TestCase):
+    def test_the_suites_that_stalled_the_shared_pass_are_found(self) -> None:
+        found = {f"{t}.{n}" for t, n in heavy.heavy_suites(TESTS)}
+        for suite in ("CmuxNextBrowserTests.RemoteVideoPageTests", "CmuxNextAppTests.SidebarHugeGroupTests",
+                      "CmuxNextAppTests.SidebarLagTests", "CmuxNextAppTests.LayoutDragBench"):
+            self.assertIn(suite, found)
+        self.assertNotIn("CmuxNextAppTests.TestProcessExitTests", found)
+
+    def test_a_suite_that_uses_a_frame_driving_helper_is_heavy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "SomeTests"
+            target.mkdir()
+            (target / "Bench.swift").write_text("final class FooBench {\n    func drawFrame() { CATransaction.flush() }\n}\n")
+            (target / "FooTests.swift").write_text("@MainActor @Suite struct FooTests {\n    @Test func a() { FooBench().drawFrame() }\n}\n")
+            (target / "PlainTests.swift").write_text("struct PlainTests {\n    @Test func a() {}\n}\n")
+            found = heavy.heavy_suites(Path(tmp))
+        self.assertIn(("SomeTests", "FooTests"), found)
+        self.assertNotIn(("SomeTests", "PlainTests"), found)
+        self.assertNotIn(("SomeTests", "FooBench"), found)
+
+    def test_the_pattern_matches_whole_suite_names_only(self) -> None:
+        pattern = heavy.pattern([("CmuxNextAppTests", "SidebarLagTests")])
+        self.assertRegex("CmuxNextAppTests.SidebarLagTests/aTest()", pattern)
+        self.assertNotRegex("CmuxNextAppTests.SidebarLagTestsExtra/aTest()", pattern)
+
+
+class Workflow(unittest.TestCase):
     def setUp(self) -> None:
-        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]
-        self.pattern = job["env"].get(VAR, "")
-        self.steps = job["steps"]
-        broad = [s for s in self.steps if s.get("name", "").startswith("Run package tests (changed suites first")]
-        self.assertEqual(len(broad), 1, "the broad Swift test step is missing or renamed")
-        self.broad = broad[0]["run"]
+        self.steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
+        self.names = [s.get("name", "") for s in self.steps]
 
-    def test_the_pattern_names_each_heavy_suite(self) -> None:
-        self.assertTrue(self.pattern, f"the swift-test job has no {VAR}")
-        for suite in HEAVY:
-            self.assertRegex(f"{suite}/aTest()", self.pattern, f"{VAR} does not match {suite}")
-        self.assertNotRegex("CmuxNextAppTests.SidebarHugeGroupTestsExtra/aTest()", self.pattern)
+    def step(self, prefix: str) -> dict:
+        found = [s for s in self.steps if s.get("name", "").startswith(prefix)]
+        self.assertEqual(len(found), 1, f"no single step named {prefix!r}")
+        return found[0]
 
-    def test_the_broad_pass_skips_them(self) -> None:
-        self.assertIn(f'--skip "${VAR}"', self.broad, "the broad pass still runs the main-thread-heavy suites")
+    def test_the_list_is_derived_before_the_broad_pass_which_skips_it(self) -> None:
+        derive = self.step("Find the main-thread-heavy suites")
+        self.assertIn("main-thread-heavy-suites.py", derive["run"])
+        self.assertIn(f"{VAR}=", derive["run"])
+        broad = self.step("Run package tests (changed suites first")
+        self.assertLess(self.steps.index(derive), self.steps.index(broad))
+        self.assertIn(f'--skip "${VAR}"', broad["run"])
 
-    def test_a_step_of_their_own_runs_them_one_at_a_time(self) -> None:
-        own = [s for s in self.steps if f'--filter "${VAR}"' in s.get("run", "")]
-        self.assertEqual(len(own), 1, "no step of its own runs the main-thread-heavy suites")
-        step = own[0]
-        self.assertIn("swift-test-with-hang-sampler.sh", step["run"])
-        self.assertIn("--no-parallel", step["run"])
-        self.assertIn("timeout-minutes", step)
-        self.assertIn("!cancelled()", step.get("if", ""), "the step is skipped after a red step")
-        for target in ("CmuxNextBrowserTests", "CmuxNextAppTests"):
-            self.assertIn(f"contains(env.SWIFT_TARGETS, '{target}')", step["if"])
+    def test_a_serial_step_of_their_own_runs_them(self) -> None:
+        own = self.step("Run main-thread-heavy suites in their own process")
+        self.assertIn(f'--filter "${VAR}"', own["run"])
+        self.assertIn("swift-test-with-hang-sampler.sh", own["run"])
+        self.assertIn("--no-parallel", own["run"])
+        self.assertIn("timeout-minutes", own)
+        self.assertIn("!cancelled()", own["if"])
 
 
 if __name__ == "__main__":
