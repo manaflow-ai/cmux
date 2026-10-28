@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -57,9 +58,9 @@ import Testing
         let service = frames.service()
         let store = DaemonStore()
         store.apply(snapshot: tree(tabA: 9))
-        var found: [UInt64?] = []
-        service.whenBannerTab("tab_a", in: store) { found.append($0) }
-        #expect(found == [9])
+        let found = Found()
+        service.whenBannerTab("tab_a", in: store) { found.values.append($0) }
+        #expect(found.values == [9])
     }
 
     /// The click came before the daemon's tree: it waits for the tab, then names its surface.
@@ -67,15 +68,15 @@ import Testing
         let frames = NotificationFrames()
         let service = frames.service()
         let store = DaemonStore()
-        var found: [UInt64?] = []
-        service.whenBannerTab("tab_a", in: store) { found.append($0) }
+        let found = Found()
+        service.whenBannerTab("tab_a", in: store) { found.values.append($0) }
         frames.frame()
-        #expect(found.isEmpty)
+        #expect(found.values.isEmpty)
         store.apply(snapshot: tree(tabA: 9))
         frames.frame()
-        #expect(found == [9])
+        #expect(found.values == [9])
         frames.advance(by: NotificationCenterService.bannerTabWait + .seconds(1))
-        #expect(found == [9], "the wait ends once")
+        #expect(found.values == [9], "the wait ends once")
     }
 
     /// A tab that never comes back (closed while cmux was not running) opens nothing, and the wait ends.
@@ -83,12 +84,17 @@ import Testing
         let frames = NotificationFrames()
         let service = frames.service()
         let store = DaemonStore()
-        var found: [UInt64?] = []
-        service.whenBannerTab("tab_a", in: store) { found.append($0) }
+        let found = Found()
+        service.whenBannerTab("tab_a", in: store) { found.values.append($0) }
         frames.advance(by: NotificationCenterService.bannerTabWait + .seconds(1))
-        #expect(found == [nil])
+        #expect(found.values == [nil])
         store.apply(snapshot: tree(tabA: 9))
         frames.frame()
-        #expect(found == [nil], "a tab that comes after the wait is not opened")
+        #expect(found.values == [nil], "a tab that comes after the wait is not opened")
     }
+}
+
+/// What a banner tab wait handed its caller, in order.
+@MainActor private final class Found {
+    var values: [UInt64?] = []
 }
