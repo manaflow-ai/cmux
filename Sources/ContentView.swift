@@ -3188,6 +3188,10 @@ struct ContentView: View {
             syncCommandPaletteDebugStateForObservedWindow()
         })
 
+        view = AnyView(view.onChange(of: remoteTmuxFindWindowModel.map { [$0.query] + $0.results.map(\.id) }) { _, _ in
+            syncCommandPaletteDebugStateForObservedWindow()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .findTmuxWindowRequested)) { notification in
             guard Self.shouldHandleCommandPaletteRequest(
                 observedWindow: observedWindow,
@@ -10289,6 +10293,22 @@ struct ContentView: View {
 
     private func commandPaletteDebugSnapshot() -> CommandPaletteDebugSnapshot {
         guard isCommandPalettePresented else { return .empty }
+        // Find-window shares the overlay; its own mode lets a socket test tell it apart.
+        if let model = remoteTmuxFindWindowModel {
+            return CommandPaletteDebugSnapshot(
+                query: model.query,
+                mode: "find_tmux_window",
+                results: model.results.prefix(20).map {
+                    CommandPaletteDebugResultRow(
+                        commandId: $0.id,
+                        title: $0.candidate.windowName,
+                        shortcutHint: nil,
+                        trailingLabel: nil,
+                        score: $0.score
+                    )
+                }
+            )
+        }
 
         let mode: String
         switch commandPaletteMode {
