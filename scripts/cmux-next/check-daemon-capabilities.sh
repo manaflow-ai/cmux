@@ -129,14 +129,16 @@ trap cleanup EXIT
 # (`--exit-with-pid $$`): when the script is killed before its EXIT trap runs
 # (a cancelled job or build phase), the probe owner ends its terminals and
 # exits instead of running for hours (HQ REPAIR.md "Orphaned cmux-tui holds
-# runner dirs"). A binary older than the option is probed unbound; the trap
-# still stops it.
+# runner dirs"). Only a binary older than the option (its parser's "unknown
+# flag" error) is probed unbound; the trap still stops it. Any other failure
+# fails the check with the bound attempt's error.
 ensure=(server ensure --terminal-reap-grace-seconds 30)
 if ! ensured="$(run_binary "${ensure[@]}" --exit-with-pid "$$" 2>"$root/ensure.err")" \
-  && ! { grep -q -- 'exit-with-pid' "$root/ensure.err" \
-    && ensured="$(run_binary "${ensure[@]}" 2>"$root/ensure.err")"; }; then
+  && ! { grep -qF -- 'unknown flag --exit-with-pid' "$root/ensure.err" \
+    && ensured="$(run_binary "${ensure[@]}" 2>"$root/ensure-unbound.err")"; }; then
   echo "check-daemon-capabilities: $binary server ensure failed:" >&2
   cat "$root/ensure.err" >&2
+  [[ -s "$root/ensure-unbound.err" ]] && cat "$root/ensure-unbound.err" >&2
   exit 1
 fi
 printf '%s\n' "$ensured" | python3 -c 'import json,sys
