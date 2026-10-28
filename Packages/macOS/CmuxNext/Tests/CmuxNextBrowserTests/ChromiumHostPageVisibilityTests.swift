@@ -111,6 +111,42 @@ import Testing
         #expect(!VisibilitySpy.posts.contains { $0.browser == Self.devTools })
     }
 
+    /// Task p01-process-084: a pane that starts to show a hosted page while the host is already busy
+    /// gets the "Chromium is busy" banner too (a new split, or a tab switch away from the frozen page),
+    /// and loses it when it hides.
+    @Test func aPaneShownWhileTheHostIsBusyGetsTheBanner() throws {
+        let runtime = try Self.runtime()
+        let deadline = ChromiumHostHangMonitorTests.FakeDeadline()
+        let clock = ChromiumHostHangMonitorTests.FakeClock()
+        let monitor = ChromiumHostHangMonitor(deadline: deadline, now: { [clock] in clock.now })
+        monitor.onBusyChange = { [weak runtime] busy in runtime?.showHostBusy(busy) }
+        runtime.hostStart?.hangMonitor = monitor
+        let (first, firstTab) = try Self.livePane(runtime)
+        runtime.hosts[first.key] = first  // the routing table showHostBusy walks (livePane makes the pane directly)
+        let firstWindow = FakeWindow()
+        try Self.watch(first, firstWindow)
+        first.present(firstTab, in: firstWindow.container)
+        monitor.inputOutstanding()
+        clock.advance(ChromiumHostHangMonitor.busyAfter)
+        deadline.fire()
+        #expect(monitor.isBusy && Self.showsBanner(first))
+
+        let (second, secondTab) = try Self.livePane(runtime, browser: Self.firstBrowser + 2)
+        runtime.hosts[second.key] = second
+        let secondWindow = FakeWindow()
+        try Self.watch(second, secondWindow)
+        #expect(!Self.showsBanner(second), "a page out of every window shows no banner")
+        second.present(secondTab, in: secondWindow.container)
+        #expect(Self.showsBanner(second), "the page shown while the host is busy gets the banner")
+
+        secondWindow.change(\.isShown, false, NSWindow.didMiniaturizeNotification)
+        #expect(!Self.showsBanner(second) && Self.showsBanner(first), "hidden: its banner goes, the shown page's stays")
+        secondWindow.change(\.isShown, true, NSWindow.didDeminiaturizeNotification)
+        #expect(Self.showsBanner(second))
+        monitor.inputSettled()
+        #expect(!Self.showsBanner(first) && !Self.showsBanner(second), "the host took the input: every banner goes")
+    }
+
     @Test func chromesRule() {
         typealias State = ChromiumHostPageVisibility.WindowState
         #expect(State.visibility(of: nil) == .hidden, "out of every window")
@@ -174,6 +210,10 @@ import Testing
         }
     }
 
+    private static func showsBanner(_ host: CEFPaneHost) -> Bool {
+        host.hostView.subviews.contains { $0 is ChromiumHostBusyBanner }
+    }
+
     private static func watch(_ host: CEFPaneHost, _ window: FakeWindow) throws {
         let page = try #require(host.hostedPageView)
         page.visibilitySource = window.source
@@ -197,15 +237,15 @@ import Testing
         return runtime
     }
 
-    private static func livePane(_ runtime: CEFRuntime) throws -> (CEFPaneHost, CEFTab) {
+    private static func livePane(_ runtime: CEFRuntime, browser: Int32 = firstBrowser) throws -> (CEFPaneHost, CEFTab) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         host.endOfTurn = { $0() }
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         host.ensureCreated(tab)
         let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
-        runtime.handle(.afterCreated(browser: firstBrowser, request: request, window: 1))
-        #expect(tab.browserID == firstBrowser)
+        runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
+        #expect(tab.browserID == browser)
         return (host, tab)
     }
 }

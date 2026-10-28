@@ -1553,7 +1553,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(name: "CmuxNextProfileRuntimeC"),
         .testTarget(
             name: "CmuxNextLaunchTests",
-            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
+            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime;
+            // LaunchCounterLogTests journals with Compat's Mutex.
             // Design: LaunchViewQueueTests gates a tab on a LaunchReveal pane region; BrowserLaunchPicturesTests holds the launch read with its own LaunchFileReader.
             dependencies: ["CmuxNextLaunch", "CmuxNextDesign", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
                            "CmuxNextSignposts", "CmuxNextTrace", .product(name: "CmuxTheme", package: "CmuxTheme")],
@@ -2324,6 +2325,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
                 "CmuxNextServerHelper",
+                "CmuxNextSettings",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",

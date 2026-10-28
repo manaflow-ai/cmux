@@ -53,6 +53,13 @@ public final class CEFRuntimeSource {
     /// page's window, so Chromium's print preview never opens in the host (feature `chromiumHostPrint`, set by
     /// the App; ``BrowserPagePrint``). Read when the runtime adopts the source; in process it changes nothing.
     public var printsHostPages = false
+    /// Host mode: input the Chromium Host's UI thread has not dispatched for 2 s puts "Chromium is busy",
+    /// with Wait and Reload Chromium, over the panes that show its pages (feature `chromiumHostHangBanner`,
+    /// set by the App; ``ChromiumHostHangMonitor``, p01-process-084). Read when the runtime adopts the source.
+    public var watchesHostHangs = false
+    /// Host mode, with ``watchesHostHangs``: each UI hang of the Chromium Host of 250 ms or more, for the
+    /// app's hang reports (set by the App). Read at each hang.
+    public var onHostHang: ((ChromiumHostHang) -> Void)?
     /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
     /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
     /// adopts the source; in process it changes nothing.

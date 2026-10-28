@@ -149,8 +149,10 @@ inline constexpr uint16_t kOpPagePrintEnd = 0x8067;
 inline constexpr int32_t kPagePrintsVersion = 1;
 // The name a host whose fork has the print request hook lists in its HELLO.
 inline constexpr char kPagePrintsHelloName[] = "cmux_host_page_prints";
-// CMUX_SHIM_PAGE_PRINT (plans/cmux-next/chromium-host-ops.json, optional_events).
-inline constexpr int kEventPagePrint = 66;
+// CMUX_SHIM_PAGE_PRINT (plans/cmux-next/chromium-host-ops.json, optional_events). The
+// task's number, as kOpPrintToPdf: the shim header's kinds take the values after
+// its last in order, and a host-only event never joins them.
+inline constexpr int kEventPagePrint = 0x8065;
 // Requests waiting for cmux at once: a page waits in at most one (its
 // renderer is held in window.print()), so this is pages, not prints. One past
 // it ends at once.
