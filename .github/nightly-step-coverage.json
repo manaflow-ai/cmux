@@ -192,6 +192,7 @@
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
+        "Apple's checks of a pool-signed DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "signer-build": {"Set up Rust": {"plumbing": true},
         "Build the signer": {"nightly_only": "builds the pinned release signer; the build script's pins are tested by tests/test_release_signer_scripts.py"}},
@@ -203,9 +204,6 @@
         "The signed-app checks": {"nightly_only": "the checks build-sign-notarize-nightly runs on its signed app, on the release-pool build"},
         "Build the unsigned DMG": {"nightly_only": "packages the notarized release-pool app with create-dmg, as notarize-nightly-dmg.sh does"}},
       "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
-      "signer-verify": {"Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
-        "The final DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
-        "The appcast's Sparkle signature over the final DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
       "find-nightly-next-recovery": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 

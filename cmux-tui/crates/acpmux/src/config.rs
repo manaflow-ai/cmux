@@ -1278,11 +1278,12 @@ impl Config {
             .harnesses
             .get("claude")
             .is_some_and(|c| c.kind == HarnessKind::ClaudeStdio && c.fallback.is_none());
-        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE) && claude_has_no_fallback {
-            if let Some(c) = cfg.harnesses.get_mut("claude") {
-                c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
-                cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
-            }
+        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE)
+            && claude_has_no_fallback
+            && let Some(c) = cfg.harnesses.get_mut("claude")
+        {
+            c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
+            cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
         }
     }
 
