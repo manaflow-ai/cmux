@@ -187,10 +187,9 @@ impl App {
             self.docks.placed.push((*placed, workspace.id));
             dock_screens.push(screen.clone());
         }
-        // Red: the frame is placed but not applied to the layout yet.
-        let _ = (placement.stage, stage_workspace, stage_screen, dock_screens);
-        self.docks.clear_placement();
-        unframed(self)
+        self.docks.stage = Some(placement.stage);
+        self.docks.stage_workspace = Some(stage_workspace);
+        FrameLayout { stage: placement.stage, stage_screen, dock_screens }
     }
 
     /// Bring the record in line with the tree: drop docks of closed
