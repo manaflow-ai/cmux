@@ -257,12 +257,14 @@ impl Controller {
                 let Some((Some(node), generation)) =
                     controller.retire_node(Some(&failed), "stopped")
                 else {
+                    release_node(failed);
                     return;
                 };
                 let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
                     .await
                     .map_err(|error| error.to_string());
                 controller.note_listener_error_if_current(generation);
+                release_node(failed);
             },
         );
         // Dropping this join handle (for example when the supervisor's close
