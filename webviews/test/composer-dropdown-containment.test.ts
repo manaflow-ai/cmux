@@ -124,7 +124,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const trigger = typeof triggerName === "string"
           ? page.getByRole("button", { name: triggerName, exact: true })
           : page.getByRole("button", { name: triggerName });
-        await trigger.evaluate((node) => {
+        await trigger.locator("..").evaluate((node) => {
           const rect = node.getBoundingClientRect();
           Object.defineProperty(node, "getBoundingClientRect", {
             configurable: true,
