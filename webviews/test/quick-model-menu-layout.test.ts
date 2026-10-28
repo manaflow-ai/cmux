@@ -115,7 +115,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         const nextRail = await bounds(page, ".acpmux-quick-rail");
         const nextMenu = await bounds(page, ".acpmux-quick-menu");
         expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
-        expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
+        expect(Math.abs(nextMenu.x - menu.x)).toBeLessThan(1);
         expect(nextMenu.width).toBe(menu.width);
         expect(nextMenu.height).toBeLessThan(menu.height);
         expect(await page.locator(".acpmux-quick-list").innerText()).toContain("GPT-6");

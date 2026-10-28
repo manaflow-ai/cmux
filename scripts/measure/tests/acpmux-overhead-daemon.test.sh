@@ -94,4 +94,43 @@ grep -q '^ACPMUX-PERF-STATUS before exit=101 result=failed' <<<"$out" || fail "t
 grep -q '^634 |' <<<"$out" && fail "the compile error spilled into the step log without its label: $out"
 grep -q '^ACPMUX-PERF-LOG before error\[E0609\]' <<<"$out" || fail "the before side's compile error is not in its log tail: $out"
 
+# 6. A step tree with no `origin` remote (a cmux-ci step) still fetches before= from the repository's URL.
+"$GIT" -C "$TMP/repo" remote remove origin
+run ACPMUX_OVERHEAD_FETCH_URL="$TMP/repo" -- "before=$BEFORE"
+[[ "$code" -eq 0 ]] || fail "before= with no origin remote exited $code: $out"
+grep -q "origin' does not appear to be a git repository" <<<"$out" && fail "the fetch still asked for origin: $out"
+grep -q '^ACPMUX-PERF before light\._acpmux/status ' <<<"$out" || fail "no before rows without an origin remote: $out"
+"$GIT" -C "$TMP/repo" remote add origin "$TMP/repo"
+
+# 7. A worker without a tool the bench calls says which, before anything runs, and exits 2. PATH holds
+#    only git and the stubs, so nothing else can be found; no work directory means nothing was set up.
+mkdir -p "$TMP/iso"
+ln -sf "$GIT" "$TMP/iso/git"
+cp "$TMP/bin/sysctl" "$TMP/bin/sw_vers" "$TMP/iso/"
+iso() {  # iso ARGS...: the script under PATH=$TMP/iso; output in $out, exit in $code.
+  rm -rf "$WORK"
+  code=0
+  out=$(cd "$TMP/repo" && env -i PATH="$TMP/iso" HOME="$TMP" /bin/bash scripts/measure/acpmux-overhead.sh "$@" 2>&1) \
+    || code=$?
+}
+iso bench=daemon
+[[ "$code" -eq 2 ]] || fail "a missing cargo exited $code: $out"
+grep -q '^ACPMUX-OVERHEAD-MISSING-TOOL cargo:' <<<"$out" || fail "the missing cargo is not named: $out"
+[[ ! -e "$WORK" ]] || fail "bench=daemon set up a run before it found the missing tool"
+
+# 8. bench=hibernate on a worker without npm (cmux20-bench) names npm before any build.
+iso bench=hibernate harness=claude
+hib_out="$out"
+[[ "$code" -eq 2 ]] || fail "bench=hibernate without npm exited $code: $out"
+grep -qE '^ACPMUX-OVERHEAD-MISSING-TOOL ([a-z0-9]+ )*npm( |:)' <<<"$out" || fail "the missing npm is not named: $out"
+grep -q 'cargo' <<<"${out%%:*}" && fail "bench=hibernate refused a worker for cargo, which only a build needs: $out"
+[[ ! -e "$WORK" ]] || fail "bench=hibernate set up a run before it found the missing tool"
+
+# 9. Only bench=hibernate needs ps: bench=harness on the same worker names npm, never ps.
+iso bench=harness harness=claude
+[[ "$code" -eq 2 ]] || fail "bench=harness without npm exited $code: $out"
+grep -qE '^ACPMUX-OVERHEAD-MISSING-TOOL ([a-z0-9]+ )*npm( |:)' <<<"$out" || fail "bench=harness did not name npm: $out"
+grep -qw 'ps' <<<"${out%%:*}" && fail "bench=harness refused a worker for ps, which only hibernate calls: $out"
+grep -qw 'ps' <<<"${hib_out%%:*}" || fail "bench=hibernate did not name ps: $hib_out"
+
 echo "PASS acpmux-overhead-daemon"
