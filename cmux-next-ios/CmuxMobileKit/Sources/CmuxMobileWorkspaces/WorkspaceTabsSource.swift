@@ -47,6 +47,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The chrome insets the pages were last laid out with, for cards.
     @ObservationIgnored private var lastInsets = EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)
     @ObservationIgnored var pageHeight: CGFloat = 874
+    @ObservationIgnored var pageWidth: CGFloat = 402
     /// A workspace created on this phone opens its first tab ready to type.
     /// Kept while the Mac creates it, since the placeholder tab becomes the
     /// Mac's real tab (a new page) once it confirms.
@@ -194,6 +195,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             preparedCards.remove(id)
         }
         if next != tabs { tabs = next }
+        if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
     }
 
@@ -738,9 +740,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         WorkspaceTabAccessory(source: self, tabID: kit.id, context: context)
     }
 
-    func remember(_ insets: EdgeInsets, pageHeight: CGFloat) {
+    func remember(_ insets: EdgeInsets, pageSize: CGSize) {
         if insets != lastInsets { lastInsets = insets }
-        self.pageHeight = pageHeight
+        pageHeight = pageSize.height
+        pageWidth = pageSize.width
     }
 
     // MARK: Agent cards
@@ -750,6 +753,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// `overviewScrollingChanged`); otherwise they keep what they show and
     /// catch up once the grid shows or stops.
     @ObservationIgnored private var cardFeeds: [String: AgentCardFeed] = [:]
+    @ObservationIgnored let rasterizer = AgentCardRasterizer()
+    /// A grid card's width over the page's (TabsKit's two-column card, or a
+    /// lone tab's larger card): the resolution an agent card's picture is drawn at.
+    var cardScale: CGFloat {
+        let w = max(1, pageWidth)
+        return isSingleTab ? (w * 2 / 3).rounded() / w : ((w - 48) / 2).rounded(.down) / w
+    }
+    /// One tab listed (TabsKit draws its card larger).
+    private(set) var isSingleTab = false
     @ObservationIgnored private var gridShown = false
     @ObservationIgnored private var gridScrolling = false
     var cardsFollowChats: Bool { gridShown && !gridScrolling }
@@ -767,7 +779,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let shown { gridShown = shown }
         if let scrolling { gridScrolling = scrolling }
         let open = Set(workspaceSnapshot?.tabs.map(\.id) ?? [])
-        for id in cardFeeds.keys where !open.contains(id) { cardFeeds[id] = nil }
+        for id in cardFeeds.keys where !open.contains(id) {
+            if let feed = cardFeeds.removeValue(forKey: id) { rasterizer.drop(feed) }
+        }
         guard cardsFollowChats else { return }
         for feed in cardFeeds.values { feed.catchUp() }
     }
@@ -789,6 +803,37 @@ public final class WorkspaceTabsSource: TabsDataSource {
         terminal.overviewVisibilityChanged(visible) { [weak self] in
             (self?.workspace?.tabs ?? []).filter { $0.kind == .terminal }
         }
+    }
+
+    /// The grid rests: agent cards are drawn into pictures, one per frame,
+    /// built cards first (`AgentCardRasterizer`).
+    public func overviewIdleChanged(_ idle: Bool) {
+        if rasterizer.ahead == nil {
+            rasterizer.ahead = { [weak self] template in self?.nextAgentCardAhead(template) }
+        }
+        rasterizer.setIdle(idle)
+    }
+
+    /// The nearest agent card (to the active tab, in grid order) within the
+    /// rasterizer's limit whose picture is not drawn: its chat store and feed
+    /// are made now, one card per idle frame, so a card scrolled to later
+    /// shows its picture on its first build instead of laying out a page of
+    /// transcript in a scroll frame.
+    private func nextAgentCardAhead(_ template: AgentCardRasterKey) -> (AgentCardFeed, AgentCardRasterKey)? {
+        guard let workspace = workspaceSnapshot else { return nil }
+        let active = workspace.tabs.firstIndex { $0.id == activeTabID } ?? 0
+        let agents = workspace.tabs.enumerated().filter { $0.element.kind == .agent && $0.element.id != activeTabID }
+            .sorted { abs($0.offset - active) < abs($1.offset - active) }
+            .prefix(rasterizer.limit)
+        for (_, tab) in agents {
+            let feed = cardFeed(tab, workspace)
+            var key = template
+            key.turns = feed.turns
+            key.topInset = lastInsets.top + 8
+            key.bottomInset = WorkspaceTabPage.bottomInset(surface: surface(tab.id), insets: lastInsets, pageHeight: pageHeight)
+            if !rasterizer.isDone(feed, key) { return (feed, key) }
+        }
+        return nil
     }
 
     public func overviewScrollingChanged(_ scrolling: Bool) {
@@ -1338,7 +1383,7 @@ struct WorkspaceTabPage: View {
         if let tab = source.entry(tabID)?.tab, let workspace = source.workspaceSnapshot {
             page(tab, workspace)
                 .onAppear {
-                    source.remember(context.safeAreaInsets, pageHeight: context.pageSize.height)
+                    source.remember(context.safeAreaInsets, pageSize: context.pageSize)
                     source.pageAppeared(tabID)
                 }
         }
@@ -1476,15 +1521,28 @@ struct WorkspaceTabCard: View {
         // Its own tab's entry (one card re-runs when its tab changes), and
         // values only: no host or store is made here.
         if let tab = source.entry(tabID)?.tab, let workspace = source.workspaceSnapshot {
+            #if DEBUG
+            if ListStressSettings.shared.plainCards.contains(tab.kind.rawValue) {
+                Color.cmuxMobileBackground
+            } else {
+                card(tab, workspace)
+            }
+            #else
+            card(tab, workspace)
+            #endif
+        } else {
+            Color.cmuxMobileBackground
+        }
+    }
+
+    @ViewBuilder
+    private func card(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
             preview(tab, workspace)
                 // The card shows the top of the page, scaled down: the chip sits there, sized
                 // in page points so it reads like the card's title.
                 .overlay(alignment: .topLeading) {
                     if let group = tab.group { TabGroupChip(group: group).padding(.leading, 16).padding(.top, 14) }
                 }
-        } else {
-            Color.cmuxMobileBackground
-        }
     }
 
     @ViewBuilder
@@ -1492,9 +1550,10 @@ struct WorkspaceTabCard: View {
             switch tab.kind {
             case .agent:
                 let surface = source.surface(tab.id)
-                let feed = source.cardFeed(tab, workspace)
-                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: insets.top + 8,
-                                 bottomInset: WorkspaceTabPage.bottomInset(surface: surface, insets: insets, pageHeight: source.pageHeight))
+                // A picture of the preview once drawn (`AgentCardRasterizer`), the live preview until then.
+                AgentTabCard(feed: source.cardFeed(tab, workspace), rasterizer: source.rasterizer, cardScale: source.cardScale,
+                             page: CGSize(width: source.pageWidth, height: source.pageHeight), topInset: insets.top + 8,
+                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface, insets: insets, pageHeight: source.pageHeight))
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
@@ -1521,6 +1580,8 @@ struct WorkspaceTabCard: View {
 @Observable
 final class AgentCardFeed {
     private(set) var turns: [AgentTurn] = []
+    /// The card's picture and what it was drawn from (`AgentCardRasterizer`).
+    var raster: (key: AgentCardRasterKey, image: UIImage)?
     @ObservationIgnored let store: AgentChatStore
     @ObservationIgnored private let follows: @MainActor () -> Bool
     @ObservationIgnored private var stale = false

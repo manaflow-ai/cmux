@@ -8,6 +8,7 @@ import Testing
 #if os(iOS)
 import CmuxMobileAgentChat
 import CmuxTabsKit
+import SwiftUI
 
 /// The tab grid's list (verify/listperf, tabs lane): the source publishes
 /// `tabs` only when a field the kit shows changes, and rebuilds only the
@@ -88,6 +89,36 @@ import CmuxTabsKit
         source.refreshTabs()
         #expect(!source.tabs.contains { $0.id == id })
         #expect(source.entry(id) == nil)
+    }
+
+    /// An agent card's picture: a running turn (its working label animates)
+    /// is drawn live; a finished one is drawable, and a changed appearance
+    /// or turn makes it stale.
+    @Test func agentCardPictureKey() {
+        var done = AgentTurn(id: "t1", prompt: "p", promptAt: Date(timeIntervalSince1970: 0))
+        done.status = .completed
+        let running = AgentTurn(id: "t2", prompt: "p", promptAt: Date(timeIntervalSince1970: 1))
+        let key = AgentCardRasterKey(turns: [done], colorScheme: .dark, page: CGSize(width: 402, height: 874),
+                                     visibleHeight: 566, topInset: 70, bottomInset: 110, scale: 1.32)
+        #expect(key.isDrawable)
+        var live = key
+        live.turns = [done, running]
+        #expect(!live.isDrawable)
+        var light = key
+        light.colorScheme = .light
+        #expect(light != key)
+    }
+
+    /// The grid card resolution follows TabsKit's column card (177 of 402
+    /// points), and a lone tab's larger card.
+    @Test func cardScaleFollowsTheKitsCard() throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        source.pageWidth = 402
+        #expect(abs(source.cardScale - 177.0 / 402) < 0.001)
+        for tab in source.tabs.dropFirst() { _ = store.removeTab(tab.id, from: "ws-cmux") }
+        source.refreshTabs()
+        #expect(abs(source.cardScale - 268.0 / 402) < 0.001)
     }
 }
 #endif

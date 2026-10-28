@@ -27,6 +27,9 @@ public struct ListStressSettings: Equatable, Sendable {
     /// `CMUX_MOBILE_LIST_LARGE_DIFF=0`: no 2400-line file rewrite in the newest replayed turn
     /// (the chat without the diff screen's load).
     public var largeDiff: Bool
+    /// `CMUX_MOBILE_LIST_PLAIN_CARDS=agent,terminal,browser`: those tab kinds' grid cards
+    /// draw a plain fill (the tabs case's per-kind card cost).
+    public var plainCards: Set<String>
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -38,6 +41,7 @@ public struct ListStressSettings: Equatable, Sendable {
         settle = environment["CMUX_MOBILE_LIST_SETTLE"].flatMap(Double.init) ?? 4
         exitsWhenDone = environment["CMUX_MOBILE_LIST_EXIT_WHEN_DONE"] == "1"
         largeDiff = environment["CMUX_MOBILE_LIST_LARGE_DIFF"] != "0"
+        plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
     }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.
