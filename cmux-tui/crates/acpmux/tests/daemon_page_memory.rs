@@ -242,6 +242,25 @@ fn a_long_log_read_from_its_start_is_paged_within_a_memory_budget() {
     );
 }
 
+#[cfg(target_os = "linux")]
+struct TranscriptProcess(Child);
+
+#[cfg(target_os = "linux")]
+impl TranscriptProcess {
+    fn id(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for TranscriptProcess {
+    fn drop(&mut self) {
+        // SAFETY: this child was created by this test. Reap it even on assertion failure.
+        unsafe { libc::kill(self.id() as i32, libc::SIGTERM) };
+        let _ = self.0.wait();
+    }
+}
+
 /// Read the daemon only: neither the test driver nor its stand-in agent is counted.
 #[cfg(target_os = "linux")]
 fn transcript_cost(pid: u32) -> (u64, u64, u64) {
@@ -334,7 +353,8 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                 out.flush().unwrap();
                 set_private(&path);
             }
-            let (mut child, socket) = start_with_agents(&dir, &home, daemon_env::Agents::StandIn);
+            let (child, socket) = start_with_agents(&dir, &home, daemon_env::Agents::StandIn);
+            let child = TranscriptProcess(child);
             let mut rpc = Rpc::connect(&socket);
             rpc.call("initialize", json!({"protocolVersion": 1}));
             // Synchronize loading without a list or a background probe workload.
@@ -383,9 +403,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                 "peak_growth_kib": peak.saturating_sub(rss0), "cpu_ms": cpu - cpu0})
             );
             growth.push(peak.saturating_sub(rss0));
-            // SAFETY: this child was created by this test.
-            unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-            child.wait().unwrap();
+            drop(child);
             std::fs::remove_dir_all(&dir).unwrap();
         }
     }

@@ -130,27 +130,26 @@ impl<M: SuffixMetric> TrimmedText<M> {
     }
 
     pub(super) fn push_str(&mut self, text: &str) {
-        const RUN_LIMIT: usize = 4096;
-        let mut run = String::new();
-        let mut whitespace = None;
-        for ch in text.chars() {
-            if !self.started && ch.is_whitespace() {
-                continue;
+        let text = if self.started { text } else { text.trim_start() };
+        let content = text.trim_end();
+        if content.is_empty() {
+            if self.started {
+                self.pending_whitespace.push_str(text);
             }
-            if !self.started {
-                self.started = true;
-            }
-            let is_whitespace = ch.is_whitespace();
-            if whitespace != Some(is_whitespace) {
-                self.flush_run(&mut run, whitespace);
-                whitespace = Some(is_whitespace);
-            }
-            run.push(ch);
-            if run.len() >= RUN_LIMIT {
-                self.flush_run(&mut run, whitespace);
-            }
+            return;
         }
-        self.flush_run(&mut run, whitespace);
+        self.started = true;
+        if !self.pending_whitespace.is_empty() {
+            let pending = self.pending_whitespace.string();
+            let pending_total = self.pending_whitespace.total();
+            self.content.push_str(&pending);
+            self.content.add_total(pending_total.saturating_sub(M::len(&pending)));
+            self.pending_whitespace.clear();
+        }
+        // Interior whitespace already belongs to the message. Borrow the whole
+        // run, letting the suffix buffer copy only what can survive truncation.
+        self.content.push_str(content);
+        self.pending_whitespace.push_str(&text[content.len()..]);
     }
 
     pub(super) fn finish(&mut self) {
@@ -168,24 +167,5 @@ impl<M: SuffixMetric> TrimmedText<M> {
 
     pub(super) fn string(&self) -> String {
         self.content.string()
-    }
-
-    fn flush_run(&mut self, run: &mut String, whitespace: Option<bool>) {
-        if run.is_empty() {
-            return;
-        }
-        if whitespace == Some(true) {
-            self.pending_whitespace.push_str(run);
-        } else {
-            if !self.pending_whitespace.is_empty() {
-                let pending = self.pending_whitespace.string();
-                let pending_total = self.pending_whitespace.total();
-                self.content.push_str(&pending);
-                self.content.add_total(pending_total.saturating_sub(M::len(&pending)));
-                self.pending_whitespace.clear();
-            }
-            self.content.push_str(run);
-        }
-        run.clear();
     }
 }
