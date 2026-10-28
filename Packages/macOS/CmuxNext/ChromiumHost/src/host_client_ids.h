@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "chromium_host_mint.h"
+#include "host_window_request_ids.h"
 
 namespace cmux_host {
 
@@ -97,7 +98,10 @@ class ClientIds {
 
   // A shim event. Sent in cmux's ids: browser_id, the opener in
   // AFTER_CREATED's b (opener << 32 | flags), the DevTools browser in
-  // DEVTOOLS_OPENED and DEVTOOLS_CLOSED's a, and DEVTOOLS_RESULT's message id.
+  // DEVTOOLS_OPENED and DEVTOOLS_CLOSED's a, the anchor in
+  // WINDOW_REQUEST_RESULT's a, and DEVTOOLS_RESULT's message id. An INSERT's
+  // WINDOW_REQUEST_RESULT gets the id minted for its tab in b's high 32 bits
+  // (WindowRequestTabIds), which the tab's AFTER_CREATED binds.
   // AFTER_CREATED of a create_window binds its minted id; BEFORE_CLOSE
   // forgets the browser after its own translation. False when Chromium named
   // a new browser by an id of the minted range: the id spaces met, and the
@@ -107,6 +111,7 @@ class ClientIds {
   size_t browsers() const { return chromium_of_.size(); }
   size_t pending_creates() const { return pending_.size(); }
   size_t devtools_calls() const { return devtools_.size(); }
+  size_t pending_window_request_tabs() const { return window_request_tabs_.pending(); }
 
  private:
   struct PendingKey {
@@ -142,6 +147,7 @@ class ClientIds {
   std::unordered_set<int32_t> awaiting_;  // the minted ids in pending_
   // (Chromium browser << 32 | the shim's message id) -> the minted message id.
   std::unordered_map<uint64_t, int32_t> devtools_;
+  WindowRequestTabIds window_request_tabs_;
 };
 
 }  // namespace cmux_host

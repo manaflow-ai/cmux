@@ -413,6 +413,9 @@ public final class CEFEngine: BrowserEngine {
                       hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers,
                       hostFileDialogs: runtimeSource.hostFileDialogs, hostLocks: runtimeSource.handlesHostLocks,
                       hostAppEvents: runtimeSource.appEvents)
+        if runtimeSource.watchesHostHangs {
+            runtime.watchHostHangs(reports: { [weak runtimeSource] hang in runtimeSource?.onHostHang?(hang) })
+        }
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 
