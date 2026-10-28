@@ -199,6 +199,10 @@ export type ComposerHandle = {
   wake(state: ComposerWake): void;
 };
 
+/// A capture from the + menu's Attach Screenshot… or Attach Window…: the preview the chip shows and
+/// the model gets, and `original`, where the host saved the capture as taken (on the chat's machine).
+export type CapturedShot = { file: File; original?: string };
+
 export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean; shellText?: string };
 
 type Props = {
@@ -272,9 +276,9 @@ type Props = {
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window at any size, attached as an image whose original is saved for the agent as a pasted
-  /// screenshot's is; undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | undefined>;
+  /// or a window at any size, attached as an image chip that links the original the host saved in
+  /// the capture's own gesture; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<CapturedShot | undefined>;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -1962,7 +1966,14 @@ export function Composer({
                                 else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
                                   void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                                     .then(async (shot) => {
-                                      if (shot) await attach([shot], true);
+                                      // The host saved the original already: nothing uploads.
+                                      if (shot)
+                                        await attach(
+                                          [shot.file],
+                                          false,
+                                          undefined,
+                                          shot.original ? [{ path: shot.original, folder: false }] : undefined,
+                                        );
                                     })
                                     .finally(() => {
                                       const focused = document.activeElement;

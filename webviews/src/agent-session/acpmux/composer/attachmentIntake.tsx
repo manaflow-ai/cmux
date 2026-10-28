@@ -151,8 +151,17 @@ export function chipRemoved(state: {
   return !state.strip.some((attachment) => attachment.id === state.chip);
 }
 
-/// `file`: a promise while its bytes are still being made (MadeFile).
-type PendingSource = { file: File | Promise<File>; uploads: boolean };
+/// `file`: a promise while its bytes are still being made (MadeFile). `saved`: where the host already
+/// saved it (a capture's original), so Retry links it again.
+type PendingSource = { file: File | Promise<File>; uploads: boolean; saved?: LinkItem };
+
+/// ``useAttachmentIntake``'s `attach`.
+type Attach = (
+  given: (File | MadeFile)[],
+  uploads?: boolean,
+  kind?: DroppedKind,
+  saved?: readonly LinkItem[],
+) => Promise<void>;
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -166,8 +175,9 @@ function isMadeFile(file: File | MadeFile): file is MadeFile {
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
-/// `attach(files, uploads, kind)` adds files another way (the + menu's chooser or a capture, which
-/// upload like a drop). `pending`: the files still being read, shown at once (PendingAttachment).
+/// `attach(files, uploads, kind, saved)` adds files another way (the + menu's chooser, which uploads
+/// like a drop, or a capture, whose original the host saved). `pending`: the files still being read,
+/// shown at once (PendingAttachment).
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -212,9 +222,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
-  /// the saved path (composer/intakeFiles.ts); a capture's original is saved the same way. `kind`: the person's own drop or
-  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
-  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) => {
+  /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
+  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`). `saved`:
+  /// where the host already saved each file, by position (a capture's original, saved in the
+  /// capture's own gesture): an image's chip links it as its original, any other file goes as it.
+  const [attach] = useState<Attach>(() => async (given, uploads = false, kind, saved) => {
     if (given.length === 0) return;
     const files = given;
     const { options: current } = live.current;
@@ -228,7 +240,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }));
     shown.forEach((chip, index) => {
       const file = files[index]!;
-      sources.current.set(chip.id, { file: isMadeFile(file) ? file.file : file, uploads });
+      const at = saved?.[index];
+      sources.current.set(chip.id, {
+        file: isMadeFile(file) ? file.file : file,
+        uploads,
+        ...(at ? { saved: at } : {}),
+      });
     });
     const gesture = (gestures.current += 1);
     batches.current.add(batch);
@@ -286,7 +303,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
-          ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+          ...(saved?.length === settled.length
+            ? { localPaths: () => Promise.resolve([...saved]) }
+            : kind && paths
+              ? { localPaths: (batch: File[]) => paths(kind, batch) }
+              : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
@@ -341,7 +362,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (!source || !file || "then" in file) return;
     cancel(id);
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
-    void attach([file], source.uploads);
+    // A capture's original the host saved stays where it is.
+    void attach([file], source.uploads, undefined, source.saved ? [source.saved] : undefined);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {

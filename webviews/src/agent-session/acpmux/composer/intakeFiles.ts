@@ -16,7 +16,8 @@ import type { UploadResult } from "../cloudUploads";
 
 export type IntakeOptions = {
   allowImages: boolean;
-  /// The host knows a local drop's paths, matched by position. Never used for another machine.
+  /// Where the host knows the files are, matched by position: a local drop's own paths, or where the
+  /// host saved a capture's original in the capture's own gesture (on the chat's machine).
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
   upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
