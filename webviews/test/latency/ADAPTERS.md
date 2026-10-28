@@ -23,7 +23,9 @@ commit counter around `measureRun`. It drains queued entries before disconnectin
 measured values can supply instrumentation absent from a standalone adapter; missing APIs,
 counters or finalization stay null with explicit reasons. No adapter zero is trusted as a substitute.
 
-The imported rail adapter at `20c305` still accepts horizontally offscreen targets and can
-record a negative first frame gap. Both rail cases currently emit explicit unsupported
-results pending the owner's discriminator repair. They cannot make the full suite green.
+Both rail cases invoke the owner's repaired `308f5d9` pointer sampler on the resident
+3,000-turn fixture. They retain its raw targets, painted/superseded/deadline statuses and
+separate release receipt. The drag case aggregates move-to-paint latency; the cadence case
+aggregates recorded frame gaps. Missing targets, deadlines and missing required instrumentation
+still fail. The wrapper adds actual Long Tasks and Profiler counter deltas around the sampler.
 The other fourteen flow cases remain independently selectable.
