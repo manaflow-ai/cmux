@@ -16,6 +16,13 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+[features]
+tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
+
+[target.'cfg(unix)'.dependencies]
+cmux-tailnet = { workspace = true, optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+
 [dependencies]
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
@@ -93,6 +100,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }

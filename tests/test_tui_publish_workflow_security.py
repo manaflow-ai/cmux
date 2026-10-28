@@ -2347,7 +2347,9 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
-    assert daemon == "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}", daemon
+    # Every label it can resolve to is Blacksmith Linux; size and overflow wiring are free to change.
+    from runs_on_labels import disallowed_labels
+    assert disallowed_labels(daemon) == {}, (daemon, disallowed_labels(daemon))
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
@@ -2358,10 +2360,13 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
+def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
-    # so trees publish without them; nightly-next promotion still needs them,
-    # through the daemon-tests.json marker that publish-tree-tested writes.
+    # so trees publish without them; the feat-cmux-next channel still needs
+    # them, through the daemon-tests.json marker that publish-tree-tested writes.
+    # Since 2026-10-28 nightly-next promotion does not (run 40651931144's daemon
+    # tests failed fetching Zig packages and held the feed): the tree-commit
+    # marker follows the publish. Leo, 2026-10-23: "we want no smoke tests".
     # cx-y0nf2: that holds on every ref, pins, next-batch/*, main and pull
     # requests included. cx-kfbom had made those publish after the tests,
     # marker first, because a feat-cmux-next push that found tree c77d397b3a9f
@@ -2393,12 +2398,19 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
-    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
-    # daemon-tested, the same check the tree-commit marker writer uses.
+    # Neither request-nightly-next.sh nor the tree-commit marker writer asks for
+    # the daemon tests; the marker job follows the publish, not them.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "tree-commit-marker.sh\" daemon-tested" in script
+    assert "daemon-tested" not in script
+    mark = jobs["mark-tree-commits"]
+    assert "publish-tree" in mark["needs"]
+    assert not {"cmux-next-daemon-tests", "publish-tree-tested"} & set(mark["needs"])
+    assert "daemon" not in mark["if"]
     checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    # The daemon-tested subcommand stays for its callers.
     assert "daemon-tests.json" in checker and '"separate"' in checker
+    tree_ready = checker.split("tree_ready() {", 1)[1].split("\n}\n", 1)[0]
+    assert "verify-key" in tree_ready and "daemon_tested" not in tree_ready
 
 
 

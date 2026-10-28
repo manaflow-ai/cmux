@@ -46,7 +46,7 @@ use super::WorkspaceRegistry;
 mod agent_launch;
 pub(crate) use agent_launch::{
     AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job,
-    job_is_non_interactive, kept_agent_args,
+    job_is_non_interactive, kept_agent_args, resumable_harness,
 };
 
 /// The environment keys a relaunch record keeps, by exact name.
@@ -519,12 +519,14 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
     let args = agent.get("args")?.as_array()?;
     let args =
         args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
+    if !resumable_harness(harness) {
+        return None;
+    }
     let args = kept_agent_args(harness, &args);
-    let key = account_env_key(harness)?;
-    let env = agent["env"][key]
-        .as_str()
-        .filter(|dir| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
-        .map(|dir| vec![(key.to_string(), dir.to_string())])
+    let env = account_env_key(harness)
+        .and_then(|key| Some((key, agent["env"][key].as_str()?)))
+        .filter(|(_, dir)| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
+        .map(|(key, dir)| vec![(key.to_string(), dir.to_string())])
         .unwrap_or_default();
     Some(AgentLaunch { args, env })
 }

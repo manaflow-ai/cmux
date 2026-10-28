@@ -263,6 +263,12 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
         default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
+    /// Where a hovered workspace row's ✕ sits (`SidebarRowCloseSpot`); at the row's end by default.
+    public static let rowCloseSpot = Tunable<SidebarRowCloseSpot>.choice(
+        "sidebar.rowCloseSpot", .sidebar, "Workspace row close position",
+        help: "Where a hovered workspace row's close button sits: at the row's end in place of the status mark (menu, chevron, close), with even gaps, a smaller close, or between the menu and the chevron as before.",
+        default: .end, code: "SidebarTunables.rowCloseSpot")
+
     /// "Workspaces as tabs" (Leo, relayed 2026-10-21; prototype, off): every workspace row is one
     /// line (its icon, name, status and pull request badge, as Claude desktop's chat list), and
     /// Cmd-Shift-[ / ] step the workspaces in sidebar order as tabs (`nextSidebarTab`), wrapping,
@@ -302,6 +308,7 @@ public nonisolated enum SidebarTunables {
             quietUnnamedRows.descriptor,
             pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
+            rowCloseSpot.descriptor,
             rowTitle.descriptor,
             rowTitlePreview.descriptor,
             rowTitleSingleChat.descriptor,

@@ -132,6 +132,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
+            "space.moveToStart", "space.moveToEnd",
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",

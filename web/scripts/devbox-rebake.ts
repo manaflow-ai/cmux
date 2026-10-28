@@ -11,6 +11,9 @@
  *       checkout's devbox sources (devboxSourceDriftProblems, the check promote enforces).
  *       Also the version this run publishes, <UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>,
  *       and the image-stamp line the bake writes. key=value lines for $GITHUB_OUTPUT.
+ *   bun scripts/devbox-rebake.ts pin-cmux-tui
+ *       cmux_tui_manifest=<url>: the newest published cmux-tui manifest of this branch's
+ *       cmux-tui history with acpmux (pinCmuxTuiManifest), for CMUX_VM_CMUX_TUI_MANIFEST_URL.
  *   bun scripts/devbox-rebake.ts record --version V
  *       Write rebake-state.json for this checkout's inputs (the publish commit carries it).
  *   bun scripts/devbox-rebake.ts settle
@@ -28,6 +31,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { VM_IMAGE_SIZE_NAMES } from "../services/vms/images/sizes";
+import { parseCmuxTuiManifest } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   devboxAwaitingRebakePath,
   devboxImageEpoch,
@@ -182,6 +186,47 @@ export async function listAllSnapshots(list: SnapshotLister, pageSize = 100): Pr
   }
 }
 
+export const CMUX_TUI_FILES = "https://files.cmux.com/cmux-tui";
+
+/**
+ * The bake installs cmux-tui and acpmux from a files.cmux.com manifest. The rolling
+ * `latest` follows main, whose builds carry no acpmux, and the bake refuses an image
+ * without it (requireCmuxTuiAcpmux). So the rebake pins the newest commit-addressed
+ * manifest of this branch's cmux-tui history that parses with acpmux.
+ */
+export async function pinCmuxTuiManifest(
+  commits: readonly string[],
+  fetchJson: (url: string) => Promise<unknown | null>,
+): Promise<string | null> {
+  for (const commit of commits) {
+    const url = `${CMUX_TUI_FILES}/${commit}/manifest.json`;
+    const manifest = await fetchJson(url);
+    if (manifest === null) continue;
+    try {
+      const source = parseCmuxTuiManifest(url, manifest);
+      if (source.acpmuxUrl && source.acpmuxSha256) return url;
+    } catch {
+      // Not a usable Linux build; try the previous commit.
+    }
+  }
+  return null;
+}
+
+async function pinCmuxTui(): Promise<void> {
+  const commits = execFileSync("git", ["log", "--format=%H", "-80", "HEAD", "--", "cmux-tui"], { cwd: repoRoot, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  const url = await pinCmuxTuiManifest(commits, async (candidate) => {
+    const res = await fetch(candidate, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+    return res?.ok ? res.json() : null;
+  });
+  if (!url) {
+    console.error(`no published cmux-tui manifest with acpmux among the last ${commits.length} cmux-tui commits`);
+    process.exit(1);
+  }
+  console.log(`cmux_tui_manifest=${url}`);
+}
+
 function gitHead(): string {
   return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
 }
@@ -257,8 +302,9 @@ if (isEntryPoint) {
   else if (command === "record") record();
   else if (command === "settle") settle();
   else if (command === "prune") await prune();
+  else if (command === "pin-cmux-tui") await pinCmuxTui();
   else {
-    console.error("usage: bun scripts/devbox-rebake.ts plan [--force] | record --version V | settle | prune --keep N [--dry-run]");
+    console.error("usage: bun scripts/devbox-rebake.ts plan [--force] | pin-cmux-tui | record --version V | settle | prune --keep N [--dry-run]");
     process.exit(2);
   }
 }

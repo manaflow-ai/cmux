@@ -146,9 +146,17 @@ jobs:
             exit 1
           fi
 
+      # main's rolling cmux-tui/latest has no acpmux, which the bake requires;
+      # bake, verify and smoke against this branch's newest published build.
+      - name: Pin the cmux-tui build
+        id: cmux-tui
+        if: steps.plan.outputs.go == 'true'
+        run: bun scripts/devbox-rebake.ts pin-cmux-tui | tee -a "$GITHUB_OUTPUT"
+
       - name: Bake, verify, derive sizes, and write the manifest
         if: steps.plan.outputs.go == 'true'
         env:
+          CMUX_VM_CMUX_TUI_MANIFEST_URL: ${{ steps.cmux-tui.outputs.cmux_tui_manifest }}
           CMUX_BAKE_ALLOW_BRANCH: "1"
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           SLUG: ${{ steps.plan.outputs.slug }}
@@ -174,6 +182,7 @@ jobs:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           OUT: ${{ runner.temp }}/devbox-promotion.json
           STAMP: ${{ steps.plan.outputs.stamp }}
+          CMUX_VM_CMUX_TUI_MANIFEST_URL: ${{ steps.cmux-tui.outputs.cmux_tui_manifest }}
         run: |
           set -euo pipefail
           image="$(jq -r '[.entries[] | select(.kind == "desktop" and .size.name == "md") | .imageId][0] // empty' "$OUT")"

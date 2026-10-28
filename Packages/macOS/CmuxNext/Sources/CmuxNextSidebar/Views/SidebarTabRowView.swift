@@ -26,11 +26,14 @@ final class SidebarTabRowView: SidebarRowView {
     private var iconIsMark = false
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
     private let unreadDot = UnreadBadgeView()
+    /// The tab its workspace shows: a quiet fill marks it.
+    private(set) var isFocusedTab = false
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
 
     private struct Content: Hashable {
         var tab: SidebarTab
+        var focused: Bool
         var group: GroupID?
         var groupColor: GroupColor?
         var look: SidebarTabLineLook
@@ -51,23 +54,27 @@ final class SidebarTabRowView: SidebarRowView {
     }
 
     /// The last configure's tab and row, so a change of `sidebar.tabLines` redraws the row (`SidebarTunablesWatch`).
-    private var lastConfiguration: (SidebarTab, SidebarRow)?
+    private var lastConfiguration: (SidebarTab, SidebarRow, Bool)?
 
     func redrawLastConfiguration() {
-        guard let (tab, row) = lastConfiguration else { return }
-        configure(tab, row: row)
+        guard let (tab, row, focused) = lastConfiguration else { return }
+        configure(tab, row: row, focused: focused)
     }
 
-    func configure(_ tab: SidebarTab, row: SidebarRow) {
-        lastConfiguration = (tab, row)
+    /// `focused`: the tab its workspace shows (`SidebarWorkspace.focusedTab`).
+    func configure(_ tab: SidebarTab, row: SidebarRow, focused: Bool = false) {
+        lastConfiguration = (tab, row, focused)
         let look = SidebarTunablesWatch.shared.tabLook(for: self)
-        let content = Content(tab: tab, group: row.group, groupColor: row.groupColor, look: look)
+        let content = Content(tab: tab, focused: focused, group: row.group, groupColor: row.groupColor, look: look)
         guard needsConfigure(content) else { return }
+        isFocusedTab = focused
         let line = SidebarTabLine.make(tab, look: look, terminalName: Strings.untitledTerminal)
         title.setString(line.name)
         detail.setString(line.detail ?? "")
         detail.isHidden = line.detail == nil
-        // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14).
+        // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14). The workspace's focused tab
+        // is marked by a quiet fill (Leo 2026-10-27: "it should also just slightly demarcate, you know, which pane
+        // you're focused on, right? Like which tab within your workspace").
         title.setFont(SidebarStyle.subtitleFont)
         // A page's favicon draws as is; with the marks on, an agent's mark where there is no favicon.
         let side = SidebarStyle.tabIconSize
@@ -85,6 +92,7 @@ final class SidebarTabRowView: SidebarRowView {
         let status = look.drawsMarks ? Strings.activity(tab.state) : nil
         let spoken = [line.name, line.detail, status].compactMap { $0 }.joined(separator: ", ")
         setAccessibilityLabel(tab.isUnread ? spoken + ", " + Strings.unreadDot : spoken)
+        setAccessibilitySelected(focused)
         needsLayout = true
         needsDisplay = true
     }
@@ -101,8 +109,14 @@ final class SidebarTabRowView: SidebarRowView {
             title.setColor(Palette.textPrimary)
             detail.setColor(Palette.textTertiary)
             icon.contentTintColor = iconIsMark ? Palette.textSecondary : nil
-            paintFill(isHovered ? Palette.hoverFill : nil)
+            paintFill(isHovered ? Palette.hoverFill : isFocusedTab ? Self.focusFill : nil)
         }
+    }
+
+    /// Half the hover fill: a mark, quieter than a hover and far from the selected workspace row's fill.
+    static var focusFill: NSColor {
+        let hover = Palette.hoverFill
+        return hover.withAlphaComponent((hover.usingColorSpace(.sRGB)?.alphaComponent ?? 1) * 0.5)
     }
 
     override func layout() {

@@ -126,6 +126,7 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
+    "scripts/cmux-next/judge-action-exports.sh",
     # The settings exports (regenerate-settings-exports.sh; the generated
     # files job exports them fresh and compares). The CmuxNextSettings sources
     # and the export tests are under PACKAGE.
@@ -208,7 +209,7 @@ CI_ONLY = (
     ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
-    "tests/test_base_red_excuse.py", "tests/test_ci_*.py",
+    "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")

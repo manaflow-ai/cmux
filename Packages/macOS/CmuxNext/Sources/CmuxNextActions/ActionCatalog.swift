@@ -140,6 +140,7 @@ public nonisolated enum ActionCatalog {
         CloudSessionActionCatalog.self,
         MachineIconActionCatalog.self,
         SettingsActionCatalog.self,
+        HelpLinkActionCatalog.self,
         DensityActionCatalog.self,
         ChromeStyleActionCatalog.self,
         BackdropActionCatalog.self,

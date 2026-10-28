@@ -3,8 +3,10 @@
 // Plan and the model are text chips; each one's hover, open and press pill (the bar's states in
 // composerLocation.css) is padded by the row's --acpmux-row-inset. At 4 px the pill hugged the
 // label like a sliver; it is 8 px, the inset of an NSMenu row's highlight and of Codex's and
-// ChatGPT's mode chip. The row spans the box without extra side padding (#24216), and neighbouring
-// chips tuck the extra padding under each other: only the pill grows.
+// ChatGPT's mode chip. The row's own padding is counted from the same inset, so the mode's text
+// stays 17 px in from the box's side and the model's 14 px in from the other, and neighbouring chips
+// tuck the extra padding under each other: only the pill grows. Since #24216 the row itself has no
+// side padding: it spans the box.
 // test/composer-row-rhythm.test.ts measures the drawn row in Chromium.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -42,9 +44,13 @@ test("each chip's pill is padded by the row's inset", () => {
   expect(chip).toMatch(/padding-inline\s*:\s*var\(--acpmux-row-inset\)/);
 });
 
-test("the quiet row spans the box without adding side padding", () => {
+test("the row adds no side padding of its own, so each pill's inset is the only one", () => {
   const foot = rules(".acpmux-composer-foot").join(";");
-  expect(foot).toMatch(/padding-inline\s*:\s*0\s*;/);
+  // #24216 (Leo 2026-10-22, "stop with the left right padding"): the row spans the box, the mode's
+  // pill starting on its left edge and the last control's ending on its right edge.
+  // test/composer-side-inset.test.ts measures it.
+  const paddings = [...foot.matchAll(/padding-inline\s*:\s*([^;]+)/g)].map((match) => match[1].trim());
+  expect(paddings[paddings.length - 1]).toBe("0");
   // Chips touch (no gap of their own), so neighbouring pills never overlap.
   expect(px(foot, "--acpmux-row-gap")).toBe(0);
 });
@@ -68,9 +74,9 @@ test("the context ring keeps its place past the model's text", () => {
   expect(ring).toMatch(/margin-inline-start\s*:\s*4px/);
 });
 
-test("the context ring stays compact, with a scale-aligned quiet row control", () => {
+test("the context ring uses one compact control size in the main and quiet rows", () => {
   expect(baseStyles).toMatch(/\.acpmux-context-ring\{[^}]*width:22px;height:22px/);
   const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(/width\s*:\s*24px/);
-  expect(ring).toMatch(/height\s*:\s*24px/);
+  expect(ring).toMatch(/width\s*:\s*22px/);
+  expect(ring).toMatch(/height\s*:\s*22px/);
 });
