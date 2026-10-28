@@ -31,6 +31,31 @@ fn shutdown_within(mux: &Arc<Mux>, limit: Duration) -> bool {
     mux.daemon_shutdown_requested()
 }
 
+/// A stand-in starter, killed when the test ends however it ends.
+struct StarterProcess(std::process::Child);
+
+impl StarterProcess {
+    fn spawn() -> Self {
+        Self(std::process::Command::new("sleep").arg("60").spawn().unwrap())
+    }
+
+    fn starter(&self) -> Starter {
+        Starter::current(self.0.id()).expect("the stand-in starter runs")
+    }
+
+    fn exit(&mut self) {
+        self.0.kill().unwrap();
+        self.0.wait().unwrap();
+    }
+}
+
+impl Drop for StarterProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 #[test]
 fn exit_with_process_ends_the_terminals_and_stops_the_owner() {
     let mux = mux("exits");
@@ -39,15 +64,14 @@ fn exit_with_process_ends_the_terminals_and_stops_the_owner() {
     // A client of the starter that is still registered does not keep the
     // owner: the process it served is gone.
     let leftover = connect(&mux);
-    let mut starter = std::process::Command::new("sleep").arg("60").spawn().unwrap();
-    exit_with_process(&mux, starter.id()).unwrap();
+    let mut starter = StarterProcess::spawn();
+    exit_with_process(&mux, starter.starter()).unwrap();
 
     std::thread::sleep(Duration::from_millis(200));
     assert!(!mux.daemon_shutdown_requested(), "the owner stopped while its starter runs");
     assert_ne!(lifecycle(&mux, &terminal), TerminalLifecycle::Tombstoned);
 
-    starter.kill().unwrap();
-    starter.wait().unwrap();
+    starter.exit();
     assert!(shutdown_within(&mux, Duration::from_secs(30)), "the owner outlived its starter");
     assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Tombstoned);
     assert!(mux.control_clients.contains(leftover));
@@ -58,20 +82,54 @@ fn exit_with_process_ends_the_terminals_and_stops_the_owner() {
 #[test]
 fn exit_with_process_of_an_exited_starter_stops_at_once() {
     let mux = mux("gone");
-    let mut starter = std::process::Command::new("true").spawn().unwrap();
-    let pid = starter.id();
-    starter.wait().unwrap();
-    exit_with_process(&mux, pid).unwrap();
+    let mut process = StarterProcess::spawn();
+    let starter = process.starter();
+    process.exit();
+    exit_with_process(&mux, starter).unwrap();
     assert!(shutdown_within(&mux, Duration::from_secs(30)));
 }
 
 #[test]
-fn exit_with_process_never_races_a_running_handoff() {
+fn exit_with_process_never_follows_a_reused_pid() {
+    let mux = mux("reused");
+    let process = StarterProcess::spawn();
+    // The same pid with another start time: the process the owner was
+    // started for is gone, whoever holds the pid now.
+    let mut starter = process.starter();
+    starter.started_ms = starter.started_ms.saturating_sub(60_000).max(1);
+    exit_with_process(&mux, starter).unwrap();
+    assert!(shutdown_within(&mux, Duration::from_secs(30)));
+}
+
+#[test]
+fn exit_with_process_waits_out_a_running_handoff_and_stops_after_it_is_cancelled() {
     let mux = mux("handoff");
     let surface = mux.new_workspace(Some("job".into()), Some((80, 24))).unwrap();
     let terminal = mux.resource_terminal_host_identity(&surface).unwrap().terminal_id;
+    // Another handoff (a client's shutdown-daemon) holds the reservation.
     assert!(mux.control_clients.begin_owner_shutdown(true));
     assert!(!starter_exit::stop_for_exited_starter(&mux));
     assert!(!mux.daemon_shutdown_requested());
     assert_ne!(lifecycle(&mux, &terminal), TerminalLifecycle::Tombstoned);
+
+    let mut process = StarterProcess::spawn();
+    exit_with_process(&mux, process.starter()).unwrap();
+    process.exit();
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(!mux.daemon_shutdown_requested(), "the exit raced the running handoff");
+    // That handoff is cancelled: the owner must still stop.
+    mux.control_clients.cancel_daemon_handoff(orphan_shutdown::ORPHAN_SHUTDOWN_REQUESTER);
+    assert!(shutdown_within(&mux, Duration::from_secs(30)), "the owner outlived its starter");
+    assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Tombstoned);
+}
+
+#[test]
+fn exit_with_process_fence_is_released_unless_committed() {
+    let mux = mux("fence");
+    {
+        assert!(mux.control_clients.begin_owner_shutdown(false));
+        let _fence = starter_exit::StopFence { mux: &mux, committed: false };
+    }
+    let later = connect(&mux);
+    assert!(mux.control_clients.contains(later), "the fence was left behind");
 }

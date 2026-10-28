@@ -10,46 +10,114 @@
 //! harness by hours. The app's own owners never get the option: they outlive
 //! the app by design.
 //!
-//! The wait is an event (macOS: kqueue `EVFILT_PROC` `NOTE_EXIT`; Linux: a
-//! pidfd), never a poll, on one thread that holds no reference to the mux.
-//! It ends when the watched process exits, or with this process.
+//! The process is named by its pid and kernel start time ([`Starter`]), so a
+//! reused pid never stands in for it. The wait is an event (macOS: kqueue
+//! `EVFILT_PROC` `NOTE_EXIT`; Linux: a pidfd), never a poll, on one thread
+//! that holds no strong reference to the mux. It ends when the watched
+//! process exits, or with this process.
+
+use std::time::Duration;
 
 use super::*;
 
-/// Starts the watcher. A `pid` that already exited stops the owner at once.
-pub fn exit_with_process(mux: &Arc<Mux>, pid: u32) -> std::io::Result<()> {
+/// How often a stop that found another handoff running (a client's
+/// `shutdown-daemon`, a version handoff) tries again, until that handoff
+/// stops the owner or is cancelled.
+const HANDOFF_RETRY: Duration = Duration::from_millis(250);
+
+/// The process an owner was started for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Starter {
+    pub pid: u32,
+    /// Kernel start time in milliseconds since the epoch; 0 when unknown
+    /// (then the pid alone names it).
+    pub started_ms: u64,
+}
+
+impl Starter {
+    /// The running process `pid` with its start time; `None` when no
+    /// process runs under it.
+    pub fn current(pid: u32) -> Option<Self> {
+        let process = crate::state::status_meta::OwnerProcess::current(pid)?;
+        Some(Self { pid, started_ms: process.started })
+    }
+
+    /// Whether `pid` still names this process (not a later one that reused
+    /// the pid).
+    fn still_running(self) -> bool {
+        crate::state::status_meta::OwnerProcess::current(self.pid).is_some_and(|process| {
+            self.started_ms == 0 || process.started == 0 || process.started == self.started_ms
+        })
+    }
+}
+
+/// Starts the watcher. A starter that already exited stops the owner at
+/// once. Call it once the owner has started (its terminals restored and its
+/// startup work begun), so the stop ends every terminal startup made.
+pub fn exit_with_process(mux: &Arc<Mux>, starter: Starter) -> std::io::Result<()> {
     let watched = Arc::downgrade(mux);
     std::thread::Builder::new().name("owner-exit-with-pid".into()).spawn(move || {
-        if let Err(error) = crate::state::status_owners::wait_for_process_exit(pid) {
+        let pid = starter.pid;
+        let waited =
+            crate::state::status_owners::wait_for_process_exit_if(pid, || starter.still_running());
+        if let Err(error) = waited {
             // A watch that cannot start leaves the owner as it would be
-            // without the option; the caller already checked the pid.
+            // without the option.
             eprintln!("cmux-tui: cannot watch process {pid} for --exit-with-pid: {error}");
             return;
         }
-        let Some(mux) = watched.upgrade() else { return };
         eprintln!("cmux-tui: process {pid} this owner was started for exited; stopping");
-        stop_for_exited_starter(&mux);
+        loop {
+            let Some(mux) = watched.upgrade() else { return };
+            if mux.daemon_shutdown_requested() || stop_for_exited_starter(&mux) {
+                return;
+            }
+            drop(mux);
+            std::thread::sleep(HANDOFF_RETRY);
+        }
     })?;
     Ok(())
 }
 
+/// Releases the reservation unless the stop committed, also when ending
+/// the terminals panics, so no stuck fence refuses every later client.
+pub(super) struct StopFence<'a> {
+    pub(super) mux: &'a Mux,
+    pub(super) committed: bool,
+}
+
+impl Drop for StopFence<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.mux
+                .control_clients
+                .cancel_daemon_handoff(orphan_shutdown::ORPHAN_SHUTDOWN_REQUESTER);
+        }
+    }
+}
+
 /// Ends every terminal, then stops the owner as `shutdown-daemon
 /// end_terminals` does. The owner stops even when a terminal could not be
-/// ended: nothing is left to serve. False when another handoff already runs
-/// (that one stops or keeps the owner).
+/// ended: nothing is left to serve. False when another handoff runs (the
+/// caller tries again) or the reservation changed before the commit.
 pub(crate) fn stop_for_exited_starter(mux: &Arc<Mux>) -> bool {
     // Fence new clients while the terminals end. A client still connected is
     // not waited for: the process the owner serves is gone.
     if !mux.control_clients.begin_owner_shutdown(false) {
         return false;
     }
+    let mut fence = StopFence { mux, committed: false };
     if let Err(error) = mux.end_all_terminals() {
         eprintln!("cmux-tui: --exit-with-pid could not end every terminal: {error:#}");
     }
-    let committed = mux
+    if mux
         .control_clients
         .commit_daemon_handoff_after_ack(orphan_shutdown::ORPHAN_SHUTDOWN_REQUESTER, || Ok(()))
-        .is_ok();
+        .is_err()
+    {
+        return false;
+    }
+    fence.committed = true;
     mux.request_daemon_shutdown();
-    committed
+    true
 }

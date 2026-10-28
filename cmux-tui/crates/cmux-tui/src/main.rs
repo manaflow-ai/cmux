@@ -577,7 +577,7 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
-    exit_with_pid: Option<u32>,
+    exit_with_pid: Option<local_owner::ExitWith>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -2672,14 +2672,13 @@ fn run_server(
         )
     });
     let result = if args.headless {
-        local_owner::exit_with(&mux, args.exit_with_pid);
         mux.mark_server_lifecycle_ready();
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, args.exit_with_pid, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2687,7 +2686,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, args.exit_with_pid, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)

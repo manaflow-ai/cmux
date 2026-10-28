@@ -29,7 +29,7 @@ struct BranchDaemonHarness {
         var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
                                                          stateDirectory: root.appendingPathComponent("state"), installKey: installKey)
         // The owner ends with this test process, also when it crashes or a CI job is cancelled before `stop()`.
-        if RealBinary.isBranchBuild { configuration.exitWithProcess = getpid() }
+        if RealBinary.isBranchBuild { configuration.exitWithProcess = ProcessInfo.processInfo.processIdentifier }
         if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
         let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()

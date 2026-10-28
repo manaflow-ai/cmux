@@ -152,8 +152,10 @@ mod origin_gate;
 mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
-pub use starter_exit::exit_with_process;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};

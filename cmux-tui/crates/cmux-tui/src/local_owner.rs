@@ -116,7 +116,11 @@ pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 mod exit_with;
 mod install_key;
 mod replace;
-pub(crate) use exit_with::{EXIT_WITH_PID_ARG, exit_with, parse_exit_with_pid};
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) use exit_with::exit_with;
+pub(crate) use exit_with::{
+    EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
+};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
@@ -161,8 +165,8 @@ pub(crate) fn claim_owner_arg(
     }
     let value = values.next().ok_or_else(|| format!("{arg} needs a value"))?;
     if arg == EXIT_WITH_PID_ARG {
-        let pid = parse_exit_with_pid(&value)?;
-        if args.exit_with_pid.replace(pid).is_some() {
+        let exit_with = parse_owner_exit_with(&value)?;
+        if args.exit_with_pid.replace(exit_with).is_some() {
             return Err(format!("{arg} may be supplied only once"));
         }
         return Ok(());
@@ -219,7 +223,7 @@ pub(crate) struct OwnerSpec {
     /// `None` starts an owner that never reaps unplaced terminals.
     pub terminal_reap_grace: Option<Duration>,
     /// `--exit-with-pid` for an owner this call spawns (`exit_with`).
-    pub exit_with_pid: Option<u32>,
+    pub exit_with_pid: Option<ExitWith>,
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
@@ -738,8 +742,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
     }
-    if let Some(pid) = spec.exit_with_pid {
-        command.arg(EXIT_WITH_PID_ARG).arg(pid.to_string());
+    if let Some(exit_with) = spec.exit_with_pid {
+        command.arg(EXIT_WITH_PID_ARG).arg(exit_with.arg());
     }
     if let Some(websocket) = &spec.websocket {
         command.arg("--ws").arg("127.0.0.1:0");

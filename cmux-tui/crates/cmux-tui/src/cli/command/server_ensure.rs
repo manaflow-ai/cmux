@@ -14,7 +14,7 @@ pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
     let replace_unresponsive = flags.boolean("replace-unresponsive");
     let exit_with_pid = flags
         .take("exit-with-pid")
-        .map(|value| crate::local_owner::parse_exit_with_pid(&value))
+        .map(|value| crate::local_owner::resolve_exit_with_pid(&value))
         .transpose()
         .map_err(UsageError::new)?;
     let Some(value) = flags.take("terminal-reap-grace-seconds") else {
