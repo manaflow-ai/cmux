@@ -149,6 +149,16 @@ pub(crate) fn checked_name(name: &str) -> Result<&str, &'static str> {
     Ok(name)
 }
 
+/// The person's own machine: this Mac lends it its GitHub login (`github_broker.rs`), so an
+/// agent there needs no `gh auth login`.
+fn add_params(name: &str, url: &str) -> Value {
+    json!({"name": name, "url": url, "githubBroker": true, "wait": true})
+}
+
+fn lends_github(p: &Value) -> bool {
+    p.get("githubBroker").and_then(Value::as_bool) == Some(true)
+}
+
 pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> StepResult {
     let fail = |detail: String| result(Step::Peer, StepState::Fail, detail);
     if let Err(e) = checked_host(t.host) {
@@ -179,19 +189,22 @@ pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> St
                 "Pick another name for this machine, or remove that peer first (`acpmux host rm {name}`)."
             ))
         }
-        Some(p) if connected(p) => {
+        Some(p) if connected(p) && (!fix || lends_github(p)) => {
             result(Step::Peer, StepState::Ok, format!("{name} at {url}, connected"))
         }
         Some(p) if !fix => fail(format!("{name} at {url} is not connected{}", last_error(p)))
             .with_fix("Check again with --fix to reconnect it."),
+        // Added before Add Machine lent it GitHub: added again with it, under its own url, which
+        // also reconnects it.
+        Some(p) if !lends_github(p) => {
+            settle(io.rpc("_acpmux/peer_add", add_params(name, text(p, "url"))).await)
+        }
         Some(_) => settle(
             io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
         ),
         None if !fix => fail(format!("no peer named {name}"))
             .with_fix(format!("Check again with --fix to add {name} at {url}.")),
-        None => settle(
-            io.rpc("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true})).await,
-        ),
+        None => settle(io.rpc("_acpmux/peer_add", add_params(name, &url)).await),
     }
 }
 

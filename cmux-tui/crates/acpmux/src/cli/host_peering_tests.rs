@@ -58,7 +58,7 @@ impl Io for Fake {
             "_acpmux/peers" => {}
             "_acpmux/peer_add" => {
                 peers.retain(|p| p["name"] != name);
-                peers.push(json!({"name": name, "url": params["url"], "connected": self.local_connects, "error": (!self.local_connects).then_some("ssh: no route")}));
+                peers.push(json!({"name": name, "url": params["url"], "connected": self.local_connects, "error": (!self.local_connects).then_some("ssh: no route"), "githubBroker": params["githubBroker"]}));
             }
             "_acpmux/peer_reconnect" => {
                 for p in peers.iter_mut().filter(|p| p["name"] == name) {
@@ -380,7 +380,7 @@ async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_it
     let fake = Fake::default();
     fake.peers
         .borrow_mut()
-        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true}));
+        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true, "githubBroker": true}));
     let t = PeerTarget { port: 47900, ..target(None) };
     let r = peer_with(&fake, &t, true).await;
     assert_eq!(
@@ -402,4 +402,27 @@ async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_it
     assert_eq!(fake.peers.borrow()[0]["url"], "ssh://huge-blue:47900");
     assert_eq!(peer_with(&fake, &t, false).await.state, StepState::Ok);
     assert_eq!(identity_with(&fake, &t).await.state, StepState::Ok);
+}
+
+/// Add Machine adds the person's own machine with the Mac's GitHub login lent to it
+/// (`github_broker.rs`); one added before that gets it on its next enroll, under its own url.
+#[tokio::test]
+async fn add_machine_lends_github_and_turns_it_on_for_an_older_peer() {
+    let fake = Fake::default();
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Fixed);
+    assert_eq!(fake.peers.borrow()[0]["githubBroker"], true);
+
+    let fake = Fake::default();
+    fake.peers
+        .borrow_mut()
+        .push(json!({"name": "hb", "url": "ssh://Huge-Blue", "connected": true}));
+    // A check without fix changes nothing.
+    assert_eq!(peer_with(&fake, &target(None), false).await.state, StepState::Ok);
+    assert!(!fake.mutated_here());
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Fixed);
+    let peers = fake.peers.borrow();
+    assert_eq!(
+        (peers.len(), &peers[0]["url"], &peers[0]["githubBroker"]),
+        (1, &json!("ssh://Huge-Blue"), &json!(true))
+    );
 }
