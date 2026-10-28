@@ -236,9 +236,10 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// has the keys (a page Chromium activated without a click, e.g. a new
     /// tab's page window; input-spec.md B11): this window takes them back.
     /// Never activates the app (no key window while it is inactive). No key change when this
-    /// window is key already (#24913).
+    /// window is key already (#24913). Page windows exist only in process: with pages in the view
+    /// tree (``PageSurface/views``) the page is a first responder of this window, never key itself.
     private func reclaimKeyFromPageWindow() {
-        guard let window = controller.window else { return }
+        guard let window = controller.window, PageSurface.of(window) == .childWindows else { return }
         pageFocus.reclaim(into: window) { ChildWindowKeyRule.shouldReclaim(facts(of: $0, in: window)) }
     }
 
@@ -324,9 +325,10 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// A child window of this window (not one of our panels) became key: a
     /// Chromium page window, its docked DevTools, or a popup over a page.
-    /// Only a click into a page is the user's choice.
+    /// Only a click into a page is the user's choice. In process only: with pages in the view tree
+    /// (``PageSurface/views``) no page, DevTools or popup of this window is a window of its own.
     private func childWindowDidBecomeKey(_ child: NSWindow) {
-        guard let window = controller.window, child !== window else { return }
+        guard let window = controller.window, child !== window, PageSurface.of(window) == .childWindows else { return }
         let devTools = paneShowingDevTools(window: child)
         let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(controller.services.inputDispatch.event?.type)
         let pane = paneShowingChildWindowPage(at: child.frame)

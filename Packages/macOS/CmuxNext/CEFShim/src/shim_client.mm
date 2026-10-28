@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
+#include "include/cef_frame_handler.h"
 #include "include/cef_image.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
@@ -82,6 +83,12 @@
     case CMUX_SHIM_POPUP_MENU:
     case CMUX_SHIM_POPUP_MENU_HIDE:
     case CMUX_SHIM_SUGGESTIONS:
+    case CMUX_SHIM_COLOR_CHOOSER:
+    case CMUX_SHIM_DEVICE_CHOOSER:
+    case CMUX_SHIM_DESKTOP_MEDIA:
+    case CMUX_SHIM_SUBFRAME_RENDERER:
+    case CMUX_SHIM_LOCK:
+    case CMUX_SHIM_WINDOW_REQUEST_RESULT:
       return true;
   }
   return false;
@@ -252,15 +259,29 @@ class ForgetRendererEnd : public CefTask {
   IMPLEMENT_REFCOUNTING(ForgetRendererEnd);
 };
 
-// RENDER_TERMINATED's request for `browser`: whether it is the first browser of its main frame
-// renderer's end (renderer_end.h). CEF keeps the current main frame, and its identifier, after the
-// renderer ends; the task after Chromium's fan-out forgets the end.
-int ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
+// RENDER_TERMINATED's request for `browser` and its main frame renderer's client id: whether it is
+// the first browser of that renderer's end (renderer_end.h). CEF keeps the current main frame, and its
+// identifier, after the renderer ends; the task after Chromium's fan-out forgets the end.
+struct RendererEndReport {
+  int request;
+  int client;
+};
+
+RendererEndReport ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
   CefRefPtr<CefFrame> main = browser->GetMainFrame();
   const int client = main ? RendererClientIdOf(main->GetIdentifier().ToString()) : 0;
   const int report = renderer_ends().Report(client);
   if (report == kRendererEndFirst) CefPostTask(TID_UI, new ForgetRendererEnd(client));
-  return report;
+  return {report, client};
+}
+
+// SUBFRAME_RENDERER for `frame` of `browser` gaining (1) or losing (0) its renderer; the main frame's
+// renderer end is RENDER_TERMINATED.
+void EmitSubframeRenderer(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int attached) {
+  if (!browser || !frame || frame->IsMain()) return;
+  const std::string identifier = frame->GetIdentifier().ToString();
+  const int client = RendererClientIdOf(identifier);
+  if (client > 0) Emit(CMUX_SHIM_SUBFRAME_RENDERER, browser->GetIdentifier(), client, attached, 0, identifier);
 }
 
 class Client : public CefClient,
@@ -275,6 +296,7 @@ class Client : public CefClient,
                public CefFocusHandler,
                public CefJSDialogHandler,
                public CefDragHandler,
+               public CefFrameHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -291,6 +313,7 @@ class Client : public CefClient,
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
   CefRefPtr<CefDialogHandler> GetDialogHandler() override { return FileDialogHandlerInstance(); }
   // Every download waits for the host's path (shim_downloads.mm).
@@ -311,6 +334,18 @@ class Client : public CefClient,
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
+  // MARK: Frames
+
+  // Which renderer hosts each frame but the main one (SUBFRAME_RENDERER), so the app knows the pages a
+  // renderer's crash leaves a sad frame in. A frame back from the back-forward cache attaches again.
+  void OnFrameAttached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, bool) override {
+    EmitSubframeRenderer(browser, frame, 1);
+  }
+
+  void OnFrameDetached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) override {
+    EmitSubframeRenderer(browser, frame, 0);
   }
 
   // MARK: Drags
@@ -461,7 +496,9 @@ class Client : public CefClient,
     // A crash cancels dialogs without OnResetDialogState: the question goes too.
     if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
     CancelFileDialogs(id);
-    Emit(CMUX_SHIM_RENDER_TERMINATED, id, ReportRendererEnd(browser), status, error_code, error_string.ToString());
+    const RendererEndReport end = ReportRendererEnd(browser);
+    Emit(CMUX_SHIM_RENDER_TERMINATED, id, end.request, status, RendererEndCode(error_code, end.client),
+         error_string.ToString());
   }
 
   // Returning true keeps Chromium's hung-page dialog away: the host shows

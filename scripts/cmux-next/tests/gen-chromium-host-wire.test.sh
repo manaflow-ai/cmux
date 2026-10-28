@@ -520,7 +520,8 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
-# --swift-sites drops a site that is done (task p01-process-021): an async call in the token form
+# --swift-sites drops a site that is done (task p01-process-021): an async call, or a preinit whose
+# verdict is a wire:REPLY, in the token form
 # (inside a closure handed to sendAsync, siteCall or profileWrite), a mint_returns id call in the mint
 # form (its id keys a `.reply(for:` wait), and a site listed with needs after_attach, host_exit or
 # kept. A `reply` entry alone does not settle a site: its call must take the token form. A mint call
@@ -533,7 +534,8 @@ path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
 text = text.replace('        goBack = try r("cmux_shim_go_back")\n',
                     '        goBack = try r("cmux_shim_go_back")\n        tabAdd = try r("cmux_shim_tab_add")\n'
-                    '        initialize = try r("cmux_shim_initialize")\n')
+                    '        initialize = try r("cmux_shim_initialize")\n'
+                    '        pageSchemeAdd = try r("cmux_shim_page_scheme_add")\n')
 open(path, "w", encoding="utf-8").write(text)
 EOF
 cat >"$settled/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFAsync.swift" <<'EOF'
@@ -580,14 +582,23 @@ extension CEFRuntime {
     func boot(_ library: Boot) {
         if case .inProcess = library, shim.initialize(nil, nil, nil) != 1 { return }
     }
+
+    func scheme() {
+        let verdict = sendAsync { shim in shim.pageSchemeAdd("x", "/tmp") }
+    }
+
+    func schemeRead(_ shim: CEFShimLibrary) -> Bool {
+        shim.pageSchemeAdd("y", "/tmp") == 1
+    }
 }
 EOF
 listed() { grep -q "CEFAsync.swift:$1"$'\t' <<<"$sites"; }
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-for line in 3 9 32; do
+# A preinit whose verdict is a wire:REPLY is done in the token form too (task p01-process-070).
+for line in 3 9 32 46; do
   listed "$line" && fail "a call in the token or mint form is listed (line $line): $sites"
 done
-for line in 15 19 24 28 38 42; do
+for line in 15 19 24 28 38 42 50; do
   listed "$line" || fail "a site in neither form is not listed (line $line): $sites"
 done
 edit_ops "$settled" 'd["host_mode_rewrites"] = [
@@ -602,6 +613,39 @@ sites="$(python3 "$gen" --root "$settled" --swift-sites)"
 listed 42 && fail "a kept site is listed: $sites"
 listed 15 || fail "a reply entry settled a call not in the token form: $sites"
 listed 38 && fail "a host_exit site is listed: $sites"
+# needs client (task p01-process-025): a local export the client defines by hand (HOST/client, outside
+# generated/) is the same call in both backends. change names its wire entry point; the site stays
+# listed until HOST/client defines the export and calls that entry point (its own declarations,
+# definitions and member forwarders are no call).
+edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.boot(_:)",
+  "exports": ["cmux_shim_initialize"], "needs": "client", "change": "The same call in both backends.", "task": "p01-process-025"}'
+expect 1 "needs client names the client's wire entry point" "a client entry that names no wire entry point" -- --root "$settled" --check-ops
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "The same call in both backends, sent by cmux_remote::PostInitialize."'
+expect 0 "" "a client entry is valid" -- --root "$settled" --check-ops
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "a client site whose export HOST/client does not define is not listed: $sites"
+hand_written "$settled"
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "a client site whose wire entry point nothing calls is not listed: $sites"
+wire_file="$settled/Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim_wire.mm"
+cat >"$wire_file" <<'EOF'
+bool PostInitialize(uint32_t token, InitializedFn done);
+char* PostInitialize(int unused);
+bool PostInitialize(uint32_t token, InitializedFn done) { return R().PostInitialize(token, done); }
+bool Runtime::PostInitialize(uint32_t token, InitializedFn done) { return runtime->PostInitialize(token, done); }
+// cmux_remote::PostInitialize(token, &Deliver) in a comment is no call.
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "declarations, definitions and member calls of the wire entry point settled a client site: $sites"
+cat >>"$wire_file" <<'EOF'
+bool SendInitialize(void*, uint32_t token) { return cmux_remote::PostInitialize(token, &DeliverInitialize); }
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 && fail "a client site whose export HOST/client defines and whose wire entry point it calls is listed: $sites"
+rm "$wire_file"
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)"
+d["host_mode_rewrites"][0]["exports"] = ["cmux_shim_create_window"]'
+expect 1 "needs client is for local exports the client defines; cmux_shim_create_window is mint" "a client mint" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)",
   "exports": ["cmux_shim_create_window"], "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"}'
 expect 0 "" "a kept mint site is valid" -- --root "$settled" --check-ops
@@ -950,6 +994,13 @@ if [[ -f "$repo/$ops" ]]; then
   if [[ -n "$cxx" ]]; then
     compile_inc "$scratch" "the real header"
   fi
+  # A record field named *browser_id carries cmux's id: the host maps it as it maps a browser argument.
+  policy="$(case_of "$scratch/${outputs[0]}" kOpSetWindowRequestPolicy)"
+  grep -qF 'arg_windows[i].anchor_browser_id = ctx.Browser(static_cast<int32_t>(r.I64()));' <<<"$policy" ||
+    fail "a record's browser id reaches the host shim unmapped"
+  grep -qF 'arg_clicks[i].browser_id = ctx.Browser(static_cast<int32_t>(r.I64()));' <<<"$policy" ||
+    fail "a click record's browser id reaches the host shim unmapped"
+  grep -qF 'arg_windows[i].flags = r.I64();' <<<"$policy" || fail "a plain record field is mapped as a browser id"
   expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
   # Every vendored remote_cocoa mojom method is mapped (tasks p01-process-055, 059), except pending rows,
   # which the check counts unmapped until their task names the carrier: no other problem, and the

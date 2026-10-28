@@ -7,7 +7,7 @@ use serde_json::json;
 use super::{OpResult, Reject, Tx, conflict, invalid, not_found};
 use crate::event::{Entity, EventKind};
 use crate::ids::{Principal, is_valid_id, prefix};
-use crate::model::{Category, Description, Priority, Task};
+use crate::model::{AgentSession, Category, Description, Priority, SessionStatus, Task};
 use crate::op::{TaskCreate, TaskMove, TaskUpdate};
 use crate::sort_key;
 
@@ -35,9 +35,10 @@ pub(crate) fn validate_text(text: &str, what: &str) -> Result<(), Reject> {
 fn validate_due(due: &str) -> Result<(), Reject> {
     let bytes = due.as_bytes();
     let shape = bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes.iter().enumerate().all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit());
+        && bytes.iter().enumerate().all(|(i, b)| match i {
+            4 | 7 => *b == b'-',
+            _ => b.is_ascii_digit(),
+        });
     let month = due.get(5..7).and_then(|m| m.parse::<u8>().ok()).unwrap_or(0);
     let day = due.get(8..10).and_then(|d| d.parse::<u8>().ok()).unwrap_or(0);
     if !shape || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
@@ -104,6 +105,7 @@ impl Tx<'_> {
             Some(r) => self.state.resolve_status(r).ok_or_else(|| not_found("status", r))?,
             None => self.state.settings.default_status.clone(),
         };
+        let category = self.status_category(&status)?;
         let assignee = p.assignee.as_deref().map(|a| self.resolve_assignee(a)).transpose()?;
         let labels = self.resolve_labels(&p.labels)?;
         let project = match &p.project {
@@ -132,7 +134,7 @@ impl Tx<'_> {
                 text: p.description.clone().unwrap_or_default(),
                 version: 1,
             },
-            status: status.clone(),
+            status,
             priority: p.priority.unwrap_or(Priority::None),
             assignee,
             delegate: None,
@@ -153,7 +155,6 @@ impl Tx<'_> {
             archived: false,
             deleted: false,
         };
-        let category = self.state.statuses[&status].category;
         stamp_category(&mut task, category, self.now);
         self.state.settings.next_number += 1;
         self.state.tasks.insert(task.id.clone(), task.clone());
@@ -168,7 +169,7 @@ impl Tx<'_> {
 
     pub(super) fn task_update(&mut self, p: &TaskUpdate) -> Result<OpResult, Reject> {
         let id = self.task_id(&p.task)?;
-        let current = self.state.tasks[&id].clone();
+        let current = self.task(&id)?.clone();
         if current.archived {
             return Err(invalid("archived tasks are read-only; unarchive first"));
         }
@@ -249,11 +250,14 @@ impl Tx<'_> {
             next.description = Description { text: text.clone(), version: version + 1 };
             fields.push("description");
         }
-        let new_status = match &p.status {
-            Some(r) => Some(self.state.resolve_status(r).ok_or_else(|| not_found("status", r))?),
+        let status_change = match &p.status {
+            Some(r) => {
+                let status = self.state.resolve_status(r).ok_or_else(|| not_found("status", r))?;
+                self.status_change(&current, status, StatusMove::Manual)?
+            }
             None => None,
         };
-        // Validation is complete; mutate from here on.
+        // Validation is complete; mutate from here on. Nothing below can fail.
         if !fields.is_empty() {
             next.updated_at = self.now;
             self.state.tasks.insert(id.clone(), next.clone());
@@ -279,42 +283,58 @@ impl Tx<'_> {
                 ));
             }
         }
-        if let Some(status) = new_status {
-            self.set_status(&id, &status, StatusMove::Manual);
+        if let Some(change) = status_change {
+            // `next` is the stored task: inserted above, or equal to it.
+            self.apply_status(next, change);
         }
         Ok(self.result_for_task(&id))
     }
 
-    /// Move a task to `status` and emit `task.status_changed`. Only a manual
-    /// move that changes the status records `manual_status_at`, which stops
-    /// the agent flow from overriding it.
-    pub(crate) fn set_status(&mut self, id: &str, status: &str, mode: StatusMove) {
-        let from_status = self.state.tasks[id].status.clone();
-        if from_status == status {
-            return;
+    /// Resolve moving `task` to the resolved status `status`: both
+    /// categories are looked up here, before the handler mutates anything,
+    /// so `apply_status` cannot fail. `None` when the task is already there.
+    pub(crate) fn status_change(
+        &self,
+        task: &Task,
+        status: String,
+        mode: StatusMove,
+    ) -> Result<Option<StatusChange>, Reject> {
+        if task.status == status {
+            return Ok(None);
         }
-        let from = self.state.statuses[&from_status].category;
-        let to = self.state.statuses[status].category;
+        Ok(Some(StatusChange {
+            from: self.status_category(&task.status)?,
+            to: self.status_category(&status)?,
+            to_status: status,
+            mode,
+        }))
+    }
+
+    /// Move `task` (the stored task, as the caller holds it) by a resolved
+    /// `change`, store it and emit `task.status_changed`. Only a manual move
+    /// records `manual_status_at`, which stops the agent flow from
+    /// overriding it.
+    pub(crate) fn apply_status(&mut self, mut task: Task, change: StatusChange) -> Task {
         let now = self.now;
-        // Callers validated the task.
-        let Some(task) = self.state.tasks.get_mut(id) else { return };
+        let StatusChange { from, to, to_status, mode } = change;
+        let from_status = std::mem::replace(&mut task.status, to_status);
         if mode == StatusMove::Manual {
             task.manual_status_at = Some(now);
         }
-        task.status = status.to_owned();
         task.updated_at = now;
-        stamp_category(task, to, now);
-        let snapshot = task.clone();
+        stamp_category(&mut task, to, now);
+        self.state.tasks.insert(task.id.clone(), task.clone());
         self.events.push(EventKind::upsert(
             "task.status_changed",
-            Entity::Task(Box::new(snapshot)),
+            Entity::Task(Box::new(task.clone())),
             json!({
-                "from": from_status, "to": status,
+                "from": from_status, "to": task.status,
                 "from_category": from, "to_category": to,
                 "by_agent_flow": mode == StatusMove::Flow,
                 "cascade": mode == StatusMove::Cascade,
             }),
         ));
+        task
     }
 
     /// Live tasks in manual order, without `except`.
@@ -334,9 +354,11 @@ impl Tx<'_> {
         after: Option<&str>,
         before: Option<&str>,
     ) -> Result<String, Reject> {
-        let key_of = |tx: &Self, t: Option<&str>| t.map(|t| tx.state.tasks[t].sort_key.clone());
-        let lower = key_of(self, after);
-        let upper = key_of(self, before);
+        let key_of = |tx: &Self, t: Option<&str>| {
+            t.map(|t| tx.task(t).map(|task| task.sort_key.clone())).transpose()
+        };
+        let lower = key_of(self, after)?;
+        let upper = key_of(self, before)?;
         if let Some(key) = sort_key::between(lower.as_deref(), upper.as_deref())
             && !self.sort_key_taken(&key, id)
         {
@@ -385,6 +407,7 @@ impl Tx<'_> {
 
     pub(super) fn task_move(&mut self, p: &TaskMove) -> Result<OpResult, Reject> {
         let id = self.task_id(&p.task)?;
+        let mut task = self.task(&id)?.clone();
         let neighbour = |tx: &Self, r: &Option<String>| -> Result<Option<String>, Reject> {
             match r {
                 Some(r) => {
@@ -421,14 +444,14 @@ impl Tx<'_> {
             }
             (None, None) => (order.last().cloned(), None),
         };
+        // `place` rebalances only the other tasks, so `task` stays current.
         let key = self.place(&id, after.as_deref(), before.as_deref())?;
-        let task = self.state.tasks.get_mut(&id).ok_or_else(|| not_found("task", &id))?;
         task.sort_key = key;
         task.updated_at = self.now;
-        let snapshot = task.clone();
+        self.state.tasks.insert(id.clone(), task.clone());
         self.events.push(EventKind::upsert(
             "task.moved",
-            Entity::Task(Box::new(snapshot)),
+            Entity::Task(Box::new(task)),
             serde_json::Value::Null,
         ));
         Ok(self.result_for_task(&id))
@@ -460,7 +483,10 @@ impl Tx<'_> {
     /// policy at the owner).
     pub(super) fn task_delete(&mut self, reference: &str) -> Result<OpResult, Reject> {
         let id = self.task_id(reference)?;
+        let mut task = self.task(&id)?.clone();
+        let sessions: Vec<AgentSession> = self.state.active_sessions(&id).cloned().collect();
         let result = self.result_for_task(&id);
+        // Validation is complete; nothing below can fail.
         let relations: Vec<String> = self
             .state
             .relations
@@ -495,24 +521,35 @@ impl Tx<'_> {
                 json!({"fields": ["parent"], "cascade": true}),
             ));
         }
-        let sessions: Vec<String> = self.state.active_sessions(&id).map(|s| s.id.clone()).collect();
+        // Each ended session's flow updates `task` and returns it current.
         for session in sessions {
-            self.end_session(&session, crate::model::SessionStatus::Canceled);
+            let session = self.record_session_end(session, SessionStatus::Canceled);
+            task = self.flow(task, &session, SessionStatus::Canceled);
         }
-        // Validated at the top; the cascades above do not remove it.
-        let task = self.state.tasks.get_mut(&id).ok_or_else(|| not_found("task", &id))?;
+        // A task that names itself as parent was cleared in the state above.
+        if task.parent.as_deref() == Some(id.as_str()) {
+            task.parent = None;
+        }
         task.deleted = true;
         task.delegate = None;
         task.attention = None;
         task.updated_at = self.now;
-        let snapshot = task.clone();
+        self.state.tasks.insert(id, task.clone());
         self.events.push(EventKind::upsert(
             "task.deleted",
-            Entity::Task(Box::new(snapshot)),
+            Entity::Task(Box::new(task)),
             serde_json::Value::Null,
         ));
         Ok(result)
     }
+}
+
+/// A status move whose categories are resolved, so applying it cannot fail.
+pub(crate) struct StatusChange {
+    pub(crate) from: Category,
+    pub(crate) to: Category,
+    pub(crate) to_status: String,
+    pub(crate) mode: StatusMove,
 }
 
 /// Why a status changes (only `Manual` blocks the agent flow).

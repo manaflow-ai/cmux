@@ -53,6 +53,7 @@ public struct FrameTick: Sendable {
 /// stops wanting BeginFrames (`SchedulerStateMachine::BeginFrameNeeded`, cc/scheduler/scheduler_state_machine.cc).
 @MainActor
 public final class FrameClient {
+    /// The client's name in the wakeup ledger, the board and the watchdog's records.
     public let owner: String
     /// Visible motion (springs, autoscroll); false for batch work such as
     /// the daemon store drain, which the busy watchdog must not excuse.
@@ -81,6 +82,7 @@ public final class FrameClient {
     /// made on the first activation and kept for the client's life, so a one-shot client activated
     /// every frame does no subscription work. An idle client ignores them.
     private var visibilityWatch: VisibilitySubscription?
+    /// Whether the client wants frames (between ``activate()`` and the tick that returns false).
     public private(set) var isActive = false
 
     /// Whether an active client is off its scheduler because nobody sees its ``visibleOnly`` node.
@@ -126,7 +128,8 @@ public final class FrameClient {
     }
 
     /// The input stage of `scheduler`'s frames (``FrameInputCoalescer``): it ticks before the frame
-    /// clients, so they see the frame's input. Not visible motion: the busy watchdog does not excuse it.
+    /// clients, so they see the frame's input, and a frame client it activates ticks in the same frame.
+    /// Not visible motion: the busy watchdog does not excuse it.
     init(inputStageOf scheduler: FrameScheduler, owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = false

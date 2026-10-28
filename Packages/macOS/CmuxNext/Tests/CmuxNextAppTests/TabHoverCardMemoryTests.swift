@@ -48,7 +48,7 @@ import Testing
         for index in 0..<count {
             let tab = TabID("t\(index)")
             clock += 1
-            controller.thumbnails.insert(try image(), for: tab)
+            controller.thumbnails.insert(PurgeablePicture(resident: try image()), for: tab)
             controller.rememberReport(report(tab), for: tab)
         }
         return controller
@@ -89,7 +89,7 @@ import Testing
         #expect(controller.rememberedReportCount == 0)
         #expect(controller.memoryUsage == MemoryUsage(footprintBytes: 0, entries: 0))
         // Held at 0 %, a later hover keeps nothing either.
-        controller.thumbnails.insert(try Self.image(), for: TabID("late"))
+        controller.thumbnails.insert(PurgeablePicture(resident: try Self.image()), for: TabID("late"))
         controller.rememberReport(Self.report(TabID("late")), for: TabID("late"))
         #expect(controller.memoryUsage == MemoryUsage(footprintBytes: 0, entries: 0))
     }
@@ -114,7 +114,7 @@ import Testing
         let controller = try Self.filled(2)
         _ = controller.releaseMemory(within: Self.slice(0))
         controller.updateMemoryLimit(.default)
-        controller.thumbnails.insert(try Self.image(), for: TabID("back"))
+        controller.thumbnails.insert(PurgeablePicture(resident: try Self.image()), for: TabID("back"))
         #expect(controller.thumbnails.count == 1)
     }
 
@@ -128,7 +128,7 @@ import Testing
         #expect(registry.entries.filter { $0.isLive }.count == 1, "a second registration replaces the first")
         #expect(registry.entries.last?.name == TabHoverCardController.memoryConsumerName)
         // The limit came with the registration: at 0 % a new thumbnail is not kept.
-        strip.hoverCard.thumbnails.insert(try Self.image(), for: TabID("t"))
+        strip.hoverCard.thumbnails.insert(PurgeablePicture(resident: try Self.image()), for: TabID("t"))
         #expect(strip.hoverCard.thumbnails.count == 0)
     }
 

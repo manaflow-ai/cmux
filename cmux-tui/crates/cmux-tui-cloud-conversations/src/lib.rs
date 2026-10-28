@@ -11,11 +11,13 @@
 //! (reqwest + tokio-tungstenite); tests install a scripted one.
 
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+#![forbid(unsafe_code)]
 
 mod attachments;
 mod contract;
 mod error;
 mod host_replica;
+mod panic_free;
 mod service;
 mod session;
 mod stream;
@@ -52,5 +54,8 @@ pub const CLOUD_ATTACHMENTS_CAPABILITY: &str = "cloud-attachments-v1";
 /// only, no Authorization header) and `cloud-selfhost-info`.
 pub const CLOUD_SELFHOST_CAPABILITY: &str = "cloud-selfhost-v1";
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub mod testing;
+
+#[cfg(test)]
+mod panic_deny_tests;

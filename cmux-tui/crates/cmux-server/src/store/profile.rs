@@ -3,7 +3,6 @@
 //! manifest, its signature and its SHA-256. Links are relative, so a store
 //! root can move.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -35,12 +34,15 @@ pub fn profile_dir(profiles: &Path, generation: u64) -> PathBuf {
 
 /// Generations present under `profiles`, ascending.
 pub fn generations(profiles: &Path) -> Vec<u64> {
-    let mut out: Vec<u64> = fs::read_dir(profiles)
+    let mut out: Vec<u64> = cmux_blocking::fs::read_dir(profiles)
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().to_str().and_then(|n| n.parse().ok()))
-        .filter(|g: &u64| profiles.join(g.to_string()).join("packages.json").is_file())
+        .filter(|g: &u64| {
+            cmux_blocking::fs::metadata(profiles.join(g.to_string()).join("packages.json"))
+                .is_ok_and(|m| m.is_file())
+        })
         .collect();
     out.sort_unstable();
     out
@@ -48,7 +50,7 @@ pub fn generations(profiles: &Path) -> Vec<u64> {
 
 /// The generation `current` points at (`profiles/<g>`), if any.
 pub fn current_generation(current: &Path) -> Option<u64> {
-    let target = fs::read_link(current).ok()?;
+    let target = cmux_threads::checked::fs::read_link(current).ok()?;
     let mut parts = target.components();
     match (parts.next(), parts.next(), parts.next()) {
         (Some(a), Some(b), None) if a.as_os_str() == "profiles" => {
@@ -60,7 +62,7 @@ pub fn current_generation(current: &Path) -> Option<u64> {
 
 pub fn read_entries(profile: &Path) -> Result<Vec<Entry>> {
     let path = profile.join("packages.json");
-    let bytes = fs::read(&path).ctx(path.display())?;
+    let bytes = cmux_blocking::fs::read(&path).ctx(path.display())?;
     serde_json::from_slice(&bytes).map_err(|e| Error::internal(format!("{}: {e}", path.display())))
 }
 
@@ -70,7 +72,8 @@ pub fn read_entries(profile: &Path) -> Result<Vec<Entry>> {
 pub fn build(store: &Path, profiles: &Path, input: &ProfileInput<'_>) -> Result<bool> {
     let dir = profile_dir(profiles, input.generation);
     if fsx::exists_no_follow(&dir) {
-        let recorded = fs::read_to_string(dir.join("manifest.sha256")).unwrap_or_default();
+        let recorded =
+            cmux_blocking::fs::read_to_string(dir.join("manifest.sha256")).unwrap_or_default();
         if recorded.trim() == input.manifest_sha256 {
             return Ok(false);
         }
@@ -82,7 +85,7 @@ pub fn build(store: &Path, profiles: &Path, input: &ProfileInput<'_>) -> Result<
     fsx::ensure_dir(profiles, 0o755)?;
     let staging = fsx::temp_sibling(&dir, "staging");
     let result = fill(store, &staging, input).and_then(|()| {
-        fs::rename(&staging, &dir).ctx(dir.display())?;
+        cmux_blocking::fs::rename(&staging, &dir).ctx(dir.display())?;
         crate::sys::fsync_dir(profiles).ctx(profiles.display())
     });
     if result.is_err() {
@@ -102,7 +105,7 @@ fn fill(store: &Path, staging: &Path, input: &ProfileInput<'_>) -> Result<()> {
         let package = store.join(&entry.sha256);
         link(&up.join(&entry.sha256), &pkgs.join(&entry.name))?;
         let package_bin = package.join("bin");
-        let Ok(files) = fs::read_dir(&package_bin) else { continue };
+        let Ok(files) = cmux_blocking::fs::read_dir(&package_bin) else { continue };
         let mut names: Vec<_> = files.flatten().map(|f| f.file_name()).collect();
         names.sort();
         for name in names {

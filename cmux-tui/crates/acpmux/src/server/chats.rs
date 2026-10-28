@@ -115,9 +115,25 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TRACE {
         return crate::trace_control::handle(conn.origin, &params).await;
     }
+    // The crash injector (`debug_crash_inject.rs`): local only, debug and bench builds only.
+    #[cfg(any(debug_assertions, feature = "bench"))]
+    if m == crate::debug_crash_inject::METHOD {
+        return crate::debug_crash_inject::handle(conn.origin, &params, |kind| {
+            crate::debug_crash_inject::fire(kind).map(drop)
+        });
+    }
     // Energy Saver (`energy_control.rs`): the unix socket and the local app only.
     if m == crate::rpc::method::MUX_ENERGY {
         return crate::energy_control::handle(&hub.maintenance, conn.origin, &params).await;
+    }
+    // The app's memory limit (`memory_control.rs`): the unix socket and the local app only.
+    if m == crate::rpc::method::MUX_MEMORY_LIMIT {
+        return crate::memory_control::handle(
+            hub.memory(),
+            conn.origin,
+            &conn.memory_vote,
+            &params,
+        );
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
@@ -346,7 +362,7 @@ fn transcript_turns(
         }
     };
     // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
+    cmux_blocking::fs::open(&entry.source_path)
         .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
     Ok(turns
@@ -365,13 +381,13 @@ fn transcript_turns(
 async fn blocking(
     f: impl FnOnce() -> Result<Value, RpcError> + Send + 'static,
 ) -> Result<Value, RpcError> {
-    tokio::task::spawn_blocking(f).await.map_err(|e| RpcError::internal(e.to_string()))?
+    crate::daemon::spawn_blocking(f).await.map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// Sends every index change to `conn` until it closes or turns watching off.
 fn forward(hub: Arc<Hub>, service: Arc<ChatService>, conn: Arc<Conn>, generation: u64) {
     let mut rx = service.subscribe();
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         loop {
             let next = tokio::select! {
                 () = conn.out.closed() => break,

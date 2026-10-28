@@ -425,7 +425,7 @@ impl Hub {
         self.start_pool_reaper();
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.pool-start", Fatal, ShutdownBehavior::Skip, async move {
             match hub.spawn_pooled(&spec).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -459,6 +459,7 @@ impl Hub {
         };
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
+        // `ps` per host: a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
         let measured: HashMap<u32, u64> =
             tokio::task::spawn_blocking(move || pids.into_iter().map(|p| (p, probe(p))).collect())
                 .await
@@ -515,8 +516,13 @@ impl Hub {
                 tracing::info!(harness = %key.harness, "an unused claimed session went back to the pool");
                 // Park it again and check the cap, as for a new entry.
                 let hub = self.clone();
-                if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                    rt.spawn(async move { hub.pool_after_ready().await });
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    self.supervise(
+                        "hub.pool-after-ready",
+                        Fatal,
+                        ShutdownBehavior::Skip,
+                        async move { hub.pool_after_ready().await },
+                    );
                 }
             }
         }
@@ -629,7 +635,7 @@ impl Hub {
         mut p: Pooled,
     ) -> anyhow::Result<Arc<ChildAgent>> {
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
-            tokio::spawn(end_pooled(p));
+            self.supervise("hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
             return Err(e);
         }
         self.forget_adopted_caller(&session.id);
@@ -660,9 +666,7 @@ impl Hub {
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.start_inbound_loop(session, rx);
         }
         let init = &p.init;
         let steering =
@@ -719,7 +723,7 @@ impl Hub {
         let Some((harness, preset)) = previous else { return };
         let hub = self.clone();
         let cwd = m.cwd;
-        tokio::spawn(async move {
+        self.supervise("hub.pool-last-used", Fatal, ShutdownBehavior::Skip, async move {
             match hub.pool_spec(Some(harness), preset, cwd).await {
                 Ok(spec) => hub.pool_want(Role::LastUsed, spec).await,
                 Err(e) => tracing::debug!("last-used harness not poolable: {}", e.message),
@@ -786,7 +790,7 @@ impl Hub {
             )
             .await;
             if ended {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = tokio::fs::remove_file(&b.path).await;
             }
         }
     }
@@ -799,7 +803,7 @@ impl Hub {
             return;
         }
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.pool-reaper", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 let shut = AtomicBool::new(false);
                 let stopped = async {
@@ -821,15 +825,25 @@ impl Hub {
                     |expired| {
                         tracing::info!(count = expired.len(), "idle pooled sessions exit");
                         for p in expired {
-                            tokio::spawn(end_pooled(p));
+                            hub.supervise(
+                                "hub.pool-end",
+                                Fatal,
+                                ShutdownBehavior::Skip,
+                                end_pooled(p),
+                            );
                         }
                     },
                     RSS_TICK,
                     || {
                         // An idle harness grows (opencode does): measure
                         // again and keep the pool under its cap.
-                        let hub = hub.clone();
-                        tokio::spawn(async move { hub.pool_after_ready().await });
+                        let measured = hub.clone();
+                        hub.supervise(
+                            "hub.pool-after-ready",
+                            Fatal,
+                            ShutdownBehavior::Skip,
+                            async move { measured.pool_after_ready().await },
+                        );
                     },
                 )
                 .await;
