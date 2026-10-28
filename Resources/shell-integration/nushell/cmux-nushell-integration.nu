@@ -257,15 +257,19 @@ def --env _cmux_restore_scrollback_once [] {
     let path = ($env.CMUX_RESTORE_SCROLLBACK_FILE? | default "")
     if ($path | is-empty) { return }
     hide-env CMUX_RESTORE_SCROLLBACK_FILE
-    let token = ($path | str replace -r '^.*/' '')
-    let host = (^/bin/hostname | complete | get stdout | str trim)
+    # The host, token and directory are untrusted text: a raw ESC or BEL in a
+    # folder name would end the report early and start a sequence of its own
+    # (an OSC 52 clipboard write), so their control bytes go (Ghostty 1.4.0, 6eb24a0f0).
+    let token = ($path | str replace -r '^.*/' '' | str replace -ar '[\x00-\x1f\x7f]' '')
+    let host = (^/bin/hostname | complete | get stdout | str trim | str replace -ar '[\x00-\x1f\x7f]' '')
+    let pwd = ($env.PWD | str replace -ar '[\x00-\x1f\x7f]' '')
     print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)/.cmux/session-scrollback-replay/($token)/start\u{07}"
     if ($path | path exists) {
         try { ^/bin/cat -- $path }
         ^/bin/rm -f -- $path | complete | ignore
     }
     print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)/.cmux/session-scrollback-replay/($token)/end\u{07}"
-    print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)($env.PWD)\u{07}"
+    print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)($pwd)\u{07}"
 }
 
 # First-launch welcome banner. cmux passes the path of a one-shot token file in
