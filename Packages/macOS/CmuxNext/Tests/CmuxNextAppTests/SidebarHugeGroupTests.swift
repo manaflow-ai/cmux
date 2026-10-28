@@ -9,8 +9,8 @@ import Testing
 /// asserts are loose ceilings that fail an eager path (row views or layout cost that grow with the group).
 ///
 /// The scroll before the fold goes `scrollDepth` (1,800 pt, two screens) down and back, so no test's frame count
-/// grows with its group: over the whole list, 10,000 rows took 22,000 frames a pass and held the main thread past
-/// the swift-test stall watchdog (300 s with no test finished). The ceilings are on open, fold, unfold and
+/// grows with its group: over the whole list, 10,000 rows took about 15,000 frames a pass and held the main thread
+/// past the swift-test stall watchdog (300 s with no test finished). The ceilings are on open, fold, unfold and
 /// reorder, none on the scroll. `CMUX_SIDEBAR_HUGE_BENCH=1`, like the other `*_BENCH` flags, scrolls the whole
 /// list and runs the 10k benches that check nothing.
 @MainActor @Suite(.serialized)
