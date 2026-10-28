@@ -776,6 +776,7 @@
 		C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */; };
 		C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */; };
 		878189AC7D0B0C7EEEC8A8D3 /* CLIDifficultyAssessmentHookTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */; };
+		CE18BFF02CEC85CB2C8D8C2B /* CLIDifficultyAssessmentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08CC53567D4FDA41157831A /* CLIDifficultyAssessmentStoreTests.swift */; };
 		AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */; };
 		C11218000000000000000052 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000053 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
@@ -5720,6 +5721,7 @@
 		C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateLiveTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateSafetyTests.swift; sourceTree = "<group>"; };
 		40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentHookTests.swift"; sourceTree = "<group>"; };
+		E08CC53567D4FDA41157831A /* CLIDifficultyAssessmentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentStoreTests.swift"; sourceTree = "<group>"; };
 		067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentTests.swift"; sourceTree = "<group>"; };
 		C11218000000000000000051 /* CLIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIError.swift; sourceTree = "<group>"; };
 		12756C0212756C0212756C02 /* CLIEventsStreamPeerCloseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIEventsStreamPeerCloseTests.swift; sourceTree = "<group>"; };
@@ -14571,6 +14573,7 @@
 				124F531170622CD46FC841D7 /* SessionPriorityStatusSnapshotTests.swift */,
 				067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */,
 				40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */,
+				E08CC53567D4FDA41157831A /* CLIDifficultyAssessmentStoreTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18882,6 +18885,7 @@
 				C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */,
 				C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */,
 				878189AC7D0B0C7EEEC8A8D3 /* CLIDifficultyAssessmentHookTests.swift in Sources */,
+				CE18BFF02CEC85CB2C8D8C2B /* CLIDifficultyAssessmentStoreTests.swift in Sources */,
 				AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */,
 				C11218000000000000000053 /* CLIError.swift in Sources */,
 				12756C0112756C0112756C01 /* CLIEventsStreamPeerCloseTests.swift in Sources */,
