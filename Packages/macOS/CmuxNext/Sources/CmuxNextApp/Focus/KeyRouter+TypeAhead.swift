@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextTerminal
@@ -108,6 +109,11 @@ extension KeyRouter {
     }
 
     nonisolated static let deleteKeyCode: UInt16 = 51
+
+    /// The type-ahead reading of a key-down: its characters when it is printable.
+    func typeAheadKey(_ event: NSEvent) -> TypeAheadComposer.Outcome {
+        Self.isPrintable(event) ? .text(event.characters ?? "") : .notComposable
+    }
 
     /// Delivers the queued text, one insertion at a time; keys typed while
     /// one is delivered follow it. Deletes typed while it was on its way go

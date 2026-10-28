@@ -1,5 +1,5 @@
+public import AppKit
 public import Carbon.HIToolbox
-import Foundation
 
 /// What the ASCII-capable keyboard layout types on each physical key (virtual key codes 0-127,
 /// unshifted, lowercase): the last reading of ``KeyInput``'s match, for a Command or Control
@@ -48,6 +48,41 @@ public final class KeyboardLayoutKeys {
             if characters != nil { characters = read() }
             if typed != nil { typed = readTyped() }
         }
+    }
+
+    /// What `keyCode` types with `modifiers` on the selected keyboard layout, from `deadKeyState`
+    /// (the dead key typed before it; updated), as the layout itself translates it (`UCKeyTranslate`,
+    /// dead keys on). Nil when the selected source is an input method, not a keyboard layout: its
+    /// text exists only in its engine. Called only for type-ahead keys (a page that is not ready).
+    public static func translateOnSelectedLayout(keyCode: UInt16, modifiers: NSEvent.ModifierFlags,
+                                                 deadKeyState: inout UInt32) -> String? {
+        // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
+        guard let selected = unsafe TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              // SAFETY: a Get-rule CFString property owned by `selected`, alive for this call.
+              let type = unsafe TISGetInputSourceProperty(selected, kTISPropertyInputSourceType),
+              // SAFETY: as above.
+              CFEqual(unsafe Unmanaged<CFString>.fromOpaque(type).takeUnretainedValue(), kTISTypeKeyboardLayout),
+              // SAFETY: the layout data property is a CFData owned by `selected` (Get rule), alive for this call.
+              let pointer = unsafe TISGetInputSourceProperty(selected, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        // SAFETY: as above.
+        let data = unsafe Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()
+        // SAFETY: as above.
+        guard let bytes = unsafe CFDataGetBytePtr(data) else { return nil }
+        // SAFETY: as above; HIToolbox documents the bytes as a UCKeyboardLayout.
+        let layout = unsafe UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var state = 0
+        if modifiers.contains(.shift) { state |= shiftKey }
+        if modifiers.contains(.option) { state |= optionKey }
+        if modifiers.contains(.control) { state |= controlKey }
+        if modifiers.contains(.command) { state |= cmdKey }
+        var chars = [UniChar](repeating: 0, count: 8)
+        var length = 0
+        // SAFETY: `layout` is valid for this call; UCKeyTranslate writes at most chars.count units
+        // into `chars`, one count into `length` and the new state into `deadKeyState`.
+        let status = unsafe UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown), UInt32(state >> 8) & 0xFF, UInt32(LMGetKbdType()),
+                                           0, &deadKeyState, chars.count, &length, &chars)
+        guard status == noErr else { return nil }
+        return String(utf16CodeUnits: chars, count: length)
     }
 
     /// The selected keyboard layout's unshifted characters (`TISCopyCurrentKeyboardLayoutInputSource`:

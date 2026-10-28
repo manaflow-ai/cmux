@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import CmuxNextFocusUI
 import CmuxNextCompat
 import CmuxNextActions
@@ -387,6 +388,12 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAhead = TypeAheadQueue()
     var typeAheadFocus: FocusState.Resolved?
     var deliveringTypeAhead: String?
+    /// The selected input source's translation for type-ahead text (``TypeAheadComposer/Translate``):
+    /// the live keyboard layout (`KeyboardLayoutKeys.translateOnSelectedLayout`); tests pass a fixture.
+    var typeAheadTranslate: TypeAheadComposer.Translate = { keyCode, modifiers, state in
+        KeyboardLayoutKeys.translateOnSelectedLayout(keyCode: keyCode, modifiers: modifiers, deadKeyState: &state)
+    }
+    var typeAheadComposer = TypeAheadComposer()
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
