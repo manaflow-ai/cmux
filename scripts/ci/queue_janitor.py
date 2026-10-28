@@ -177,6 +177,7 @@ started in between is kept. Its own cap; no force-cancel.
 from __future__ import annotations
 
 import argparse
+import base64
 import dataclasses
 import datetime as dt
 import http.client
@@ -207,6 +208,7 @@ import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
 import dead_labels  # noqa: E402
+import runs_on_values  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
@@ -2991,6 +2993,24 @@ class GitHub:
             raise RuntimeError(f"run {run_id} needs an App's re-run; this sweep has only GITHUB_TOKEN")
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs", app_only=app_only)
 
+    def rerun(self, run_id: int) -> None:
+        """Re-run the whole run, so a picker job chooses its runner label again."""
+        self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun")
+
+    def workflow_file(self, run: Mapping[str, Any], path: str) -> str | None:
+        """A workflow file's text at the run's head commit, or None when it cannot be read."""
+        sha = str(run.get("head_sha") or "")
+        if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"\.github/workflows/[A-Za-z0-9._-]+\.ya?ml", path):
+            return None
+        try:
+            payload = self.request("GET", f"/repos/{self.repo}/contents/{path}?ref={sha}")
+            return base64.b64decode(str((payload or {}).get("content") or "")).decode("utf-8")
+        except RateLimited:
+            raise
+        except (RuntimeError, ValueError, UnicodeDecodeError) as error:
+            print(f"queue-janitor: {path} at {sha[:12]}: {error}", file=sys.stderr)
+            return None
+
     def request_ui_tests(self, run: Mapping[str, Any], attempt: int) -> None:
         """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
 
@@ -3134,6 +3154,27 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
     return jobs_by_run, unread
 
 
+def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
+                         jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], linux_only: frozenset[str],
+                         now: dt.datetime) -> dict[int, list[dict[str, Any]]]:
+    """The jobs of up to dead_labels.LINUX_ONLY_READS of the oldest queued runs read_run_jobs() leaves out as
+    Linux-only, queued at least dead_labels.DEAD_AFTER: for the dead-label pass alone. A failed read skips the run."""
+    found: dict[int, list[dict[str, Any]]] = {}
+    waiting = sorted((run for run in runs if run["id"] not in jobs_by_run and run.get("status") == "queued"
+                      and run.get("path") in linux_only and not follows_another_copy(run)
+                      and (created := parse_time(run.get("created_at"))) is not None
+                      and now - created >= dead_labels.DEAD_AFTER),
+                     key=lambda run: (str(run.get("created_at") or ""), run["id"]))
+    for run in waiting[:dead_labels.LINUX_ONLY_READS]:
+        try:
+            found[run["id"]] = github.jobs(run["id"])
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            print(f"queue-janitor: jobs of Linux-only run {run['id']}: {error}", file=sys.stderr)
+    return found
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY"))
@@ -3259,7 +3300,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
                                    unclaimed=unclaimed))
 
-    dead = dead_labels.dead_labels(runs, jobs_by_run, now=now, evidence=evidence_jobs)
+    # Dead labels (dead_labels.py) are judged on the inventory plus a few queued Linux-only runs it leaves out.
+    try:
+        dead_inventory = {**jobs_by_run, **read_linux_only_jobs(github, runs, jobs_by_run, linux_only, now)}
+    except RateLimited as error:
+        print(f"queue-janitor: Linux-only jobs for the dead-label pass: {error}", file=sys.stderr)
+        dead_inventory = dict(jobs_by_run)
+    dead = dead_labels.dead_labels(runs, dead_inventory, now=now, evidence=evidence_jobs)
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -3411,8 +3458,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     failures += superseded_failures
 
     # Dead labels: a job queued past dead_labels.DEAD_AFTER on a label that started nothing in that time, while
-    # another label of its family did, is force-cancelled and re-run onto the current route, unless its run is a
-    # started nightly, DEV or promote build or otherwise protected (dead_labels.protected_reason()).
+    # another label of its family did, is force-cancelled and re-run when a re-run puts it on another live label
+    # (dead_labels.rerun_route()), unless its run is a started nightly, DEV or promote build or otherwise protected
+    # (dead_labels.protected_reason()).
     acted = ({candidate.run["id"] for candidate in plan.to_cancel()}
              | {decision.orphan.run["id"] for decision in orphan_decisions if decision.action == "cancel"}
              | {decision.run["id"] for decision in superseded_decisions if decision.action == "cancel"})
@@ -3421,9 +3469,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                              dead_labels.MAX_REDISPATCH_LIMIT)
     except ValueError:
         max_redispatch = dead_labels.DEFAULT_MAX_REDISPATCH
-    redispatch_decisions = dead_labels.plan(runs, jobs_by_run, dead, routes=dead_labels.routes_from_env(os.environ),
-                                            exclude=acted, max_runs=max_redispatch)
     try:
+        runner_values: dict[str, str] | None = runs_on_values.parse_values(
+            os.environ.get(runs_on_values.RUNS_ON_VARIABLES_ENV) or "") or None
+    except ValueError as error:
+        print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
+        runner_values = None
+    redispatch_decisions: list[dead_labels.Redispatch] = []
+    try:
+        redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead, values=runner_values, repo=args.repo,
+                                                workflow_text=github.workflow_file, exclude=acted,
+                                                max_runs=max_redispatch)
         redispatch_results, redispatch_failures = dead_labels.redispatch(github, redispatch_decisions,
                                                                          dry_run=args.dry_run)
     except RuntimeError as error:  # a rate limit: the next sweep sees what was cancelled

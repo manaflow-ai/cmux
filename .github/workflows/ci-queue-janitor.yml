@@ -200,12 +200,42 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
-          # Where a re-run of a job goes now (scripts/ci/dead_labels.py): a dead label that is one of these is
-          # left for the overflow switch to move, since a re-run would queue on it again. Runner labels only.
-          DEAD_LABEL_LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
-          DEAD_LABEL_ROUTES: >-
-            ${{ vars.LINUX_RUNNER }} ${{ vars.CI_TRUSTED_RUNNER }} ${{ vars.MACOS_RUNNER_PR }}
-            ${{ vars.MACOS_RUNNER_26 }} ${{ vars.MACOS_RUNNER_DISPLAY }} ${{ vars.MACOS_RUNNER_IOS }}
+          # What each runner variable holds now, so the dead-label pass can tell where a re-run of a job lands
+          # (scripts/ci/dead_labels.py). The same block as ci-repo-variables.yml's, the one list of what a runs-on
+          # reads (tests/test_ci_dead_labels.py keeps them equal). Runner labels only.
+          CMUX_CI_RUNS_ON_VARIABLES: |
+            CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+            CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+            CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NEXT_DAEMON_POOL=${{ vars.CI_NEXT_DAEMON_POOL }}
+            CI_NEXT_PROMOTE_POOL=${{ vars.CI_NEXT_PROMOTE_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
+            CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
+            CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}
+            CI_PR_POOL_OWNED=${{ vars.CI_PR_POOL_OWNED }}
+            CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
+            CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}
+            CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY=${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+            CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}
+            CI_TIP_TEST_COMPILE_GATEWAY=${{ vars.CI_TIP_TEST_COMPILE_GATEWAY }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
+            WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
           MAX_REDISPATCH: ${{ vars.CI_JANITOR_MAX_REDISPATCH }}
         run: python3 scripts/ci/queue_janitor.py
 

@@ -10,24 +10,31 @@ label beside it served. Leo: "Bro, I thought we already had logic to
 automatically route shit. How can we still have pins like this? I hate pins.
 Like, just pin the set of the shit that isn't hilariously slow."
 
-A label is dead (dead_labels()) when, in the queue janitor's inventory:
+A label is dead (dead_labels()) when, in the queue janitor's inventory (plus
+up to LINUX_ONLY_READS queued runs of Linux-only workflows, which the
+janitor's own inventory leaves out):
   - a job on it has been queued with no runner for DEAD_AFTER (3 min) since it
     could first run (starved_labels.wait_start(): a running sibling, which may
     be its `needs`, means its wait has not begun), and
   - no job asking for a subset of its labels started within DEAD_AFTER. An owned
-    fleet label (``glaeda-*``) also counts a running job as service: a busy
-    pool of minis is not dead. A Blacksmith label does not: its VMs keep
-    running jobs they took before the stall, so only a start shows it serves;
-  - some other label of the same family (DECLARED_SETS: Linux or macOS) did
-    start a job within DEAD_AFTER. That is the live member a re-run can land
-    on, and the proof that the inventory sees starts at all. When nothing in
-    the family started (an org-wide stall, or every pool backed up), nothing
-    moves: a re-run would only queue again.
+    pool label also counts a running job as service: a busy pool of minis is
+    not dead. A Blacksmith label does not: its VMs keep running jobs they took
+    before the stall, so only a start shows it serves;
+  - some other label of the same family (Blacksmith Linux; or Blacksmith macOS,
+    owned pools and capability labels, never a single-host label) did start a
+    job within DEAD_AFTER. That is the live member a re-run can land on, and
+    the proof that the inventory sees starts at all. When nothing in the family
+    started (an org-wide stall, or every pool backed up), nothing moves.
 
-A run holding such a job is re-dispatched (plan()): force-cancelled, then its
-failed and cancelled jobs re-run, which evaluates runs-on again against the
-current runner variables, so the job takes the route the variables name now.
-It is never re-dispatched when:
+A run holding such a job is re-dispatched (plan()) only when a re-run puts the
+job on another live label (rerun_route()): its runs-on, read from the workflow
+file at the run's head, reads a runner variable whose live value now names
+another label of the set, or a picker's output, in which case the whole run is
+re-run so the picker chooses again. A literal label, a single host, an input or
+a matrix value gives the same label back, so such a job is flagged in the
+summary and left. The run is force-cancelled, then re-run in the same sweep
+(redispatch()), so nobody loses a run; a cancel that has not settled within
+SETTLE_SECONDS is named as an error to re-run by hand. It is never moved when:
   - a job of it is running (cancelling would throw that work away; a later
     sweep takes the run once the job ends);
   - it is a nightly, DEV or promote run whose build has started
@@ -36,15 +43,7 @@ It is never re-dispatched when:
     promote build or its Release compile once it has started";
   - it is a release, merge-queue or tag event, or a release, publish,
     notarization, TestFlight or App Store workflow;
-  - it is on attempt MAX_ATTEMPT or later: something re-ran it twice already;
-  - the dead label is the route a re-run takes again (`routes`: the live value
-    of LINUX_RUNNER and the other runner variables, and the labels workflows
-    fall back to when those are unset). The re-run would queue on the same
-    label; the overflow switch moves that route first, and a later sweep
-    re-dispatches the run.
-The re-run follows the cancel in the same sweep (redispatch()), so nobody
-loses a run. A run whose cancel has not settled within SETTLE_SECONDS is named
-in the summary as an error to re-run by hand.
+  - it is past its first attempt: a run is moved at most once.
 """
 
 from __future__ import annotations
@@ -56,12 +55,21 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
+import runs_on_values
 import starved_labels
+import yaml
 from delivery_workflows import attempt_jobs, build_started, is_delivery_run
+from pr_runner_pool import CAPABILITY_LABELS, persistent as owned_pool
 
 DEAD_AFTER = dt.timedelta(minutes=3)
-MAX_ATTEMPT = 3
+# Only a run's first attempt is moved: when a re-run lands on the same dead label (a hard-coded label, or a route
+# this sweep could not see), it is left there instead of being cancelled again.
+MAX_ATTEMPT = 2
 DEFAULT_MAX_REDISPATCH = 20
+MAX_WORKFLOW_READS = 20  # workflow files read at a run's head per sweep (one request each)
+# Linux-only workflows' runs are not in the janitor's job inventory (needs_jobs()); this many of the oldest queued
+# ones are listed for this pass alone each sweep, so their jobs can be moved too.
+LINUX_ONLY_READS = 12
 MAX_REDISPATCH_LIMIT = 50
 SETTLE_SECONDS = 90
 POLL_SECONDS = 5
@@ -69,14 +77,14 @@ POLL_SECONDS = 5
 # The labels a job may be routed to, by family. "Live member" means a label of
 # the job's family that started a job within DEAD_AFTER. GitHub-hosted labels
 # are no member: no job runs there (Leo, 2026-10-27).
+# Owned macOS labels count only as pools (pr_runner_pool.persistent(): glaeda-<class>-xcode-<version>) or capability
+# labels (glaeda-ios-sim): a single-host label (glaeda-runner-<host>-...) is one machine a picker chose, and another
+# machine serving says nothing about it.
 DECLARED_SETS: dict[str, re.Pattern[str]] = {
     "linux": re.compile(r"^blacksmith-\d+vcpu-ubuntu-\d+(-arm)?$"),
-    "macos": re.compile(r"^(glaeda-[a-z0-9.+-]+|blacksmith-\d+vcpu-macos-\d+)$"),
+    "macos": re.compile(r"^blacksmith-\d+vcpu-macos-\d+$"),
 }
 FLEET_PREFIX = starved_labels.FLEET_PREFIX
-# Workflows fall back to this when LINUX_RUNNER is unset (docs/ci-runners.md), so it is a route then.
-DEFAULT_LINUX_ROUTE = "blacksmith-4vcpu-ubuntu-2404"
-
 PROTECTED_EVENTS = frozenset({"release", "merge_group", "create", "delete", "deployment", "deployment_status"})
 PROTECTED_WORKFLOW = re.compile(r"release|publish|notar|testflight|app[-_ ]?store", re.IGNORECASE)
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
@@ -90,13 +98,16 @@ def label_key(job: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(str(label).lower() for label in job.get("labels") or ())
 
 
+def label_family(label: str) -> str | None:
+    if label in CAPABILITY_LABELS or owned_pool(label):
+        return "macos"
+    return next((name for name, pattern in DECLARED_SETS.items() if pattern.match(label)), None)
+
+
 def family(labels: Iterable[str]) -> str | None:
-    """The declared family every label of a job belongs to, or None (a hosted label, or a mix)."""
-    labels = list(labels)
-    found = {name for label in labels for name, pattern in DECLARED_SETS.items() if pattern.match(label)}
-    if len(found) != 1 or not all(any(p.match(label) for p in DECLARED_SETS.values()) for label in labels):
-        return None
-    return next(iter(found))
+    """The declared family every label of a job belongs to, or None (a hosted or single-host label, or a mix)."""
+    found = {label_family(label) for label in labels}
+    return next(iter(found)) if len(found) == 1 and None not in found else None
 
 
 def _fleet(labels: frozenset[str]) -> bool:
@@ -163,8 +174,7 @@ def dead_labels(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Seq
     found = []
     for labels, ages in sorted(waits.items(), key=lambda item: sorted(item[0])):
         kind = family(labels)
-        live = tuple(sorted(label for label in started - labels
-                            if kind and DECLARED_SETS[kind].match(label)))
+        live = tuple(sorted(label for label in started - labels if kind and label_family(label) == kind))
         if kind and live:
             found.append(DeadLabel(labels, kind, max(ages), len(ages), live))
     return found
@@ -185,7 +195,7 @@ def protected_reason(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) 
     if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
         return "its attempt could not be read"
     if attempt >= MAX_ATTEMPT:
-        return f"already on attempt {attempt}"
+        return f"already on attempt {attempt}; a re-run is moved at most once"
     if is_delivery_run(run.get("path"), run.get("name"), run.get("display_title")):
         mine = attempt_jobs(run, jobs)
         if mine is None:
@@ -199,26 +209,178 @@ def protected_reason(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) 
     return None
 
 
+# --- where a re-run goes --------------------------------------------------------------------------------------
+# A re-run evaluates the job's runs-on again. Only a job whose runs-on then names another label is moved: one that
+# reads a runner variable now pointing elsewhere, or a picker's output (needs.<job>.outputs.*), which only a whole
+# re-run asks again. A literal, a single host, an input or a matrix value names the same label again, so such a job
+# is flagged and left. The runs-on comes from the workflow file at the run's head; the variables' live values come in
+# the same NAME=value block ci-repo-variables.yml passes runs_on_values.py (CMUX_CI_RUNS_ON_VARIABLES), the one
+# list of what a runs-on reads (tests/test_ci_dead_labels.py keeps the janitor's block equal to that one).
+UNKNOWN = object()
+_LITERAL = re.compile(r"'((?:[^']|'')*)'")
+_CALL = re.compile(r"^(startsWith|endsWith|contains)\((.*)\)$", re.IGNORECASE | re.DOTALL)
+REUSABLE = re.compile(r"^\./\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$")
+
+
+def _truthy(value: Any) -> bool:
+    return value is not None and value is not False and value != ""
+
+
+def evaluate(expression: str, values: Mapping[str, str], context: Mapping[str, str]) -> Any:
+    """A GitHub expression's value with these variable values and this run's context, or UNKNOWN when it reads
+    anything else (a picker's output, an input, a matrix value, a variable not passed in)."""
+    text = runs_on_values.unwrap(expression)
+    for operator in ("||", "&&"):
+        parts = runs_on_values.split_top(text, operator)
+        if len(parts) > 1:
+            value: Any = None
+            for part in parts:
+                value = evaluate(part, values, context)
+                if value is UNKNOWN:
+                    return UNKNOWN
+                if _truthy(value) == (operator == "||"):
+                    return value
+            return value
+    for operator in ("!=", "=="):
+        parts = runs_on_values.split_top(text, operator)
+        if len(parts) == 2:
+            left, right = (evaluate(part, values, context) for part in parts)
+            if left is UNKNOWN or right is UNKNOWN:
+                return UNKNOWN
+            same = str("" if left is None else left).lower() == str("" if right is None else right).lower()
+            return same == (operator == "==")
+    if text.startswith("!"):
+        value = evaluate(text[1:], values, context)
+        return UNKNOWN if value is UNKNOWN else not _truthy(value)
+    literal = _LITERAL.fullmatch(text)
+    if literal:
+        return literal.group(1).replace("''", "'")
+    if text in ("true", "false"):
+        return text == "true"
+    variable = re.fullmatch(r"vars\.([A-Za-z0-9_]+)", text)
+    if variable:
+        return values[variable.group(1)] if variable.group(1) in values else UNKNOWN
+    if text in context:
+        return context[text]
+    call = _CALL.fullmatch(text)
+    if call:
+        args = runs_on_values.split_top(call.group(2), ",")
+        if len(args) == 2:
+            left, right = (evaluate(arg, values, context) for arg in args)
+            if not isinstance(left, str) or not isinstance(right, str):
+                return UNKNOWN
+            left, right, name = left.lower(), right.lower(), call.group(1).lower()
+            return left.startswith(right) if name == "startswith" else (
+                left.endswith(right) if name == "endswith" else right in left)
+    return UNKNOWN
+
+
+def run_context(run: Mapping[str, Any], repo: str) -> dict[str, str]:
+    """What a runs-on may read about the run that a re-run keeps."""
+    return {"github.repository_owner": repo.split("/", 1)[0], "github.repository": repo,
+            "github.event_name": str(run.get("event") or ""),
+            "github.event.pull_request.head.repo.full_name": str(
+                ((run.get("head_repository") or {}).get("full_name")) or "")}
+
+
+def _name_pattern(template: str) -> re.Pattern[str]:
+    parts = re.split(r"\$\{\{.*?\}\}", template, flags=re.DOTALL)
+    return re.compile(".*?".join(re.escape(part) for part in parts) + r"(?: \(.*\))?", re.DOTALL)
+
+
+def find_job(text: str, name: str) -> tuple[Mapping[str, Any], str] | None:
+    """(the workflow job, what is left of the API's job name) for a job the API names NAME: the job itself (rest
+    ""), or a reusable workflow's caller (rest: the callee's part after " / "). None when no job, or more than one,
+    matches."""
+    try:
+        doc = yaml.load(text, Loader=yaml.BaseLoader) or {}
+    except yaml.YAMLError:
+        return None
+    jobs = (doc.get("jobs") or {}) if isinstance(doc, dict) else {}
+    exact, templated = [], []
+    for job_id, job in jobs.items() if isinstance(jobs, dict) else ():
+        if not isinstance(job, dict):
+            continue
+        template = str(job.get("name") or job_id)
+        pattern = _name_pattern(template)
+        reusable = isinstance(job.get("uses"), str)
+        head, sep, rest = name.partition(" / ") if reusable else (name, "", "")
+        if reusable and not sep:
+            continue
+        if re.sub(r"\s*\(.*\)\s*$", "", head) == re.sub(r"\s*\(.*\)\s*$", "", template) or head == template:
+            exact.append((job, rest))
+        elif "${{" in template and pattern.fullmatch(head):
+            templated.append((job, rest))
+    # A name spelled out wins over a templated one (`${{ matrix.root }}` matches any name).
+    found = exact or templated
+    return found[0] if len(found) == 1 else None
+
+
+def runs_on_of(read: Callable[[str], str | None], path: str, name: str, depth: int = 0) -> str | None:
+    """The runs-on text of the job the API names NAME in the workflow at PATH (read(path) gives the file at the
+    run's head), following one reusable-workflow call; None when it cannot be found."""
+    text = read(path)
+    found = find_job(text, name) if text is not None else None
+    if found is None:
+        return None
+    job, rest = found
+    if not rest:
+        return runs_on_values.runs_on_text(job)
+    uses = str(job.get("uses") or "")
+    if depth or not REUSABLE.match(uses):
+        return None
+    return runs_on_of(read, uses[2:], rest, depth + 1)
+
+
+def rerun_route(runs_on: str | None, label: str, values: Mapping[str, str],
+                context: Mapping[str, str]) -> tuple[str | None, bool, str]:
+    """(where a re-run lands, whether the whole run is re-run, why): where is None when the job is left."""
+    if runs_on is None:
+        return None, False, "its job's runs-on could not be read at the run's head"
+    expressions = runs_on_values.runs_on_expressions(runs_on)
+    if len(expressions) != 1 or runs_on_values.EXPRESSION.sub("", runs_on).strip():
+        return None, False, "its runs-on is a literal label, so a re-run waits on it again"
+    value = evaluate(expressions[0], values, context)
+    if value is UNKNOWN:
+        if "needs." in expressions[0]:
+            return "the picker's choice", True, "a picker sets its label: the whole run is re-run so it picks again"
+        return None, False, "its runs-on reads an input, a matrix value or a value not passed in"
+    if not isinstance(value, str) or not value.strip():
+        return None, False, "its runs-on evaluates to no label"
+    value = value.strip().lower()
+    if value == label:
+        return None, False, f"a re-run lands on `{label}` again (a literal, or its variable still names it)"
+    if label_family(value) is None:
+        return None, False, f"a re-run would go to `{value}`, outside the declared set"
+    return value, False, f"a re-run lands on `{value}`"
+
+
 @dataclasses.dataclass(frozen=True)
 class Redispatch:
     run: Mapping[str, Any]
     job: str
     label: str
     why_not: str | None  # None: re-dispatch it
+    whole: bool = False  # re-run the whole run (a picker chooses again), not only its failed jobs
+    note: str = ""
 
     def line(self) -> str:
         what = f"run {self.run.get('id')} ({self.run.get('name')}): `{self.job}` stuck on `{self.label}`"
-        return f"{what}; left alone: {self.why_not}" if self.why_not else what
+        return f"{what}; left alone: {self.why_not}" if self.why_not else f"{what}; {self.note}"
 
 
 def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
-         dead: Sequence[DeadLabel], *, routes: Iterable[str] = (), exclude: Iterable[int] = (),
-         max_runs: int = DEFAULT_MAX_REDISPATCH) -> list[Redispatch]:
-    """One decision per run holding a stuck job on a dead label, oldest run first; at most `max_runs` go."""
+         dead: Sequence[DeadLabel], *, values: Mapping[str, str] | None, repo: str,
+         workflow_text: Callable[[Mapping[str, Any], str], str | None], exclude: Iterable[int] = (),
+         max_runs: int = DEFAULT_MAX_REDISPATCH, max_reads: int = MAX_WORKFLOW_READS) -> list[Redispatch]:
+    """One decision per run holding a stuck job on a dead label, oldest run first; at most `max_runs` go.
+    `workflow_text(run, path)` reads a workflow file at the run's head (None when it cannot), at most `max_reads`
+    distinct files a sweep. With `values` None (not passed) nothing moves."""
     by_labels = {item.labels: item for item in dead}
-    routed = {str(route).strip().lower() for route in routes if str(route or "").strip()}
+    dead_names = {item.name() for item in dead}
     skip = set(exclude)
     decisions: list[Redispatch] = []
+    texts: dict[tuple[str, str], str | None] = {}
     going = 0
     for run in sorted(runs, key=lambda r: (str(r.get("created_at") or ""), r.get("id") or 0)):
         if run.get("id") in skip or run.get("status") not in ("queued", "in_progress", "waiting", "pending"):
@@ -230,23 +392,31 @@ def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[M
         labels = label_key(stuck)
         name = by_labels[labels].name()
         why = protected_reason(run, jobs)
-        if why is None and labels & routed:
-            why = (f"`{name}` is the route a re-run takes again; the overflow switch moves that route first")
+        whole, note = False, ""
+        if why is None and values is None:
+            why = f"the runner variables ({runs_on_values.RUNS_ON_VARIABLES_ENV}) were not passed"
+        if why is None and len(labels) != 1:
+            why = "it asks for several labels"
         if why is None and going >= max_runs:
             why = f"this sweep's cap of {max_runs} re-dispatches is used; the next sweep takes it"
         if why is None:
+            def read(path: str, run: Mapping[str, Any] = run) -> str | None:
+                key = (path, str(run.get("head_sha") or ""))
+                if key not in texts:
+                    if len(texts) >= max_reads:
+                        return None
+                    texts[key] = workflow_text(run, path)
+                return texts[key]
+            runs_on = runs_on_of(read, str(run.get("path") or "").split("@", 1)[0], str(stuck.get("name") or ""))
+            target, whole, note = rerun_route(runs_on, name, values or {}, run_context(run, repo))
+            if target is None:
+                why = note
+            elif target in dead_names:
+                why = f"a re-run would land on `{target}`, which is dead too"
+        if why is None:
             going += 1
-        decisions.append(Redispatch(run, str(stuck.get("name") or ""), name, why))
+        decisions.append(Redispatch(run, str(stuck.get("name") or ""), name, why, whole, note))
     return decisions
-
-
-def routes_from_env(env: Mapping[str, str]) -> list[str]:
-    """The labels a re-run is routed to now: DEAD_LABEL_ROUTES (whitespace separated live runner variable
-    values), plus DEFAULT_LINUX_ROUTE when LINUX_RUNNER (DEAD_LABEL_LINUX_RUNNER) is unset."""
-    routes = (env.get("DEAD_LABEL_ROUTES") or "").split()
-    if not (env.get("DEAD_LABEL_LINUX_RUNNER") or "").strip():
-        routes.append(DEFAULT_LINUX_ROUTE)
-    return routes
 
 
 def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
@@ -261,6 +431,7 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
     if dry_run:
         return {int(d.run["id"]): "would force-cancel and re-run (dry run)" for d in going}, 0
     pending: dict[int, int] = {}
+    whole = {int(d.run["id"]): d.whole for d in going}
     for decision in going:
         run_id = int(decision.run["id"])
         try:
@@ -283,7 +454,10 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
                 del pending[run_id]
             elif run.get("status") == "completed":
                 try:
-                    github.rerun_failed(run_id)
+                    if whole[run_id]:
+                        github.rerun(run_id)
+                    else:
+                        github.rerun_failed(run_id)
                     results[run_id] = "force-cancelled and re-run on the current route"
                 except RuntimeError as error:
                     if type(error).__name__ == "RateLimited":
