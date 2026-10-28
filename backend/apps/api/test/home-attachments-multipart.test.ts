@@ -187,3 +187,22 @@ describe("Home attachments: one request at a time uploads a multipart part", { t
     expect((await m.complete()).status).toBe(200)
   })
 })
+
+describe("Home attachments: deleting a conversation's storage ends its open multipart uploads", { timeout: 120_000 }, () => {
+  it("every open multipart slot's R2 upload is aborted, its stored parts included, and their part PUTs are refused", async () => {
+    const alice = await signIn("att-delete-multipart")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => i % 227)
+    const started = await multipart(alice, id, body)
+    expect((await started.putPart(1)).status).toBe(200)
+    const fresh = await multipart(alice, id, new Uint8Array(32 * 1024 * 1024 + 17).fill(4))
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    const uploads = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT object_key, multipart_upload_id FROM home_attachment_slots ORDER BY id").toArray() as Array<{ object_key: string; multipart_upload_id: string }>)
+    expect(uploads).toHaveLength(2)
+    await (stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }).deleteAttachmentStorage(id)
+    for (const u of uploads) await expect(testEnv.HOME_ATTACHMENTS.resumeMultipartUpload(u.object_key, u.multipart_upload_id).uploadPart(2, new Uint8Array(17))).rejects.toThrow(/10024|does not exist/)
+    // The Worker refuses the slots' part PUTs too: nothing reaches R2 for a deleted conversation.
+    expect((await started.putPart(2)).status).toBe(403)
+    expect((await fresh.putPart(1)).status).toBe(403)
+  })
+})
