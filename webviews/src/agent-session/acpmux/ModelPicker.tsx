@@ -946,23 +946,23 @@ export function ModelPicker(props: ModelPickerProps) {
     if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
-  // The rail is Starred, then the pickable harnesses. Disabled or blocked profiles stay visible
-  // for context but are never a keyboard stop. Reaching either end returns to Starred.
+  // Add is an action after the pickable harnesses, not a harness selection.
+  const addRailIndex = railHarnesses.length;
   const nextRailIndex = (from: number, step: number) => {
-    if (!navigableHarnesses.length) return -1;
-    if (from < 0) return step > 0 ? navigableHarnesses[0]!.index : navigableHarnesses.at(-1)!.index;
-    const position = navigableHarnesses.findIndex(({ index }) => index === from);
+    const stops = [-1, ...navigableHarnesses.map(({ index }) => index), ...(onAddAgent ? [addRailIndex] : [])];
+    const position = stops.indexOf(from);
     if (position < 0) {
-      const nearby =
-        step > 0
-          ? navigableHarnesses.find(({ index }) => index > from)
-          : [...navigableHarnesses].reverse().find(({ index }) => index < from);
-      return nearby?.index ?? -1;
+      return (
+        (step > 0 ? stops.find((index) => index > from) : [...stops].reverse().find((index) => index < from)) ?? -1
+      );
     }
-    const next = position + step;
-    return next < 0 || next >= navigableHarnesses.length ? -1 : navigableHarnesses[next]!.index;
+    return stops[(position + step + stops.length) % stops.length]!;
   };
   const focusRail = (index: number) => {
+    if (index === addRailIndex && onAddAgent) {
+      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness")?.focus();
+      return;
+    }
     if (index < 0) {
       menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail-tab[aria-label]")?.focus();
       return;
@@ -971,7 +971,9 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const moveRail = (from: number, step: number) => {
     const next = nextRailIndex(from, step);
-    if (next < 0) {
+    if (next === addRailIndex && onAddAgent) {
+      focusRail(next);
+    } else if (next < 0) {
       showTab(STARRED, -1);
       focusRail(-1);
     } else {
@@ -1251,7 +1253,6 @@ export function ModelPicker(props: ModelPickerProps) {
                   selected={starredView}
                   active={starredView}
                   keyboard={(event) => {
-                    if (!railHarnesses.length) return;
                     if (event.key === "ArrowDown") {
                       event.preventDefault();
                       moveRail(-1, 1);
@@ -1318,6 +1319,15 @@ export function ModelPicker(props: ModelPickerProps) {
                     active={false}
                     aria-label={addHarnessText}
                     title={addHarnessText}
+                    keyboard={(event) => {
+                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        moveRail(addRailIndex, event.key === "ArrowDown" ? 1 : -1);
+                      } else if (event.key === "ArrowRight") {
+                        event.preventDefault();
+                        search.current?.focus();
+                      }
+                    }}
                     onClick={addHarness}
                   >
                     <span aria-hidden="true" className="text-control font-semibold">
