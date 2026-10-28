@@ -840,13 +840,41 @@ test.each([
   ).toBe(false);
   // A typed search keeps the footer where it is.
   if (field()) {
-    await typeIn("opus");
+    await typeIn("opus 5.5 high");
     await settle();
     expect(menu()!.lastElementChild?.classList.contains("acpmux-quick-update")).toBe(true);
   }
   await act(async () => menu()!.querySelector<HTMLElement>(".acpmux-quick-update [role^='menuitem']")!.click());
   await settle();
   expect(updated).toBe(1);
+  expect(menu()).toBeNull();
+});
+
+test("IME keyCode 229 on the shortcut-opened compact picker does not pick or close", async () => {
+  const { sent } = await mount({ routes: [] });
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  expect(field()).not.toBeNull();
+  await typeIn("opus 5.5 high");
+  await settle();
+  const composingCommit = new dom.window.KeyboardEvent("keydown", {
+    key: "Enter",
+    keyCode: 229,
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => field()!.dispatchEvent(composingCommit));
+  expect(composingCommit.defaultPrevented).toBe(false);
+  expect(sent).toHaveLength(0);
+  expect(menu()).not.toBeNull();
+
+  await keyIn(field()!, "Enter");
+  await settle();
+  expect(sent.length).toBeGreaterThan(0);
   expect(menu()).toBeNull();
 });
 
