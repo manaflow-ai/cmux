@@ -3,6 +3,7 @@
 // @ts-ignore Bun supplies the Node fs shim at runtime; webviews intentionally has no @types/node.
 import fs from "node:fs";
 import { formatReport } from "./report";
+import { verifyRawTraceArtifacts } from "./artifacts";
 
 declare const process: {
   argv: string[];
@@ -236,6 +237,7 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
     Array.isArray(value) && value.every((n) => isFiniteNumber(n) && n >= 0);
   const commits = (value: unknown): value is number => isFiniteNumber(value) && Number.isInteger(value) && value >= 0;
   const values: number[] = [];
+  const cadence = result.metricType === "frame_time" || result.metricType === "scroll_frame_time";
   const rawTasks: number[] = [];
   let rawCommits = 0;
   if ((samples.length ? samples.length : adapters.length) !== runs || (samples.length && adapters.length)) {
@@ -250,6 +252,7 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
       !isFiniteNumber(sample.paint) ||
       sample.paint < sample.work ||
       !numbers(sample.frameGaps) ||
+      (cadence && sample.frameGaps.length === 0) ||
       !numbers(sample.longTasks) ||
       !commits(sample.reactCommits) ||
       !isRecord(sample.instrumentation) ||
@@ -275,7 +278,8 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
       !run.observations.some((entry) => isRecord(entry) && entry.status === "painted") ||
       !numbers(run.longTasks) ||
       !commits(run.reactCommits) ||
-      !numbers(run.frameGaps)
+      !numbers(run.frameGaps) ||
+      (cadence && run.frameGaps.length === 0)
     ) {
       errors.push(`${id}: incomplete or uninstrumented adapter run`);
       valid = false;
@@ -381,7 +385,7 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
 export function validateCapture(
   evidence: unknown,
   budget: unknown,
-  options: { expectedHead?: string; expectedBase?: string } = {},
+  options: { expectedHead?: string; expectedBase?: string; traceDir?: string } = {},
 ): string[] {
   const errors: string[] = [];
   const parsed = parseEvidence(evidence, options, errors);
@@ -421,6 +425,7 @@ export function validateCapture(
       errors.push(`${result.id}: raw Chromium trace artifact is missing`);
   }
   for (const id of expected) if (!seen.has(id)) errors.push(`missing result: ${id}`);
+  if (budget.rawTraceRequired) errors.push(...verifyRawTraceArtifacts(parsed, options.traceDir));
   return errors;
 }
 
@@ -428,7 +433,7 @@ export function validateEvidence(
   evidence: unknown,
   baseline: unknown,
   budget: unknown,
-  options: { expectedHead?: string; expectedBase?: string; verifiedOpenPrs?: number[] } = {},
+  options: { expectedHead?: string; expectedBase?: string; verifiedOpenPrs?: number[]; traceDir?: string } = {},
 ): ValidationResult {
   const errors: string[] = validateCapture(evidence, budget, options);
   const warnings: string[] = [];
@@ -621,6 +626,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const result = validateEvidence(evidence, baseline, budget, {
     expectedHead: option(args, "--expected-head"),
     expectedBase: option(args, "--expected-base"),
+    traceDir: option(args, "--trace-dir"),
     verifiedOpenPrs,
   });
   const report = formatReport(result, option(args, "--pr"));

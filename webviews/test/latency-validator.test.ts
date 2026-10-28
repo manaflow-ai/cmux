@@ -264,6 +264,34 @@ test("required raw traces need actual files even when all metadata is present", 
   expect(validateEvidence(candidate, baseline(), { ...budget, rawTraceRequired: true }).ok).toBe(false);
 });
 
+test("verified raw timeline files are accepted by both CI validation and bootstrap", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "latency-trace-valid-"));
+  try {
+    const candidate = evidence();
+    const raw = JSON.stringify({ traceEvents: [{ name: "Paint", ts: 1, ph: "X" }] });
+    fs.writeFileSync(path.join(directory, "case.trace.json"), raw);
+    candidate.results[0].rawTrace = {
+      path: "case.trace.json",
+      bytes: Buffer.byteLength(raw),
+      sha256: createHash("sha256").update(raw).digest("hex"),
+    };
+    const tracedBudget = { ...budget, rawTraceRequired: true };
+    const options = {
+      expectedHead: source.head,
+      expectedBase: source.base,
+      traceDir: directory,
+      artifactUrl: "https://github.com/manaflow-ai/cmux/actions/runs/12345",
+      evidenceSha256: "d".repeat(64),
+    };
+    expect(validateEvidence(candidate, baseline(), tracedBudget, options).ok).toBe(true);
+    expect(captureBaseline(candidate, tracedBudget, options).results[id].p95).toBe(20);
+    fs.rmSync(path.join(directory, "case.trace.json"));
+    expect(() => captureBaseline(candidate, tracedBudget, options)).toThrow("raw trace artifact");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test.each(["probe", "adapter"])("every %s cadence run must contribute a nonempty frame window", (kind) => {
   const candidate = evidence(8);
   candidate.results[0].metricType = "frame_time";

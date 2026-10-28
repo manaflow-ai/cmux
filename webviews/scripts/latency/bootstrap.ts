@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
 import {
   validateCapture,
   validateEvidence,
@@ -15,7 +14,13 @@ import { formatReport } from "./report";
 export function captureBaseline(
   evidence: EvidenceDocument,
   budget: BudgetConfig,
-  options: { expectedHead: string; expectedBase: string; artifactUrl: string; evidenceSha256: string },
+  options: {
+    expectedHead: string;
+    expectedBase: string;
+    artifactUrl: string;
+    evidenceSha256: string;
+    traceDir?: string;
+  },
 ): BaselineDocument {
   const errors = validateCapture(evidence, budget, options);
   if (!/^https:\/\/github\.com\/manaflow-ai\/cmux\/actions\/runs\/\d+(?:\/artifacts\/\d+)?$/.test(options.artifactUrl))
@@ -55,21 +60,9 @@ function main(args: string[]) {
     expectedBase: option("--expected-base"),
     artifactUrl: option("--artifact-url"),
     evidenceSha256: createHash("sha256").update(raw).digest("hex"),
+    traceDir: budget.rawTraceRequired ? option("--traces") : undefined,
   };
   const baseline = captureBaseline(evidence, budget, options);
-  if (budget.rawTraceRequired) {
-    const directory = option("--traces");
-    for (const result of evidence.results!) {
-      const trace = result.rawTrace as { path: string; bytes: number; sha256: string };
-      if (path.basename(trace.path) !== trace.path) throw new Error("trace path must be a file name");
-      const data = fs.readFileSync(path.join(directory, trace.path));
-      if (data.length !== trace.bytes || createHash("sha256").update(data).digest("hex") !== trace.sha256)
-        throw new Error(`${String(result.id)}: raw trace artifact digest mismatch`);
-      const timeline = JSON.parse(data.toString());
-      if (!Array.isArray(timeline.traceEvents) || !timeline.traceEvents.length)
-        throw new Error(`${String(result.id)}: raw trace contains no timeline events`);
-    }
-  }
   const verdict = validateEvidence(evidence, baseline, budget, options);
   fs.writeFileSync(option("--output"), `${JSON.stringify(baseline, null, 2)}\n`);
   fs.writeFileSync(option("--report"), formatReport(verdict));

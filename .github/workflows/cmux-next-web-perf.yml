@@ -22,15 +22,18 @@ concurrency:
   group: cmux-next-web-perf-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_sha || github.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.sha }}
+  PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+
 jobs:
-  chromium-perf:
-    name: Linux Chromium performance gate
+  measure:
+    name: Linux Chromium measurement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
-    env:
-      HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_sha || github.sha }}
-      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.sha }}
-      PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+    outputs:
+      harness_status: ${{ steps.measure.outputs.harness_status }}
     steps:
       - name: Checkout exact PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -40,12 +43,13 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Verify exact head and base inputs
+      - name: Verify exact head and fetch base identity
         run: |
           set -euo pipefail
-          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "HEAD_SHA must be a full lowercase SHA" >&2; exit 2; }
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "BASE_SHA must be a full lowercase SHA" >&2; exit 2; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -76,84 +80,99 @@ jobs:
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
 
-      - name: Fetch exact base and trusted baseline
-        run: |
-          set -euo pipefail
-          # Fetch the commit only; the harness never installs/builds a second tree.
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          trusted="$RUNNER_TEMP/web-perf-validator"
-          mkdir -p "$trusted"
-          # Gate policy runs from the trusted base tree, never from validator
-          # code supplied by the untrusted PR head.
-          git show "$BASE_SHA:webviews/scripts/latency/validate.ts" > "$trusted/validate.ts"
-          git show "$BASE_SHA:webviews/scripts/latency/report.ts" > "$trusted/report.ts"
-          if git cat-file -e "$BASE_SHA:webviews/test/latency/baseline.json"; then
-            git show "$BASE_SHA:webviews/test/latency/baseline.json" > "$RUNNER_TEMP/web-perf-baseline.json"
-          else
-            printf '%s\n' '{"schemaVersion":1,"status":"pending","reason":"baseline file is absent; capture the first hosted Linux Chromium run","source":null,"results":{}}' > "$RUNNER_TEMP/web-perf-baseline.json"
-          fi
-          if git cat-file -e "$BASE_SHA:webviews/test/latency/budget.json"; then
-            git show "$BASE_SHA:webviews/test/latency/budget.json" > "$RUNNER_TEMP/web-perf-budget.json"
-          else
-            echo "trusted base does not contain web performance budget policy" >&2
-            exit 1
-          fi
-
       - name: Measure exact head
         id: measure
         working-directory: webviews
         run: |
           set +e
-          # Explicit --no-fail delegates the product budget (50 ms p95) to the
-          # trusted validator; harness evidence errors remain fatal under --ci.
           bun scripts/latency/run.ts --ci --no-fail --engine chromium --page chat --runs 10 --base "$BASE_SHA" \
             --trace-dir "$RUNNER_TEMP/web-perf-traces" \
             --json "$RUNNER_TEMP/web-perf-results.json" --require longTasks,reactCommits,cpu
           status=$?
           echo "harness_status=$status" >> "$GITHUB_OUTPUT"
-          # The validator and artifact steps must still publish the failure evidence.
+          # Preserve failure evidence for the separate trusted validation job.
           exit 0
 
-      - name: Verify trusted baseline artifacts
-        if: always()
-        run: |
-          set -euo pipefail
-          test -s "$RUNNER_TEMP/web-perf-validator/validate.ts"
-          test -s "$RUNNER_TEMP/web-perf-validator/report.ts"
-          test -s "$RUNNER_TEMP/web-perf-baseline.json"
-          test -s "$RUNNER_TEMP/web-perf-budget.json"
-
-      - name: Validate evidence and write PR report
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          bun "$RUNNER_TEMP/web-perf-validator/validate.ts" \
-            --results "$RUNNER_TEMP/web-perf-results.json" \
-            --baseline "$RUNNER_TEMP/web-perf-baseline.json" \
-            --budget "$RUNNER_TEMP/web-perf-budget.json" \
-            --expected-head "$HEAD_SHA" --expected-base "$BASE_SHA" --pr "$PR_NUMBER" \
-            --report "$RUNNER_TEMP/web-perf-report.md"
-
-      - name: Upload exact-head evidence and report
+      - name: Upload measurement data only
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: web-perf-${{ github.event.pull_request.number || github.run_id }}-${{ env.HEAD_SHA }}
+          name: web-perf-measurement-${{ github.run_id }}-${{ env.HEAD_SHA }}
           path: |
             ${{ runner.temp }}/web-perf-results.json
-            ${{ runner.temp }}/web-perf-baseline.json
-            ${{ runner.temp }}/web-perf-budget.json
-            ${{ runner.temp }}/web-perf-validator
-            ${{ runner.temp }}/web-perf-report.md
             ${{ runner.temp }}/web-perf-traces
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Enforce harness and validator verdicts
-        if: always()
+  validate:
+    name: Linux Chromium performance gate
+    needs: measure
+    if: ${{ always() }}
+    # A fresh cloud runner is a trust boundary. Do not route this job onto a
+    # persistent worker where candidate processes or tools could survive.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    env:
+      HARNESS_STATUS: ${{ needs.measure.outputs.harness_status }}
+    defaults:
+      run:
+        working-directory: trusted
+    steps:
+      - name: Checkout exact trusted target base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Verify trusted source and preserve policy
         run: |
-          test "${{ steps.measure.outputs.harness_status }}" = 0 || { echo "Chromium harness failed" >&2; exit 1; }
-          test -f "$RUNNER_TEMP/web-perf-report.md"
-          grep -Fq -- '- verdict: **pass**' "$RUNNER_TEMP/web-perf-report.md" || { echo "web perf validator failed" >&2; exit 1; }
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          mkdir -p "$RUNNER_TEMP/web-perf-validation"
+          cp webviews/test/latency/baseline.json "$RUNNER_TEMP/web-perf-validation/baseline.json"
+          cp webviews/test/latency/budget.json "$RUNNER_TEMP/web-perf-validation/budget.json"
+
+      - name: Setup trusted Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Download measurement artifact as data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: web-perf-measurement-${{ github.run_id }}-${{ env.HEAD_SHA }}
+          path: ${{ runner.temp }}/web-perf-evidence
+
+      - name: Validate data with trusted base policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          bun webviews/scripts/latency/validate.ts \
+            --results "$RUNNER_TEMP/web-perf-evidence/web-perf-results.json" \
+            --trace-dir "$RUNNER_TEMP/web-perf-evidence/web-perf-traces" \
+            --baseline webviews/test/latency/baseline.json \
+            --budget webviews/test/latency/budget.json \
+            --expected-head "$HEAD_SHA" --expected-base "$BASE_SHA" --pr "$PR_NUMBER" \
+            --report "$RUNNER_TEMP/web-perf-validation/report.md"
+          status=$?
+          test "$HARNESS_STATUS" = 0 || { echo "Chromium harness failed or did not finish" >&2; exit 1; }
+          exit "$status"
+
+      - name: Upload trusted verdict and policy
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-perf-validation-${{ github.run_id }}-${{ env.HEAD_SHA }}
+          path: ${{ runner.temp }}/web-perf-validation
+          if-no-files-found: warn
+          retention-days: 30

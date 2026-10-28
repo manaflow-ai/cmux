@@ -32,8 +32,10 @@ The validator continues to reject a pending baseline. This stage does not satisf
 4. Land trusted policy plus that reviewed numeric baseline on `feat-cmux-next`, then activate this
    workflow in a separate PR by adding `pull_request: { branches: [feat-cmux-next] }` without a paths
    filter. That activation PR must retain the complete 16-case capture and obtain independent review.
-   The workflow must load validator and policy from the current target base and pass both exact
-   expected head and expected base. A PR's own policy edits cannot change its verdict.
+   Validation runs on a separate fresh cloud runner that checks out only the exact target base.
+   It downloads measurement artifacts as data, verifies every raw trace file's bytes, hash and timeline,
+   and runs the base validator and policy with both expected head and expected base. Candidate code,
+   installed tools, and temporary files from measurement never execute in the validation job.
 
 The measured baseline head is historical provenance. Each future PR base is checked separately;
 advancing the target branch does not silently relabel or invalidate those historical measurements.
