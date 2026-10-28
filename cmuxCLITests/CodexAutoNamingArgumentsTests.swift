@@ -1,6 +1,24 @@
 import Testing
 
 struct CodexAutoNamingArgumentsTests {
+    @Test func emptyCodexHomeFallsBackToDefaultHome() {
+        #expect(
+            CodexAutoNamingArguments.configHome(from: [
+                "CODEX_HOME": "",
+                "HOME": "/tmp/codex-user"
+            ]) == "/tmp/codex-user/.codex"
+        )
+    }
+
+    @Test func explicitCodexHomeIsPreserved() {
+        #expect(
+            CodexAutoNamingArguments.configHome(from: [
+                "CODEX_HOME": "~/.codex-custom",
+                "HOME": "/tmp/codex-user"
+            ]) == "~/.codex-custom"
+        )
+    }
+
     @Test func disablesFeaturesAndForwardsSelectedProviderAndModel() {
         let args = CodexAutoNamingArguments.build(configToml: """
         model = "gpt-5-codex"
