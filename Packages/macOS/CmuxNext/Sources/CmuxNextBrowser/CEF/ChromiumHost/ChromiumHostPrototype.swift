@@ -85,7 +85,8 @@ public final class ChromiumHostPrototype {
         guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment),
               let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let identifier = bundle.bundleIdentifier ?? "cmux"
-        return ChromiumHostConfiguration.bundled(in: layout, rootCache: support.appending(path: identifier).appending(path: "ChromiumHost"),
+        return ChromiumHostConfiguration.bundled(in: layout,
+                                                 rootCache: ChromiumHostConfiguration.rootCache(applicationSupport: support, bundleIdentifier: identifier),
                                                  bundleIdentifier: identifier, environment: environment)
     }
 
