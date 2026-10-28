@@ -87,7 +87,11 @@ struct AgentChatInUnshownPaneTests {
             try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
                                                       report: { "tabs did not grow from \(before)" })
             let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
-            #expect(created.cwd == "/tmp", "created chat cwd was \(String(describing: created.cwd))")
+            try await PasswordManagerRouteTests.until({
+                services.agentTabs.existingView(created.id)?.model.hasHandshake == true
+            }, report: { "new chat did not complete its handshake" })
+            #expect(services.agentTabs.existingView(created.id)?.model.handshakeCwd == "/tmp",
+                    "created chat handshake cwd was \(String(describing: services.agentTabs.existingView(created.id)?.model.handshakeCwd))")
         }
     }
 
@@ -103,7 +107,11 @@ struct AgentChatInUnshownPaneTests {
             try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
                                                       report: { "tabs did not grow from \(before)" })
             let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
-            #expect(created.cwd == "/tmp", "created chat cwd was \(String(describing: created.cwd))")
+            try await PasswordManagerRouteTests.until({
+                services.agentTabs.existingView(created.id)?.model.hasHandshake == true
+            }, report: { "new chat did not complete its handshake" })
+            #expect(services.agentTabs.existingView(created.id)?.model.handshakeCwd == "/tmp",
+                    "created chat handshake cwd was \(String(describing: services.agentTabs.existingView(created.id)?.model.handshakeCwd))")
         }
     }
 

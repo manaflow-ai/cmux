@@ -65,19 +65,30 @@ extension AgentHandlers {
             context.registry.refuse(WorkspaceVerbStrings.machineNotConnected)
             return true
         }
-        let candidates = daemon.store.workspaces.flatMap { workspace in
-            workspace.screens.flatMap(\.panes).map { (workspace, $0) }
-        }
-        guard let (workspace, pane) = candidates.max(by: { $0.1.focusedAt < $1.1.focusedAt }) else {
-            context.registry.refuse(MiscHandlerStrings.noPane)
-            return true
+        let placement: AgentChatPlacement
+        if let target = invocation.target {
+            guard let requested = AgentChatPlacement.resolve(target, services: context.services),
+                  requested.daemon.machineID == daemon.machineID else {
+                context.registry.refuse(WorkspaceVerbStrings.noMachine)
+                return true
+            }
+            placement = requested
+        } else {
+            let candidates = daemon.store.workspaces.flatMap { workspace in
+                workspace.screens.flatMap(\.panes).map { (workspace, $0) }
+            }
+            guard let (workspace, pane) = candidates.max(by: { $0.1.focusedAt < $1.1.focusedAt }) else {
+                context.registry.refuse(MiscHandlerStrings.noPane)
+                return true
+            }
+            placement = AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
         }
         let requested = seed(for: invocation)
-        let seed = AgentPaneSeed(cwd: AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon).cwd(requested.cwd),
+        let seed = AgentPaneSeed(cwd: placement.cwd(requested.cwd),
                                  harness: requested.harness, model: requested.model, host: wanted)
         do {
-            context.registry.track(result: try AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
-                .openTab(seed: seed, selects: true, services: context.services))
+            let selects = context.services.paneController(for: placement.pane) == nil
+            context.registry.track(result: try placement.openTab(seed: seed, selects: selects, services: context.services))
         } catch let failure as ActionFailure {
             context.registry.refuse(failure.message)
         } catch {

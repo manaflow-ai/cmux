@@ -71,7 +71,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.newAgentChatOn", defaultValue: "New Agent Chat on…", bundle: .module),
                 keywords: ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
                 category: .agents, symbol: "bubble.left.and.bubble.right", surfaces: [.palette],
-                arguments: [CatalogArgument.agentHostMachine], targets: [.pane, .workspace],
+                // Destination selection is the palette action's only step; it resolves the
+                // destination's focused pane rather than capturing the local palette context.
+                arguments: [CatalogArgument.agentHostMachine], targets: [],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
