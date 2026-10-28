@@ -48,7 +48,12 @@ jobs:
         working-directory: Native/OptChat/optchat-chief
         run: |
           cargo build --locked --example chief_eval
-          cargo test --locked --no-run $(ls tests/eval_*.rs | sed -E 's#tests/(.*)\.rs#--test \1#')
+          eval_tests=()
+          for file in tests/eval_*.rs; do
+            name="${file#tests/}"
+            eval_tests+=(--test "${name%.rs}")
+          done
+          cargo test --locked --no-run "${eval_tests[@]}"
       - name: Deterministic cases (no model call)
         working-directory: Native/OptChat/optchat-chief
         run: evals/run.sh --no-model

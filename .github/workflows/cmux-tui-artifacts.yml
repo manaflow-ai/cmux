@@ -1542,7 +1542,6 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
         run: |
-          short="${SHA:0:12}"
           echo "::notice title=publish skipped::${REF_NAME} is build-only. This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
 
   sentry-dsyms:

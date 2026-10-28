@@ -408,7 +408,8 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: cmux-tui
         run: |
-          cargo clippy --workspace --lib --bins --locked --message-format=json -- $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags) > "$RUNNER_TEMP/panic-clippy.jsonl"
+          read -r -a panic_flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)"
+          cargo clippy --workspace --lib --bins --locked --message-format=json -- "${panic_flags[@]}" > "$RUNNER_TEMP/panic-clippy.jsonl"
           python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
 
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
