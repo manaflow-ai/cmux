@@ -45,6 +45,31 @@ test("a short output has neither a bottom fade nor a spurious measured expansion
   window.close();
 });
 
+test("an expanded viewport remeasures after its content or width fits", async () => {
+  const { window } = new JSDOM("<pre data-preview=\"all\"></pre>", { pretendToBeVisual: true });
+  const node = window.document.querySelector("pre")!;
+  let height = 600;
+  let viewport = 160;
+  Object.defineProperties(node, {
+    scrollHeight: { get: () => height },
+    clientHeight: { get: () => viewport },
+  });
+  const values: boolean[] = [];
+  const stop = watchOutputViewport(node, (value) => values.push(value));
+  try {
+    expect(values).toEqual([true]);
+    height = 120;
+    viewport = 200;
+    node.setAttribute("data-wrap", "true");
+    await Promise.resolve();
+    await new Promise((done) => window.requestAnimationFrame(done));
+    expect(values).toEqual([true, false]);
+  } finally {
+    stop();
+    window.close();
+  }
+});
+
 test("streamed tokens measure only their own output, once per frame", async () => {
   const { window } = new JSDOM("<main></main>", { pretendToBeVisual: true });
   const reads = Array.from({ length: 80 }, () => 0);

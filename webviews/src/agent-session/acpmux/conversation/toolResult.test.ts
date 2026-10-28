@@ -63,6 +63,19 @@ test("clear emphasis is Markdown, and a web reader can opt prose into the render
   expect(toolResult(JSON.stringify({ ok: true }), undefined, false, { markdown: true }).lang).toBe("json");
 });
 
+test("fetch log lines stay monospace, including a single line, and title punctuation is literal", () => {
+  for (const text of ["[INFO] downloaded", "[ERROR] fetch failed", "[INFO] **literal log**"]) {
+    expect(toolResult(text, undefined, false, { kind: "fetch" })).toEqual({ text, lang: "text" });
+  }
+  const source = 'const path = "fetch.ts";\nconst html = "<div>raw</div>";';
+  for (const title of ["Read fetch.ts", "Read web_read.ts", "Search fetch callers"]) {
+    expect(toolResult(source, undefined, false, { kind: "read", title })).toEqual({ text: source, lang: "text" });
+  }
+  for (const title of ["Fetch https://example.test", "WebRead https://example.test", "web_read"]) {
+    expect(toolResult("A service summary.", undefined, false, { title }).lang).toBe("markdown");
+  }
+});
+
 const PNG = "iVBORw0KGgo=";
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 

@@ -74,6 +74,25 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await page.close();
     }
   });
+  test("an expanded wrapped line drops stale disclosure after its content or width fits", async () => {
+    for (const change of ["content", "width"]) {
+      const page = await stage("wrapped-line");
+      try {
+        const body = page.locator("pre.cv-tool-output");
+        await page.getByRole("button", { name: "Show all 1 line", exact: true }).click();
+        await page.getByRole("button", { name: "Show less", exact: true }).waitFor();
+        await body.evaluate((node, change) => {
+          if (change === "content") node.textContent = "Short result.";
+          else node.style.width = "18000px";
+        }, change);
+        await page.waitForFunction(() => !document.querySelector("pre.cv-tool-output")?.hasAttribute("data-preview"));
+        expect(await body.getAttribute("data-more-below")).toBeNull();
+        expect(await page.locator(".cv-output-more").count()).toBe(0);
+      } finally {
+        await page.close();
+      }
+    }
+  });
   test("Raw shows the complete source while JSON and logs remain monospace", async () => {
     const page = await stage("expanded");
     try {
