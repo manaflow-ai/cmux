@@ -60,6 +60,7 @@ import {
 } from "./comments";
 import { NearCodeBlocks } from "./nearCode";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
+import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
 import {
   ResizableTableView,
@@ -343,6 +344,7 @@ export class MarkdownEditor {
       .use(clipboard)
       .use(rawSchema)
       .use(pointerSelectPlugin)
+      .use(paddingSelectPlugin)
       .use(tableDragOutPlugin)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())

@@ -91,6 +91,13 @@ public nonisolated enum SidebarTunables {
         help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
         default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
 
+    /// What a listed tab row says (`SidebarTabLine`; Leo 2026-10-27: "look at what's redundant and look at
+    /// what's useful").
+    public static let tabLines = Tunable<SidebarTabLineLook>.choice(
+        "sidebar.tabLines", .sidebar, "Listed tab rows",
+        help: "What a tab row under its workspace says: its title only, its name without repeats of the workspace or a bare ~, that plus one detail (status words, agent, page host or folder), or the program's status words first.",
+        default: .detail, code: "SidebarTunables.tabLines")
+
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
@@ -256,6 +263,12 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
         default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
+    /// Where a hovered workspace row's ✕ sits (`SidebarRowCloseSpot`); at the row's end by default.
+    public static let rowCloseSpot = Tunable<SidebarRowCloseSpot>.choice(
+        "sidebar.rowCloseSpot", .sidebar, "Workspace row close position",
+        help: "Where a hovered workspace row's close button sits: at the row's end in place of the status mark (menu, chevron, close), with even gaps, a smaller close, or between the menu and the chevron as before.",
+        default: .end, code: "SidebarTunables.rowCloseSpot")
+
     /// "Workspaces as tabs" (Leo, relayed 2026-10-21; prototype, off): every workspace row is one
     /// line (its icon, name, status and pull request badge, as Claude desktop's chat list), and
     /// Cmd-Shift-[ / ] step the workspaces in sidebar order as tabs (`nextSidebarTab`), wrapping,
@@ -286,6 +299,7 @@ public nonisolated enum SidebarTunables {
             remoteMachineResources.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
+            tabLines.descriptor,
             nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
@@ -294,6 +308,7 @@ public nonisolated enum SidebarTunables {
             quietUnnamedRows.descriptor,
             pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
+            rowCloseSpot.descriptor,
             rowTitle.descriptor,
             rowTitlePreview.descriptor,
             rowTitleSingleChat.descriptor,

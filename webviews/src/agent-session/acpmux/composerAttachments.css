@@ -239,7 +239,7 @@
   flex: none;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-text);
   font: inherit;

@@ -11,13 +11,15 @@ public struct PaneToolbarItem: Equatable, Sendable {
     public let shortcut: String?
     /// On: the zoom button of a zoomed pane.
     public var lit = false
+    public var alwaysVisible = false
 
-    public init(id: String, title: String, symbol: String, shortcut: String?, lit: Bool = false) {
+    public init(id: String, title: String, symbol: String, shortcut: String?, lit: Bool = false, alwaysVisible: Bool = false) {
         self.id = id
         self.title = title
         self.symbol = symbol
         self.shortcut = shortcut
         self.lit = lit
+        self.alwaysVisible = alwaysVisible
     }
 }
 
@@ -121,7 +123,7 @@ public final class PaneToolbarView: NSView {
             button.themedToolTipShortcut = item.shortcut
             button.state = item.lit ? .on : .off
             addSubview(button)
-            reveal.add(button)
+            if !item.alwaysVisible { reveal.add(button) }
             return button
         }
     }
@@ -146,8 +148,17 @@ public final class PaneToolbarView: NSView {
         let y = Self.edgeInset(height: bounds.height)
         func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
         moreButton.frame = moreFrame()
+        let trailingSlot = hasMore || reservedCount > buttons.count ? 1 : 0
+        // Creation actions remain in the + menu. Fold their buttons away together when the
+        // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
+        // cannot fit return to the more menu instead of overlapping the remaining controls.
+        let creationFits = items.indices.filter { items[$0].alwaysVisible }.allSatisfy {
+            slotX(buttons.count - $0 - 1 + trailingSlot) >= 0
+        }
         for (index, button) in buttons.enumerated() {
-            button.frame = NSRect(x: max(0, slotX(buttons.count - index)), y: y, width: side, height: side)
+            let x = slotX(buttons.count - index - 1 + trailingSlot)
+            button.isHidden = x < 0 || (items[index].alwaysVisible && !creationFits)
+            button.frame = NSRect(x: max(0, x), y: y, width: side, height: side)
         }
         applyTint()
     }

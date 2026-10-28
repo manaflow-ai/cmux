@@ -607,91 +607,118 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
-            let client = connect(true).await?;
-            // Any size and number: inline when they fit one message with the text, else uploaded
-            // to the chat first and named by reference (`attach.rs`).
-            if !attach.is_empty() {
-                prompt_id.attachments =
-                    crate::attach::blocks_for(&client, &session, &text, &attach).await?;
-            }
-            // A sub-session's send to its parent waits for the parent's turn to end, as its
-            // send_message does (`hub/subsession_send.rs`), --steer or not.
-            if steer && to_parent(&client, &session).await {
-                steer = false;
-            }
-            if no_wait {
-                return super::send_async::queue(
-                    &client,
-                    &session,
+            // A target nobody here resolves goes to the configured relay, if any (`send_relay.rs`).
+            let relay = crate::cli::send_relay::configured();
+            let relaying = relay.is_some();
+            let relay_from = crate::cli::send_relay::sender(prompt_id.from_agent.as_deref(), |k| {
+                std::env::var(k).ok()
+            });
+            let (relay_session, relay_text, attaching) =
+                (session.clone(), text.clone(), !attach.is_empty());
+            let sent = async move {
+                let client = connect(true).await?;
+                // Any size and number: inline when they fit one message with the text, else uploaded
+                // to the chat first and named by reference (`attach.rs`).
+                if !attach.is_empty() {
+                    prompt_id.attachments = crate::attach::blocks_for(&client, &session, &text, &attach, &|line| {
+                        eprintln!("{line}");
+                    })
+                    .await
+                        .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
+                }
+                // A sub-session's send to its parent waits for the parent's turn to end, as its
+                // send_message does (`hub/subsession_send.rs`), --steer or not.
+                if steer && to_parent(&client, &session).await {
+                    steer = false;
+                }
+                if no_wait {
+                    return super::send_async::queue(
+                        &client,
+                        &session,
+                        &text,
+                        steer,
+                        &prompt_id,
+                        superseding,
+                        json_out,
+                    )
+                    .await;
+                }
+                let id = resolve_id(&client, &session).await?;
+                let on_permission = OnPermission::parse(&on_permission)?;
+                // Never refuse: report what the prompt queues behind.
+                let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                let running = info.get("status").and_then(Value::as_str) == Some("running")
+                    || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
+                let pending = info.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
+                let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
+                let behind =
+                    json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
+                // As the hub decides: a running turn of an agent that steers, pending permission or not.
+                let steers_now = steer && running && steering(&info);
+                if (running || pending > 0) && !steers_now {
+                    let mut parts = Vec::new();
+                    if pending > 0 {
+                        parts.push(format!(
+                            "{pending} pending permission{}",
+                            if pending == 1 { "" } else { "s" }
+                        ));
+                    }
+                    if running {
+                        parts.push(format!(
+                            "{} running turn{}",
+                            1 + queued,
+                            if queued == 0 { "" } else { "s" }
+                        ));
+                    }
+                    eprintln!("queued behind {}", parts.join(" and "));
+                }
+                // Before its first turn: an allow it asks for is the app's alone.
+                if !(quiet || json_out)
+                    && on_permission == OnPermission::Wait
+                    && info.get("turnCount").and_then(Value::as_u64) == Some(0)
+                    && let Some(note) = crate::question_answer::app_allow_note(&info, &session)
+                {
+                    eprintln!("{note}");
+                }
+                let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0, steer };
+                if quiet || json_out {
+                    let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
+                    if json_out {
+                        print_json(
+                            &json!({"sessionId": id, "reply": r.reply, "stopReason": r.stop_reason, "queuedBehind": behind, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied}),
+                        );
+                    } else {
+                        println!("{}", r.reply);
+                    }
+                    return Ok(());
+                }
+                stream_prompt(
+                    client,
+                    &id,
                     &text,
                     steer,
-                    &prompt_id,
-                    superseding,
+                    quiet,
                     json_out,
+                    opts,
+                    suppress_reads,
+                    &prompt_id,
                 )
-                .await;
+                .await
             }
-            let id = resolve_id(&client, &session).await?;
-            let on_permission = OnPermission::parse(&on_permission)?;
-            // Never refuse: report what the prompt queues behind.
-            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-            let running = info.get("status").and_then(Value::as_str) == Some("running")
-                || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
-            let pending = info.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-            let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
-            let behind =
-                json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
-            // As the hub decides: a running turn of an agent that steers, pending permission or not.
-            let steers_now = steer && running && steering(&info);
-            if (running || pending > 0) && !steers_now {
-                let mut parts = Vec::new();
-                if pending > 0 {
-                    parts.push(format!(
-                        "{pending} pending permission{}",
-                        if pending == 1 { "" } else { "s" }
-                    ));
+            .await;
+            match (sent, relay) {
+                (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
+                    crate::cli::send_relay::send(
+                        &relay,
+                        &relay_session,
+                        &relay_text,
+                        relay_from.as_deref(),
+                        attaching,
+                        json_out,
+                    )
                 }
-                if running {
-                    parts.push(format!(
-                        "{} running turn{}",
-                        1 + queued,
-                        if queued == 0 { "" } else { "s" }
-                    ));
-                }
-                eprintln!("queued behind {}", parts.join(" and "));
+                (sent, _) => sent,
             }
-            // Before its first turn: an allow it asks for is the app's alone.
-            if !(quiet || json_out)
-                && on_permission == OnPermission::Wait
-                && info.get("turnCount").and_then(Value::as_u64) == Some(0)
-                && let Some(note) = crate::question_answer::app_allow_note(&info, &session)
-            {
-                eprintln!("{note}");
-            }
-            let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0, steer };
-            if quiet || json_out {
-                let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
-                if json_out {
-                    print_json(
-                        &json!({"sessionId": id, "reply": r.reply, "stopReason": r.stop_reason, "queuedBehind": behind, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied}),
-                    );
-                } else {
-                    println!("{}", r.reply);
-                }
-                return Ok(());
-            }
-            stream_prompt(
-                client,
-                &id,
-                &text,
-                steer,
-                quiet,
-                json_out,
-                opts,
-                suppress_reads,
-                &prompt_id,
-            )
-            .await
         }
         Command::Deliver { target, prompt, id, audience } => {
             if !target.starts_with("reports:") {
