@@ -24,7 +24,8 @@ case " \$* " in
   *) exit 0 ;;
 esac
 if [[ -f "$tmp/old" && " \$* " == *" --exit-with-pid "* ]]; then
-  echo "unknown flag --exit-with-pid for this action" >&2
+  # What an ensure parser without the option prints (cli/command/flags.rs).
+  echo '{"code":"usage.invalid","details":{},"message":"--exit-with-pid needs a value, or is not an option of this action; see --help","retryable":false}' >&2
   exit 2
 fi
 if [[ -f "$tmp/gone" ]]; then
