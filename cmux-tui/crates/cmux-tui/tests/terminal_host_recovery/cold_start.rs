@@ -301,3 +301,50 @@ fn terminals_with_no_host_record_end_after_the_answer_and_respawn_across_a_resta
     harness.restart();
     wait_all_running(&harness.socket, &records);
 }
+
+/// The app attaches while the ends run (after the owner said ready), and
+/// each end holds its System lane slot (a debug hook stands in for a slow
+/// commit). The lane runs 5 such tries at once, so the queue of 200 ends
+/// takes 8 s. The attached terminal's end must go first, and then its
+/// respawn: live in well under that. Before, every end waited in the lane's
+/// own queue, where `Permits::promote` could not reach it, and the respawn
+/// that end posted at a background priority could not be raised.
+#[test]
+fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
+    const COUNT: usize = 200;
+    let (mut harness, _records, last, content) = cold_session("cold-start-end-hold", COUNT);
+    harness.extra_env.push(("CMUX_TUI_TEST_END_HOLD_MS".to_string(), "200".to_string()));
+    harness.restart();
+    // The ends run: the owner said ready and some already committed.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    loop {
+        let listed = request(&harness.socket, serde_json::json!({"cmd": "list-terminals"}));
+        let done = listed["terminals"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|terminal| terminal["lifecycle"] != "adopting")
+            .count();
+        if done >= 10 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the ends never started: {listed}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let surface = pending_surface(&harness.socket, &content);
+    let (response, attached) = attach(&harness.socket, surface);
+    assert_eq!(
+        response["ok"], true,
+        "the attach while the ends ran failed after {attached:?}: its end or its respawn \
+         waited behind the queue: {response}"
+    );
+    assert!(
+        attached < Duration::from_millis(2_500),
+        "the attach while the ends ran answered after {attached:?}: it waited for the queue"
+    );
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"cmd": "resolve-terminal", "terminal_id": last}),
+    );
+    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+}

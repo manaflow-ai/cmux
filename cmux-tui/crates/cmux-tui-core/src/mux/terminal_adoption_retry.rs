@@ -127,6 +127,7 @@ impl Mux {
                 if terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Dead
                 {
+                    super::deferred_end::end_hold_for_test();
                     if let Err(error) = mux.mark_terminal_ended(
                         &terminal_id,
                         "terminal-host-proven-dead",

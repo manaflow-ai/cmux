@@ -105,24 +105,34 @@ impl Mux {
                 Priority::UserVisible,
                 Lane::System,
                 (&mux.terminal_replays, Some(key)),
-                move |mux| match mux.mark_terminal_ended(
-                    &end.terminal_id,
-                    OPERATION,
-                    REASON,
-                    &options,
-                ) {
-                    Ok(()) => Retry::Done,
-                    Err(error) => {
-                        eprintln!(
-                            "cmux-tui: could not record the end of terminal {}: {error:#}",
-                            end.terminal_id
-                        );
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        Retry::After(delay)
+                move |mux| {
+                    end_hold_for_test();
+                    match mux.mark_terminal_ended(&end.terminal_id, OPERATION, REASON, &options) {
+                        Ok(()) => Retry::Done,
+                        Err(error) => {
+                            eprintln!(
+                                "cmux-tui: could not record the end of terminal {}: {error:#}",
+                                end.terminal_id
+                            );
+                            delay = (delay * 2).min(Duration::from_secs(5));
+                            Retry::After(delay)
+                        }
                     }
                 },
             );
         });
         self.hold_startup_adoption(terminal_id, start);
+    }
+}
+
+/// Test hook (debug builds): each end try holds its lane slot this much
+/// longer (`CMUX_TUI_TEST_END_HOLD_MS`), outside `will_block`, as an end's
+/// commit and its record cleanup do under load.
+pub(super) fn end_hold_for_test() {
+    #[cfg(debug_assertions)]
+    if let Some(hold) =
+        std::env::var("CMUX_TUI_TEST_END_HOLD_MS").ok().and_then(|ms| ms.parse::<u64>().ok())
+    {
+        crate::request_path::sleep(Duration::from_millis(hold));
     }
 }

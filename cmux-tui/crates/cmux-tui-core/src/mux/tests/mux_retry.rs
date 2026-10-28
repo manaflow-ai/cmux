@@ -183,6 +183,87 @@ fn a_promoted_try_runs_before_the_queued_ones() {
     mux.shutdown();
 }
 
+/// A promoted try never waits in the System lane's own queue behind the
+/// tries that fill it. Five UserVisible tries hold the lane's UserVisible
+/// slots (they block outside `will_block`, as a slow commit does) and twenty
+/// more wait. A BestEffort try of key K must run while they still block:
+/// promoted before it is posted, and also posted first and promoted after
+/// (a respawn queued at its background priority before the app attached).
+#[test]
+fn a_promoted_try_runs_ahead_of_the_lanes_queue() {
+    use crate::mux::mux_work::Permits;
+    let mux = Mux::new_for_test("mux-retry-lane-promote", SurfaceOptions::default());
+    let permits = Permits::new(64);
+    let (started_tx, started) = mpsc::channel();
+    let (release_tx, release) = mpsc::channel::<()>();
+    let release = Arc::new(Mutex::new(release));
+    for index in 0..25 {
+        let (started_tx, release) = (started_tx.clone(), Arc::clone(&release));
+        mux.post_mux_retry_limited(
+            Duration::ZERO,
+            Priority::UserVisible,
+            Lane::System,
+            (&permits, Some(Arc::from(format!("blocker-{index}")))),
+            move |_| {
+                let _ = started_tx.send(index);
+                let _ = release.lock().unwrap().recv();
+                Retry::Done
+            },
+        )
+        .unwrap();
+    }
+    for _ in 0..5 {
+        started.recv_timeout(WAIT).expect("a blocker started");
+    }
+    assert_eq!(
+        started.recv_timeout(Duration::from_millis(200)),
+        Err(RecvTimeoutError::Timeout),
+        "the System lane ran more than 5 UserVisible tries"
+    );
+    let (ran_tx, ran) = mpsc::channel();
+    let post_k = |key: &'static str| {
+        let ran_tx = ran_tx.clone();
+        mux.post_mux_retry_limited(
+            Duration::ZERO,
+            Priority::BestEffort,
+            Lane::System,
+            (&permits, Some(Arc::from(key))),
+            move |_| {
+                let _ = ran_tx.send(key);
+                Retry::Done
+            },
+        )
+        .unwrap();
+    };
+    // Promoted first, then posted.
+    permits.promote("k1");
+    post_k("k1");
+    assert_eq!(ran.recv_timeout(WAIT), Ok("k1"), "a try promoted before its post waited");
+    permits.demote("k1");
+    // Posted first, then promoted.
+    post_k("k2");
+    assert_eq!(
+        ran.recv_timeout(Duration::from_millis(300)),
+        Err(RecvTimeoutError::Timeout),
+        "a BestEffort try ran while UserVisible tries waited"
+    );
+    permits.promote("k2");
+    assert_eq!(
+        ran.recv_timeout(WAIT),
+        Ok("k2"),
+        "a try promoted after its post waited in the lane's queue"
+    );
+    permits.demote("k2");
+    assert_eq!(started.try_recv(), Err(mpsc::TryRecvError::Empty), "a blocker ran meanwhile");
+    for _ in 0..25 {
+        release_tx.send(()).unwrap();
+    }
+    for _ in 0..20 {
+        started.recv_timeout(WAIT).expect("a queued blocker ran");
+    }
+    mux.shutdown();
+}
+
 #[test]
 fn held_start_adoptions_start_on_ready_with_no_thread_each() {
     let mux = Mux::new_for_test("mux-retry-startup", SurfaceOptions::default());
