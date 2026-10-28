@@ -1,6 +1,7 @@
-//! `_acpmux/session/auth {sessionId, refresh?}` (`hub/session_auth.rs`) for a chat on this
-//! daemon. A peer's chat is answered here from its link: `peerUnreachable` when the link is
-//! down, else `unknown` until this daemon asks the peer.
+//! `_acpmux/session/auth {sessionId | target, refresh?}` (`hub/session_auth.rs`) for a chat on
+//! this daemon, or a `target` with no `host`. A peer's chat is answered here from its link:
+//! `peerUnreachable` when the link is down, else `unknown` until this daemon asks the peer; a
+//! target on a peer (`target.host`) is not answered yet.
 
 use super::Conn;
 use crate::hub::Hub;
@@ -20,30 +21,34 @@ pub(super) async fn handle(
 ) -> Result<Value, RpcError> {
     let p: SessionAuthParams = serde_json::from_value(params.clone())
         .map_err(|e| RpcError::invalid_params(format!("{}: {e}", method::MUX_SESSION_AUTH)))?;
-    // A check runs a program on this machine: never for a browser page on the listener.
+    // A probe or a check runs on this machine: never for a browser page on the listener.
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     if p.refresh && control == crate::hub::Control::Web {
         return Err(RpcError::invalid_params(
             "a remote WebSocket connection reads sign-in evidence as last seen (no refresh)",
         ));
     }
-    let key = match (&p.session_id, &p.target) {
-        (Some(key), None) => key,
+    let reply = match (&p.session_id, &p.target) {
+        (Some(key), None) => match hub.resolve(key) {
+            Ok(s) => hub.session_auth(Some(&s), None, p.refresh).await?,
+            Err(e) => {
+                let Some((peer, _, row)) = hub.resolve_remote(key) else { return Err(e) };
+                let harness = row.get("harness").and_then(Value::as_str).unwrap_or_default();
+                from_link(&peer, harness)
+            }
+        },
+        (None, Some(target)) if target.host.is_none() => {
+            hub.session_auth(None, Some(target), p.refresh).await?
+        }
         (None, Some(_)) => {
-            return Err(RpcError::invalid_params("this daemon does not answer a target yet"));
+            return Err(RpcError::invalid_params(
+                "this daemon does not answer a target on a peer yet",
+            ));
         }
         _ => {
             return Err(RpcError::invalid_params(
                 "exactly one of sessionId and target is required",
             ));
-        }
-    };
-    let reply = match hub.resolve(key) {
-        Ok(s) => hub.session_auth(&s, p.refresh).await?,
-        Err(e) => {
-            let Some((peer, _, row)) = hub.resolve_remote(key) else { return Err(e) };
-            let harness = row.get("harness").and_then(Value::as_str).unwrap_or_default();
-            from_link(&peer, harness)
         }
     };
     serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
