@@ -66,6 +66,14 @@ def parse(path):
         if a["kb"] is None and b["kb"] is not None and c["kb"] is not None and c["kb"] > b["kb"] + 50:
             b["kb"] = None
             b["spike"] = True
+    # One frame where the field reads far from both neighbours, which agree:
+    # its ancestors' presentation layers mid-hand-off as it becomes first
+    # responder (the recordings show no such frame); drop it.
+    for i in range(1, len(frames) - 1):
+        a, b, c = frames[i - 1], frames[i], frames[i + 1]
+        if None not in (a["fb"], b["fb"], c["fb"]) and abs(a["fb"] - c["fb"]) < 5 and abs(b["fb"] - a["fb"]) > 100:
+            b["fb"] = None
+            b["outlier"] = True
     rest_kg = [f["kg"] for f in frames if f["kb"] is None and f["kg"] is not None]
     kg_rest = statistics.median(rest_kg) if rest_kg else None
     raw = [f["kb"] for f in frames]
@@ -81,6 +89,7 @@ def parse(path):
 
 def analyze(frames):
     out = {"frames": len(frames)}
+    out["field_outliers_dropped"] = sum(1 for f in frames if f.get("outlier"))
     usable = [f for f in frames if f["fb"] is not None]
     if not usable:
         out["error"] = "no composer field in the trace"
