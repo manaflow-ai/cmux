@@ -54,4 +54,35 @@ struct TerminalAccessibilityTests {
         #expect(text.substring(with: lineRange).contains(second), "AXRangeForLine covers that row")
         #expect(view.accessibilityAttributedString(for: secondRange)?.string == second)
     }
+
+    /// The line table counts UTF-16 units, as NSRange does: a row after an emoji starts two units in.
+    @Test func linesAndRangesCountUTF16Units() {
+        let text = TerminalAccessibleText("a\u{1F600}b\nsecond\n\nlast")
+        #expect(text.length == ("a\u{1F600}b\nsecond\n\nlast" as NSString).length)
+        #expect(text.line(for: 0) == 0)
+        #expect(text.line(for: 4) == 0, "the first row's newline is on the first line")
+        #expect(text.line(for: 5) == 1)
+        #expect(text.range(forLine: 1) == NSRange(location: 5, length: 7))
+        #expect(text.string(for: NSRange(location: 5, length: 6)) == "second")
+        #expect(text.range(forLine: 2) == NSRange(location: 12, length: 1), "an empty row is its newline")
+        #expect(text.range(forLine: 3) == NSRange(location: 13, length: 4))
+        #expect(text.range(forLine: 4).location == NSNotFound)
+        #expect(text.line(for: 999) == 3, "an index past the end is on the last line")
+        #expect(text.string(for: NSRange(location: 15, length: 9)) == nil)
+        #expect(TerminalAccessibleText("").range(forLine: 0) == NSRange(location: 0, length: 0))
+    }
+
+    /// One read serves a burst of requests; new output shows once the kept read is older than its life.
+    @Test func aReadIsKeptForItsLifetimeOnly() {
+        var cache = TerminalAccessibleTextCache()
+        var reads = 0
+        let start = ContinuousClock.now
+        let read = { (string: String) in { () -> String? in reads += 1; return string } }
+        #expect(cache.text(now: start, read: read("old")).string == "old")
+        #expect(cache.text(now: start + .milliseconds(100), read: read("new")).string == "old")
+        #expect(reads == 1, "a request in the burst reads the viewport again")
+        #expect(cache.text(now: start + TerminalAccessibleTextCache.lifetime, read: read("new")).string == "new")
+        #expect(reads == 2)
+        #expect(cache.text(now: start, read: read("earlier")).string == "earlier", "a clock that went back reads again")
+    }
 }

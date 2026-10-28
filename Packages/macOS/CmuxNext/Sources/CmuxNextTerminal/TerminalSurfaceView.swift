@@ -121,6 +121,8 @@ public final class TerminalSurfaceView: NSView {
     }
     /// The presented frame kept volatile while the surface does not draw.
     var heldFrame = TerminalHeldFrame()
+    /// The viewport text VoiceOver last read (TerminalSurfaceView+Search.swift).
+    var accessibleTextCache = TerminalAccessibleTextCache()
     private var lastFocus: Bool?
     /// Its window's notices while shown, by its tab node (``TerminalWindowWatch``).
     private let windowWatch: TerminalWindowWatch
