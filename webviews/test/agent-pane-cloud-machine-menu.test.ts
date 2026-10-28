@@ -123,10 +123,13 @@ test("a turn that starts again in the chat after the stop is not frozen", async 
   expect(calls).toEqual(["chat.cancel"]);
 });
 
-test("a pick with no chat shown pauses nothing", async () => {
+test("a pick with no chat shown pauses nothing, and still resumes", async () => {
   const r = rows(machines[0], false, true, { session: undefined, running: false });
   await r.pick();
   expect(r.calls).toEqual([]);
+  const resume = rows(machines[1], false, true, { session: undefined, running: false });
+  await resume.pick();
+  expect(resume.calls).toEqual([["cloudMachine.resume", { id: "vm_paused" }]]);
 });
 
 test("a pick for a chat the pane has left pauses nothing", async () => {

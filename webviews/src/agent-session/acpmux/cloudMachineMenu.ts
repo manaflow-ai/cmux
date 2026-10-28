@@ -99,9 +99,10 @@ export function cloudMachineRows(
         }
         // The pane moved to another chat meanwhile (this pick was for the one it left), or a
         // turn started again in it: no pause freezes it.
+        // A Resume freezes nothing, and a paused machine's chat may show no live session.
         const before = live();
-        if (session === undefined || before.session !== session) return;
-        if (method === "cloudMachine.pause" && before.running) return;
+        if (method === "cloudMachine.pause" && (session === undefined || before.session !== session || before.running))
+          return;
         await call(method, { id: machine.id });
       } catch {
         // The app refused (no gesture, the machine moved on): the list read shows its stage.
