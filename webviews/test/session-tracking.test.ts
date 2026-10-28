@@ -38,7 +38,7 @@ describe("sessions projected onto workflow rows", () => {
     ["completed", "completed"],
     ["cancelled", "cancelled"],
     ["future-state", "unknown"],
-  ])("maps reported %s to %s without declaring idle work completed", (source, expected) => {
+  ] as const)("maps reported %s to %s without declaring idle work completed", (source, expected) => {
     const [row] = sessionTrackingRows([{ sessionId: "s", state: source }]);
     expect(row!.sourceState).toBe(source);
     expect(row!.agent.state).toBe(expected);
@@ -66,14 +66,11 @@ describe("sessions projected onto workflow rows", () => {
     });
   });
 
-  test.each(["unreachable", "disconnected", "closed"])(
-    "%s cannot retain a mirrored working state",
-    (status) => {
-      const [row] = sessionTrackingRows([{ sessionId: "s", status, lane: { state: "working" } }]);
-      expect(row!.agent.state).toBe("unknown");
-      expect(row!.agent.startedAt).toBeUndefined();
-    },
-  );
+  test.each(["unreachable", "disconnected", "closed"])("%s cannot retain a mirrored working state", (status) => {
+    const [row] = sessionTrackingRows([{ sessionId: "s", status, lane: { state: "working" } }]);
+    expect(row!.agent.state).toBe("unknown");
+    expect(row!.agent.startedAt).toBeUndefined();
+  });
 
   test("a stale peer is unknown and a delayed resolve cannot restore running", () => {
     const [row] = sessionTrackingRows(
@@ -111,12 +108,9 @@ describe("sessions projected onto workflow rows", () => {
     expect(rows[0]!.pullRequests).toEqual([url]);
     expect(rows[0]!.currentPullRequest).toBeUndefined();
     expect(rows[1]!.pullRequests).toEqual([]);
-    expect(sessionTrackingRows(sessions, { resolved: [match, match] })[0]!.pullRequests).toEqual(
-      [],
-    );
+    expect(sessionTrackingRows(sessions, { resolved: [match, match] })[0]!.pullRequests).toEqual([]);
     expect(
-      sessionTrackingRows(sessions, { resolved: [{ ...match, sessionId: "different" }] })[0]!
-        .pullRequests,
+      sessionTrackingRows(sessions, { resolved: [{ ...match, sessionId: "different" }] })[0]!.pullRequests,
     ).toEqual([]);
   });
 
