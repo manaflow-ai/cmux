@@ -20,7 +20,7 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   if (stackUser !== undefined) {
     // A personal team may not be mirrored here yet; the Worker checked the id is the caller's own.
     if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, vm_plan: null }
-    read = async (s) => ((v) => (v === "user_gone" ? null : v))(await s.getUserVmPlan(stackUser))
+    read = async (s) => ((v) => ("gone" in v ? null : v.vm_plan))(await s.getUserVmPlan(stackUser))
   } else {
     if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, vm_plan: null }
     const stackTeam = team.stack_team

@@ -31,8 +31,8 @@ export interface StackServer {
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
    */
   getUserPlan(userId: string): Promise<string | null | "user_gone">
-  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan), null when absent, "user_gone" for USER_NOT_FOUND. Cloud machine limits only. */
-  getUserVmPlan(userId: string): Promise<string | null | "user_gone">
+  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan, as metadata text), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
+  getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
@@ -181,7 +181,7 @@ export const stackServer = (
     },
     getUserVmPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
-      return isGone(r) ? "user_gone" : readVmPlanOverride(r.client_read_only_metadata)
+      return isGone(r) ? { gone: true as const } : { vm_plan: readVmPlanOverride(r.client_read_only_metadata) }
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []

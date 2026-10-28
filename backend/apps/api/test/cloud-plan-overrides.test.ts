@@ -139,7 +139,7 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
     // The grant copy goes stale; TeamDO reads it from the sign-in service (the owner's user record).
     await inDO(teamDO(x.team), async (i) => {
       i.ctx.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0 WHERE id = 1`)
-      i.stack = { getUserPlan: async () => null, getUserVmPlan: async () => "pro", getTeam: async () => null }
+      i.stack = { getUserPlan: async () => null, getUserVmPlan: async () => ({ vm_plan: "pro" }), getTeam: async () => null }
     })
     expect(await planGet(x.t)).toMatchObject({ plan_id: "pro", limits: { max_active: 5 } })
     const r = await create(x.t)
@@ -196,7 +196,7 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
     const x = await person("grant-vm-empty", "pro", null)
     await inDO(teamDO(x.team), async (i) => {
       i.ctx.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0 WHERE id = 1`)
-      i.stack = { getUserPlan: async () => "pro", getUserVmPlan: async () => readVmPlanOverride({ cmuxVmPlan: "" }), getTeam: async () => null }
+      i.stack = { getUserPlan: async () => "pro", getUserVmPlan: async () => ({ vm_plan: readVmPlanOverride({ cmuxVmPlan: "" }) }), getTeam: async () => null }
     })
     expect(await planGet(x.t)).toMatchObject({ plan_id: "none" })
     expect(code(await create(x.t))).toBe("cloud.plan.required")
@@ -221,6 +221,16 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
       expect(sql.exec<{ vm_plan: string; checked_at: number }>(`SELECT vm_plan, checked_at FROM cloud_vm_plan WHERE id = 1`).one()).toEqual({ vm_plan: "pro", checked_at: 2_000 })
       expect(await cloudVmPlanOf(sql, null, x.team, undefined, "grant-vm-order", 2_000 + 1)).toEqual({ ok: true, vm_plan: "pro" })
     })
+  })
+
+  it.each(["company", "company_max", "user_gone", "enterprise"])("a cmuxVmPlan of %s on the record is an unknown plan: it restricts and grants nothing", async (value) => {
+    const x = await person(`grant-vm-unknown-${value}`, "pro", null)
+    await inDO(teamDO(x.team), async (i) => {
+      i.ctx.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0 WHERE id = 1`)
+      i.stack = { getUserPlan: async () => "pro", getUserVmPlan: async () => ({ vm_plan: value }), getTeam: async () => null }
+    })
+    expect(await planGet(x.t)).toMatchObject({ plan_id: "none" })
+    expect(code(await create(x.t))).toBe("cloud.plan.required")
   })
 
   it("an unverified company address gets no grant", async () => {
