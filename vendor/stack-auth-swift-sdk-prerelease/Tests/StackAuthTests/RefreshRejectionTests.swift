@@ -13,6 +13,7 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         var status: Int
         var headers: [String: String] = [:]
         var body: String
+        var rawBody: Data? = nil
     }
 
     private static let lock = NSLock()
@@ -53,7 +54,7 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(answer.body.utf8))
+        client?.urlProtocol(self, didLoad: answer.rawBody ?? Data(answer.body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -141,6 +142,18 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
             status: 401,
             headers: ["Content-Type": "text/html"],
             body: "<html><body>Sign in to the network</body></html>"
+        ))
+        #expect(kept == "session")
+    }
+
+    /// A proxy page in a legacy encoding is not UTF-8, but it is still not
+    /// a Stack rejection.
+    @Test func nonUTF8PageKeepsTheSession() async {
+        let kept = await refreshTokenAfterRefresh(answering: .init(
+            status: 401,
+            headers: ["Content-Type": "text/html; charset=iso-8859-1"],
+            body: "",
+            rawBody: Data("<html>Acc".utf8) + Data([0xE8]) + Data("s refus</html>".utf8)
         ))
         #expect(kept == "session")
     }
