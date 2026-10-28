@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -128,7 +129,13 @@ struct RightSidebarCustomTabTests {
         }
     }
 
-    @Test func customAvailabilityChangesRefreshCachedBuiltInShortcuts() throws {
+    @Test(arguments: [
+        UserDefaults.didChangeNotification,
+        ManagedDevicePolicy.didChangeNotification,
+        Notification.Name.cmuxFeatureFlagsDidChange,
+        RightSidebarBetaFeatureSettings.didChangeNotification,
+    ])
+    func customAvailabilityChangesRefreshCachedBuiltInShortcuts(notification: Notification.Name) throws {
         try withDefaults { defaults in
             defaults.removeObject(forKey: "rightSidebar.customSidebarName")
             defaults.set(["custom-sidebar", "files"], forKey: RightSidebarTabPreferences.orderKey)
@@ -157,12 +164,12 @@ struct RightSidebarCustomTabTests {
             #expect(matcher.modeShortcut(for: one, allowingAction: { _ in true }) == .files)
 
             FileExplorerState(defaults: defaults).selectCustomSidebar(name: "status-board")
-            center.post(name: UserDefaults.didChangeNotification, object: defaults)
+            center.post(name: notification, object: defaults)
             #expect(matcher.modeShortcut(for: one, allowingAction: { _ in true }) == .customSidebar)
             #expect(matcher.modeShortcut(for: two, allowingAction: { _ in true }) == .files)
 
             defaults.set(false, forKey: "customSidebars.beta.enabled")
-            center.post(name: UserDefaults.didChangeNotification, object: defaults)
+            center.post(name: notification, object: defaults)
             #expect(matcher.modeShortcut(for: one, allowingAction: { _ in true }) == .files)
             #expect(matcher.modeShortcut(for: two, allowingAction: { _ in true }) == .find)
 
