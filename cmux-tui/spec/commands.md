@@ -2150,7 +2150,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the current plain-text viewport of a PTY surface. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
+Returns the current plain-text screen of a PTY surface: the live screen that output writes to, even while a render viewport is scrolled back with `scroll-surface`. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
 
 Params:
 
@@ -8776,7 +8776,7 @@ character boundary and answers `truncated: true`. Errors: `range_evicted`,
 | status | implemented |
 | since | protocol 5 |
 
-Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This changes the terminal viewport state used by `read-screen` and renderers.
+Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This moves the terminal's render viewport, which every render attach of the terminal shows ([render.md](render.md#stream-ordering)), and the named placement's in-process frontend view. It does not change what `read-screen`, `wait-for`, `copy` mode `screen`, `terminal.screen.read` or `terminal.wait` read: they read the live screen. A move emits `scroll-changed` to subscribers and to the attach streams of the surface, including render attaches on other connections; a render attach receives it before the `render-delta` that shows the moved rows.
 
 Params:
 
@@ -9381,7 +9381,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
+Extracts text from a surface. `screen` returns the current plain-text live screen, as `read-screen` does. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
 Params:
 
