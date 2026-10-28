@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
+import CmuxNextWakeups
 
 /// Browser page operations (`browser.page.*`, `cmux browser tab_…`) on the page a tab shows,
 /// creating the page when the tab was never shown.
@@ -88,7 +89,7 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
-            return try await screenshot(page, tabID: tabID, capture)
+            return try await screenshot(page, tabID: tabID, capture, runner: services.work)
         case .cookies(let request):
             return try await cookies(page, request, work: services.work)
         case .input(let input):

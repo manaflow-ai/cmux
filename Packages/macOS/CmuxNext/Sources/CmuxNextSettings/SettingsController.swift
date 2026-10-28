@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextAppearance
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
@@ -328,12 +329,12 @@ public final class SettingsController {
                           densities: valid.densities, metrics: valid.metrics)
     }
 
-    /// The managed layers and the file's text, parsed and merged: the off-main half of a load.
+    /// The managed layers and the file's text, parsed and merged: the off-main half of a load. The reads block the
+    /// config file's queue (one turn of ``CmuxConfigFile``'s executor), never a pool thread; the parse and
+    /// validation run off the main actor.
     @concurrent nonisolated static func read(_ inputs: ReadInputs) async -> Loaded {
-        let managed = inputs.reader.read()
-        let source: Result<String, any Error>
-        do { source = .success(try await inputs.file.source()) } catch { source = .failure(error) }
-        return loaded(source, managed: managed, team: inputs.team, lastGood: inputs.lastGood,
+        let read = await inputs.file.sourceAndManaged(inputs.reader)
+        return loaded(read.source, managed: read.managed, team: inputs.team, lastGood: inputs.lastGood,
                       valid: (inputs.densities, inputs.metrics), configDirectory: inputs.file.url.deletingLastPathComponent())
     }
 

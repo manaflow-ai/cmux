@@ -3,9 +3,11 @@
 # host_mirror.mm and host_text_input.mm, no AppKit in them, so as C++) against
 # the generated cases gen-chromium-host-wire.py writes for this header and ops
 # JSON (into a scratch root, never the checkout), and runs:
-#   host_dispatch_test.cpp  the dispatcher alone, frame by frame, and the App
+#   host_dispatch_test.cpp  the dispatcher alone, frame by frame, the App
 #                           Nap activity it holds while a page shows
-#                           (host_page_activity.h, task p14-energy-128)
+#                           (host_page_activity.h, task p14-energy-128) and
+#                           the helper ends it forwards (host_helper_exits.h,
+#                           task p01-process-225)
 #   host_text_input_test.cpp  the text input pushes, alone and through the
 #                           dispatcher (task p01-process-044)
 #   host_resize_test.cpp    a page's resize and its fence (host_resize.h),
@@ -35,7 +37,7 @@
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
 # host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h,
-# host_page_activity.h, host_choosers.h, the generator's host output or the ops JSON.
+# host_page_activity.h, host_choosers.h, host_helper_exits.{h,cc}, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
@@ -71,7 +73,7 @@ cp "$gen/Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc" "
 
 # host_provider_link.h reads DevTools ids with the shim's scanner (CEFShim/src/devtools_message_id.h).
 flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src")
-for src in host_dispatch.mm host_mirror.mm host_text_input.mm; do
+for src in host_dispatch.mm host_mirror.mm host_text_input.mm host_helper_exits.cc; do
   "${cxx[@]}" "${flags[@]}" -fsyntax-only -x c++ "$work/src/$src"
 done
 
@@ -89,7 +91,8 @@ for e in exports:
 print("}")
 PY
 
-sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm" "$work/shim_stubs.cpp")
+sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm"
+  "$work/src/host_helper_exits.cc" "$work/shim_stubs.cpp")
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_dispatch_test" "$host/tests/host_dispatch_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_dispatch_test"

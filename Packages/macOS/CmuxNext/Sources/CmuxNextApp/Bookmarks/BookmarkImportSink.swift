@@ -41,11 +41,15 @@ extension BookmarkService {
 
     /// Browser imports saved before bookmarks existed become bookmarks once
     /// (a marker file records it, so a folder the user deleted stays deleted).
-    /// The marker and the store are read off main; each batch's replace is one
+    /// The marker is read and written on `work`'s files lane and the store off main; each batch's replace is one
     /// posted `visible` task: the bars show the folders it adds.
-    @concurrent nonisolated func migrateLegacyImports(store: ImportedDataStore, directory: URL, mainWork: MainWorkScheduler) async {
+    @concurrent nonisolated func migrateLegacyImports(store: ImportedDataStore, directory: URL, mainWork: MainWorkScheduler,
+                                                      work: BackgroundWork) async {
         let marker = directory.appending(path: "bookmarks-imports-migrated")
-        guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+        // A refused check (quit began, or the caller was cancelled) is not a missing marker: migrating then
+        // would bring back folders the person deleted. The next launch checks again.
+        let checked = try? await work.run(.bestEffort, mayBlock: .files) { FileManager.default.fileExists(atPath: marker.path) }
+        guard let migrated = checked, !migrated else { return }
         let logger = logger
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
@@ -63,7 +67,10 @@ extension BookmarkService {
                 }
             }
         }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: marker.path, contents: Data())
+        // The marker: one empty file, so quit waits for it (a migration is never redone over a deleted folder).
+        _ = try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: marker.path, contents: Data())
+        }
     }
 }
