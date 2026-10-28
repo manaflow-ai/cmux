@@ -36,31 +36,35 @@ public struct WorkingLabel: View {
     }
 }
 
-/// Text shimmer: label2 base, a 40% band of label sweeping across.
+/// Text shimmer: label2 base, a 40% band of label sweeping across. The band is a
+/// repeating animation of its offset, so the shimmer never re-runs a body per frame
+/// (a `TimelineView(.animation)` re-evaluated its content on every display frame).
 struct Shimmer<Content: View>: View {
     let active: Bool
     @ViewBuilder let content: Content
+    @State private var swept = false
 
     var body: some View {
         if active {
-            TimelineView(.animation) { context in
-                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
-                content
-                    .foregroundStyle(.secondary)
-                    .overlay {
-                        content
-                            .foregroundStyle(.primary)
-                            .mask {
-                                GeometryReader { proxy in
-                                    let width = proxy.size.width
-                                    LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
-                                        .frame(width: max(width * 0.4, 30))
-                                        .offset(x: -width * 0.4 + (width * 1.4) * phase)
-                                }
+            content
+                .foregroundStyle(.secondary)
+                .overlay {
+                    content
+                        .foregroundStyle(.primary)
+                        .mask {
+                            GeometryReader { proxy in
+                                let width = proxy.size.width
+                                LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: max(width * 0.4, 30))
+                                    .offset(x: swept ? width : -width * 0.4)
                             }
-                            .accessibilityHidden(true)
-                    }
-            }
+                        }
+                        .accessibilityHidden(true)
+                }
+                .onAppear {
+                    swept = false
+                    withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { swept = true }
+                }
         } else {
             content.foregroundStyle(.secondary)
         }

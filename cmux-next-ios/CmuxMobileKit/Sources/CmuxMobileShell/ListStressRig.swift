@@ -83,10 +83,13 @@ final class ListStressRig: NSObject {
                                             harness: "codex"), at: 0)
             store.workspaces = store.workspaces.map { $0.id == ws.id ? opened : $0 }
             shell.tab = .workspaces
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(settings.openDelay))
             FrameIntervalLog.shared.begin("\(screen)-open")
             shell.workspacesPath = [opened]
             try? await Task.sleep(for: .seconds(2.5))
+            // A main thread blocked past the window resumes here first: let the display link log
+            // that long frame before the window closes (it was dropped, so a stalled open read as 0).
+            try? await Task.sleep(for: .milliseconds(100))
             FrameIntervalLog.shared.end()
             logMemory("\(screen)-opened")
             if screen == "diff" {
@@ -95,7 +98,14 @@ final class ListStressRig: NSObject {
                 try? await Task.sleep(for: .seconds(3))
                 FrameIntervalLog.shared.end()
             } else {
-                if settings.streams { DemoDirector.shared.post(.chatSend("stream")) }
+                if settings.sends {
+                    // Typed into the composer (28 ms a character), then sent.
+                    let prompt = "Make the dialer retry with backoff"
+                    DemoDirector.shared.post(.chatSend(prompt))
+                    try? await Task.sleep(for: .seconds(Double(prompt.count) * 0.028 + 2.5))
+                } else if settings.streams {
+                    DemoDirector.shared.post(.chatSend("stream"))
+                }
                 try? await Task.sleep(for: .seconds(1))
                 // As a reader does: leave the newest turn (the transcript stops following it).
                 DemoDirector.shared.post(.chatScroll(toTop: true))

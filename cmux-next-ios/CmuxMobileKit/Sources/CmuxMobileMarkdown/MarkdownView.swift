@@ -36,11 +36,17 @@ public struct MarkdownView: View {
     }
 }
 
-struct MarkdownBlockView: View {
+/// One block of a markdown document (a transcript draws a long answer block by block).
+public struct MarkdownBlockView: View {
     let block: MarkdownBlock
     let margin: CGFloat
 
-    var body: some View {
+    public init(block: MarkdownBlock, margin: CGFloat = 20) {
+        self.block = block
+        self.margin = margin
+    }
+
+    public var body: some View {
         switch block.kind {
         case .heading(let level, let text):
             InlineText(source: text, font: headingFont(level))
