@@ -3,6 +3,7 @@
 //! machine controllers, tree and buffer helpers) that the topic files reach
 //! through `use super::*`.
 
+mod completed_selection;
 mod deferred_input;
 mod graphics_pointer;
 mod host_input;
