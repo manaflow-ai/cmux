@@ -20,6 +20,7 @@ Usage:
   corpus_store.py ensure [--suite S ...] [--verify]   write the suites that are missing or stale
   corpus_store.py status                              one line per suite
   corpus_store.py pack SUITE --out FILE               the deterministic tarball of the suite on disk
+  corpus_store.py verify-tarball SUITE FILE           FILE unpacks to the pin's tree_sha256 and file count
   corpus_store.py publish SUITE [--dry-run]           pack, upload (publish-cua-pinned-asset.sh) and write the pin;
                                                       run the suite's generator first, then commit the pin
 
@@ -51,10 +52,11 @@ CORPUS = REPO / "tests" / "oracle" / "corpus"
 MANIFEST = REPO / "tests" / "oracle" / "corpus-store.json"
 ENSURE_ASSET = REPO / "scripts" / "cmux-next" / "ensure-cua-pinned-asset.sh"
 PUBLISH_ASSET = REPO / "scripts" / "cmux-next" / "publish-cua-pinned-asset.sh"
+STAGING = REPO / "tests" / "oracle" / "corpus-store"  # temporary dirs live here, outside the corpus tools' rglob
 STAMP = ".corpus-store.stamp"  # not *.json: the suite tools read every *.json file
 LOCK = ".corpus-store.lock"
 PREFIX = "oracle-corpus"
-_DONE: set = set()  # suites already ensured by this process
+_DONE: Dict[str, str] = {}  # suite -> result of this process ("error: ..." for a suite that could not be written)
 
 
 class StoreError(Exception):
@@ -126,10 +128,7 @@ def run_generator(spec: dict, out: Path) -> None:
 def fetch(spec: dict) -> Optional[Path]:
     """The pinned tarball through ensure-cua-pinned-asset.sh (cache, controller store, R2), or None."""
     pin = REPO / spec["pin"]
-    env = dict(os.environ)
-    # The controller store serves a sha256 only after `cmux-ci artifact-put` for one lane; these tarballs live in
-    # R2 (and every miss falls back to the generator), so skip the store's 30 s timeout unless asked for.
-    env.setdefault("CMUX_CUA_ASSET_NO_STORE", "1")
+    env = {k: v for k, v in os.environ.items() if k != "CMUX_CUA_ASSET_FILE"}  # that local copy is a CUA input
     env.setdefault("CMUX_CUA_ASSET_CACHE_DIR",
                    os.environ.get("CMUX_ORACLE_CORPUS_CACHE") or str(Path.home() / ".cache" / "cmux" / "oracle-corpus"))
     result = subprocess.run(["/bin/bash", str(ENSURE_ASSET), str(pin), "--optional"], cwd=REPO, env=env,
@@ -167,12 +166,16 @@ def ensure_suite(name: str, spec: dict, verify: bool = False) -> str:
     keep = spec.get("keep", [])
     pin = json.loads((REPO / spec["pin"]).read_text(encoding="utf-8")) if spec["kind"] == "artifact" else {}
     want = pin.get("tree_sha256")
-    if spec["kind"] == "artifact" and not verify and stamp_of(directory).get("tree_sha256") == want:
-        return "current"
+    stamp = stamp_of(directory)
+    if (spec["kind"] == "artifact" and not verify and stamp.get("tree_sha256") == want
+            and stamp.get("files") == len(managed_files(directory, keep))):
+        return "current"  # the stamp names this pin and every file is there (a checkout switch can delete files)
     directory.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=f".tmp-{name}-", dir=CORPUS) as tmp:
-        staged = Path(tmp) / name
-        staged.mkdir()
+    STAGING.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".tmp-{name}-", dir=STAGING) as tmp:
+        # <tmp>/corpus/<suite>: a generator that writes beside the suite (gen_tla.py's ../../Expectations.d) stays in tmp
+        staged = Path(tmp) / "corpus" / name
+        staged.mkdir(parents=True)
         how = "generated"
         if spec["kind"] == "artifact":
             if tree_sha256(directory, keep) == want:
@@ -196,30 +199,50 @@ def ensure_suite(name: str, spec: dict, verify: bool = False) -> str:
             if tree_sha256(staged, keep) == tree_sha256(directory, keep):
                 how = "current"
         if how != "current":
+            (directory / STAMP).unlink(missing_ok=True)
             install(staged, directory, keep)
     if spec["kind"] == "artifact":
-        (directory / STAMP).write_text(json.dumps({"tree_sha256": want, "sha256": pin.get("sha256")}) + "\n",
-                                       encoding="utf-8")
+        write_stamp(directory, want, pin.get("sha256"), len(managed_files(directory, keep)))
     return how
 
 
-def ensure(root: Path = CORPUS, suites: Optional[Sequence[str]] = None, verify: bool = False) -> Dict[str, str]:
-    """Write the stored suites of the repository corpus that are missing or stale. Another root (a test's
-    temporary corpus) is left alone. Once per suite per process; a file lock serializes processes."""
+def write_stamp(directory: Path, tree: Optional[str], sha: Optional[str], files: int) -> None:
+    (directory / STAMP).write_text(json.dumps({"tree_sha256": tree, "sha256": sha, "files": files}) + "\n",
+                                   encoding="utf-8")
+
+
+def ensure(root: Path = CORPUS, suites: Optional[Sequence[str]] = None, verify: bool = False,
+           strict: bool = True) -> Dict[str, str]:
+    """Write the stored suites of the repository corpus that are missing or stale (all of them, or `suites`; "all"
+    means all). Another root (a test's temporary corpus) is left alone. Once per suite per process; a file lock
+    serializes processes. strict raises StoreError for a suite that cannot be written; otherwise its result is
+    "error: <why>" and the other suites are still written (a caller reports it as a load error of that suite)."""
     if not is_repo_corpus(root) or not MANIFEST.is_file():
         return {}
     specs = manifest()
-    names = [s for s in (suites or specs) if s in specs and (verify or s not in _DONE)]
-    if not names:
-        return {}
-    CORPUS.mkdir(parents=True, exist_ok=True)
-    out: Dict[str, str] = {}
-    with open(CORPUS / LOCK, "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        for name in names:
-            out[name] = ensure_suite(name, specs[name], verify)
-            _DONE.add(name)
+    wanted = specs if not suites or "all" in suites else [s for s in suites if s in specs]
+    out: Dict[str, str] = {s: _DONE[s] for s in wanted if s in _DONE and not verify}
+    names = [s for s in wanted if s not in out]
+    if names:
+        CORPUS.mkdir(parents=True, exist_ok=True)
+        with open(CORPUS / LOCK, "a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            for name in names:
+                try:
+                    out[name] = ensure_suite(name, specs[name], verify)
+                except (StoreError, OSError, ValueError, tarfile.TarError) as error:
+                    out[name] = f"error: {error}"
+                _DONE[name] = out[name]
+    failed = {n: r for n, r in out.items() if r.startswith("error: ")}
+    if strict and failed:
+        raise StoreError("; ".join(r[len("error: "):] for r in failed.values()))
     return out
+
+
+def load_errors(root: Path, suites: Optional[Sequence[str]] = None) -> List[str]:
+    """ensure(strict=False) as corpus load errors, one per suite that could not be written."""
+    return [f"{name}: not written ({result[len('error: '):]})"
+            for name, result in ensure(root, suites, strict=False).items() if result.startswith("error: ")]
 
 
 def cmd_publish(name: str, dry_run: bool) -> int:
@@ -241,9 +264,22 @@ def cmd_publish(name: str, dry_run: bool) -> int:
             command.append("--dry-run")
         code = subprocess.run(command, cwd=REPO, check=False).returncode
     if code == 0 and not dry_run:
-        (directory / STAMP).write_text(json.dumps({"tree_sha256": tree, "sha256": json.loads(
-            (REPO / spec["pin"]).read_text(encoding="utf-8"))["sha256"]}) + "\n", encoding="utf-8")
+        write_stamp(directory, tree, json.loads((REPO / spec["pin"]).read_text(encoding="utf-8"))["sha256"], len(files))
     return code
+
+
+def verify_tarball(name: str, tarball: Path) -> List[str]:
+    """Problems of a fetched tarball against its pin: the unpacked tree_sha256 and file count (check-pinned-assets)."""
+    spec = manifest()[name]
+    pin = json.loads((REPO / spec["pin"]).read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as tmp:
+        unpack(tarball, Path(tmp))
+        problems = []
+        if tree_sha256(Path(tmp)) != pin.get("tree_sha256"):
+            problems.append(f"{name}: tree_sha256 {tree_sha256(Path(tmp))} != pin {pin.get('tree_sha256')}")
+        if str(len(managed_files(Path(tmp), ()))) != str(pin.get("files")):
+            problems.append(f"{name}: {len(managed_files(Path(tmp), ()))} files != pin {pin.get('files')}")
+    return problems
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -256,6 +292,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     pk = sub.add_parser("pack", help="the deterministic tarball of a suite on disk")
     pk.add_argument("suite")
     pk.add_argument("--out", type=Path, required=True)
+    vt = sub.add_parser("verify-tarball", help="check a fetched tarball against its pin's tree_sha256 and files")
+    vt.add_argument("suite")
+    vt.add_argument("tarball", type=Path)
     pub = sub.add_parser("publish", help="pack, upload and write the pin")
     pub.add_argument("suite")
     pub.add_argument("--dry-run", action="store_true")
@@ -277,6 +316,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"{args.out} sha256 {hashlib.sha256(args.out.read_bytes()).hexdigest()} "
                   f"tree_sha256 {tree_sha256(CORPUS / args.suite, spec.get('keep', []))}")
             return 0
+        if args.command == "verify-tarball":
+            problems = verify_tarball(args.suite, args.tarball)
+            for problem in problems:
+                print(f"corpus_store: {problem}", file=sys.stderr)
+            return 1 if problems else 0
         return cmd_publish(args.suite, args.dry_run)
     except StoreError as error:
         print(f"corpus_store: {error}", file=sys.stderr)

@@ -13,7 +13,7 @@
     },
     "terminal": {
       "kind": "generate",
-      "generator": ["schemas/terminal-corpus/generate.py", "--oracle-out", "{out}"]
+      "generator": ["schemas/terminal-corpus/generate.py", "--oracle-only", "--oracle-out", "{out}"]
     }
   }
 }
