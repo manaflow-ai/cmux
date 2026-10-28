@@ -165,6 +165,10 @@ public final class MainActorWorkQueue: Sendable {
     /// With the app's budget the request is a posted task: its enqueue time is read here, on the
     /// calling thread, and `file` and `line` are its `posted_from`, so the board's ledger records
     /// its wait (queue and run loop time) under its method.
+    ///
+    /// - Parameter queued: Called once the queue took `work` (or refused it `busy`), before this call
+    ///   suspends: the request has its place in the main actor's order (the control socket's startup
+    ///   lock dispatches the next replayed request then). Nil, the default, calls nothing.
     public func run<T: Sendable>(
         connection: ControlConnectionID = .inProcess,
         method: String,
@@ -174,6 +178,7 @@ public final class MainActorWorkQueue: Sendable {
         countingFrom mark: Duration? = nil,
         file: StaticString = #fileID,
         line: UInt = #line,
+        queued: (@Sendable () -> Void)? = nil,
         _ work: @escaping @MainActor @Sendable () throws -> T
     ) async throws -> T {
         let now = ContinuousClock.now
@@ -217,6 +222,7 @@ public final class MainActorWorkQueue: Sendable {
             )
             if let rejection = enqueue(item, post: post) {
                 item.expire(rejection)
+                queued?()
                 return
             }
             let task = Task { @concurrent [weak self] in
@@ -226,6 +232,7 @@ public final class MainActorWorkQueue: Sendable {
                 if item.expire(timeout) { self?.state.withLock { $0.stats.expired += 1 } }
             }
             item.attachTimer(task)
+            queued?()
         }
     }
 

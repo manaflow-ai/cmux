@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextCompat
 @testable import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -30,14 +32,19 @@ import Testing
         return server
     }
 
-    /// The router with every method group: `test.order` records the order its requests ran in.
-    static func router(recording arrivals: Arrivals) -> ControlRouter {
+    /// The router with every method group: `test.order` records the order its requests ran in, and
+    /// `test.hold` answers only once `held` yields (a confirmation sheet, a network call).
+    static func router(recording arrivals: Arrivals, held: AsyncStream<Void>? = nil) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         router.register([
             .async("test.order") { call in
                 let index = call.params["index"]?.intValue ?? -1
                 arrivals.indices.withLock { $0.append(index) }
                 return ["index": JSONValue(index)]
+            },
+            .async("test.hold") { _ in
+                if let held { for await _ in held { break } }
+                return "released"
             },
         ])
         return router
@@ -146,6 +153,83 @@ import Testing
         let arrivals = Arrivals()
         server.unlock(router: Self.router(recording: arrivals))
         #expect(arrivals.indices.withLock { $0 }.isEmpty)
+        #expect(!lock.isUnlocked, "a stopped lock never unlocks")
+    }
+
+    /// A stop before the unlock is terminal: a pipelining client's second line, still buffered on the
+    /// connection when the stop refused the first, is refused too and never waits; no waiter is left,
+    /// and a later unlock runs nothing. Every answer the client still reads is `starting`.
+    @Test func aStopRefusesTheBufferedLinesAndLeavesNoWaiter() async throws {
+        let (refusals, refusalSink) = AsyncStream<ControlError>.makeStream()
+        let (queued, queuedSink) = AsyncStream<Int>.makeStream()
+        let lock = ControlStartupLock(queued: { queuedSink.yield($0) }, refused: { refusalSink.yield($0) })
+        var waits = queued.makeAsyncIterator()
+        var refused = refusals.makeAsyncIterator()
+        let server = try Self.startedServer(lock)
+        let client = try LineClient(path: server.configuration.path)
+        client.post(Self.orderRequest(0) + "\n" + Self.orderRequest(1))  // one write: both lines buffered
+        let waitingNow = await waits.next()
+        #expect(waitingNow == 1, "the first line waits; the second stays buffered behind it")
+
+        server.stop()
+        // The waiting line, then the buffered one, each refused once: neither is left waiting.
+        for line in 0..<2 {
+            let error = await refused.next()
+            #expect(error?.code == "starting", "line \(line) is refused")
+        }
+        #expect(lock.waitingCount == 0)
+        guard case .refused(let error) = await lock.admit() else {
+            Issue.record("a stopped lock refuses every later request")
+            return
+        }
+        #expect(error.code == "starting")
+
+        let arrivals = Arrivals()
+        server.unlock(router: Self.router(recording: arrivals))
+        #expect(!lock.isUnlocked)
+        #expect(arrivals.indices.withLock { $0 }.isEmpty, "nothing runs after a later unlock")
+        // The connection closes; whatever reached the client before is `starting`, never a result.
+        var line = client.readLine()
+        while !line.isEmpty {
+            #expect(try JSONValue.parse(Data(line.utf8))["error"]?["code"] == "starting", "\(line)")
+            line = client.readLine()
+        }
+        #expect(lock.waitingCount == 0)
+    }
+
+    /// The replay dispatches in order but does not wait for answers (Chrome's `Unlock()` runs each queued
+    /// callback and opens): a replayed request that has not answered holds neither a later queued
+    /// request nor one that arrives after the unlock.
+    @Test func aSlowReplayedRequestHoldsNoneBehindIt() async throws {
+        let (lock, queued) = Self.observedLock()
+        var waits = queued.makeAsyncIterator()
+        let server = try Self.startedServer(lock)
+        defer { server.stop() }
+        let slow = try LineClient(path: server.configuration.path)
+        slow.post(#"{"id":"slow","method":"test.hold","params":{}}"#)
+        let slowWaits = await waits.next()
+        #expect(slowWaits == 1)
+        let queuedBehind = try LineClient(path: server.configuration.path)
+        queuedBehind.post(Self.orderRequest(1))
+        let behindWaits = await waits.next()
+        #expect(behindWaits == 2)
+
+        let (held, release) = AsyncStream<Void>.makeStream()
+        let arrivals = Arrivals()
+        server.unlock(router: Self.router(recording: arrivals, held: held))
+        let behind = try JSONValue.parse(Data(queuedBehind.readLine().utf8))
+        #expect(behind["id"] == 1)
+        #expect(behind["ok"] == true, "the queued request behind the slow one is answered while it waits: \(behind)")
+        let late = try LineClient(path: server.configuration.path)
+        let lateAnswer = try JSONValue.parse(Data(late.send(Self.orderRequest(2)).utf8))
+        #expect(lateAnswer["ok"] == true, "a request after the unlock is answered while the slow one waits: \(lateAnswer)")
+        #expect(lock.waitingCount == 0)
+
+        release.yield()
+        let slowAnswer = try JSONValue.parse(Data(slow.readLine().utf8))
+        #expect(slowAnswer["id"] == "slow")
+        #expect(slowAnswer["result"] == "released", "\(slowAnswer)")
+        #expect(arrivals.indices.withLock { $0 } == [1, 2])
     }
 
     /// The queue itself: one replayed request at a time in arrival order, a request that arrives during
@@ -255,6 +339,47 @@ import Testing
         // The v1 line reached the service's router (no v1 handler: unknown command), not a refusal.
         #expect(client.readLine().hasPrefix("ERROR: Unknown command 'hello'"))
         #expect(try LineClient(path: path).send("ping") == "PONG")
+    }
+
+    /// The app's own path: the launch lane binds and accepts early
+    /// (``ControlSocketBind/begin(launch:environment:configured:work:mainWork:accept:)``), a client sends its
+    /// request before the methods are registered, and the service that `prepare` builds from the same
+    /// launch, environment and bundle takes that server over: no rebind, and the request that waited is
+    /// answered by the service's router.
+    @Test func theLaunchLanesEarlyServerIsTheOneThePreparedServiceTakes() throws {
+        let path = temporarySocketPath()
+        let launch = LaunchIdentity(bundleID: "com.cmuxterm.app.debug.test", tag: "test", socketPath: path)
+        let environment = ["CMUX_NEXT_SOCKET_MODE": "automation"]
+        let s = StartupTestScheduler()
+        let bind = ControlSocketBind.begin(launch: launch, environment: environment, configured: nil, work: s.background,
+                                           mainWork: s.mainWork, accept: .init(hangs: nil))
+        let end = Date(timeIntervalSinceNow: 5)
+        while bind.outcome == nil, Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            s.fire()
+        }
+        let early = try #require(bind.accepting, "the lane accepts on the listener it bound")
+        defer { early.stop() }
+
+        // A CLI call at launch: accepted and held until the service serves.
+        let client = try LineClient(path: path)
+        client.post(#"{"id":"early","method":"system.ping","params":{}}"#)
+        while early.startup.waitingCount == 0, Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(early.startup.waitingCount == 1)
+
+        let service = try ControlService.prepare(registry: ActionRegistry(catalog: []), settings: nil, launch: launch,
+                                                 environment: environment, bundle: .main)
+        defer { service.stop() }
+        #expect(service.server.configuration == early.configuration, "one factory makes both configurations")
+        let results = ServeResults()
+        service.serve(after: bind) { results.all.append($0) }
+        #expect(try results.all.first?.get() == path)
+        #expect(service.server === early, "the service took the early server; it did not bind again")
+        let answer = try JSONValue.parse(Data(client.readLine().utf8))
+        #expect(answer["id"] == "early")
+        #expect(answer["ok"] == true, "the service's router answered the request that waited: \(answer)")
     }
 
     @Test func anEarlyServerForAnotherConfigurationIsReplaced() throws {

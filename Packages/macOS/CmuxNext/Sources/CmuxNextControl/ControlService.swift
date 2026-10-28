@@ -96,10 +96,8 @@ public final class ControlService {
             registry: registry,
             settingsStore: settings?.file,
             settingsWriter: settings,
-            configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode,
-                                                             protectStateDirectory: protectsStateDirectory(launch),
-                                                             trustedExecutables: bundledExecutables(bundle, environment: environment),
-                                                             compatibilityLink: launch.compatibilityLink),
+            configuration: Self.configuration(path: launch.socketPath, accessMode: mode, protectStateDirectory: protectsStateDirectory(launch),
+                                              compatibilityLink: launch.compatibilityLink, bundle: bundle, environment: environment),
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog,
@@ -269,6 +267,18 @@ public final class ControlService {
         if launch.compatibilityLink != nil { return true }
         let parent = URL(fileURLWithPath: launch.socketPath).deletingLastPathComponent().standardizedFileURL.path
         return parent == ControlSocketPath.shared.stateDirectory()
+    }
+
+    /// The server configuration of a launch: the one factory of both the service
+    /// (``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:hangs:)``)
+    /// and the server the launch lane accepts on early (``ControlSocketBind/EarlyAccept``), so that the service
+    /// takes that server over (``serve(after:_:)``) unless the access mode itself changed.
+    nonisolated static func configuration(path: String, accessMode: ControlAccessMode, protectStateDirectory: Bool,
+                                          compatibilityLink: String?, bundle: Bundle,
+                                          environment: [String: String]) -> ControlSocketServer.Configuration {
+        ControlSocketServer.Configuration(path: path, accessMode: accessMode, protectStateDirectory: protectStateDirectory,
+                                          trustedExecutables: bundledExecutables(bundle, environment: environment),
+                                          compatibilityLink: compatibilityLink)
     }
 
     /// The bundled cmux binary (`bin/cmux`, also run as `bin/cmux-tui`),

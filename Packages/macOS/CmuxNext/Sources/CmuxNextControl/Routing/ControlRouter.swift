@@ -225,7 +225,11 @@ public final class ControlRouter: Sendable {
     // MARK: - Lines
 
     /// Decodes one line and returns the response line (without newline).
-    public func response(forLine line: String, connection: ControlConnectionID = .inProcess) async -> String {
+    ///
+    /// - Parameter dispatched: Called once the line is handed to what answers it (``handle(_:connection:dispatched:)``;
+    ///   a v1 line, when its handler starts). Nil, the default, calls nothing.
+    public func response(forLine line: String, connection: ControlConnectionID = .inProcess,
+                         dispatched: (@Sendable () -> Void)? = nil) async -> String {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{") else {
             // v1 plain-text commands: only the liveness probe is kept.
@@ -233,6 +237,7 @@ public final class ControlRouter: Sendable {
             case "ping": return "PONG"
             default:
                 if let handler = state.withLock({ $0.v1Handler }) {
+                    dispatched?()
                     // Same bound as a v2 request (architecture.md 5a).
                     let reply: String?
                     do {
@@ -253,7 +258,7 @@ public final class ControlRouter: Sendable {
         case .success(let decoded): request = decoded
         case .failure(let error): return ControlWire.encode(id: nil, error: error)
         }
-        return ControlWire.encode(id: request.id, result: await handle(request, connection: connection))
+        return ControlWire.encode(id: request.id, result: await handle(request, connection: connection, dispatched: dispatched))
     }
 
     static func decode(_ line: String) -> Result<ControlRequest, ControlError> { ControlWire.decode(line) }
@@ -266,7 +271,15 @@ public final class ControlRouter: Sendable {
 
     // MARK: - Dispatch
 
-    public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
+    /// Answers `request` on its method's lane.
+    ///
+    /// - Parameter dispatched: Called once the request has its place in its method's order: a main-actor
+    ///   method's work item was queued (or refused `busy`), another method's body started, or the request
+    ///   waits for its read barrier (`after`). It is not called for a request answered before that (an
+    ///   unknown method). The control socket's startup lock dispatches the next replayed request then,
+    ///   so a slow request never holds the ones behind it (p08-startup-107). Nil, the default, calls nothing.
+    public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess,
+                       dispatched: (@Sendable () -> Void)? = nil) async -> Result<JSONValue, ControlError> {
         guard let method = method(named: request.method) else {
             if !configuration.allowsDebugMethods, Self.isReleaseRefusedMethod(request.method) {
                 return .failure(Self.debugMethodNotAllowed(request.method))
@@ -288,12 +301,13 @@ public final class ControlRouter: Sendable {
             // that covers the caller's earlier writes.
             // `debug.hangs` reads its own `after` (a hang log cursor).
             if request.method != "debug.hangs", let after = request.params["after"], !after.isNull {
+                dispatched?()  // the barrier waits for the daemon's events, not for the requests behind it
                 snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
             }
             var call = ControlCall(request: request, snapshot: snapshot, connection: connection,
                                    deadline: deadline, startsTerminal: startsTerminal, progress: progress, engineStartMark: engineStartMark)
             call.owner = method.owner
-            return .success(try await Self.run(method, call, queue: workQueue))
+            return .success(try await Self.run(method, call, queue: workQueue, dispatched: dispatched))
         } catch let error as ControlError {
             return .failure(error.annotated(progress: progress))
         } catch {
@@ -329,18 +343,21 @@ public final class ControlRouter: Sendable {
                      data: ["method": .string(method)])
     }
 
-    static func run(_ method: ControlMethod, _ call: ControlCall, queue: MainActorWorkQueue) async throws -> JSONValue {
+    static func run(_ method: ControlMethod, _ call: ControlCall, queue: MainActorWorkQueue,
+                    dispatched: (@Sendable () -> Void)? = nil) async throws -> JSONValue {
         switch method.body {
         case .snapshot(let body):
+            dispatched?()
             return try body(call)
         case .async(let body):
+            dispatched?()
             if !method.claimsProgress { _ = call.progress.begin() }
             return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline, startsTerminal: call.startsTerminal,
                                                         countingFrom: call.engineStartMark) { try await body(call) }
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
             let reply = try await queue.run(connection: call.connection, method: call.method, owner: method.owner, workClass: method.workClass,
-                                            deadline: call.deadline, countingFrom: call.engineStartMark) {
+                                            deadline: call.deadline, countingFrom: call.engineStartMark, queued: dispatched) {
                 // The request may have answered `not_run` already.
                 guard call.progress.begin() else { throw expired }
                 return try body(call)

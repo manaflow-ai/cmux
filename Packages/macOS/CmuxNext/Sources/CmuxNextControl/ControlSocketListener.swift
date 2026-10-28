@@ -165,10 +165,9 @@ public final class ControlSocketBind {
                 return Bound(outcome: .failure(error))
             }
             guard let accept else { return Bound(outcome: .success(listener)) }
-            let configuration = ControlSocketServer.Configuration(
-                path: path, accessMode: accessMode, protectStateDirectory: protectStateDirectory,
-                trustedExecutables: ControlService.bundledExecutables(.main, environment: accept.environment),
-                compatibilityLink: compatibilityLink)
+            // The service's own factory: the service takes this server over only when the two agree.
+            let configuration = ControlService.configuration(path: path, accessMode: accessMode, protectStateDirectory: protectStateDirectory,
+                                                             compatibilityLink: compatibilityLink, bundle: .main, environment: accept.environment)
             return Bound(outcome: .success(listener),
                          accepting: ControlSocketServer.accepting(listener, configuration: configuration,
                                                                   startup: ControlStartupLock(capacity: accept.capacity), hangs: accept.hangs))

@@ -25,8 +25,9 @@ public import CmuxNextTrace
 ///
 /// Startup lock (p08-startup-107): a server made with a locked ``ControlStartupLock`` accepts, checks
 /// each peer and parses each request before the app registered its methods; the requests wait in the
-/// lock's bounded queue and run in order at ``unlock(router:)``. One past the queue's 256 is answered
-/// `starting` and never runs. A server made with a router serves it at once.
+/// lock's bounded queue and are dispatched in order at ``unlock(router:)`` (each runs on its method's
+/// lane; a slow one holds none behind it). One past the queue's 256 is answered `starting` and never
+/// runs. A server made with a router serves it at once.
 ///
 /// Hang watch: the accept queue is one hang-watched lane, each accept pass and each socket-path watch job (a
 /// restore binds on disk) one scope of ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
@@ -434,6 +435,8 @@ public final class ControlSocketServer: Sendable {
     /// Answers one request line on its connection's task and returns whether to read the next one. The
     /// peer policy and the parse run first, so a refused peer or a malformed line never takes a place in
     /// the startup queue; a request for the router then waits for its turn there (``ControlStartupLock``).
+    /// A replayed request ends its turn once the router dispatched it, not once it is answered: the
+    /// next waiting request is dispatched while a slow one (a confirmation sheet, a network call) runs.
     private static func respond(to line: String, authorizer: ControlAuthorizer, startup: ControlStartupLock,
                                 connection: ControlConnection, id: ControlConnectionID) async -> Bool {
         let screened = authorizer.screen(line)
@@ -450,6 +453,7 @@ public final class ControlSocketServer: Sendable {
                 connection.send("ERROR: \(error.message)")
             }
         case .route(let router, let turn):
+            let dispatched: @Sendable () -> Void = { turn?.finish() }
             switch screened {
             case .request(let request) where request.method == ControlRouter.eventStreamMethod:
                 // A stream owns the connection until the client hangs up; it holds no startup turn.
@@ -457,9 +461,9 @@ public final class ControlSocketServer: Sendable {
                 await router.streamEvents(request, emit: { connection.send($0) }, hangup: { await connection.hangup() })
                 return false
             case .request(let request):
-                connection.send(ControlRouter.encode(id: request.id, result: await router.handle(request, connection: id)))
+                connection.send(ControlRouter.encode(id: request.id, result: await router.handle(request, connection: id, dispatched: dispatched)))
             case .plainText(let text):
-                connection.send(await router.response(forLine: text, connection: id))
+                connection.send(await router.response(forLine: text, connection: id, dispatched: dispatched))
             case .answered:
                 break
             }

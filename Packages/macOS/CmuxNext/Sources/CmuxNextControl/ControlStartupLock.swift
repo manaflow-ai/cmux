@@ -14,15 +14,18 @@ import Foundation
 /// (``admit()``). Until ``unlock(router:)`` hands over the router with every method group registered, a
 /// request waits here. At most ``capacity`` wait; one more is answered ``startingError(waiting:limit:)``
 /// at once: it never ran, and its `retry_after_ms` says when to send it again. At unlock the waiting
-/// requests run in the order they arrived, one at a time, each answered before the next starts, as Chrome
-/// replays its queue. A request that arrives during the replay queues behind it; once the queue is empty
-/// the lock is open and requests go straight to the router.
+/// requests are dispatched in the order they arrived, as Chrome's `Unlock()` runs its queued callbacks in
+/// order: each holds a ``Turn`` until the router dispatched it (its main-actor work item is queued, or its
+/// call started), not until it is answered, so a slow request never holds the ones behind it. A request
+/// that arrives during the replay queues behind it; once the queue is dispatched the lock is open and
+/// requests go straight to the router. A server stopped before the unlock stops its lock for good
+/// (``refuseWaiting()``): every request, waiting or later, is answered `starting` and none runs.
 ///
 /// ```swift
 /// let server = ControlSocketServer(configuration: configuration, startup: ControlStartupLock(), hangs: hangs)
 /// try server.start(adopting: listener)  // accepts now; requests wait here
 /// // after the last method group registered:
-/// server.unlock(router: router)         // replays the waiting requests in order
+/// server.unlock(router: router)         // dispatches the waiting requests in order
 /// ```
 public final class ControlStartupLock: Sendable {
     /// Requests that may wait for the unlock (plans/cmux-next/chrome-parity/p08-startup.md, task 107).
@@ -32,8 +35,8 @@ public final class ControlStartupLock: Sendable {
 
     /// What a request may do (``admit()``).
     enum Admission: Sendable {
-        /// Route it on the router. A replayed request has a turn: the next waiting request runs once the
-        /// turn is finished (``Turn/finish()``, or when the turn is released).
+        /// Route it on the router. A replayed request has a turn: the next waiting request is dispatched
+        /// once the turn is finished (``Turn/finish()``, or when the turn is released).
         case route(ControlRouter, Turn?)
         /// Answer the error; the request never ran.
         case refused(ControlError)
@@ -52,7 +55,8 @@ public final class ControlStartupLock: Sendable {
             finish()
         }
 
-        /// The request was answered: the next waiting request may run. Only the first call counts.
+        /// The router dispatched the request (or it was answered): the next waiting request may be
+        /// dispatched. Only the first call counts.
         func finish() {
             let first = isFinished.withLock { finished in
                 defer { finished = true }
@@ -67,17 +71,19 @@ public final class ControlStartupLock: Sendable {
     private enum Phase {
         /// No router yet: requests wait.
         case locked
-        /// Unlocked: the waiting requests run one at a time, and new ones queue behind them.
+        /// Unlocked: the waiting requests are dispatched one at a time, and new ones queue behind them.
         case replaying(ControlRouter)
         /// The queue drained: requests route at once.
         case open(ControlRouter)
+        /// The server stopped before the unlock: every request is refused, and the unlock changes nothing.
+        case stopped
     }
 
     private struct State {
         var phase = Phase.locked
         /// Waiting requests, oldest first (a slice: a dequeue is O(1); its storage is let go once empty).
         var waiting: ArraySlice<Waiter> = []
-        /// A replayed request runs and has not finished its turn.
+        /// A replayed request has its turn: the router has not dispatched it yet.
         var isTurnOut = false
 
         var waitingCount: Int { waiting.count }
@@ -94,20 +100,28 @@ public final class ControlStartupLock: Sendable {
     private let state = Mutex(State())
     /// Called, outside the lock, with the waiting count each time a request starts to wait (tests).
     private let queued: (@Sendable (Int) -> Void)?
+    /// Called, outside the lock, with the error each time a request is refused (tests).
+    private let refused: (@Sendable (ControlError) -> Void)?
 
     /// A locked startup lock: requests wait until ``unlock(router:)``.
     ///
-    /// - Parameter queued: Called with the waiting count each time a request starts to wait; nil (the
-    ///   default) calls nothing.
-    public init(capacity: Int = ControlStartupLock.defaultCapacity, queued: (@Sendable (Int) -> Void)? = nil) {
+    /// - Parameters:
+    ///   - queued: Called with the waiting count each time a request starts to wait; nil (the default)
+    ///     calls nothing.
+    ///   - refused: Called with the error each time a request is refused (a full queue, a stop); nil (the
+    ///     default) calls nothing.
+    public init(capacity: Int = ControlStartupLock.defaultCapacity, queued: (@Sendable (Int) -> Void)? = nil,
+                refused: (@Sendable (ControlError) -> Void)? = nil) {
         self.capacity = max(0, capacity)
         self.queued = queued
+        self.refused = refused
     }
 
     /// An open lock on `router`: a server whose methods are all registered before it accepts.
     public init(unlockedWith router: ControlRouter) {
         capacity = 0
         queued = nil
+        refused = nil
         state.withLock { $0.phase = .open(router) }
     }
 
@@ -115,7 +129,7 @@ public final class ControlStartupLock: Sendable {
     public var router: ControlRouter? {
         state.withLock { state in
             switch state.phase {
-            case .locked: nil
+            case .locked, .stopped: nil
             case .replaying(let router), .open(let router): router
             }
         }
@@ -128,7 +142,7 @@ public final class ControlStartupLock: Sendable {
     var waitingCount: Int { state.withLock { $0.waitingCount } }
 
     /// Hands over the router once every method group is registered and replays the waiting requests in
-    /// the order they arrived. A second call changes nothing.
+    /// the order they arrived. A second call, or a call after a stop (``refuseWaiting()``), changes nothing.
     public func unlock(router: ControlRouter) {
         let next: (Waiter, Admission)? = state.withLock { state in
             guard case .locked = state.phase else { return nil }
@@ -146,25 +160,33 @@ public final class ControlStartupLock: Sendable {
             return try await withOnceContinuation { (waiter: Waiter) in enqueue(waiter) }
         } catch {
             // Only a waiter dropped unresumed ends here, and the queue holds every waiter until it resumes.
-            return .refused(Self.startingError(waiting: waitingCount, limit: capacity))
+            let error = Self.startingError(waiting: waitingCount, limit: capacity)
+            refused?(error)
+            return .refused(error)
         }
     }
 
-    /// Answers every waiting request `starting` (the server stopped: its connections close). A replay in
-    /// progress goes on with the requests that arrive later.
+    /// Answers every waiting request `starting` (the server stopped: its connections close). A lock that
+    /// was not unlocked yet stops for good: a request that comes later (a line the connection had
+    /// buffered, a task between its parse and ``admit()``) is refused at once, and ``unlock(router:)``
+    /// changes nothing. A replay in progress, or an open lock (a restart), goes on with later requests.
     func refuseWaiting() {
-        let refused: [Waiter] = state.withLock { state in
-            let refused = Array(state.waiting)
+        let waiting: [Waiter] = state.withLock { state in
+            if case .locked = state.phase { state.phase = .stopped }
+            let waiting = Array(state.waiting)
             state.waiting = []
-            return refused
+            return waiting
         }
-        guard !refused.isEmpty else { return }
-        let error = Self.startingError(waiting: refused.count, limit: capacity)
-        for waiter in refused { waiter.resume(returning: .refused(error)) }
+        guard !waiting.isEmpty else { return }
+        let error = Self.startingError(waiting: waiting.count, limit: capacity)
+        for waiter in waiting {
+            refused?(error)
+            waiter.resume(returning: .refused(error))
+        }
     }
 
-    /// `starting`: cmux is still starting and the startup queue is full. The request did not run
-    /// (`not_run`); send it again after `retry_after_ms`.
+    /// `starting`: cmux is still starting and the startup queue is full, or the server stopped before
+    /// it unlocked. The request did not run (`not_run`); send it again after `retry_after_ms`.
     static func startingError(waiting: Int, limit: Int) -> ControlError {
         ControlError(code: "starting",
                      message: ControlStrings.format("control.error.starting",
@@ -185,7 +207,11 @@ public final class ControlStartupLock: Sendable {
 
     private func enqueue(_ waiter: Waiter) {
         let (now, waiting): (Admission?, Int) = state.withLock { state in
-            if case .open(let router) = state.phase { return (.route(router, nil), 0) }
+            switch state.phase {
+            case .open(let router): return (.route(router, nil), 0)
+            case .stopped: return (.refused(Self.startingError(waiting: 0, limit: capacity)), 0)
+            case .locked, .replaying: break
+            }
             guard state.waitingCount < capacity else {
                 return (.refused(Self.startingError(waiting: state.waitingCount, limit: capacity)), state.waitingCount)
             }
@@ -197,6 +223,7 @@ public final class ControlStartupLock: Sendable {
             queued?(waiting)
             return
         }
+        if case .refused(let error) = now { refused?(error) }
         waiter.resume(returning: now)
     }
 
