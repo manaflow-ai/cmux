@@ -1,0 +1,100 @@
+// Grading for tool evals. A sample is graded on two things:
+// - state: the session before and after, with the agent-evals checks
+//   (tests/agent-evals/grade.mjs: placement, focus, grouping, ...);
+// - calls: what the agent called, as t3code's mcp-tool-use eval grades it.
+// Pure functions; grade.test.mjs covers them.
+import { CHECKS, CHECK_CATEGORY } from "../agent-evals/grade.mjs";
+
+/**
+ * One cmux operation the agent ran, however it reached cmux:
+ *   { via: "exec" | "mcp" | "cli", tool, ok, input?, script? }
+ * `tool` is the MCP tool name (`pane_split`); a CLI call's tool is its first
+ * two words joined (`pane_split` for `cmux pane split`), ids skipped.
+ */
+export function cliTool(argv) {
+  const words = argv.filter((a) => !a.startsWith("-") && !/^(ws|pane|tab|term|screen|win|tg|wg)_[0-9a-f]/.test(a) && !a.includes(":"));
+  return words.slice(0, 2).join("_");
+}
+
+const BOUND = /^([<>]=)(-?\d+(?:\.\d+)?)$/;
+/** `args` match partially: `~text` is a case-insensitive substring, "<=N" / ">=N" bound a number. */
+export function matches(expected, actual) {
+  if (typeof expected === "string") {
+    if (expected.startsWith("~")) return typeof actual === "string" && actual.toLowerCase().includes(expected.slice(1).toLowerCase());
+    const bound = BOUND.exec(expected);
+    if (bound && typeof actual === "number") return bound[1] === "<=" ? actual <= Number(bound[2]) : actual >= Number(bound[2]);
+  }
+  if (expected && typeof expected === "object" && !Array.isArray(expected)) {
+    if (!actual || typeof actual !== "object") return false;
+    return Object.entries(expected).every(([k, v]) => matches(v, k.split(".").reduce((o, p) => o?.[p], actual)));
+  }
+  return JSON.stringify(expected) === JSON.stringify(actual);
+}
+
+const callMatches = (spec, call) => {
+  const tools = Array.isArray(spec.tool) ? spec.tool : [spec.tool];
+  if (!tools.some((t) => (t.endsWith("*") ? call.tool.startsWith(t.slice(0, -1)) : call.tool === t))) return false;
+  if (spec.ok !== undefined && call.ok !== spec.ok) return false;
+  return !spec.args || (call.input !== undefined && matches(spec.args, call.input));
+};
+
+/** Checks on calls, the agent's text and its scripts. Each returns { name, ok, detail, category }. */
+export function gradeCalls(expect, run) {
+  const out = [];
+  const add = (name, ok, detail, category) => out.push({ name, ok: !!ok, detail, category, required: true, weight: 1 });
+  const ops = run.ops;
+  for (const spec of expect.calls ?? []) {
+    add(`calls ${JSON.stringify(spec)}`, ops.some((c) => callMatches(spec, c)), "", "not_done");
+  }
+  for (const spec of expect.callsMustNot ?? []) {
+    const bad = ops.filter((c) => callMatches(spec, c));
+    add(`callsMustNot ${JSON.stringify(spec)}`, bad.length === 0, bad.map((c) => c.tool).join(", "), "wrong_tool");
+  }
+  for (const [tool, n] of Object.entries(expect.maxCalls ?? {})) {
+    const count = tool === "*" ? ops.length : ops.filter((c) => c.tool === tool).length;
+    add(`maxCalls ${tool}<=${n}`, count <= n, `${count}`, "wasted_calls");
+  }
+  if (expect.maxErrors !== undefined) {
+    const errors = ops.filter((c) => !c.ok);
+    add(`maxErrors<=${expect.maxErrors}`, errors.length <= expect.maxErrors, errors.map((c) => `${c.tool}: ${c.error ?? ""}`.slice(0, 120)).join(" | "), "tool_errors");
+  }
+  if (expect.maxSteps !== undefined) add(`maxSteps<=${expect.maxSteps}`, run.steps <= expect.maxSteps, `${run.steps}`, "wasted_calls");
+  if (expect.order) {
+    const firsts = expect.order.map((t) => ops.findIndex((c) => c.tool === t));
+    const ok = firsts.every((i) => i >= 0) && firsts.every((i, k) => k === 0 || firsts[k - 1] < i);
+    add(`order ${expect.order.join(" < ")}`, ok, firsts.join(","), "wrong_order");
+  }
+  for (const re of expect.shellMustNot ?? []) {
+    const bad = run.shell.filter((cmd) => new RegExp(re).test(cmd));
+    add(`shellMustNot /${re}/`, bad.length === 0, bad.slice(0, 2).join(" | ").slice(0, 200), "wrong_tool");
+  }
+  for (const re of expect.textMust ?? []) add(`textMust /${re}/`, new RegExp(re).test(run.text), "", "wrong_answer");
+  for (const re of expect.textMustNot ?? []) add(`textMustNot /${re}/`, !new RegExp(re).test(run.text), (run.text.match(new RegExp(re)) ?? [""])[0], "wrong_answer");
+  return out;
+}
+
+/** State checks from agent-evals, by name; `ctx` is the agent-evals grading context. */
+export function gradeState(specs, ctx) {
+  return (specs ?? []).map((spec) => {
+    const required = spec.required !== false;
+    try {
+      const fn = CHECKS[spec.check];
+      if (!fn) throw new Error(`unknown check ${spec.check}`);
+      const r = fn(ctx, spec.params ?? {});
+      return { name: spec.check, ok: r.ok, detail: r.detail ?? "", category: r.category ?? CHECK_CATEGORY[spec.check], required, weight: 1 };
+    } catch (e) {
+      return { name: spec.check, ok: false, detail: String(e.message ?? e), category: "harness_error", required, weight: 1 };
+    }
+  });
+}
+
+export function verdict(checks) {
+  const failed = checks.find((c) => c.required && !c.ok);
+  return { pass: !failed, ...(failed ? { category: failed.category, failed: failed.name } : {}) };
+}
+
+/** A case fails when half or more of its samples fail. */
+export function caseVerdict(samples) {
+  const fails = samples.filter((s) => !s.pass).length;
+  return { pass: fails * 2 < samples.length, fails, samples: samples.length };
+}
