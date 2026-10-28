@@ -18,7 +18,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugSidebarWheel.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWindowSnapshot.swift	2
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWindowTransition.swift	2
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/UpdateHarnessProbe.swift	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/TabDragSession.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugFocus.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugKey+Sequence.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugKey.swift	4
@@ -35,7 +34,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ListHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/MachineIconHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/PaneBackgroundHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WindowHandlers.swift	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WindowTargeting.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/HostPressure/HostPressureIndicatorView+Debug.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/DebugMouse+Page.swift	4
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/DebugMouse.swift	1
@@ -50,7 +48,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/PasswordCSVGuidePresentin
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitCoordinator.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/AddDeviceServices+App.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/RemoteBrowserPages.swift	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screens/ScreenDragSession.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerMenuBarController.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettings.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	1
