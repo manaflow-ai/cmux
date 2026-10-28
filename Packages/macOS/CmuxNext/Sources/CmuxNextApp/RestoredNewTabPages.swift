@@ -35,11 +35,16 @@ enum RestoredNewTabPages {
     }
 
     /// The tabs of `store` that show the New Tab page, with the pages this run opened.
+    ///
+    /// Every window's sidebar rows pass reads this. Only a blank chat record (no acpmux session yet) can be a
+    /// restored page (``shows(_:in:workspace:)``), so it reads the store's blank chat records alone
+    /// (`StoreTabRoles`), never the tree: a terminal opened, moved or closed in any workspace re-runs no rows
+    /// pass, and the cost is the blank chats, not the session (hot-path audit 3, H4).
+    // perf-hot: 20us store-tab-roles (every sidebar rows pass of every window)
     static func ids(in store: DaemonStore?, tabs: AgentTabStore) -> Set<String> {
         var ids = tabs.pageTabs.ids
         guard let store else { return ids }
-        for tab in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-        where tab.agentSession != nil && !ids.contains(tab.id) && shows(tab, in: tabs) {
+        for tab in store.tabRoles.chatTabs(showing: nil) where !ids.contains(tab.id) && shows(tab, in: tabs) {
             ids.insert(tab.id)
         }
         return ids
