@@ -45,8 +45,10 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// What a violation does (``BlockingMode/record`` in every build but a Debug build started with
-    /// `CMUX_BLOCKING_TRAP=1`).
+    /// What a violation does: ``BlockingMode/record`` by default in every checked build (Debug, bench-checks,
+    /// Nightly); ``BlockingMode/trap`` when a Debug or Nightly launch set `CMUX_BLOCKING_TRAP=1`
+    /// (``BlockingMode/resolved(environment:)``: it hands the site to the sink, waiting at most 50 ms, then stops);
+    /// a bench build never traps; always ``BlockingMode/record`` in Release.
     public var mode: BlockingMode {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.mode

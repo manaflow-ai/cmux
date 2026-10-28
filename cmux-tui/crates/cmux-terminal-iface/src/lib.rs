@@ -28,6 +28,8 @@
 //! The JSON source of truth is
 //! `cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.{backend,connector}/1.json`.
 
+#![forbid(unsafe_code)]
+
 mod backend;
 mod conformance;
 mod connector;

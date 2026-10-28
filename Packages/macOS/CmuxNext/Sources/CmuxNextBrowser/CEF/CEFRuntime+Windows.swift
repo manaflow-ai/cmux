@@ -30,6 +30,8 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
     struct Entry: Equatable, Sendable {
         var request: CEFWindowRequest
         var decision: CEFWindowDecision
+        /// The id the Chromium Host minted for an insert's tab, else 0.
+        var tab: Int32 = 0
     }
 
     private(set) var count = 0
@@ -45,10 +47,10 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
         if popupWindows.count > 12 { popupWindows.removeFirst(popupWindows.count - 12) }
     }
 
-    mutating func record(_ request: CEFWindowRequest, _ decision: CEFWindowDecision) {
+    mutating func record(_ request: CEFWindowRequest, _ decision: CEFWindowDecision, tab: Int32 = 0) {
         count += 1
         if case .refuse = decision { refused += 1 }
-        recent.append(Entry(request: request, decision: decision))
+        recent.append(Entry(request: request, decision: decision, tab: tab))
         if recent.count > 8 { recent.removeFirst(recent.count - 8) }
     }
 
@@ -65,11 +67,13 @@ extension CEFRuntime {
         return key.offTheRecord ? context : Self.normalizedPath(context)
     }
 
-    /// How the next tab inserted into `window` opens: the oldest placement a
-    /// window request recorded for it, else `fallback` with the popup
-    /// features Chromium reported at creation.
-    func takePlacement(window: Int32, fallback: BrowserNewTabDisposition, created: CEFCreatedBy = .none) -> CEFPlacement {
-        guard var placement = placements.take(window: window) else {
+    /// How `browser`, a tab Chromium inserted into `window`, opens: the placement
+    /// the Chromium Host's window request recorded for the id it minted for
+    /// it, else the oldest placement recorded for `window`, else `fallback`
+    /// with the popup features Chromium reported at creation.
+    func takePlacement(browser: Int32, window: Int32, fallback: BrowserNewTabDisposition,
+                       created: CEFCreatedBy = .none) -> CEFPlacement {
+        guard var placement = placements.take(tab: browser) ?? placements.take(window: window) else {
             return CEFPlacement(disposition: fallback, bounds: created.features)
         }
         placement.bounds = CEFPlacement.resolvedBounds(request: placement.bounds, created: created.features)
@@ -112,7 +116,8 @@ public struct CEFWindowReport: Sendable {
     /// Window requests the fork sent (fork API 8).
     public var requests: Int
     public var refused: Int
-    /// The latest requests: "kind=… disposition=… source=… -> decision".
+    /// The latest requests: "kind=… disposition=… source=… -> decision", and " tab=…" with the id the
+    /// Chromium Host minted for an insert's tab.
     public var recent: [String]
     /// Chromium commands the shim blocked (`IDC_*` ids).
     public var blockedCommands: [Int32]
@@ -141,6 +146,7 @@ extension CEFRuntime {
             refused: windowRequests.log.refused,
             recent: windowRequests.log.recent.map { entry in
                 "kind=\(entry.request.kind.rawValue) disposition=\(entry.request.disposition.rawValue) source=\(entry.request.sourceBrowser) -> \(entry.decision)"
+                    + (entry.tab != 0 ? " tab=\(entry.tab)" : "")
             },
             blockedCommands: windowRequests.log.blockedCommands,
             foreignBrowsers: started ? Int(shim?.foreignBrowserCount() ?? -1) : -1,

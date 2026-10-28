@@ -163,6 +163,7 @@ nonisolated extension CEFShimLibrary {
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
         unsafe setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
+        unsafe setWindowRequestPolicy = try r("cmux_shim_set_window_request_policy")
         unsafe setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
         let cDownloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_download_url")

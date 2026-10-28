@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -44,9 +45,11 @@ extension PaneController {
         let opener = opener ?? self
         switch currentContent {
         case .agent(let view):
-            services.registry.track(Task { [weak opener] in
-                let url = await view.workingContext()?.urls.first
-                opener?.newBrowserTab(url: url, engine: engine, then: then)
+            // The open, after the page's context read, is the rest of the person's action (`personAction`).
+            services.registry.track(services.mainWork.personAction(owner: "PaneController.newBrowserTabFromWork") {
+                await view.workingContext()?.urls.first
+            } then: { [weak opener] url -> ActionWorkFailure? in
+                _ = opener?.newBrowserTab(url: url, engine: engine, then: then)
                 return nil
             })
         case .terminal(let entry):
