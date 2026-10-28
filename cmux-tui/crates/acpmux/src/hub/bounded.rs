@@ -130,6 +130,7 @@ impl<M: SuffixMetric> TrimmedText<M> {
     }
 
     pub(super) fn push_str(&mut self, text: &str) {
+        const RUN_LIMIT: usize = 4096;
         let mut run = String::new();
         let mut whitespace = None;
         for ch in text.chars() {
@@ -145,6 +146,9 @@ impl<M: SuffixMetric> TrimmedText<M> {
                 whitespace = Some(is_whitespace);
             }
             run.push(ch);
+            if run.len() >= RUN_LIMIT {
+                self.flush_run(&mut run, whitespace);
+            }
         }
         self.flush_run(&mut run, whitespace);
     }
