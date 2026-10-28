@@ -116,6 +116,16 @@
             }
           },
           {
+            "key" : "settings.group.energy",
+            "rows" : [
+              "energy.saver"
+            ],
+            "title" : {
+              "key" : "settings.group.energy",
+              "text" : "Energy Saver"
+            }
+          },
+          {
             "key" : "settings.group.picker",
             "rows" : [
               "picker.pinned"
@@ -6480,9 +6490,9 @@
     },
     {
       "accepts" : [
-        80,
+        0,
         800,
-        440
+        400
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -6490,19 +6500,25 @@
         "cmux-browser",
         "cmux-next"
       ],
-      "default" : 200,
+      "default" : 0,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
         "text" : "Columns"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.layout.minimumPaneWidth.help",
+        "text" : "The narrowest a pane gets. At 0, a pane can be one character wide, and narrower than that it collapses into a thin bar; click the bar or press Control-Command-X to open it again."
+      },
       "kept_on_reset_all" : false,
       "key" : "layout.minimumPaneWidth",
       "keywords" : [
         "split",
         "size",
-        "width"
+        "width",
+        "collapse",
+        "fold",
+        "small"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -6512,14 +6528,14 @@
       ],
       "range" : {
         "max" : 800,
-        "min" : 80,
-        "placeholder" : 80,
+        "min" : 0,
+        "placeholder" : 0,
         "step" : 10,
         "unit" : "points"
       },
       "refuses" : [
-        -640,
-        1520,
+        -800,
+        1600,
         "1"
       ],
       "section" : "general",
@@ -6532,28 +6548,34 @@
     },
     {
       "accepts" : [
-        32,
+        0,
         600,
-        316
+        300
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 64,
+      "default" : 0,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
         "text" : "Columns"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.layout.minimumPaneHeight.help",
+        "text" : "The shortest a pane's content gets below its tab bar. At 0, a pane can be one line tall with its tab bar hidden, and shorter than that it collapses into a thin bar; click the bar or press Control-Command-X to open it again."
+      },
       "kept_on_reset_all" : false,
       "key" : "layout.minimumPaneHeight",
       "keywords" : [
         "split",
         "size",
-        "height"
+        "height",
+        "collapse",
+        "fold",
+        "small"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -6563,14 +6585,14 @@
       ],
       "range" : {
         "max" : 600,
-        "min" : 32,
-        "placeholder" : 32,
+        "min" : 0,
+        "placeholder" : 0,
         "step" : 4,
         "unit" : "points"
       },
       "refuses" : [
-        -536,
-        1168,
+        -600,
+        1200,
         "1"
       ],
       "section" : "general",
@@ -18600,6 +18622,85 @@
       "title" : {
         "key" : "settings.terminal.linkOpener.rules",
         "text" : "Program Link Rules"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "remote",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.predictiveEchoRemote",
+            "text" : "Remote and Slow Terminals"
+          },
+          "value" : "remote"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalTyping",
+        "text" : "Typing"
+      },
+      "help" : {
+        "key" : "settings.terminal.predictiveEcho.help",
+        "text" : "Shows the characters you type before the host echoes them, dimmed and underlined, as mosh does. A guess the echo does not confirm disappears. Remote and Slow Terminals: for terminals on another machine and when the echo is slow. Always: in every terminal. Never while an input method composes text or secure input is on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.predictiveEcho",
+      "keywords" : [
+        "predictive",
+        "echo",
+        "local echo",
+        "mosh",
+        "latency",
+        "lag",
+        "ssh",
+        "remote",
+        "typing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "predictiveEcho"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "terminal",
+      "summary" : {
+        "key" : "settings.terminal.predictiveEcho.summary",
+        "text" : "Show typing before a slow echo"
+      },
+      "title" : {
+        "key" : "settings.terminal.predictiveEcho",
+        "text" : "Predictive Echo"
       },
       "validation" : "portable"
     },
@@ -30645,7 +30746,7 @@
       },
       "help" : {
         "key" : "settings.browser.keepNeighborTabsAwake.help",
-        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure, Low Power Mode and Energy Saver turn it off."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.keepNeighborTabsAwake",
@@ -35999,6 +36100,398 @@
       "title" : {
         "key" : "settings.diagnostics.hangReports",
         "text" : "Send Hang Reports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "onBattery",
+        "always",
+        "off"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.energy.auto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.energy.onBattery",
+            "text" : "On Battery"
+          },
+          "value" : "onBattery"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.energy",
+        "text" : "Energy Saver"
+      },
+      "help" : {
+        "key" : "settings.energy.saver.help",
+        "text" : "Energy Saver makes cmux use less power: web pages you are not using draw at most 30 frames per second, background animations stop, and timers and background checks run less often. Typing, scrolling and the animations you start are not slowed. Automatic: on in Low Power Mode, on battery below 20%, or on battery while the Mac is hot. On Battery: on whenever the Mac runs on battery. Always: always on. Off: never on. Turn Off for Now keeps it off until you plug in the Mac or change this setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "energy.saver",
+      "keywords" : [
+        "energy",
+        "energy saver",
+        "battery",
+        "battery saver",
+        "power",
+        "low power mode",
+        "thermal",
+        "hot",
+        "fan",
+        "frame rate",
+        "save power"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "energy",
+        "saver"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.energy.saver.summary",
+        "text" : "Use less power on battery and in Low Power Mode"
+      },
+      "title" : {
+        "key" : "settings.energy.saver",
+        "text" : "Energy Saver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "conservative",
+        "medium",
+        "aggressive"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.memory.conservative",
+            "text" : "Moderate"
+          },
+          "value" : "conservative"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.memory.medium",
+            "text" : "Balanced"
+          },
+          "value" : "medium"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.memory.aggressive",
+            "text" : "Maximum"
+          },
+          "value" : "aggressive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "medium",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memorySaver",
+        "text" : "Memory Saver"
+      },
+      "help" : {
+        "key" : "settings.memory.saver.help",
+        "text" : "Frees memory from hidden pages, conversations and workspaces you are not using. Moderate waits longest, Maximum frees memory soonest, and Balanced is in between. Off frees memory only when the Mac runs low on memory. Browser tabs follow Hibernate Hidden Tabs."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "memory.saver",
+      "keywords" : [
+        "memory",
+        "memory saver",
+        "ram",
+        "discard",
+        "hibernate",
+        "sleep",
+        "free memory",
+        "performance"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "memory",
+        "saver"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.memory.saver.summary",
+        "text" : "Free memory from content you are not using"
+      },
+      "title" : {
+        "key" : "settings.memory.saver",
+        "text" : "Memory Saver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.launch",
+        "text" : "Launch"
+      },
+      "help" : {
+        "key" : "settings.launch.savedPicture.help",
+        "text" : "At quit, cmux saves a picture of each window on this Mac and shows it while the window opens next time. Pictures can show terminal text and web pages. Incognito windows, password entry and protected video are never saved. Off deletes the pictures."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "launch.savedPicture",
+      "keywords" : [
+        "launch",
+        "startup",
+        "start",
+        "open",
+        "fast",
+        "picture",
+        "snapshot",
+        "screenshot",
+        "restore",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "launch",
+        "savedPicture"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.launch.savedPicture.summary",
+        "text" : "Windows appear at once when cmux opens"
+      },
+      "title" : {
+        "key" : "settings.launch.savedPicture",
+        "text" : "Open Windows from a Saved Picture"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.pointerInput",
+        "text" : "Pointer Input"
+      },
+      "help" : {
+        "key" : "settings.input.resampleDrags.help",
+        "text" : "A dragged divider or pane edge is drawn where the pointer was at each frame's time, so it moves at an even pace. Snaps and where it lands still follow the pointer exactly. Reduce Motion turns it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "input.resampleDrags",
+      "keywords" : [
+        "drag",
+        "divider",
+        "resize",
+        "smooth",
+        "pointer",
+        "mouse",
+        "resample",
+        "frame"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "input",
+        "resampleDrags"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.input.resampleDrags",
+        "text" : "Smooth Divider Drags"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        16,
+        8
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.pointerInput",
+        "text" : "Pointer Input"
+      },
+      "help" : {
+        "key" : "settings.input.resampleFrameAheadMs.help",
+        "text" : "Draws a dragged divider this far ahead of the frame, guessed from the pointer's speed. 0 does not guess ahead. Snaps and where it lands still follow the real pointer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "input.resampleFrameAheadMs",
+      "keywords" : [
+        "drag",
+        "divider",
+        "prediction",
+        "predict",
+        "latency",
+        "resample",
+        "debug",
+        "development"
+      ],
+      "kind" : "number",
+      "page_hidden" : true,
+      "path" : [
+        "input",
+        "resampleFrameAheadMs"
+      ],
+      "range" : {
+        "max" : 16,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -16,
+        32,
+        "1"
+      ],
+      "section" : "development",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.input.resampleFrameAheadMs",
+        "text" : "Drag Prediction Ahead"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.pointerInput",
+        "text" : "Pointer Input"
+      },
+      "help" : {
+        "key" : "settings.debug.mainJobGate.help",
+        "text" : "While a key, click, scroll or drag waits, other app work waits behind it and runs in order once that input is on screen. Off runs app work in the order it was asked for."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "debug.mainJobGate",
+      "keywords" : [
+        "input",
+        "latency",
+        "typing",
+        "main thread",
+        "queue",
+        "jobs",
+        "debug",
+        "development"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "debug",
+        "mainJobGate"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "development",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.debug.mainJobGate",
+        "text" : "Input Before Background Work"
       },
       "validation" : "portable"
     },
