@@ -170,6 +170,27 @@ struct MobileIrxDiscoveryProviderTests {
             )
         }
     }
+
+    @Test("forget refuses when the authenticated team scope is missing")
+    func forgetMissingScopeGuard() async throws {
+        let mac = "123e4567-e89b-42d3-a456-426614174011"
+        let response = try Self.discovery(bindings: [
+            Self.binding(bindingID: "mac-record", deviceID: mac, platform: "mac")
+        ])
+        let revoked = RevokedBox()
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil,
+            discover: { response }, invalidateSnapshot: {},
+            revokeBinding: { revoked.append($0) },
+            authenticatedAccountID: { "account-a" }
+        )
+        await #expect(throws: MobileIrxForgetError.discoveryUnavailable) {
+            try await provider.forgetComputer(
+                macDeviceID: mac, instanceTag: nil, expectedAccountID: "account-a"
+            )
+        }
+        #expect(revoked.values.isEmpty)
+    }
 }
 
 private final class RevokedBox: @unchecked Sendable {

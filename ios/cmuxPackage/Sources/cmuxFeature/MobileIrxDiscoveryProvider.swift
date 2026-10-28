@@ -184,7 +184,9 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         guard account == expectedAccountID else {
             throw MobileIrxForgetError.accountMismatch
         }
-        let owner = await authenticatedScopeID()
+        guard let owner = await authenticatedScopeID() else {
+            throw MobileIrxForgetError.discoveryUnavailable
+        }
         guard let discovery = await discover(), owner == (await authenticatedScopeID()) else {
             throw MobileIrxForgetError.discoveryUnavailable
         }
@@ -201,7 +203,8 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         for binding in matches {
             // Re-verify before each revoke: an account switch landing
             // mid-operation must never revoke another account's binding.
-            guard await authenticatedAccountID() == expectedAccountID, owner == (await authenticatedScopeID()) else {
+            guard await authenticatedAccountID() == expectedAccountID,
+                  let currentScope = await authenticatedScopeID(), owner == currentScope else {
                 throw MobileIrxForgetError.accountMismatch
             }
             try await revokeBinding(binding.deviceRecordID)
