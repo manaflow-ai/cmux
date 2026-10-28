@@ -435,6 +435,7 @@ type AfterScan = Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 struct AfterScanStore {
     inner: Box<dyn acpmux::store::Store>,
     after: AfterScan,
+    stop_at_decline: bool,
 }
 
 impl acpmux::store::Store for AfterScanStore {
@@ -467,7 +468,12 @@ impl acpmux::store::Store for AfterScanStore {
         after: u64,
         visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
     ) -> anyhow::Result<()> {
-        self.inner.scan(id, after, visit)?;
+        self.inner.scan(id, after, &mut |record| {
+            // Export the durable prefix a crash or concurrent export between the two decline
+            // appends can see: queue_declined is present, queue_removed is not yet present.
+            let stop = self.stop_at_decline && record.kind == "queue_declined";
+            visit(record) && !stop
+        })?;
         let callback = self.after.lock().unwrap().take();
         if let Some(callback) = callback {
             callback();
@@ -486,7 +492,7 @@ async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed(
     cfg.store.mode = StoreMode::Memory;
     let inner = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let after = Arc::new(std::sync::Mutex::new(None));
-    let hub = Hub::new(cfg, Box::new(AfterScanStore { inner, after: after.clone() }));
+    let hub = Hub::new(cfg, Box::new(AfterScanStore { inner, after: after.clone(), stop_at_decline: false }));
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
     c.queue(held(&session, "g-1", "never approved")).await;
@@ -509,5 +515,43 @@ async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed(
     }
     hub.shutdown_all().await;
     let error = result.expect_err("exported held prompt was offered to an older target");
+    assert_eq!(error.data.unwrap()["reason"], "transfer.held_prompts");
+}
+
+#[tokio::test]
+async fn transfer_refuses_a_decline_snapshot_before_the_legacy_removal() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake", "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let inner = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let store = AfterScanStore {
+        inner,
+        after: Arc::new(std::sync::Mutex::new(None)),
+        stop_at_decline: true,
+    };
+    let hub = Hub::new(cfg, Box::new(store));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let waiting = c.queue(held(&session, "g-1", "never approved")).await;
+    c.call("_acpmux/queue_decline", answer(&hub, &session, "g-1", None)).await;
+    assert_eq!(reason(&c.reply_to(waiting).await), "queue.declined");
+    assert!(queue(&hub, &session).is_empty());
+    // The live queue is already empty, but export's log snapshot ends at queue_declined.
+    // An older target ignores that new record and would restore its queued prompt.
+    let result =
+        hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session})).await;
+    if let Ok(bundle) = &result {
+        hub.transfer_request(
+            "_acpmux/transfer_abort",
+            &json!({"sessionId": session, "transferId": bundle["transferId"]}),
+        )
+        .await
+        .unwrap();
+    }
+    hub.shutdown_all().await;
+    let error = result.expect_err("decline without legacy removal was offered to an older target");
     assert_eq!(error.data.unwrap()["reason"], "transfer.held_prompts");
 }
