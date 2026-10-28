@@ -60,6 +60,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
+import { restoredDraftAttachments, wakeDraftAttachments } from "./newtab/draftRestore";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -720,7 +721,10 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string, attachments?: ComposerAttachment[]) =>
+  callNative("chat.unsentDraft", { text, ...(attachments !== undefined ? { attachments } : {}) }).catch(
+    () => undefined,
+  );
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -4375,6 +4379,14 @@ function AcpmuxPane() {
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  const [draftAttachments, setDraftAttachments] = useState<ComposerAttachment[] | undefined>();
+  const pendingNewTabDraftWrite = useRef<Promise<void> | undefined>(undefined);
+  const persistNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    pendingNewTabDraftWrite.current = callNative("chat.unsentDraft", { text, attachments }).then(
+      () => undefined,
+      () => undefined,
+    );
+  };
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
@@ -7051,6 +7063,7 @@ function AcpmuxPane() {
           newTab?: unknown;
           cwd?: string;
           draft?: string;
+          draftAttachments?: ComposerAttachment[];
           prompt?: string;
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
@@ -7118,6 +7131,20 @@ function AcpmuxPane() {
           if (composerHandle.current) composerHandle.current.wake(wake.composer);
           else pendingWake.current = wake.composer;
         }
+        // A restored unsent New Tab is a new chat until its first prompt. A live wake state is
+        // newer than the seed, including an explicit empty list after the person removed a chip.
+        if (!reconnect && !host.newTab && Array.isArray(host.draftAttachments) && host.draftAttachments.length) {
+          const wakeAttachments = wakeDraftAttachments(
+            wake?.composer.attachments,
+            wake?.composer.attachments !== undefined || pendingWake.current?.attachments !== undefined,
+            host.draftAttachments,
+          );
+          if (wakeAttachments !== undefined) {
+            const kept = { ...pendingWake.current, attachments: wakeAttachments };
+            if (composerHandle.current) composerHandle.current.wake(kept);
+            else pendingWake.current = kept;
+          }
+        }
         if (!reconnect && host.sessionId) {
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
@@ -7150,6 +7177,15 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        // A reconnect omits the one-time seed; only an explicit list replaces restored chips.
+        // A fresh ready for another tab must clear the previous tab's seed when it has none.
+        setDraftAttachments((current) =>
+          reconnect
+            ? restoredDraftAttachments(current, host.draftAttachments)
+            : Array.isArray(host.draftAttachments)
+              ? host.draftAttachments
+              : undefined,
+        );
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -7800,6 +7836,19 @@ function AcpmuxPane() {
           // on at most DRAFT_SETTLE_MS so the host's one-second ask still gets the chips and the place.
           "pane.wakeState": async () => {
             await settleDraftWithin(composerHandle.current, DRAFT_SETTLE_MS);
+            // A New Tab has no composer handle. Its ordinary edit may still be in the native queue
+            // when quit asks for wake state, so wait briefly for that write as well.
+            const pending = pendingNewTabDraftWrite.current;
+            if (pending) {
+              let timeout: ReturnType<typeof setTimeout> | undefined;
+              await Promise.race([
+                pending,
+                new Promise<void>((resolve) => {
+                  timeout = setTimeout(resolve, DRAFT_SETTLE_MS);
+                }),
+              ]);
+              if (timeout) clearTimeout(timeout);
+            }
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),
@@ -8535,8 +8584,8 @@ function AcpmuxPane() {
   };
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
-    (text: string) => {
-      const sent = postUnsentDraft(text);
+    (text: string, attachments: ComposerAttachment[] = []) => {
+      const sent = postUnsentDraft(text, attachments);
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
@@ -9203,6 +9252,7 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
+            initialAttachments={draftAttachments}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
@@ -9756,10 +9806,15 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+              initialDraft={draft}
+              initialAttachments={draftAttachments}
+              onDraftChanged={(text, attachments) => {
+                persistNewTabDraft(text, attachments);
+              }}
               onLeaveDraft={(text, attachments) => {
                 // Persist the New Tab's pre-session text through the tab-owned unsent store
                 // before the page is replaced. Attachments are handed to the wake store below.
-                void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+                persistNewTabDraft(text, attachments);
                 // A Sandboxed send from the page already took its prompt (or held it back).
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;
@@ -9874,6 +9929,11 @@ function AcpmuxPane() {
               knownProjects={newTabKnownProjects}
               host={newTab.host ?? machineName}
               location={newTab.location}
+              initialDraft={draft}
+              initialAttachments={draftAttachments}
+              onDraftChanged={(text, attachments) => {
+                persistNewTabDraft(text, attachments);
+              }}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               // The same deferred chips as the other templates: a pick before the chat starts opens

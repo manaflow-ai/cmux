@@ -9,6 +9,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var cwd: String?
     /// The composer's first text (a selection, a page's title and URL).
     public var draft: String?
+    /// Attachments staged on a New Tab page alongside draft.
+    public var draftAttachments: [AgentPaneWakeState.Attachment]
     /// The first prompt, sent without the user pressing Send.
     public var prompt: String?
     /// Who seeded ``prompt``. Only a person's own action or onboarding's first task gets the
@@ -45,7 +47,7 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
         public var sendsBySelf: Bool { self != .automation }
     }
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptBy: PromptBy = .automation,
+    public init(cwd: String? = nil, draft: String? = nil, draftAttachments: [AgentPaneWakeState.Attachment] = [], prompt: String? = nil, promptBy: PromptBy = .automation,
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil,
                 folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
         self.promptBy = promptBy
@@ -54,6 +56,7 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
         self.pastChat = pastChat
         self.cwd = cwd
         self.draft = draft
+        self.draftAttachments = draftAttachments
         self.prompt = prompt
         self.adopt = adopt
         self.surface = surface
@@ -90,7 +93,7 @@ public final class AgentPaneSeedSource {
         guard read == nil else { return false }
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && value.draftAttachments.isEmpty && !value.showsHarnesses
     }
 
     /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
@@ -128,6 +131,7 @@ public final class AgentPaneSeedSource {
         }
         let seed = value
         value?.draft = nil
+        value?.draftAttachments = []
         value?.prompt = nil
         value?.showsHarnesses = false
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).

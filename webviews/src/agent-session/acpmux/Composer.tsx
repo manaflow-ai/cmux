@@ -229,6 +229,8 @@ type Props = {
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
+  /// Attachments staged with a restored New Tab draft before the first session exists.
+  initialAttachments?: ComposerAttachment[];
   /// The durable session whose unsent prompt belongs in this composer.
   sessionId?: string;
   /// A harness switch is under way (another provider's model was picked): the session changes
@@ -257,7 +259,7 @@ type Props = {
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
-  onUnsentDraft?(text: string): void | Promise<unknown>;
+  onUnsentDraft?(text: string, attachments?: ComposerAttachment[]): void | Promise<unknown>;
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
@@ -348,6 +350,7 @@ export function Composer({
   onQueueSideChat,
   queueImage,
   draft,
+  initialAttachments,
   leading,
   permissionAccess,
   accessory,
@@ -552,6 +555,7 @@ export function Composer({
     dropLanded,
     attach,
   } = useAttachmentIntake({
+    initial: initialAttachments,
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
@@ -581,6 +585,14 @@ export function Composer({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // The host handshake can arrive after this composer mounted. Apply its restored New Tab chips
+  // once, but never overwrite a chip the person attached while the handshake was in flight.
+  const initialAttachmentsApplied = useRef(initialAttachments !== undefined);
+  useEffect(() => {
+    if (initialAttachments === undefined || initialAttachmentsApplied.current) return;
+    initialAttachmentsApplied.current = true;
+    if (attachmentsRef.current.length === 0) setAttachments(initialAttachments);
+  }, [initialAttachments, setAttachments]);
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -682,7 +694,11 @@ export function Composer({
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
-        if (unsent) unsent.push(typed);
+        if (unsent)
+          unsent.push(
+            typed,
+            attachmentsRef.current.filter((chip) => !chip.shellRun),
+          );
         await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
       },
       wake(state) {
@@ -834,8 +850,12 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
-    unsentDraft.current?.push(text);
-  }, [text, sessionId, onUnsentDraft]);
+    if (sessionId || !onUnsentDraft) return;
+    unsentDraft.current?.push(
+      text,
+      attachmentsRef.current.filter((chip) => !chip.shellRun),
+    );
+  }, [text, attachments, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.

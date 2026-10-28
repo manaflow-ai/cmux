@@ -77,4 +77,24 @@ describe("unsent draft throttle", () => {
     advance(1_000);
     expect(sent.length).toBe(2); // nothing more: the timer was stopped
   });
+  test("an attachment-only draft is durable and an explicit empty list clears it", () => {
+    const sent: { text: string; attachments?: unknown[] }[] = [];
+    const throttle = createUnsentDraftThrottle({
+      send: (text, attachments) => sent.push({ text, attachments }),
+      intervalMs: 300,
+      now: () => 0,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+    const chip = { id: "shot-1", kind: "image" };
+    throttle.push("", [chip]);
+    expect(sent).toEqual([{ text: "", attachments: [chip] }]);
+    throttle.push("", []);
+    throttle.flush();
+    expect(sent).toEqual([
+      { text: "", attachments: [chip] },
+      { text: "", attachments: [] },
+    ]);
+    throttle.dispose();
+  });
 });

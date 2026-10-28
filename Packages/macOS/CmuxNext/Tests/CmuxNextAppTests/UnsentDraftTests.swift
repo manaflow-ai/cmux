@@ -23,14 +23,42 @@ struct UnsentDraftTests {
         let drafts = AgentUnsentDrafts(file: file)
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
-        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
+        let attachment = AgentPaneWakeState.Attachment(id: "image-1", kind: "image", name: "shot.png", mimeType: "image/png", size: 12, data: "cHJldmlldw==")
+        _ = await model.respond(to: Self.request("chat.unsentDraft", [
+            "text": "compare the two retry policies",
+            "attachments": [["id": attachment.id, "kind": attachment.kind, "name": attachment.name, "mimeType": attachment.mimeType, "size": attachment.size, "data": attachment.data ?? ""]],
+        ]))
 
-        // The next run's tab, still without a session, opens as the chat with its draft.
+        // Build B reads the durable A record, including the attachment order.
         let relaunched = AgentUnsentDrafts(file: file)
         let seed = try #require(relaunched.seed(for: "tab-1", session: nil))
-        #expect(await seed.take()?.draft == "compare the two retry policies")
+        let restored = await seed.take()
+        #expect(restored?.draft == "compare the two retry policies")
+        #expect(restored?.draftAttachments == [attachment])
+        // A later B write survives another relaunch and cannot be clobbered by the old A seed.
+        relaunched.set("B draft", attachments: [attachment], for: "tab-1")
+        let second = AgentUnsentDrafts(file: file)
+        #expect(await second.seed(for: "tab-1", session: nil)?.take()?.draft == "B draft")
         #expect(relaunched.seed(for: "tab-1", session: "s-1") == nil, "a chat with a session keeps its draft in acpmux")
         #expect(relaunched.seed(for: "tab-2", session: nil) == nil)
+
+        // Text-only writes must preserve attachment metadata from the earlier attachment-aware write.
+        // A text-only page update goes through the real request decoder/handler and preserves chips.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", [
+            "text": "edited text only",
+            "attachments": [["id": attachment.id, "kind": attachment.kind, "name": attachment.name, "mimeType": attachment.mimeType, "size": attachment.size, "data": attachment.data ?? ""]],
+        ]))
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "edited text only"]))
+        let preserved = AgentUnsentDrafts(file: file)
+        #expect(await preserved.seed(for: "tab-1", session: nil)?.take()?.draftAttachments == [attachment])
+        // Explicitly removing the last chip sends attachments: [] and clears it, rather than
+        // leaving the old attachment to resurrect on the next handshake.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", [
+            "text": "edited text only",
+            "attachments": [],
+        ]))
+        let cleared = AgentUnsentDrafts(file: file)
+        #expect(await cleared.seed(for: "tab-1", session: nil)?.take()?.draftAttachments == [])
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))

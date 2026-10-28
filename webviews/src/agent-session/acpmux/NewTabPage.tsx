@@ -298,6 +298,9 @@ type Props = {
   /// The current tab's URL or folder: in the field and selected when the page opens,
   /// so typing replaces it.
   location?: string;
+  initialDraft?: string;
+  initialAttachments?: ComposerAttachment[];
+  onDraftChanged?(text: string, attachments: ComposerAttachment[]): void;
   /// Recent projects are offered inline before Browse is needed.
   projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it. A promise that rejects is a
@@ -335,6 +338,9 @@ export function NewTabPage({
   lastAgent,
   omnibar = EMPTY_OMNIBAR,
   location,
+  initialDraft,
+  initialAttachments,
+  onDraftChanged,
   projects = [],
   onSubmit,
   onJump,
@@ -377,7 +383,7 @@ export function NewTabPage({
     [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
-  const [text, setText] = useState(location ?? "");
+  const [text, setText] = useState(initialDraft ?? location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
@@ -416,11 +422,40 @@ export function NewTabPage({
   const field = useRef<HTMLInputElement>(null);
   const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
     useAttachmentIntake({
+      initial: initialAttachments,
       allowImages: snapshot.summary?.promptCapabilities?.image !== false,
       pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
       dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
     });
   attachmentRef.current = attachments;
+  const seeded = useRef(initialDraft !== undefined);
+  useEffect(() => {
+    if (seeded.current || initialDraft === undefined) return;
+    if (text === (location ?? "")) setText(initialDraft);
+    seeded.current = true;
+  }, [initialDraft, text, location]);
+  const attachmentSeedApplied = useRef(initialAttachments !== undefined);
+  useEffect(() => {
+    if (attachmentSeedApplied.current || initialAttachments === undefined) return;
+    if (attachments.length === 0) setAttachments(initialAttachments);
+    attachmentSeedApplied.current = true;
+  }, [initialAttachments, attachments.length, setAttachments]);
+  const draftChanged = useRef(onDraftChanged);
+  draftChanged.current = onDraftChanged;
+  const draftDirty = useRef(false);
+  if (text !== (location ?? "") || attachments.length) draftDirty.current = true;
+  useEffect(() => {
+    if (draftDirty.current) draftChanged.current?.(text, attachments);
+  }, [text, location, attachments]);
+  useEffect(() => {
+    const flush = () => {
+      const liveText = field.current?.value ?? text;
+      if (draftDirty.current || liveText !== (location ?? "") || attachmentRef.current.length)
+        draftChanged.current?.(liveText, attachmentRef.current);
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [text, location]);
   const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked

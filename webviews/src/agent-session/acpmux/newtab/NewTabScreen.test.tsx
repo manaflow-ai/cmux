@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { NewTabScreen } from "./NewTabScreen";
+import { NewTabPage } from "../NewTabPage";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -176,6 +177,145 @@ test("a Sandboxed New chat that starts nothing leaves New chat and the other cre
   await act(async () => render("persistent"));
   await act(async () => newChat()!.click());
   expect(asks.length).toBe(1);
+});
+
+test("a normal pagehide flushes a New Tab draft without unmounting", async () => {
+  const left: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        initialDraft="keep this across the update"
+        initialAttachments={[{ id: "shot-1", kind: "image", name: "shot.png", mimeType: "image/png", size: 4 }]}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onDraftChanged={(...args) => left.push(args)}
+      />,
+    );
+  });
+  left.length = 0;
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(left).toEqual([
+    ["keep this across the update", [expect.objectContaining({ id: "shot-1", name: "shot.png" })]],
+  ]);
+});
+
+test("pagehide persists the final DOM edit and a cleared restored draft", async () => {
+  const writes: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        initialDraft="old draft"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onDraftChanged={(...args) => writes.push(args)}
+      />,
+    );
+  });
+  const input = container.querySelector<HTMLTextAreaElement>("textarea.nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+  setValue.call(input, "last edit");
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(writes.at(-1)).toEqual(["last edit", []]);
+  await act(async () => {
+    setValue.call(input, "");
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(writes.at(-1)).toEqual(["", []]);
+});
+
+test("ordinary New Tab edits are persisted before native quit", async () => {
+  const writes: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onDraftChanged={(...args) => writes.push(args)}
+      />,
+    );
+  });
+  const input = container.querySelector<HTMLTextAreaElement>("textarea.nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+  await act(async () => {
+    setValue.call(input, "keep this before quit");
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  expect(writes).toEqual([["keep this before quit", []]]);
+});
+
+test("a late native seed never replaces text typed before the handshake", async () => {
+  const page = (initialDraft?: string) => (
+    <NewTabScreen
+      snapshot={noChat()}
+      initialDraft={initialDraft}
+      onAsk={() => {}}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+    />
+  );
+  await act(async () => root!.render(page()));
+  const input = container.querySelector<HTMLTextAreaElement>("textarea.nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+  await act(async () => {
+    setValue.call(input, "newer typing");
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => root!.render(page("older saved draft")));
+  expect(input.value).toBe("newer typing");
+});
+
+test("Classic New Tab restores attachments and persists an ordinary edit", async () => {
+  const writes: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabPage
+        snapshot={noChat()}
+        initialDraft="saved text"
+        initialAttachments={[
+          { id: "shot", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "dGVzdA==" },
+        ]}
+        onDraftChanged={(...args) => writes.push(args)}
+        onSubmit={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  expect(container.querySelector(".acpmux-attachment-image")).toBeTruthy();
+  const input = container.querySelector<HTMLInputElement>("input.acpmux-newtab-field")!;
+  expect(input.value).toBe("saved text");
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+  await act(async () => {
+    setValue.call(input, "saved text plus edit");
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  expect(writes.at(-1)).toEqual(["saved text plus edit", [expect.objectContaining({ id: "shot", name: "shot.png" })]]);
+  setValue.call(input, "final before quit");
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(writes.at(-1)).toEqual(["final before quit", [expect.objectContaining({ id: "shot", name: "shot.png" })]]);
 });
 
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {

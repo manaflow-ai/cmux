@@ -9,8 +9,8 @@
  * draft comes later in the handshake; "" sent first would remove that draft from the host's file.
  */
 export interface UnsentDraftThrottle {
-  /** The composer's text changed. */
-  push(text: string): void;
+  /** The composer text or attachment list changed. */
+  push(text: string, attachments?: unknown[]): void;
   /** Sends the waiting text now, if any. */
   flush(): void;
   /** Sends the waiting text now and resolves once the host answered the last send (a quit waits on it).
@@ -21,7 +21,7 @@ export interface UnsentDraftThrottle {
 }
 
 export interface UnsentDraftThrottleOptions {
-  send(text: string): unknown;
+  send(text: string, attachments?: unknown[]): unknown;
   intervalMs?: number;
   now?: () => number;
   setTimer?: (run: () => void, ms: number) => unknown;
@@ -34,17 +34,39 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
   const setTimer = options.setTimer ?? ((run, ms) => setTimeout(run, ms));
   const clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
   let lastSent: string | undefined;
+  let lastSentAttachments: unknown[] | undefined;
   let lastSentAt = -Infinity;
-  let pending: string | undefined;
+  let pending: { text: string; attachments?: unknown[] } | undefined;
   let timer: unknown;
   let sentNonEmpty = false;
   let lastDelivery: Promise<unknown> = Promise.resolve();
 
-  const deliver = (text: string) => {
+  // Chips can contain megabytes of preview data; compare the stable shape, not base64 bytes, on each key.
+  const attachmentSignature = (attachments: unknown[] | undefined) =>
+    attachments?.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const value = item as Record<string, unknown>;
+      return [
+        value.id,
+        value.kind,
+        value.name,
+        value.mimeType,
+        value.size,
+        value.path,
+        value.originalPath,
+        typeof value.data === "string" ? value.data.length : value.data,
+      ];
+    });
+  const sameAttachments = (a: unknown[] | undefined, b: unknown[] | undefined) =>
+    a === undefined || b === undefined
+      ? a === b
+      : JSON.stringify(attachmentSignature(a)) === JSON.stringify(attachmentSignature(b));
+  const deliver = (text: string, attachments?: unknown[]) => {
     lastSent = text;
+    lastSentAttachments = attachments;
     lastSentAt = now();
-    if (text) sentNonEmpty = true;
-    lastDelivery = Promise.resolve(options.send(text)).catch(() => undefined);
+    if (text || (attachments?.length ?? 0) > 0) sentNonEmpty = true;
+    lastDelivery = Promise.resolve(options.send(text, attachments)).catch(() => undefined);
   };
   const stopTimer = () => {
     if (timer !== undefined) clearTimer(timer);
@@ -52,15 +74,16 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
   };
   const sendPending = () => {
     stopTimer();
-    const text = pending;
+    const value = pending;
     pending = undefined;
-    if (text !== undefined && text !== lastSent) deliver(text);
+    if (value !== undefined && (value.text !== lastSent || !sameAttachments(value.attachments, lastSentAttachments)))
+      deliver(value.text, value.attachments);
   };
   return {
-    push(text) {
-      if (!text && !sentNonEmpty) return; // the seed guard
-      if (text === lastSent && pending === undefined) return;
-      pending = text;
+    push(text, attachments) {
+      if (!text && (attachments?.length ?? 0) === 0 && !sentNonEmpty) return; // the seed guard
+      if (text === lastSent && sameAttachments(attachments, lastSentAttachments) && pending === undefined) return;
+      pending = { text, attachments };
       const wait = lastSentAt + interval - now();
       if (wait <= 0) return sendPending();
       if (timer === undefined) timer = setTimer(sendPending, wait);
