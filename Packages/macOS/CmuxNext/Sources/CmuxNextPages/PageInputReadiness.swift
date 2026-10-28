@@ -28,9 +28,14 @@ public final class PageInputReadiness {
     public private(set) var isPointerOverSidewaysScroller = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
-    /// Runs when an editable element of the document takes focus (``isEditableFocused`` turns true): keys held for
-    /// this page's field go there now (the New Tab hold).
-    public var onEditableFocus: (() -> Void)?
+    /// Run once when an editable element of the document next takes focus (``isEditableFocused`` turns true): keys held
+    /// for this page's field go there then, and a stand-in field hands it its text (the New Tab hold).
+    private var editableFocusWaiters: [@MainActor () -> Void] = []
+
+    /// Runs `body` once, the next time an editable element of the document takes focus.
+    public func whenEditableFocused(_ body: @escaping @MainActor () -> Void) {
+        editableFocusWaiters.append(body)
+    }
     private weak var webView: WKWebView?
     /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
     /// attached web view.
@@ -91,7 +96,10 @@ public final class PageInputReadiness {
     func reportEditing(_ focused: Bool) {
         let turned = focused && !isEditableFocused
         isEditableFocused = focused
-        if turned { onEditableFocus?() }
+        guard turned, !editableFocusWaiters.isEmpty else { return }
+        let waiters = editableFocusWaiters
+        editableFocusWaiters.removeAll()
+        for waiter in waiters { waiter() }
     }
 
     func reportSideways(_ over: Bool) {

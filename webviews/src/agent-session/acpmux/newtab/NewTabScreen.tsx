@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { NEW_TAB_SEED_EVENT, parseFieldSeed } from "./fieldSeed";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
@@ -750,6 +751,32 @@ export function NewTabScreen(props: Props) {
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
+  // A cold page's native stand-in field took the first keys while this page loaded (AgentPaneView+FieldStandIn):
+  // once this field has focus it hands over its text, selection and Return, once (NEW_TAB_SEED_EVENT).
+  const seededSubmit = useRef(false);
+  const seededSelection = useRef<[number, number] | undefined>(undefined);
+  useEffect(() => {
+    const view = field.current?.ownerDocument.defaultView;
+    const take = (event: Event) => {
+      const seed = parseFieldSeed((event as CustomEvent<unknown>).detail);
+      if (!seed) return;
+      seededSelection.current = [seed.selectionStart, seed.selectionEnd];
+      seededSubmit.current = seed.submit;
+      edit(seed.text);
+    };
+    view?.addEventListener(NEW_TAB_SEED_EVENT, take);
+    return () => view?.removeEventListener(NEW_TAB_SEED_EVENT, take);
+  });
+  useLayoutEffect(() => {
+    const selection = seededSelection.current;
+    if (!selection) return;
+    seededSelection.current = undefined;
+    field.current?.setSelectionRange(selection[0], selection[1]);
+    if (seededSubmit.current) {
+      seededSubmit.current = false;
+      submitNow.current();
+    }
+  }, [text]);
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {

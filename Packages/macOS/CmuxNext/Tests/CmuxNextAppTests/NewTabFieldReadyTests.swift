@@ -130,6 +130,8 @@ struct NewTabFieldReadyTests {
     @Test func incomingKeysGoToTheFieldWhenItTakesFocus() async throws {
         let fixture = try await Self.fixture()
         defer { fixture.close() }
+        // A page that painted (an adopted spare) whose field has not taken focus yet: no stand-in, its field takes them.
+        fixture.page.model.markPainted()
         fixture.page.inputReadiness.receive(["editing": false])
         let input = fixture.services.keyRouter.newTabInputCoordinator
         input.incomingHoldLimit = .seconds(600)
