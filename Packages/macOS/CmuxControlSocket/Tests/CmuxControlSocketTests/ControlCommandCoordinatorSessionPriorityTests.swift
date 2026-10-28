@@ -226,7 +226,8 @@ struct ControlCommandCoordinatorSessionPriorityTests {
     @Test func autoSetWhileDisabledIsNotStored() throws {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
-            enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false
+            enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false,
+            difficultyAuto: nil
         )
         context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
         let object = payload(try autoSet(context))
@@ -238,7 +239,8 @@ struct ControlCommandCoordinatorSessionPriorityTests {
     @Test func autoSetWhileEnabledIsStored() throws {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
-            enabled: true, workspaceId: workspaceID, manual: false, overridePresent: false
+            enabled: true, workspaceId: workspaceID, manual: false, overridePresent: false,
+            difficultyAuto: nil
         )
         context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
         _ = try autoSet(context)
@@ -251,7 +253,8 @@ struct ControlCommandCoordinatorSessionPriorityTests {
     @Test func userSetWhileDisabledIsStillStored() throws {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
-            enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false
+            enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false,
+            difficultyAuto: nil
         )
         context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
         _ = try autoSet(context, source: "user")
@@ -269,7 +272,8 @@ struct ControlCommandCoordinatorSessionPriorityTests {
     @Test func probeReturnsProbePayload() throws {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
-            enabled: true, workspaceId: workspaceID, manual: true, overridePresent: false
+            enabled: true, workspaceId: workspaceID, manual: true, overridePresent: false,
+            difficultyAuto: "hard"
         )
         let result = try run("session_priority.set", ["probe": .bool(true)], context)
         let object = payload(result)
@@ -277,6 +281,8 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         #expect(object?["workspace_id"] == .string(workspaceID.uuidString))
         #expect(object?["manual"] == .bool(true))
         #expect(object?["override_present"] == .bool(false))
+        // The difficulty hook damps against the workspace's current automatic rating.
+        #expect(object?["difficulty_auto"] == .string("hard"))
         #expect(context.setCalls == 0)
     }
 

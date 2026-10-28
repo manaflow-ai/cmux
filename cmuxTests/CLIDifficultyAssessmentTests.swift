@@ -88,4 +88,39 @@ import Testing
         #expect(Engine.throttleDecision(inFlightAt: stamp, lastAssessedAt: nil, now: t0.addingTimeInterval(expiry - 1)) == .skipInFlight)
         #expect(Engine.throttleDecision(inFlightAt: stamp, lastAssessedAt: nil, now: t0.addingTimeInterval(expiry)) == .proceed)
     }
+
+    // MARK: - Damping
+
+    /// A harder verdict than the workspace's current automatic one applies at once; an easier
+    /// one only when the session's previous verdict agreed; an equal one is not sent again.
+    @Test func verdictToSendDampsEasierVerdicts() {
+        func send(_ new: ClaudeSessionDifficulty, current: ClaudeSessionDifficulty?, previous: ClaudeSessionDifficulty?) -> ClaudeSessionDifficulty? {
+            Engine.verdictToSend(new: new, current: current, previous: previous)
+        }
+        // Harder: at once, whatever came before.
+        #expect(send(.hard, current: .easy, previous: nil) == .hard)
+        #expect(send(.hard, current: .normal, previous: .easy) == .hard)
+        #expect(send(.normal, current: .easy, previous: .easy) == .normal)
+        // Equal: never again.
+        #expect(send(.hard, current: .hard, previous: .hard) == nil)
+        #expect(send(.easy, current: .easy, previous: .easy) == nil)
+        // Easier: only as the second of two in a row.
+        #expect(send(.easy, current: .hard, previous: nil) == nil)
+        #expect(send(.easy, current: .hard, previous: .normal) == nil)
+        #expect(send(.easy, current: .hard, previous: .hard) == nil)
+        #expect(send(.easy, current: .hard, previous: .easy) == .easy)
+        #expect(send(.normal, current: .hard, previous: .normal) == .normal)
+        // Nothing rated yet: the workspace counts as normal, and a first normal is still sent.
+        #expect(send(.hard, current: nil, previous: nil) == .hard)
+        #expect(send(.normal, current: nil, previous: nil) == .normal)
+        #expect(send(.easy, current: nil, previous: nil) == nil)
+        #expect(send(.easy, current: nil, previous: .easy) == .easy)
+    }
+
+    /// The E2E flip: "Reply with exactly OK." rated hard, then easy. The easy one alone sends nothing.
+    @Test func aSingleFlipDoesNotLowerTheDifficulty() {
+        #expect(Engine.verdictToSend(new: .hard, current: .normal, previous: nil) == .hard)
+        #expect(Engine.verdictToSend(new: .easy, current: .hard, previous: .hard) == nil)
+        #expect(Engine.verdictToSend(new: .easy, current: .hard, previous: .easy) == .easy)
+    }
 }
