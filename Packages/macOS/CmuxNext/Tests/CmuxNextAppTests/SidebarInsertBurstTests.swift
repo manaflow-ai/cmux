@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import QuartzCore
 import Testing
 
 /// Cmd-N held (Lawrence 2026-10-28: "when i hold down cmd n ... i see empty space where workspaces should be, and only
@@ -27,14 +28,17 @@ struct SidebarInsertBurstTests {
     }
 
     /// A sidebar of workspaces `ids` with new workspace rows opening and Reduce Motion off. Returns the restore.
-    private static func sidebar(_ ids: [Int]) throws -> (SidebarModel, SidebarListView, restore: () -> Void) {
+    /// `onScreen`: the window is ordered in, so springs run on the render server (the caller checks a display draws).
+    private static func sidebar(_ ids: [Int], onScreen: Bool = false) throws -> (SidebarModel, SidebarListView, restore: () -> Void) {
         let start = sections(ids)
         let model = SidebarModel(sections: start, activeWorkspaceID: try #require(start.first?.workspaces.first?.id))
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 480)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 480), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 480), styleMask: [.borderless],
+                              backing: .buffered, defer: !onScreen)
+        window.isReleasedWhenClosed = false
         window.contentView?.addSubview(sidebar)
+        if onScreen { window.orderFrontRegardless() }
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         let kinds = DesignSettings.shared.enabledAnimations
@@ -43,6 +47,7 @@ struct SidebarInsertBurstTests {
         return (model, sidebar.list, {
             Motion.reduceMotionOverride = nil
             DesignSettings.shared.enabledAnimations = kinds
+            window.orderOut(nil)
         })
     }
 
@@ -75,11 +80,74 @@ struct SidebarInsertBurstTests {
         list.reload(animated: true)
         let moved = try Self.key(100)
         let view = try #require(list.rowViews[moved])
+        let opened = try #require(list.openingRows[moved])
         model.sections = Self.sections([1, 100] + Array(2...10))
         list.reload(animated: true)
         let again = try #require(list.rowViews[moved])
         #expect(again !== view, "a row that moved by itself flew across the list half open")
-        #expect(again.opens == 1 && again.alphaValue == 0, "it did not open again at its new slot")
+        #expect(again.opens == 1, "it did not open again at its new slot")
+        #expect((list.openingRows[moved] ?? 0) > opened, "its open did not start again")
+    }
+
+    /// Cmd-N with the list scrolled away from its top: the reveal jumps to the new row at the top, so its gap is open in
+    /// that frame. The row is in its slot, whole, in that frame (it does not grow from nothing in the open gap).
+    @Test func aCmdNTheRevealJumpsToShowsTheNewRowWhole() throws {
+        let ids = Array(1...40)
+        let (model, list, restore) = try Self.sidebar(ids)
+        defer { restore() }
+        let clip = try #require(list.enclosingScrollView?.contentView)
+        clip.scroll(to: NSPoint(x: 0, y: 900))
+        list.enclosingScrollView?.reflectScrolledClipView(clip)
+        try #require(clip.bounds.minY > 400, "the list did not scroll")
+        let sections = Self.sections([500] + ids)
+        model.sections = sections
+        model.activeWorkspaceID = try #require(sections.first?.workspaces.first?.id)
+        list.reload(animated: true)
+        #expect(clip.bounds.minY < 1, "the reveal did not show the new row")
+        let key = try Self.key(500)
+        let view = try #require(list.rowViews[key], "the new row has no view")
+        #expect(view.opens == 0 && view.alphaValue == 1, "the new row grows from an empty slot (opens \(view.opens), alpha \(view.alphaValue))")
+        #expect(list.openingRows[key] == nil)
+        #expect(view.frame == list.frame(for: try #require(list.displayed.row(for: key))))
+    }
+
+    /// Cmd-N with the list at its top and taller than the viewport: no scroll at all, so the rows below are pushed down
+    /// on their springs while the new row opens (its gap and its content together). The anchor shift moved the rows
+    /// and the offset down at once and the reveal jumped back, so the rows stood in their new slots with no motion and
+    /// the new row grew from nothing in a gap already open.
+    @Test(.enabled("needs an awake display and animations on") { await SidebarInsertWhileDisplayAsleepTests.animatesHere() })
+    func aCmdNAtTheTopOfALongListPushesTheRowsOnTheirSprings() throws {
+        let ids = Array(1...40)
+        let (model, list, restore) = try Self.sidebar(ids, onScreen: true)
+        defer { restore() }
+        let clip = try #require(list.enclosingScrollView?.contentView)
+        try #require(clip.bounds.minY < 1)
+        let pushed = try #require(list.rowViews[try Self.key(1)])
+        let sections = Self.sections([500] + ids)
+        model.sections = sections
+        model.activeWorkspaceID = try #require(sections.first?.workspaces.first?.id)
+        list.reload(animated: true)
+        #expect(clip.bounds.minY < 1, "the list scrolled")
+        let springs = (pushed.layer?.animationKeys() ?? []).filter {
+            (pushed.layer?.animation(forKey: $0) as? CASpringAnimation)?.keyPath == "position"
+        }
+        #expect(!springs.isEmpty, "the row below the new one did not move on a spring: the gap opened at once")
+        #expect(list.openingRows[try Self.key(500)] != nil, "the new row did not open")
+    }
+
+    /// The rule for a row still opening: it moved by itself only when both rows beside it changed. An insert at the top
+    /// pushes the rows (no neighbour change for any row both layouts list); a row whose neighbour moved away keeps the
+    /// other one; a row taken out and put elsewhere changes both.
+    @Test func aRowMovesByItselfOnlyWhenBothNeighboursChange() throws {
+        func layout(_ ids: [Int]) -> SidebarLayout { SidebarLayout.make(sections: Self.sections(ids), metrics: .standard, options: SidebarLayoutOptions()) }
+        let keys = try (1...12).map(Self.key) + [try Self.key(100), try Self.key(101)]
+        #expect(SidebarListView.movedByThemselves(keys, from: layout(Array(1...10)), to: layout([11] + Array(1...10))).isEmpty,
+                "an insert at the top moved rows by themselves")
+        let appended = layout(Array(1...10) + [100, 101])
+        #expect(SidebarListView.movedByThemselves(keys, from: appended, to: layout([1, 100] + Array(2...10) + [101])) == [try Self.key(100)],
+                "only the row moved below 1 moved by itself")
+        #expect(SidebarListView.movedByThemselves(keys, from: appended, to: layout(Array(1...10) + [101])).isEmpty,
+                "a removal moved its neighbour by itself")
     }
 
     /// Cmd-W held on the top workspace, one close per frame (a guard, not red on the base: no row is opening): each
