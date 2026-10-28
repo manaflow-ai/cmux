@@ -18,16 +18,24 @@ public struct HomeMessageRouting: Sendable {
     private let store: HomeStore
     private let actions: HomeGroupActions
     private let chief: @MainActor @Sendable () -> ConversationID?
+    private let chiefNames: @MainActor @Sendable () -> [ConversationID: String]
 
     /// - Parameters:
     ///   - store: The app's HomeStore (the single writer of drafts and sends).
     ///   - actions: The group actions; their `send` is the one send path.
     ///   - chief: The conversation with the user's Chief (Home's default conversation), if any.
-    public init(store: HomeStore, actions: HomeGroupActions, chief: @escaping @MainActor @Sendable () -> ConversationID?) {
+    ///   - chiefNames: Each Chief's own name by its conversation (the app's `HomeChiefNames`), the
+    ///     one its tile and header show; a conversation not in it goes by its row title.
+    public init(store: HomeStore, actions: HomeGroupActions, chief: @escaping @MainActor @Sendable () -> ConversationID?,
+                chiefNames: @escaping @MainActor @Sendable () -> [ConversationID: String] = { [:] }) {
         self.store = store
         self.actions = actions
         self.chief = chief
+        self.chiefNames = chiefNames
     }
+
+    /// `row`'s name: its Chief's own name, else its title.
+    private func title(of row: InboxRow, names: [ConversationID: String]) -> String { names[row.id] ?? row.title }
 
     /// The Chief's conversation: the app's choice, else the first Chief conversation listed.
     public var chiefConversation: ConversationID? {
@@ -40,7 +48,11 @@ public struct HomeMessageRouting: Sendable {
     public func recipients() -> [(value: String, title: String)] {
         let ordered = store.rows.orderedForInbox()
         let chiefs = ordered.filter { $0.kind == .chief }, others = ordered.filter { $0.kind != .chief }
-        return (chiefs + others).map { (value: $0.id.rawValue, title: $0.title.isEmpty ? $0.id.rawValue : $0.title) }
+        let names = chiefNames()
+        return (chiefs + others).map { row in
+            let title = title(of: row, names: names)
+            return (value: row.id.rawValue, title: title.isEmpty ? row.id.rawValue : title)
+        }
     }
 
     /// The conversation `text` names: a conversation id; `chief` (any case) for the Chief's; a
@@ -58,7 +70,11 @@ public struct HomeMessageRouting: Sendable {
         if let row = oneToOne.first(where: { row in
             row.summary.participants.contains { $0.id != me && !$0.visibleName.isEmpty && $0.visibleName.caseInsensitiveCompare(name) == .orderedSame }
         }) { return row.id }
-        return rows.first { !$0.title.isEmpty && $0.title.caseInsensitiveCompare(name) == .orderedSame }?.id
+        let names = chiefNames()
+        return rows.first { row in
+            let title = title(of: row, names: names)
+            return !title.isEmpty && title.caseInsensitiveCompare(name) == .orderedSame
+        }?.id
     }
 
     /// Puts `text` in `id`'s message box after what is already there (a new line between), so

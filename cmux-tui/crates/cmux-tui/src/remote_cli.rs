@@ -228,6 +228,9 @@ struct ConnectFlags {
     iroh_path: IrohPathMode,
     wireguard_config: Option<PathBuf>,
     wireguard_hub: Option<PathBuf>,
+    /// Read the hub's client token (`wg hub --client-token-stdin`) as one line on
+    /// stdin, so it never appears in argv, the environment or a file.
+    wireguard_hub_token_stdin: bool,
     /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
     /// invitation. Only a daemon serving a trusted-network listener accepts it.
     carrier: bool,
@@ -478,6 +481,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
                 }
             }
+            "--wireguard-hub-token-stdin" => flags.wireguard_hub_token_stdin = true,
             "--exit-with-parent" => flags.exit_with_parent = true,
             "--vm-kind" => flags.vm_owner = value("--vm-kind")? == "owner",
             "--headless" => flags.headless = true,
@@ -545,6 +549,14 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
     if flags.wireguard_config.is_some() && flags.wireguard_hub.is_some() {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
+    }
+    if flags.wireguard_hub_token_stdin && flags.wireguard_hub.is_none() {
+        return Err(anyhow!(catalog().remote_client.wireguard_hub_token_needs_hub));
+    }
+    if flags.wireguard_hub_token_stdin
+        && matches!(&flags.invitation, Some(InvitationArg::File(path)) if path == Path::new("-"))
+    {
+        return Err(anyhow!(catalog().remote_client.stdin_claimed_twice));
     }
     Ok(flags)
 }
@@ -672,7 +684,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             (Some(path), _) => {
                 Some(Arc::new(WireGuardDialer::new(start_wireguard(&async_runtime, &path)?)))
             }
-            (None, Some(socket)) => Some(Arc::new(SocksDialer::new(socket))),
+            (None, Some(socket)) => {
+                let dialer = SocksDialer::new(socket);
+                Some(Arc::new(if flags.wireguard_hub_token_stdin {
+                    dialer.with_token(read_hub_token_line(&mut io::stdin().lock())?)
+                } else {
+                    dialer
+                }))
+            }
             (None, None) => None,
         };
     let mut relay_routes = client_relay_options(
@@ -1890,6 +1909,31 @@ fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
     })
 }
 
+/// Longest hub client token accepted on stdin: SOCKS5's password field.
+const MAX_HUB_TOKEN_BYTES: usize = 255;
+
+/// One line from `reader` holding the hub's client token.
+fn read_hub_token_line(
+    reader: &mut impl Read,
+) -> anyhow::Result<cmux_remote::provider::HubClientToken> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(80));
+    let mut byte = [0_u8; 1];
+    while reader.read(&mut byte).context(catalog().remote_client.hub_token_invalid)? == 1 {
+        if byte[0] == b'\n' {
+            break;
+        }
+        if bytes.len() == MAX_HUB_TOKEN_BYTES {
+            return Err(anyhow!(catalog().remote_client.hub_token_invalid));
+        }
+        bytes.push(byte[0]);
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| anyhow!(catalog().remote_client.hub_token_invalid))?
+        .trim_end_matches('\r');
+    cmux_remote::provider::HubClientToken::new(text)
+        .ok_or_else(|| anyhow!(catalog().remote_client.hub_token_invalid))
+}
+
 fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
     if path == Path::new("-") {
         return read_invitation_uri_line(&mut io::stdin().lock());
@@ -1986,6 +2030,9 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
+/// `wireguard-hub-token`: `wg hub --client-token-stdin` and `--config -`, and
+/// `remote connect --wireguard-hub-token-stdin`, so only the app's own clients
+/// use the hub and its config needs no file.
 /// `remote-link-mux-socket` and `remote-link-strict-flags`: see
 /// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
 /// that needs one refuses a remote without it (cx-z3zh).
@@ -1997,6 +2044,7 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 pub const PROBE_CAPABILITIES: &[&str] = &[
     "direct-ws-user-agent",
     "wireguard-hub",
+    "wireguard-hub-token",
     "browser-proxy",
     "cloud-browser-network",
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
@@ -3128,6 +3176,7 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub-token"));
     }
 
     #[test]
@@ -3396,6 +3445,37 @@ mod tests {
         assert!(parsed.lanes_explicit);
         assert_eq!(parsed.relay_slots, ["slot"]);
         assert_eq!(parsed.relay_credentials.len(), 1);
+    }
+
+    #[test]
+    fn hub_token_comes_from_stdin_only_with_a_hub() {
+        let route = "ws://[fd7a::10]:1337/v1/link".to_string();
+        let parse = |extra: &[&str]| {
+            let mut args = vec![route.clone()];
+            args.extend(extra.iter().map(|value| value.to_string()));
+            parse_connect_flags(&args)
+        };
+        let flags =
+            parse(&["--wireguard-hub", "/tmp/hub.sock", "--wireguard-hub-token-stdin"]).unwrap();
+        assert!(flags.wireguard_hub_token_stdin);
+        let error = parse(&["--wireguard-hub-token-stdin"]).err().unwrap();
+        assert_eq!(error.to_string(), catalog().remote_client.wireguard_hub_token_needs_hub);
+        let error = parse(&[
+            "--wireguard-hub",
+            "/tmp/hub.sock",
+            "--wireguard-hub-token-stdin",
+            "--invite-file",
+            "-",
+        ])
+        .err()
+        .unwrap();
+        assert_eq!(error.to_string(), catalog().remote_client.stdin_claimed_twice);
+
+        let token = read_hub_token_line(&mut &b"0123abcd\nrest"[..]).unwrap();
+        assert_eq!(token.as_str(), "0123abcd");
+        assert_eq!(read_hub_token_line(&mut &b"0123abcd\r\n"[..]).unwrap().as_str(), "0123abcd");
+        assert!(read_hub_token_line(&mut &b"\n"[..]).is_err(), "an empty token is refused");
+        assert!(read_hub_token_line(&mut &[b'a'; 300][..]).is_err(), "over 255 bytes is refused");
     }
 
     #[test]

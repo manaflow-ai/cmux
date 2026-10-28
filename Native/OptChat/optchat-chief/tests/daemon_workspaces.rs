@@ -18,6 +18,9 @@ use serde_json::{Value, json};
 /// Marks a fake that is the app's own daemon (the user's session), with personal groups.
 const PERSONAL: &str = "test-personal-session";
 
+/// Marks a fake whose subagent workspace has a terminal running a command.
+const BUSY: &str = "test-busy-terminal";
+
 fn serve(
     listener: UnixListener,
     capabilities: Vec<&'static str>,
@@ -116,14 +119,28 @@ fn serve(
                             "terminal_incarnation": null, "terminal_revision": 1, "workspace": 7
                         }),
                         // The real tree (tree_json.rs) carries each workspace's key and public id.
-                        "list-workspaces" => json!({"workspaces": [
-                            {"id": 6, "key": "other", "resource_id": "ws_00000000000000000000000000000006", "name": "Home", "active": true, "screens": []},
-                            {"id": 7, "key": created_key.lock().unwrap().clone(), "resource_id": "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e", "name": "a1 · summarize", "active": false, "screens": []}
-                        ]}),
+                        "list-workspaces" => {
+                            // BUSY: the subagent's terminal runs a command (its title is the
+                            // command, not `user@host:dir`).
+                            let title = if capabilities.contains(&BUSY) {
+                                "cargo test"
+                            } else {
+                                "x@mac:~/fun"
+                            };
+                            json!({"workspaces": [
+                                {"id": 6, "key": "other", "resource_id": "ws_00000000000000000000000000000006", "name": "Home", "active": true, "screens": []},
+                                {"id": 7, "key": created_key.lock().unwrap().clone(), "resource_id": "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e", "name": "a1 · summarize", "active": false,
+                                 "screens": [{"panes": [{"tabs": [{"kind": "pty", "dead": false, "title": title}]}]}]}
+                            ]})
+                        }
                         // The user's own group by a topic name is reused.
                         "list-workspace-groups" => json!({"groups": [
                             {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "collapsed": false}
                         ]}),
+                        "close-workspace" => json!({
+                            "generation": "g", "index": 3, "key": req["key"], "registry_id": "r",
+                            "replayed": false, "workspace": 7, "workspace_revision": 2
+                        }),
                         "new-conversation-tab" => json!({
                             "content_resource_id": null, "conversation": {"agent_session": req["agent_session"]},
                             "replayed": false, "surface": 11, "tab_resource_id": null
@@ -494,4 +511,21 @@ fn with_no_app_behind_its_link_a_subagent_workspace_goes_to_the_hosts_own_daemon
         !place.contains("beside your own workspaces"),
         "the answer must not claim the user's session: {place}"
     );
+}
+
+/// A short task's workspace closes when its subagent finishes, but never one
+/// whose terminal still runs a command (the person may have started it there).
+#[test]
+fn an_idle_close_closes_a_workspace_with_idle_terminals_only() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    let key = open(&w).unwrap();
+    assert_eq!(w.close_idle(&key), Ok(true));
+    assert_eq!(commands(&requests, "close-workspace").len(), 1);
+
+    let mut caps = GROUPED.to_vec();
+    caps.push(BUSY);
+    let (w, requests, _dir) = workspaces(caps);
+    let key = open(&w).unwrap();
+    assert_eq!(w.close_idle(&key), Ok(false), "a busy terminal keeps it");
+    assert!(commands(&requests, "close-workspace").is_empty());
 }
