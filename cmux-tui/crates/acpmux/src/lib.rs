@@ -48,6 +48,7 @@ pub mod deliver;
 pub mod forum;
 pub mod forum_mcp;
 pub mod git_state;
+pub mod github_broker;
 pub mod hand;
 pub mod harness_admin;
 pub mod harness_config;
