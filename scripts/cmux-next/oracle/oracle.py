@@ -100,10 +100,24 @@ engine differences with their reasons.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
 mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
-build or run), 4 diff.py internal error.
+build or run, and for --switch: arm-not-applied, arm-not-exercised, arms-read-back-same,
+arms-differ-beyond-switch), 4 diff.py internal error. Every diff writes comparison.json and
+divergences.jsonl (one line per divergent case; empty when the comparison is refused or clean)
+in --out.
+
+`diff --switch NAME` (spec 3F.2, task 111) is the virtual suite of one refactor switch, like
+`run_web_tests.py --flag-specific=NAME`: the same build runs the switch's `suites` on arm old and
+arm new, shard by shard with the two arms back to back on this host (`--shards N` runs every
+shard here, `--shard I/N` one shard for a worker; `--base-run`/`--head-run` compare the old and
+new arm runs a worker wrote; on the Linux VM each arm of a shard is a `linux_run.sh run` job of
+--ref in the runnerd queue; app runs go to fleet.py, which compares its arm runs here). The
+registry's expected_differences are its FlagExpectations. The comparison is evidence only when
+each arm read back its own arm, the arms read back differently in every snapshot (diff.py
+--arm-pointer), and the hit counters show each arm ran its own sites and none of the other's,
+with hits in every case that lists the switch.
 
 Sibling interfaces this file calls:
-    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
+    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--arm-pointer P]   (014, 111)
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
@@ -116,6 +130,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import fnmatch
 import glob
 import hashlib
@@ -207,7 +222,7 @@ DEFAULT_BUILD = {"app": "bench"}
 # Products served by the cmux-tui binary that linux_run.sh builds per SHA.
 RUST_PRODUCTS = frozenset({"daemon", "cli", "mcp", "tui"})
 
-DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL = 0, 1, 2, 3, 4
+DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME = 0, 1, 2, 3, 4, 5
 EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
@@ -865,6 +880,9 @@ class RunOptions:
     isolation: str = "netns"
     # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
     engine: Optional[str] = None
+    # The refactor switch registry the run's switches are checked against (`--switch-registry`); the driver
+    # gets the same directory, so the run and the product's launch plan never read two registries.
+    switch_registry: Path = SWITCH_REGISTRY
 
     @property
     def filtered(self) -> bool:
@@ -938,6 +956,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "out_dir": str(options.out),
         "isolation": dict(isolation),
         "engine": options.engine,
+        "switch_registry": str(options.switch_registry.resolve()),
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
     runnable = [batch for batch in runnable if batch]
@@ -1243,6 +1262,9 @@ def perform_run(
             record = classify(by_case[case.id], exp)
         first = min((a for a in by_case[case.id] if a.iteration == 0), key=lambda a: a.attempt, default=None)
         record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        if case.data.get("switches"):
+            # The compared attempt's hits: a case that lists a switch must hit it on each arm.
+            record.update(switches=sorted(case.data["switches"]), switch_hits=sum_switch_hits([first.switch_hits] if first else []))
         leaks = [a.leaked_state for a in by_case[case.id] if a.leaked_state]
         if leaks:
             record["leaked_state"] = leaks
@@ -1606,11 +1628,14 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     return None
 
 
-def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -> Tuple[int, Dict[str, Any]]:
+def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
+                arm_pointers: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
     for path in expected:
         command += ["--expected", str(path)]
+    for pointer in arm_pointers:
+        command += ["--arm-pointer", pointer]
     proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         document = json.loads(out.read_text(encoding="utf-8"))
@@ -1618,21 +1643,35 @@ def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -
         raise UsageError(f"diff.py exited {proc.returncode} without a readable {out}: {proc.stderr.strip()[-500:]}") from None
     if proc.returncode == DIFF_BAD_INPUT:
         raise UsageError(f"diff.py refused its input: {document.get('error')}")
-    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL):
+    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME):
         raise UsageError(f"diff.py exited {proc.returncode}: {proc.stderr.strip()[-500:]}")
     return proc.returncode, document
+
+
+def write_divergences(path: Path, document: Mapping[str, Any], comparison: Mapping[str, Any]) -> None:
+    """One line per divergent case (diff.py's finding) with the comparison it came from: confirm.py
+    and route.py read these (MQ-divergences). Replaced on every diff, so no old finding survives."""
+    switch = (comparison.get("switch") or {}).get("name")
+    rows = ({**finding, "a_label": comparison["a"], "b_label": comparison["b"], "switch": switch,
+             "comparison": str(path.parent / "comparison.json")} for finding in document.get("divergences", []))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    write_jsonl(temp, rows)
+    temp.replace(path)
 
 
 def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path, labels: Tuple[str, str],
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
-                  as_json: bool = False, order_parity: bool = False) -> int:
+                  as_json: bool = False, order_parity: bool = False, arm_pointers: Sequence[str] = (),
+                  switch: Optional[Dict[str, Any]] = None) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
-    diff.py owns the host check, the first divergence per case and expected differences, so an
-    all-match comparison from two hosts is refused like a divergent one. Flaky cases are
-    reported as flaky by diff.py and never count as compared. With `order_parity`, a case that
-    leaked state on one side only is a divergence too: its leak depends on the order. Two sides of
+    diff.py owns the host check, the first divergence per case, expected differences and the
+    snapshot readback of a switch's arms, so an all-match comparison from two hosts, or of two
+    arms that read back the same, is refused like a divergent one. Flaky cases are reported as
+    flaky by diff.py and never count as compared. With `order_parity`, a case that leaked state
+    on one side only is a divergence too: its leak depends on the order. Two sides of
     different `--engine` arms are an engine parity comparison: each arm must read its engine back
     and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists.
     """
@@ -1652,9 +1691,14 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         if rules:
             write_json(out / "expectation-rules.json", list(rules))
             files.append(out / "expectation-rules.json")
-        code, document = run_diff_py(a_dir, b_dir, target, files)
+        code, document = run_diff_py(a_dir, b_dir, target, files, arm_pointers)
         if code == DIFF_HOST_MISMATCH:
             refused = "host-mismatch: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in sorted(document["mismatched"].items()))
+        elif code == DIFF_ARMS_SAME:
+            same = document["readback"]["same"]
+            refused = (f"arms-read-back-same: {document['readback']['sameCount']} snapshots read back the same arm, first "
+                       f"{same[0]['case']} {same[0]['step']} {same[0]['checkpoint']} {same[0]['pointer']}="
+                       f"{json.dumps(same[0]['value'], sort_keys=True)}")
     summary = document.get("summary") or {}
     statuses = {row["case"]: row["status"] for row in document.get("cases", [])}
     compared = sum(summary.get(k, 0) for k in ("equal", "explained", "divergent"))
@@ -1681,13 +1725,17 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
         "divergence": str(target) if target.is_file() else None,
+        "divergences": str(out / "divergences.jsonl"),
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
         "engine_parity": engine,
         "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
+    if switch is not None:
+        comparison["switch"] = {**switch, "readback_snapshots": (document.get("readback") or {}).get("differs")}
     write_json(out / "comparison.json", comparison)
+    write_divergences(Path(comparison["divergences"]), document if refused is None else {}, comparison)
     if as_json:
         print(json.dumps(comparison, indent=1, sort_keys=True))
     else:
@@ -1845,6 +1893,91 @@ def switch_expected_files(registry: Dict[str, Dict[str, Any]], names: Iterable[s
     return [root / f"{name}.json" for name in sorted(set(names)) if registry.get(name, {}).get("expected_differences")]
 
 
+def pointer_token(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
+
+
+def switch_key(name: str, entry: Mapping[str, Any]) -> str:
+    """The key the product reports the switch under: its app_key or daemon_key (task 018)."""
+    return str(entry.get("app_key") or entry.get("daemon_key") or name)
+
+
+def arm_pointers(name: str, entry: Mapping[str, Any]) -> List[str]:
+    """Snapshot values that read back the switch's arm: the app facet and the daemon oracle-state.
+
+    The app passes its switches to the daemon it launches (task 180), so both can carry either key.
+    """
+    key = pointer_token(switch_key(name, entry))
+    return [f"/facets/switches/arms/{key}", f"/facets/daemon/oracle/switches/{key}"]
+
+
+def arm_under_test_rules(name: str) -> List[Dict[str, str]]:
+    """The per-site hit list differs by arm by construction; the receipt hit counters are checked instead."""
+    return [{"pointer": "/facets/switches/hits",
+             "reason": f"the sites each arm of {name} ran; checked through the receipts' switch_hits"}]
+
+
+# A switch diff is one build run twice: only the arm and per-run values (the shuffle seed and
+# shard index, which comparability() checks, and the job count) may differ between the arm receipts.
+ARM_FIELDS = frozenset({"switch", "arm", "switches"})
+PER_RUN_FIELDS = frozenset({"seed", "shard_index", "jobs"})
+
+
+def other_arm(arm: str) -> str:
+    return ARMS[1 - ARMS.index(arm)]
+
+
+def switch_verdict(name: str, views: Mapping[str, RunView]) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Why the arm runs of one switch are no evidence, or None; and the record of what each arm showed.
+
+    Chrome's FeatureList passes the state to every child (`--enable-features`), so a test can trust
+    it; here the product must prove it: each arm reads back its own arm, the two read back
+    differently, each ran its own sites and none of the other's, and every case that lists the
+    switch hit it.
+    """
+    build = {}
+    for arm in ARMS:
+        config = views[arm].receipt["config"]
+        if config.get("switch") != name or config.get("arm") != arm:
+            raise UsageError(f"the {arm} side is not a --switch {name} --arm {arm} run "
+                             f"(it is switch {config.get('switch')!r} arm {config.get('arm')!r})")
+        build[arm] = {k: v for k, v in config.items() if k not in ARM_FIELDS and k not in PER_RUN_FIELDS}
+    block: Dict[str, Any] = {"name": name, "arms": {}}
+    reasons: List[str] = []
+    readback = {}
+    for arm in ARMS:
+        receipt = views[arm].receipt
+        hits = (receipt.get("switch_hits") or {}).get(name, {})
+        seen = arms_seen(receipt.get("switch_readback") or {}, name)
+        unexercised = sorted(
+            cid for cid, record in receipt["cases"].items()
+            if name in (record.get("switches") or ()) and record.get("outcome") not in ("skipped", "flaky")
+            and not (record.get("switch_hits") or {}).get(name, {}).get(arm, 0)
+        )
+        readback[arm] = seen
+        block["arms"][arm] = {"readback": seen, "hits": dict(sorted(hits.items())), "unexercised_cases": unexercised,
+                              "sha": receipt.get("sha"), "host": receipt.get("host")}
+        if seen and seen != [arm]:
+            reasons.append(f"arm-not-applied: {name} read back {', '.join(seen)} on the {arm} arm")
+        elif not seen:
+            reasons.append(f"arm-not-applied: no readback of {name} on the {arm} arm")
+        if hits.get(other_arm(arm), 0):
+            reasons.append(f"arm-not-applied: the {arm} arm ran {hits[other_arm(arm)]} {other_arm(arm)}-arm site hits")
+        if not hits.get(arm, 0):
+            reasons.append(f"arm-not-exercised: 0 hits of {name} on the {arm} arm")
+        elif unexercised:
+            reasons.append(f"arm-not-exercised: {len(unexercised)} cases that list {name} had 0 hits on the {arm} arm: "
+                           + ", ".join(unexercised[:5]))
+    beyond = sorted(k for k in set(build["old"]) | set(build["new"]) if build["old"].get(k) != build["new"].get(k))
+    if beyond:
+        reasons.insert(0, "arms-differ-beyond-switch: "
+                       + ", ".join(f"{k} {build['old'].get(k)!r} vs {build['new'].get(k)!r}" for k in beyond))
+    if readback["old"] == readback["new"]:
+        reasons.insert(0, f"arms-read-back-same: {name} read back {', '.join(readback['old']) or 'nothing'} on both arms")
+    block["refusals"] = reasons
+    return (reasons[0] if reasons else None), block
+
+
 def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str]) -> Dict[str, str]:
     if switch:
         if switch not in registry:
@@ -1892,6 +2025,8 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--flaky-out", type=Path, help="append flaky cases as JSON lines (MQ-flakes)")
     parser.add_argument("--dry-run", action="store_true", help="plan and write the receipt; run nothing")
     parser.add_argument("--run-id", help="default: UTC time plus 6 random characters")
+    parser.add_argument("--switch-registry", type=Path, default=SWITCH_REGISTRY,
+                        help="refactor switch registry dir (default plans/cmux-next/refactor-switches)")
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
 
 
@@ -1956,6 +2091,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         expectations_root=args.expectations_root,
         isolation=args.isolation,
         engine=engine,
+        switch_registry=args.switch_registry,
     )
     if args.retry_limit is not None:
         retry = args.retry_limit
@@ -1971,6 +2107,11 @@ def run_expectations(options: RunOptions) -> Optional[ExpectationStore]:
                              product=options.product, build=options.build)
 
 
+def switch_roots(registry: Path) -> Any:
+    """The switches.Roots a run checks its switches against: the run's registry, this checkout's catalogs."""
+    return require_sibling("switches", "p15-oracle-018").Roots(registry=registry.resolve())
+
+
 def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None) -> Tuple[Dict[str, Any], int]:
     cases, errors = load_corpus(options.corpus)
     if errors:
@@ -1984,7 +2125,7 @@ def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None
         # An unknown switch, arm or key (or no catalog to check the key in) aborts before any product starts.
         switches = require_sibling("switches", "p15-oracle-018")
         try:
-            switches.arm_plan(options.switches)
+            switches.arm_plan(options.switches, switch_roots(options.switch_registry))
         except switches.UnknownSwitch as error:
             raise UsageError(f"{error}; nothing ran") from None
     if open_session is None and not options.dry_run:
@@ -2043,7 +2184,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise UsageError(f"{QUEUE_HINT}; `oracle.py run` itself runs only inside a runnerd job")
     run_id = args.run_id or new_run_id()
     out = args.out or DEFAULT_OUT_BASE / run_id
-    switches = resolve_switches(load_switch_registry(), args.switch, args.arm)
+    switches = resolve_switches(load_switch_registry(args.switch_registry), args.switch, args.arm)
     options = options_from_args(args, retry_default=None, out=out, run_id=run_id, switch=args.switch, arm=args.arm,
                                 switches=switches, ref=args.ref, binary=args.binary, engine=args.engine)
     receipt, code = run_one(options)
@@ -2083,16 +2224,145 @@ def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) ->
         # On the VM, queued_diff builds the refs; elsewhere the caller brings the binaries.
         return (Side("base", None, None, {}, args.base, args.base_binary),
                 Side("head", None, None, {}, args.head, args.head_binary)), []
-    if args.switch:
-        sides = tuple(Side(arm, args.switch, arm, resolve_switches(registry, args.switch, arm), args.ref, args.binary) for arm in ARMS)
-        return sides, switch_expected_files(registry, [args.switch])  # type: ignore[return-value]
     if args.arm == "launch-config":
         planned = resolve_switches(registry, None, "launch-config")
         return (
             Side("default", None, "default", {}, args.ref, args.binary),
             Side("launch-config", None, "launch-config", planned, args.ref, args.binary),
-        ), switch_expected_files(registry, planned)
+        ), switch_expected_files(registry, planned, args.switch_registry)
     raise UsageError("diff needs --base/--head, --switch NAME, --arm launch-config, --base-run/--head-run or --baselines")
+
+
+def shard_list(args: argparse.Namespace) -> List[Tuple[int, int]]:
+    """`--shards N`: every shard here, in order; else the one `--shard I/N` (a worker's share)."""
+    if args.shards is None:
+        return [parse_shard(args.shard)]
+    if args.shards < 1:
+        raise UsageError("--shards must be >= 1")
+    if args.shard != "0/1":
+        raise UsageError("--shards N runs every shard; --shard I/N runs one: pass one of them")
+    return [(index, args.shards) for index in range(args.shards)]
+
+
+def run_switch_arms(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]], out: Path,
+                    open_session: Optional[SessionOpener]) -> Optional[Dict[str, List[Path]]]:
+    """Runs each shard on arm old, then the same shard on arm new, so the two arms of a case run
+    back to back on this host with the same build (spec 3F.1): each arm's shard run directories.
+    On the Linux VM the arms are runnerd jobs (queued_switch_arms); None when one wrote no receipt."""
+    if open_session is None and outside_vm_queue(args.product) and not args.dry_run:
+        return queued_switch_arms(args)
+    name = args.switch
+    run_id = args.run_id or new_run_id()
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    # With --json, stdout holds only the comparison.
+    with contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext():
+        for index, total in shard_list(args):
+            for arm in ARMS:
+                options = options_from_args(args, retry_default=DEFAULT_RETRY_LIMIT, out=out / arm / f"shard-{index}",
+                                            run_id=f"{run_id}-{arm}-{index}", switch=name, arm=arm,
+                                            switches=resolve_switches(registry, name, arm), ref=args.ref, binary=args.binary)
+                options = replace(options, shard=(index, total))
+                receipt, _ = run_one(options, open_session=open_session)
+                print_run(receipt, options, False)
+                runs[arm].append(options.out)
+    return runs
+
+
+def queued_switch_arms(args: argparse.Namespace) -> Optional[Dict[str, List[Path]]]:
+    """`diff --switch` on the Linux VM: each shard's two arms are `linux_run.sh run` jobs of one
+    --ref build in the runnerd queue, side by side on this host like queued_diff's sides."""
+    if args.binary:
+        raise UsageError(f"{QUEUE_HINT}; a prebuilt --binary cannot run in it")
+    if not args.ref:
+        raise UsageError(f"{QUEUE_HINT}; --switch needs --ref to build")
+    sha = resolve_commit(args.ref)
+    suites = ",".join(parse_list(args.suite)) or "all"
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    for index, total in shard_list(args):
+        run_args = queued_run_args(argparse.Namespace(**{**vars(args), "shard": f"{index}/{total}"}))
+        if args.switch_registry.resolve() != SWITCH_REGISTRY.resolve():
+            run_args += ["--switch-registry", str(args.switch_registry.resolve())]
+        procs = []
+        for arm in ARMS:
+            command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", f"{args.switch}={arm}"]
+            command += ["--fresh"] if args.fresh else []
+            command += ["--", *run_args]
+            command += ["--run-id", f"{args.run_id}-{arm}-{index}"] if args.run_id else []
+            procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
+        finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
+        for arm, (stdout, code) in zip(ARMS, finished):
+            lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+            run_dir = Path(lines[-1]) if lines else None
+            if run_dir is None or not (run_dir / "receipt.json").is_file():
+                print(f"refused: the {arm} arm of {args.switch} at {args.ref} shard {index}/{total} wrote no receipt "
+                      f"(linux_run.sh exit {code})", file=sys.stderr)
+                return None
+            print(f"{args.switch}={arm}: {args.ref} shard {index}/{total} run {run_dir} (oracle.py run exit {code})",
+                  file=sys.stderr if args.json else sys.stdout)
+            runs[arm].append(run_dir)
+    return runs
+
+
+def merge_arm_runs(runs: Mapping[str, Sequence[Path]], out: Path) -> Tuple[Dict[str, Path], Dict[str, RunView]]:
+    views: Dict[str, RunView] = {}
+    dirs: Dict[str, Path] = {}
+    for arm in ARMS:
+        view, errors = merge_runs(list(runs[arm]), require_complete=False)
+        if errors:
+            raise UsageError(f"{arm} arm: " + "; ".join(errors))
+        views[arm] = view
+        dirs[arm] = write_merged(view, out / f"{arm}-merged")
+    return dirs, views
+
+
+def suites_not_run(listed: Sequence[str], view: RunView) -> List[str]:
+    ran = view.receipt["config"].get("suites") or ["all"]
+    return [] if "all" in ran else sorted(set(listed) - set(ran))
+
+
+def diff_switch(args: argparse.Namespace, out: Path, open_session: Optional[SessionOpener] = None) -> int:
+    """`diff --switch NAME`: the switch's suites on both arms of one build, compared through diff.py.
+
+    `open_session` is the product driver's (default: driver_<product>.py)."""
+    check_out_dir(out)
+    out.mkdir(parents=True, exist_ok=True)
+    registry = load_switch_registry(args.switch_registry)
+    name = args.switch
+    if name not in registry:
+        raise UsageError(f"--switch {name}: no plans/cmux-next/refactor-switches/{name}.json")
+    entry = registry[name]
+    listed = [str(suite) for suite in entry.get("suites") or ()]
+    if args.order_parity:
+        raise UsageError("--order-parity compares one config in two orders; --switch compares two arms")
+    if args.base_run or args.head_run:
+        if not (args.base_run and args.head_run):
+            raise UsageError("--switch with runs: --base-run is the old arm's run, --head-run the new arm's")
+        if args.shards is not None:
+            raise UsageError("--shards runs the arms; with --base-run/--head-run the runs are given")
+        dirs, views = merge_arm_runs({"old": args.base_run, "new": args.head_run}, out)
+    else:
+        if args.base or args.head or args.baselines:
+            raise UsageError("--switch compares two arms of one build: no --base/--head or --baselines")
+        if not args.suite:
+            args.suite = [",".join(listed)] if listed else None
+        if args.shuffle and args.seed is None:
+            args.seed = new_seed()  # one seed for both arms: they must run the same order
+        runs = run_switch_arms(args, registry, out, open_session)
+        if runs is None:
+            return EXIT_REFUSED  # an arm that did not build or run, like queued_diff's sides
+        dirs, views = merge_arm_runs(runs, out)
+    refused, block = switch_verdict(name, views)
+    block.update(suites=listed, suites_not_run=suites_not_run(listed, views["new"]))
+    if block["suites_not_run"]:
+        print(f"note: {name} lists suites this diff did not run: {', '.join(block['suites_not_run'])}", file=sys.stderr)
+    for reason in block["refusals"][1:]:
+        print(f"  also: {reason}", file=sys.stderr)
+    refused = comparability(views["old"], views["new"], partial=args.partial) or refused
+    return compare_views(views["old"], views["new"], a_dir=dirs["old"], b_dir=dirs["new"], out=out,
+                         labels=(f"{name}=old", f"{name}=new"), partial=args.partial,
+                         expected=switch_expected_files(registry, [name], args.switch_registry),
+                         rules=[*arm_under_test_rules(name), *comparison_rules(views["new"], args.expectations_root)],
+                         refused=refused, arm_pointers=arm_pointers(name, entry), switch=block, as_json=args.json)
 
 
 def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
@@ -2116,6 +2386,11 @@ def cmd_diff(args: argparse.Namespace) -> int:
     out = args.out or DEFAULT_OUT_BASE / ("diff-" + new_run_id())
     check_out_dir(out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.switch and (args.base_run or args.head_run or args.product != "app"):
+        # App arms run on the fleet (fleet.py, below), which compares its arm runs through here.
+        return diff_switch(args, out)
+    if args.shards is not None and (args.product != "app" or args.base_run or args.head_run):
+        raise UsageError("--shards is for --switch and fleet app diffs; a base/head diff runs one --shard I/N")
     if args.head_run:
         head, head_errors = merge_runs(args.head_run, require_complete=False)
         if args.baselines:
@@ -2141,12 +2416,8 @@ def cmd_diff(args: argparse.Namespace) -> int:
         if not fleet.is_file():
             raise UsageError("app diffs run on the fleet through fleet.py, not on this branch yet (p15-oracle-050)")
         return subprocess.run([sys.executable, "-I", str(fleet), "diff", *args.raw_argv], check=False).returncode
-    registry = load_switch_registry()
+    registry = load_switch_registry(args.switch_registry)
     sides, expected = diff_sides(args, registry)
-    if args.switch and not args.suite:
-        minimum = registry[args.switch].get("minimum_suites")
-        if minimum:
-            args.suite = [",".join(minimum)]
     if args.shuffle and args.seed is None:
         args.seed = new_seed()  # one seed for both sides: they must run the same order
     if outside_vm_queue(args.product) and not args.dry_run:
@@ -2498,7 +2769,8 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--head", help="head ref")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
-    diff.add_argument("--switch", help="same build, arm old against arm new")
+    diff.add_argument("--switch", help="same build, arm old against arm new, on the switch's suites")
+    diff.add_argument("--shards", type=int, help="--switch: run every shard of N here, each on both arms back to back")
     diff.add_argument("--arm", choices=["launch-config"], help="every switch at its planned arm against all default")
     diff.add_argument("--engine", help="engine parity: webkit,chromium runs the same build once per engine arm and "
                                        f"compares without the tabs' engine ({ENGINE_PARITY_FILE.relative_to(REPO)})")

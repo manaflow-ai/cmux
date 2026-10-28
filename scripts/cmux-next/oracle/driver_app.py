@@ -19,7 +19,9 @@ any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits 
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
 
 Steps: action.run (`action.run`), key (`debug.key`, one request per keystroke, through the app's real key
-path, to the focused pane of the step's window, or with `target.overlay` to that open overlay panel), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
+path, to the focused pane of the step's window, or with `target.overlay` to that open overlay panel, or with
+`keyWindow` page to the focused pane's Chromium page window as the key window; Shift alone on a digit or symbol
+types its shifted character, as on a US keyboard, so `shift+;` is `:`), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
 serve --all-tools` over stdio), settle (`debug.oracle.settle`), snapshot. Any step may carry `waitFor`
 (`debug.oracle.wait_for`, resolved from facet change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
 action.run and key (the turn recorder armed for that step, `debug.oracle.recorder` and `debug.oracle.turns`);
@@ -57,6 +59,9 @@ reads `debug.oracle.switch_hits` with reset once after each launch (the result's
 run only at startup count) and after each case (`switch_hits`: everything since the last read, the case's setup
 settle included). The result carries `switch_readback` and both hit maps, which oracle.py writes into the receipt
 and diff --switch (task 111) checks.
+
+App pid: the app's pid at the case start must hold to the end (after a restart step, the relaunched app's): a
+child crash the case allows never takes the app with it.
 
 Facets: `debug.oracle.snapshot` gives the app's facets (a facet with no provider in the build comes back
 not-comparable from the app); the `daemon` facet is read from the tag's own cmux-tui (the `--socket` of its
@@ -152,8 +157,16 @@ SOCKET_ORIGINS = ("cli", "mcp", "script", "remote")
 MODIFIERS = {"cmd": "cmd", "ctrl": "control", "opt": "option", "alt": "option", "shift": "shift"}
 # case-v1 key names -> debug.key names (DebugKey.named); function keys are not synthesized by debug.key.
 KEY_NAMES = {"plus": "+", "backspace": "delete", "delete": "forwarddelete"}
+# The US keyboard's shift layer (DebugKey.shiftedSymbols, inverted): Shift alone on a digit or symbol key types the
+# shifted character, as a real keyboard does, so a case types `chrome://` as `shift+;` (case-v1 keystrokes have no
+# `:`). debug.key sends the character with the base key's code and Shift.
+SHIFTED = dict(zip("`1234567890-=[]\\;',./", "~!@#$%^&*()_+{}|:\"<>?"))
 # case-v1 target.overlay -> the debug.key target of that panel (DebugKey.send: the palette's visible panel).
 OVERLAY_KEY_TARGETS = {"palette": "palette"}
+# case-v1 keyArgs.keyWindow -> debug.key `target` (DebugKey.send): the window made key for the keystrokes. Without
+# one (or target.overlay), debug.key sends to the shell window, whose first responder (a terminal) never reaches a
+# Chromium page such as the agent chat.
+KEY_WINDOWS = {"page": "page"}
 # Target kinds that route a step and name no object (never a fixture handle).
 ROUTING_TARGETS = ("process", "overlay")
 # The kill and restart steps this driver runs itself: op -> the target.process it takes.
@@ -370,6 +383,8 @@ def debug_key(stroke: str, step: str) -> Dict[str, Any]:
     if re.fullmatch(r"f[0-9]+", key):
         raise CaseError("Crash", f"debug.key does not synthesize function keys ({stroke})", step)
     modifiers = list(dict.fromkeys(MODIFIERS[m] for m in mods))
+    if modifiers == ["shift"] and key in SHIFTED:
+        return {"key": SHIFTED[key], "modifiers": []}
     return {"key": KEY_NAMES.get(key, key), "modifiers": modifiers}
 
 
@@ -472,6 +487,10 @@ class BenchAppPort:
 
     def alive(self) -> bool:
         return self.bench is not None and self.bench.process is not None and self.bench.process.poll() is None
+
+    @property
+    def pid(self) -> Optional[int]:
+        return self.bench.process.pid if self.bench is not None and self.bench.process is not None else None
 
     @property
     def socket_path(self) -> str:
@@ -628,6 +647,9 @@ class CaseRun:
         self.at: Optional[str] = None
         self.unchecked_receipts: Dict[str, str] = {}
         self.dirty = False
+        # The app's process at the case start: a child crash (allow_crashes) must leave it running (CrashTab's
+        # contract, content/public/test/browser_test_utils.h), so a new pid fails the case like an exit does.
+        self.pid: Optional[int] = None
         self.ops: Dict[str, Callable[[int, Mapping[str, Any]], Tuple[Tuple[str, Any], Any]]] = {
             "action.run": self.op_action_run,
             "key": self.op_key,
@@ -672,6 +694,7 @@ class CaseRun:
                 web = self.session.web_fixture()
                 origins = (self.start_web(web),)
                 self.case = web.expand(self.case)
+            self.pid = self.app.pid
             self.settle("sync", DEFAULT_SETTLE_MS, "setup")
             # Raises switches.ArmNotApplied, which ends the run (oracle.py), not just this case.
             self.switch_readback = self.session.verify_arms()
@@ -808,6 +831,9 @@ class CaseRun:
     def check_alive(self, step: str) -> None:
         if not self.app.alive():
             raise CaseError("Crash", "the app exited during the case", step)
+        if self.pid is not None and self.app.pid != self.pid:
+            raise CaseError("Crash", f"the app process changed during the case (pid {self.pid}, now {self.app.pid})",
+                            step)
 
     # -- barriers
 
@@ -930,6 +956,14 @@ class CaseRun:
             if target["overlay"] not in OVERLAY_KEY_TARGETS:
                 raise CaseError("Crash", f"debug.key has no overlay {target['overlay']!r}", step_id)
             where["target"] = OVERLAY_KEY_TARGETS[target["overlay"]]
+        key_window = step["args"].get("keyWindow")
+        if key_window is not None:
+            if "overlay" in target:
+                raise CaseError("Crash", "a key step takes target.overlay or keyWindow, not both", step_id)
+            if key_window not in KEY_WINDOWS:
+                raise CaseError("Crash", f"keyWindow {key_window!r}: debug.key has no such window "
+                                         f"({', '.join(sorted(KEY_WINDOWS))})", step_id)
+            where["target"] = KEY_WINDOWS[key_window]
         replies = []
         for stroke in step["args"]["keys"]:
             reply = self.call("debug.key", {**debug_key(stroke, step_id), **where}, step_id)
@@ -1040,6 +1074,8 @@ class CaseRun:
             self.app.relaunch()
         except (AppLaunchFailed, AppGone, socket.timeout) as error:
             raise CaseError("Crash", f"restart target.process app: {error}", step_id) from None
+        # The relaunched app is the one the rest of the case must keep.
+        self.pid = self.app.pid
         # A later case must not inherit the restored session.
         self.dirty = True
         reply = {"process": "app"}

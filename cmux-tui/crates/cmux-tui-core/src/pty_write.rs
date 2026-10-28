@@ -11,7 +11,8 @@ pub(crate) struct BoundedWriteFailure {
 }
 
 /// Writes directly to a PTY descriptor and restores its original status flags.
-/// The caller must keep the descriptor alive and serialize writes for its lifetime.
+/// The caller must keep the descriptor alive and hold the terminal's
+/// [`crate::pty_input_fifo::InputTurn`], so no other input enters while this write waits.
 /// No buffered writer flush is needed: every byte is written through the descriptor.
 pub(crate) fn write_bounded(
     fd: RawFd,

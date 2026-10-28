@@ -61,6 +61,8 @@ class FakeApp:
         self.daemon_pid: Optional[int] = 4242
         self.signals: List[int] = []
         self.relaunches = 0
+        # The app's pid: a restart relaunches it, a child crash the app survives keeps it.
+        self.pid = 4242
 
     # -- the port
 
@@ -96,6 +98,7 @@ class FakeApp:
         if self.fail_launch:
             raise driver_app.AppLaunchFailed("quit-keep-sessions", "the app still runs 30 s after quitKeepSessions")
         self.relaunches += 1
+        self.pid += 1
 
     def request(self, method: str, params: Mapping[str, Any], timeout: float) -> Dict[str, Any]:
         self.calls.append((method, json.loads(json.dumps(params))))
@@ -183,6 +186,11 @@ class FakeApp:
                                        "checkpoints": [c for c in self.ring if c["sequence"] > after]}}
 
     def m_action_run(self, params):
+        if params["action"] == "page.crash":
+            # A renderer crash the app survives (pid unchanged), or with `takeApp` one that relaunched it.
+            if params["args"].get("takeApp"):
+                self.pid += 1
+            return {"ok": True, "result": {"action": params["action"], "ran": True, "sequence": self.sequence}}
         if params["action"] != "workspace.new":
             # As ControlError+ActionRun gives it: the details name the action and the reason.
             return {"ok": False, "error": {"code": "not_found", "message": "no such action",
@@ -385,6 +393,28 @@ class AppSessionTest(SessionTestBase):
         self.assertEqual(session.run_case(case(unmet), {"case_id": "actions/c"})["status"], "Timeout")
         daemon_wait = dict(waiting, waitFor={"pointer": "/daemon/session", "predicate": "exists", "maxMs": 100})
         self.assertEqual(session.run_case(case(daemon_wait), {"case_id": "actions/c"})["status"], "Crash")
+
+    def test_shift_alone_types_the_shifted_symbol(self) -> None:
+        # A US keyboard: Shift-; is `:`, so a case types chrome:// without a `:` keystroke (case-v1 has none).
+        self.assertEqual(driver_app.debug_key("shift+;", "k"), {"key": ":", "modifiers": []})
+        self.assertEqual(driver_app.debug_key("shift+/", "k"), {"key": "?", "modifiers": []})
+        self.assertEqual(driver_app.debug_key("shift+1", "k"), {"key": "!", "modifiers": []})
+        # With another modifier it is a shortcut on the base key, as before; letters keep their Shift flag.
+        self.assertEqual(driver_app.debug_key("cmd+shift+[", "k"), {"key": "[", "modifiers": ["cmd", "shift"]})
+        self.assertEqual(driver_app.debug_key("shift+a", "k"), {"key": "a", "modifiers": ["shift"]})
+        self.assertEqual(driver_app.debug_key(";", "k"), {"key": ";", "modifiers": []})
+
+    def test_a_child_crash_that_takes_the_app_with_it_fails_the_case(self) -> None:
+        session = self.session()
+        crash = step("crash", "action.run", target={"window": "current"}, args={"action": "page.crash"},
+                     expect={"outcome": "ok", "receipt": "action.done"})
+        allow = [{"kind": "renderer", "reason": "the step crashes the page on purpose", "steps": ["crash"]}]
+        result = session.run_case(case(crash, allow_crashes=allow), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        relaunched = dict(crash, args={"action": "page.crash", "params": {"takeApp": True}})
+        result = session.run_case(case(relaunched, allow_crashes=allow), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "crash"), result["message"])
+        self.assertIn("pid 4242, now 4243", result["message"])
 
     def test_key_steps_go_through_debug_key(self) -> None:
         self.assertEqual(driver_app.debug_key("cmd+shift+d", "k"), {"key": "d", "modifiers": ["cmd", "shift"]})
@@ -623,6 +653,28 @@ class AppSessionTest(SessionTestBase):
             result = session.run_case(case(NEW_WORKSPACE, dict(window, target=aimed)), {"case_id": "actions/c"})
             self.assertEqual((result["status"], result.get("step")), ("Crash", "w"), result["message"])
             self.assertIn("focused pane", result["message"])
+
+    def test_key_window_page_makes_the_page_the_key_window(self) -> None:
+        # Without keyWindow debug.key sends to the shell window, whose terminal takes the keys: a chat prompt would
+        # never reach the agent chat's Chromium page (DebugKey.send). The palette is target.overlay, not keyWindow.
+        session = self.session()
+        typed = step("t", "key", target={"window": "current"}, args={"keys": ["h", "return"], "keyWindow": "page"},
+                     expect={"outcome": "ok", "noReceiptReason": "typing into the page runs no action"})
+        result = session.run_case(case(typed), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        sent = [p for m, p in self.apps[0].calls if m == "debug.key"]
+        self.assertEqual([(p["key"], p.get("target")) for p in sent], [("h", "page"), ("return", "page")])
+        self.assertNotIn("window", sent[0], "`current` names no window")
+        shell = dict(typed, args={"keys": ["h"]})
+        result = session.run_case(case(shell), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("target", [p for m, p in self.apps[0].calls if m == "debug.key"][-1])
+        for bad, words in ((dict(typed, args={"keys": ["h"], "keyWindow": "palette"}), "keyWindow"),
+                           (dict(typed, args={"keys": ["h"], "keyWindow": "devtools"}), "keyWindow"),
+                           (dict(typed, target={"overlay": "palette"}), "not both")):
+            result = session.run_case(case(bad), {"case_id": "journeys/c"})
+            self.assertEqual((result["status"], result.get("step")), ("Crash", "t"), result["message"])
+            self.assertIn(words, result["message"])
 
     def test_a_palette_key_goes_to_the_palette_panel(self) -> None:
         """target.overlay palette is debug.key's target palette (the palette's visible panel), never the shell
