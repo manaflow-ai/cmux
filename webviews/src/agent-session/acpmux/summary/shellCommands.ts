@@ -105,11 +105,12 @@ export function shellCommands(text: string): string[] {
         } else words.push(tokens[at++]!);
       }
       if (active && words.length) commands.push(`${negate ? "! " : ""}${words.join(" ")}`);
-      status = words.length === 1 && ["true", "false", ":"].includes(words[0]!)
-        ? words[0] !== "false"
-        : words.length > 0 && words.every((word) => /^[A-Za-z_]\w*=$/.test(word) || word === "$()")
-          ? substitutionStatus
-          : undefined;
+      status =
+        words.length === 1 && ["true", "false", ":"].includes(words[0]!)
+          ? words[0] !== "false"
+          : words.length > 0 && words.every((word) => /^[A-Za-z_]\w*=$/.test(word) || word === "$()")
+            ? substitutionStatus
+            : undefined;
     }
     return { status, negate };
   };
@@ -140,7 +141,7 @@ export function isPullRequestCommand(command: string): boolean {
       } else if (name === "nohup" && words[at] === "--") at++;
       continue;
     }
-    if (word === '\$(' || word === '\$()') continue;
+    if (word === "\$(" || word === "\$()") continue;
     if (name !== "timeout") return ["gh", "glaeda-gh", "gh-merge-green"].includes(name);
     at++;
     while (words[at]?.startsWith("-")) {
