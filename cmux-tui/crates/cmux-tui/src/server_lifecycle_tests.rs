@@ -175,12 +175,23 @@ fn idle_exit_rule() {
     assert!(!idle_exits(Some(0), false, true));
 }
 
+/// Closing or quitting releases everything in bounded time (audit C2): with
+/// no `CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`, policy or document, a
+/// headless owner arms its idle exit on every channel. The disable list still
+/// turns it off.
 #[test]
-fn idle_exit_is_off_by_default() {
-    let defaults = cmux_features::Snapshot::defaults(cmux_features::Channel::Release);
-    assert!(!defaults.is_enabled(cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT));
-    for channel in [cmux_features::Channel::Dev, cmux_features::Channel::Nightly] {
-        let snapshot = cmux_features::Snapshot::defaults(channel);
-        assert!(!snapshot.is_enabled(cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT));
+fn idle_exit_is_on_by_default_on_every_channel() {
+    use cmux_features::Channel;
+    let feature = cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT;
+    for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
+        let defaults = cmux_features::sources::snapshot(channel, None, None, &[]);
+        assert!(defaults.is_enabled(feature), "the idle exit is off by default on {channel:?}");
+        let disabled = cmux_features::sources::snapshot(
+            channel,
+            None,
+            Some(acpmux::daemon_lifecycle::FEATURE),
+            &[],
+        );
+        assert!(!disabled.is_enabled(feature), "the disable list missed it on {channel:?}");
     }
 }

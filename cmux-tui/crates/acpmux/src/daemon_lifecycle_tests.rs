@@ -436,3 +436,18 @@ async fn idle_exit_off_the_owners_quit_ends_an_idle_daemon() {
     settle().await;
     assert!(run.exit.is_finished(), "the feature off, an idle daemon outlived its app's quit");
 }
+
+/// Closing or quitting releases everything in bounded time (audit C2): with
+/// no `CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`, policy or document, the
+/// daemon's idle exit is on for every channel, so a daemon with no client,
+/// no live agent and no owning app exits. The disable list still turns it off.
+#[test]
+fn idle_exit_is_on_by_default_on_every_channel() {
+    use cmux_features::Channel;
+    for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
+        let defaults = cmux_features::sources::snapshot(channel, None, None, &[]);
+        assert!(enabled(&defaults), "the idle exit is off by default on {channel:?}");
+        let disabled = cmux_features::sources::snapshot(channel, None, Some(FEATURE), &[]);
+        assert!(!enabled(&disabled), "the disable list missed it on {channel:?}");
+    }
+}
