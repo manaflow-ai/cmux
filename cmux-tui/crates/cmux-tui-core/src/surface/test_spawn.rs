@@ -216,7 +216,7 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
-                live_resize: AtomicU64::new(0),
+                live_resize: Arc::new(AtomicU64::new(0)),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),

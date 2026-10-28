@@ -320,3 +320,31 @@ fn attach_tap_slow_viewer_reads_the_bytes_a_fast_viewer_reads() {
     assert_eq!(slow_frames[0].output().unwrap(), &fast_bytes[..]);
     assert_eq!(slow_receiver.backlog_bytes(), 0);
 }
+
+/// A replay viewer checks the live-resize state without taking a strong
+/// reference to its terminal under its queue lock (review of bde4804169e:
+/// the reference could be the last one, and dropping the terminal there
+/// drops its taps, whose drop locks the same queue: a self-deadlock). With
+/// the terminal gone and a replay due, a receive must still return.
+#[test]
+fn a_replay_viewer_whose_terminal_is_gone_still_answers() {
+    let mux = Mux::new_for_test("replay-viewer-terminal-gone", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let attach = surface.attach_stream().unwrap();
+    surface.set_live_resize(true);
+    assert!(surface.resize(90, 20).unwrap());
+    surface.set_live_resize(false);
+    let stream = attach.stream;
+    drop(mux);
+    drop(surface);
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        while stream.try_recv().is_ok() {}
+        let _ = done_tx.send(());
+    });
+    assert!(
+        done_rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "a receive deadlocked after its terminal was dropped"
+    );
+}

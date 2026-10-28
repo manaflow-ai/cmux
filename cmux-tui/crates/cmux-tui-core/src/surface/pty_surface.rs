@@ -758,11 +758,6 @@ impl PtyTerminalRuntime {
         }
     }
 
-    /// Whether a live resize runs: byte mirrors' replays wait for its end.
-    pub(super) fn resizes_live(&self) -> bool {
-        self.live_resize.load(Ordering::Acquire) != 0
-    }
-
     fn release_live_replays(&self) {
         self.taps.lock().recover_poison().retain(AttachTap::release_live_replay);
     }

@@ -319,7 +319,7 @@ pub struct PtyTerminalRuntime {
     /// A live resize runs (a drag the app marks live): byte mirrors' replays
     /// wait for its end. The time of its newest step (`live_resize_clock`),
     /// 0 when none runs; its settle deadline counts from there.
-    pub(super) live_resize: AtomicU64,
+    pub(super) live_resize: Arc<AtomicU64>,
     pub(super) title: RankedMutex<String>,
     pub(super) pwd: Mutex<Option<String>>,
     pub(super) published_directory: Mutex<PublishedDirectory>,

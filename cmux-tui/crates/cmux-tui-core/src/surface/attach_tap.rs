@@ -117,7 +117,10 @@ impl AttachFrameReceiver {
         // A live resize runs: the replay waits for its end. Read from the
         // terminal each time (no per-viewer copy that an end could miss):
         // its end wakes every viewer to look again (`release_live_replays`).
-        if self.state.replay_source.upgrade().is_some_and(|terminal| terminal.resizes_live()) {
+        // The terminal's live flag itself, shared: no strong reference to the
+        // terminal under this queue lock (dropping the last one here would
+        // drop its taps, whose drop locks this queue).
+        if self.state.live_resize.load(Ordering::Acquire) != 0 {
             return None;
         }
         queue.replay_building = true;
@@ -574,6 +577,9 @@ pub(super) struct AttachTapState {
     /// The terminal a replay viewer's due replay is built from (empty for a
     /// snapshot viewer and a bare test tap).
     replay_source: Weak<PtyTerminalRuntime>,
+    /// The terminal's live-resize flag (`PtyTerminalRuntime::live_resize`),
+    /// shared; a viewer of no terminal has its own, always 0.
+    live_resize: Arc<AtomicU64>,
 }
 
 impl AttachTapState {
@@ -847,6 +853,9 @@ impl AttachTap {
         snapshot_mode: bool,
         replay_source: Weak<PtyTerminalRuntime>,
     ) -> (Self, AttachFrameReceiver) {
+        let live_resize = replay_source
+            .upgrade()
+            .map_or_else(Arc::default, |terminal| terminal.live_resize.clone());
         let state = Arc::new(AttachTapState {
             queue: Mutex::new(AttachTapQueue {
                 frames: VecDeque::new(),
@@ -871,6 +880,7 @@ impl AttachTap {
             ready_hook: Default::default(),
             hidden: AtomicBool::new(false),
             replay_source,
+            live_resize,
         });
         (
             Self { state: state.clone(), lifecycle: lifecycle.clone() },
