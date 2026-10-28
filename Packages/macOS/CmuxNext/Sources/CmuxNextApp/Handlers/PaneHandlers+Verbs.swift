@@ -177,7 +177,7 @@ extension PaneHandlers {
             defer {
                 if queue.generation == generation { queue.latest = nil }
             }
-            let value: JSONValue?
+            let value: CmuxNextSettings.JSONValue?
             if id == "resetWorkspaceTerminalFontSize" {
                 value = nil
             } else {
