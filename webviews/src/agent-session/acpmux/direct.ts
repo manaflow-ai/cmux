@@ -2744,9 +2744,10 @@ export class AcpmuxDirectClient {
   /// from one that names none.
   capabilities: ReadonlySet<string> | undefined;
 
-  /// Reads the selected session's durable composer draft from acpmux.
+  /// Reads the selected session's durable composer draft from acpmux. Bound the read so a
+  /// silent daemon cannot hold the ordered draft queue ahead of later local edits.
   readDraft(sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/draft_get", { sessionId });
+    return this.request("_acpmux/draft_get", { sessionId }, 5_000);
   }
 
   /// Persists or clears the selected session's composer draft in acpmux.
