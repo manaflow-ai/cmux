@@ -30,8 +30,8 @@ struct ClientOwner {
 }
 
 impl ClientOwner {
-    fn client(&self) -> &reqwest::blocking::Client {
-        self.client.as_ref().expect("LocalAPI client is present")
+    fn client(&self) -> Result<&reqwest::blocking::Client> {
+        self.client.as_ref().ok_or_else(|| Error("LocalAPI client is unavailable".into()))
     }
 }
 
@@ -64,7 +64,10 @@ fn drop_sender() -> Result<Sender<reqwest::blocking::Client>> {
         .map_err(|_| Error("could not start LocalAPI client cleanup".into()))?;
     match CLIENT_DROP_SENDER.set(sender.clone()) {
         Ok(()) => Ok(sender),
-        Err(_) => Ok(CLIENT_DROP_SENDER.get().expect("cleanup sender installed").clone()),
+        Err(_) => CLIENT_DROP_SENDER
+            .get()
+            .cloned()
+            .ok_or_else(|| Error("LocalAPI cleanup worker unavailable".into())),
     }
 }
 
@@ -97,7 +100,7 @@ impl LocalApi {
     ) -> Result<reqwest::blocking::Response> {
         let mut request = self
             .agent
-            .client()
+            .client()?
             .request(method, format!("{}{path}", self.base))
             .header("Sec-Tailscale", "localapi")
             .header("Authorization", &self.authorization);
