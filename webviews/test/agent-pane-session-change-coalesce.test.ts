@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { forgetTail } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -38,6 +39,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  forgetTail(SELECTED);
   frames = [];
   AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
 });
