@@ -148,3 +148,7 @@ fn produce(surface: &Weak<Surface>, requested: u64) -> bool {
     }
     pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending
 }
+
+#[cfg(test)]
+#[path = "frame_producer_tests.rs"]
+mod tests;
