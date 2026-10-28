@@ -73,7 +73,7 @@ fn strip_ansi(input: &str) -> String {
                     Some(_) => {}
                 }
             },
-            '\u{009c}' => {}
+            '\u{009c}' | '\r' => {}
             _ => output.push(ch),
         }
     }
@@ -148,6 +148,11 @@ mod tests {
             clean_stderr_line("\u{009d}title\u{009c}request timed out"),
             "request timed out"
         );
+    }
+
+    #[test]
+    fn strips_carriage_returns_from_progress_output() {
+        assert_eq!(clean_stderr_line("phase 1\rphase 2"), "phase 1phase 2");
     }
 
     #[test]
