@@ -181,12 +181,19 @@ extension NotificationCenterService {
             let generation = tab.notification?.notification.rawValue ?? 1
             if generation > dismissed { return generation }
         }
-        guard tab.markedUnread, tab.markedUnreadGeneration > (dismissedMarks[tab.id] ?? 0) else { return nil }
-        return Self.markRingBase | tab.markedUnreadGeneration
+        if tab.markedUnread, tab.markedUnreadGeneration > (dismissedMarks[tab.id] ?? 0) {
+            return Self.markRingBase | tab.markedUnreadGeneration
+        }
+        // An agent's "needs you here" mark (tab-attention-v1) rings until Dismiss Highlight hides
+        // that request; a new request (a newer `at_ms`) rings again.
+        guard let attention = tab.attention, tab.attentionRingHiddenThrough.map({ attention.atMs > $0 }) ?? true else { return nil }
+        return Self.markRingBase | Self.attentionRingBase | (attention.atMs & ~(Self.markRingBase | Self.attentionRingBase))
     }
 
     /// The bit a marked tab's ring generation carries, apart from notification ids.
     static let markRingBase: UInt64 = 1 << 63
+    /// The bit an agent's attention ring carries, apart from manual marks.
+    static let attentionRingBase: UInt64 = 1 << 62
 
     /// Of the panes in `removed` (their mark just went away), those read because
     /// the person went into them: their ring blinks out. Forgets the entry
@@ -230,6 +237,7 @@ extension NotificationCenterService {
         for tab in tabs where tab.markedUnread && dismissedMarks[tab.id] != tab.markedUnreadGeneration {
             dismissedMarks[tab.id] = tab.markedUnreadGeneration
         }
+        for tab in tabs { if let attention = tab.attention { tab.attentionRingHiddenThrough = attention.atMs } }
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")

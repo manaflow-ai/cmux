@@ -93,6 +93,17 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// An agent needs the person to act in this tab (log in, confirm, approve, pick):
+    /// `tab.update {attention}`, tab-attention-v1. It shows as the tab's unread dot and the
+    /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
+    /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
+    public internal(set) var attention: TabAttention?
+    /// This app's own view state, never sent to the daemon: the `at_ms` of the newest
+    /// ``attention`` request whose ring the person hid (went into the tab, or Dismiss
+    /// Highlight). A newer request rings again. It lives on the model, which belongs to one
+    /// machine's store, so tabs on two machines that share an id never share it.
+    public var attentionRingHiddenThrough: UInt64?
+
     /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
     /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
     /// observers already follow.
@@ -199,7 +210,7 @@ public final class TabModel: Identifiable {
 
     /// Whether the tab shows as unread: an unread notification or the manual mark.
     /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
-    public var showsUnread: Bool { hasUnread || markedUnread }
+    public var showsUnread: Bool { hasUnread || markedUnread || attention != nil }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -316,6 +327,7 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
+        if attention != record.attention { attention = record.attention }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()

@@ -4,7 +4,7 @@
 // answers, Go to source and Ask about this. While asks are open, Jump to latest is the Needs your
 // input pill (JumpPill.tsx), for this chat's asks and its started chats' only. Both are Debug
 // Settings toggles; `before` is the pane with both off, as it drew before. Light and dark come from
-// the gallery's appearance control.
+// the gallery's appearance control. `marked-tab` adds a tab an agent marked (tab-attention-v1).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, session, SESSION_ID, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -173,6 +173,27 @@ export default agentPaneEntry({
       note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask, a question on another computer (its prompt, not the last message) and a permission not read here.",
       snapshot: snapshot(),
       play: openList,
+    },
+    "marked-tab": {
+      note: "An agent marked a tab for the person (`cmux attention request`): the tab item reads what to do, the workspace and the tab by their titles, with Go to and no answers; it sits among the asks by when it was marked.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { applyAttentionTabs?(tabs: unknown): void };
+        };
+        view.cmuxAcpmuxBridge?.applyAttentionTabs?.([
+          {
+            kind: "tab",
+            tabId: "tab_0f3c",
+            reason: "Log in to GitHub so I can open the PR",
+            workspaceTitle: "cmux next",
+            tabTitle: "GitHub · Sign in",
+            atMs: ago(2),
+          },
+        ]);
+        await openList(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-needs-you-item[data-kind="tab"]'));
+      },
     },
     "badge-and-pill": {
       note: "Closed: the badge counts six asks. Only this chat's is the pill's, and its card waits at the latest message, so Jump to latest stays hidden there.",

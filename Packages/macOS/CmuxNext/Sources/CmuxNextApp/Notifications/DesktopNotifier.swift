@@ -52,6 +52,9 @@ final class DesktopNotifier: NSObject {
     nonisolated static let defaultCategory = "cmux.notification.default"
     nonisolated static let openAction = "cmux.notification.open"
     nonisolated static let markReadAction = "cmux.notification.markRead"
+    /// A tab an agent marked as needing the person (tab-attention-v1): Show goes to the tab.
+    nonisolated static let attentionCategory = "cmux.notification.attention"
+    nonisolated static let showAction = "cmux.notification.attention.show"
     /// The last banners asked for, newest last (bounded).
     private(set) var posted: [Posted] = []
     /// Whether this launch uses the system notification center (not in automation launches).
@@ -187,7 +190,8 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory(),
+        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
+                                          AgentApprovalBanners.notificationCategory(),
                                           IPhonePairNotices.notificationCategory()])
         self.center = center
         return center
@@ -233,6 +237,12 @@ final class DesktopNotifier: NSObject {
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
+    /// Needs you banners' category: Show, which brings cmux to the marked tab.
+    static func attentionBannerCategory() -> UNNotificationCategory {
+        let show = UNNotificationAction(identifier: showAction, title: AttentionBannerStrings.show, options: [.foreground])
+        return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
+    }
+
     /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
@@ -252,7 +262,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
-        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction].contains(response.actionIdentifier)
+        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction, Self.showAction].contains(response.actionIdentifier)
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)

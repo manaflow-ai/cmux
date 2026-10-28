@@ -82,6 +82,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
     /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
     case tabMarkUnread = "tab-mark-unread-v1"
+    /// An agent's "needs you here" mark on a tab: `attention` on `tab.update` and the tab's
+    /// `extra.attention` (`{reason, at_ms}`).
+    case tabAttention = "tab-attention-v1"
     /// A workspace's description: `description` on `workspace.update` and the
     /// workspace's `extra.description` (Edit / Clear Workspace Description).
     case workspaceDescription = "workspace-description-v1"
@@ -498,7 +501,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
-             .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .workspaceDescription, .workspaceStatus,
+             .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
@@ -541,6 +544,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// does not serve one of these or `required`. The GUI still checks each
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public static let optional: [String] = names(in: .optional)
+
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

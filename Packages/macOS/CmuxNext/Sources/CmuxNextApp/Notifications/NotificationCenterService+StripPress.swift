@@ -51,7 +51,7 @@ extension NotificationCenterService {
         if press.dragged || Self.beyondDragDistance(up, press.screenLocation) { return }
         // A click: the hold ends here, also for a tab the click closed (no tab left to read).
         viewHolds.remove(press.tab)
-        interacted(.click, tabID: press.tab)
+        interacted(.click, tabID: press.tab, in: window)
     }
 
     /// The person's next input after a move (a key-down; a press calls it too): every hold ends,

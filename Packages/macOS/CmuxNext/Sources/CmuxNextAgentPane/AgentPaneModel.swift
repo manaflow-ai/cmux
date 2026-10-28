@@ -339,6 +339,9 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
+        // Showing a tab moves the person's focus: only their own click or key in this pane may.
+        case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
+        case .attentionOpen(let tab): return AgentPaneAttentionTabs.shared.open(tab) ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
