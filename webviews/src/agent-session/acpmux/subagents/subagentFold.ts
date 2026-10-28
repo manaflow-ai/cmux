@@ -139,6 +139,8 @@ export class SubagentFold {
   private readonly settledViews = new Map<string, { state: string; name: string }>();
   private readonly viewTools = new Map<string, Map<string, boolean>>();
   private readonly pendingReplySummaries = new Set<string>();
+  /// The latest assistant message id per child, so a steer's new stream settles the prior reply.
+  private readonly replyMessageIds = new Map<string, string>();
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
@@ -572,8 +574,21 @@ export class SubagentFold {
     const update = entry.update;
     let streaming = update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk";
     let replySettled = false;
+    const messageId = typeof update?.messageId === "string" ? update.messageId : undefined;
+    const messageChanged =
+      update?.sessionUpdate === "agent_message_chunk" &&
+      !!messageId &&
+      this.replyMessageIds.has(id) &&
+      this.replyMessageIds.get(id) !== messageId;
+    if (messageChanged) {
+      this.pendingReplySummaries.delete(id);
+      this.bumpViewRevision(id);
+    }
     if (streaming && textFromContent(update?.content)) {
-      if (update?.sessionUpdate === "agent_message_chunk") this.pendingReplySummaries.add(id);
+      if (update?.sessionUpdate === "agent_message_chunk") {
+        this.pendingReplySummaries.add(id);
+        if (messageId) this.replyMessageIds.set(id, messageId);
+      }
       // The first thought can settle a reply; subsequent thought deltas keep its summary cached.
       if (update?.sessionUpdate === "agent_thought_chunk" && this.pendingReplySummaries.delete(id)) streaming = false;
     }
@@ -616,6 +631,7 @@ export class SubagentFold {
     if (agent.state !== "running") {
       if (last) last.settled = true;
       this.pendingReplySummaries.delete(agent.id);
+      this.replyMessageIds.delete(agent.id);
     }
     this.bumpViewRevision(agent.id);
     this.bump(agent.id);

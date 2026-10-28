@@ -160,6 +160,25 @@ test("a known titleless tool completion settles a child reply", () => {
   ]);
 });
 
+test("a child messageId change settles the prior reply Sources", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(
+    fold,
+    { ...say("See https://github.com/acme/app/pull/41"), messageId: "msg-1" },
+    { subagent: "a" },
+  );
+  feed(fold, { ...say("Continue here"), messageId: "msg-2" }, { subagent: "a" });
+  const rows = fold.views().a!;
+  expect(rows.filter((row) => row.kind === "assistant")).toMatchObject([
+    { text: "See https://github.com/acme/app/pull/41", streaming: false },
+    { text: "Continue here", streaming: true },
+  ]);
+  expect(sessionSummary(rows, "acme/app").sources).toMatchObject([
+    { url: "https://github.com/acme/app/pull/41", kind: "pullRequest" },
+  ]);
+});
+
 test("the first child tool after a reply settles its Sources", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
