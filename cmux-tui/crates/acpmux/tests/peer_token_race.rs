@@ -296,7 +296,12 @@ fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
             }
             let added = unix(&daemon.home, "_acpmux/peer_add", params);
             assert!(added.get("error").is_none(), "{added}");
-            let listing = daemon_env::acpmux(&daemon.home).args(["host", "ls"]).output().unwrap();
+            let listing = daemon_env::acpmux(&daemon.home)
+                .env("ACPMUX_HOME", &daemon.home)
+                .env("ACPMUX_SOCKET", daemon.home.join("s.sock"))
+                .args(["host", "ls"])
+                .output()
+                .unwrap();
             assert!(listing.status.success(), "host ls failed");
             let text = String::from_utf8_lossy(&listing.stdout);
             assert!(text.contains(expected), "missing {expected}: {text}");
