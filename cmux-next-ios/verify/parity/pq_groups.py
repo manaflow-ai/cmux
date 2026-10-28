@@ -63,6 +63,13 @@ def group(lay, name):
     return next((g for g in lay["groups"] if g["name"] == name), None)
 
 
+def close_old_workspaces():
+    """Rig setup: closes the rig's earlier flow workspaces (`p2tabs-*`), so pickers stay short."""
+    for ws in t.mac_tree().get("workspaces", []):
+        if (ws.get("name") or "").startswith("p2tabs-"):
+            t.mac_raw({"cmd": "close-workspace", "workspace": ws["id"], "end_terminals": True})
+
+
 def seed_group(tag, terminals, members, name):
     """A seeded workspace whose tabs `members` (1-based) the Mac groups as `name` (rig setup)."""
     ws = t.seed(f"{tag}", terminals=terminals)
@@ -74,22 +81,31 @@ def seed_group(tag, terminals, members, name):
 # ---------------------------------------------------------------- the phone side
 
 def labels(j):
-    return [e.label for e in j.sim.find(kind="Button") if e.label]
+    return [e.label for e in j.sim.find() if e.label and e.kind in ("Button", "PopUpButton", "MenuItem")]
 
 
 def row(j, label=None, prefix=None, timeout=6):
     """A button (menu row, list row), scrolled into view in a long list or menu."""
-    for _ in range(6):
-        e = starts(j, label, prefix, timeout)
+    for attempt in range(6):
+        e = starts(j, label, prefix, timeout if attempt == 0 else 2)
         if not e:
-            return None
+            # A row further down a long list is not built yet: scroll (menus never get here twice).
+            if attempt >= 3:
+                return None
+            j.sim.swipe(215, 640, 215, 360, 0.4)
+            time.sleep(0.8)
+            continue
         x, y, w, h = e.frame
-        if y + h < 830:
+        if y + h < 830 and y > 100:
             return e
-        j.sim.swipe(215, 640, 215, 360, 0.4)
+        j.sim.swipe(215, 640, 215, 360, 0.4) if y > 100 else j.sim.swipe(215, 360, 215, 640, 0.4)
         time.sleep(0.8)
         timeout = 2
     return None
+
+
+# Rows the flows tap: buttons, a list row's pull-down menu (PopUpButton) and its menu items.
+TAPPABLE = ("Button", "PopUpButton", "MenuItem")
 
 
 def starts(j, label, prefix, timeout):
@@ -97,8 +113,8 @@ def starts(j, label, prefix, timeout):
     only "<prefix>" or "<prefix>, …")."""
     t0 = time.time()
     while True:
-        hits = [e for e in j.sim.find(kind="Button")
-                if (label is not None and e.label == label) or (prefix is not None and (e.label or "").startswith(prefix))]
+        hits = [e for e in j.sim.find() if e.kind in TAPPABLE
+                and (label is not None and e.label == label) or (prefix is not None and (e.label or "").startswith(prefix))]
         if hits:
             return hits[0]
         if time.time() - t0 > timeout:
@@ -112,7 +128,7 @@ def open_ws(j, name):
     if leave:
         j.sim.tap_el(leave[0])
         time.sleep(1.5)
-    open_ws(j, name)
+    t.open_ws(j, name)
 
 
 def tap(j, label=None, prefix=None, timeout=6):
@@ -124,13 +140,27 @@ def tap(j, label=None, prefix=None, timeout=6):
 
 def open_group_page(j, title):
     """A member card's long press, then its "Tab Group: <name>…" row (before: the dialog; after: the page)."""
-    pq.open_grid(j)
+    grid(j)
     e = t.card(j, title)
     x, y = e.center
     j.sim.long_press(x, y, 1.0)
     time.sleep(0.9)
     tap(j, prefix="Tab Group: ")
     time.sleep(0.6)
+
+
+def grid(j):
+    """The workspace's tab grid: as it is when the workspace opened in it (its Done button and cards), else
+    pq.open_grid."""
+    if j.sim.find(label="Done", kind="Button") and j.sim.find(suffix=", tab", kind="Button"):
+        return
+    pq.open_grid(j)
+
+
+def open_tab(j, title):
+    grid(j)
+    j.sim.tap_el(t.card(j, title))
+    time.sleep(1.5)
 
 
 def back(j):
@@ -166,7 +196,7 @@ def appearance(j, label):
     pq.shot(f"appearance-{label}-actions")
     if label == "before":
         out["has_color"] = any((x or "").startswith("Set Tab Group Color") for x in out["group_actions"])
-        tap(j, "Cancel")
+        close_menu(j)  # the base app's group dialog has no Cancel row on iOS 26: a tap outside closes it
         return out
     tap(j, prefix="Set Tab Group Color")
     pq.shot("appearance-after-colors")
@@ -195,6 +225,7 @@ def appearance(j, label):
 def moves(j, label):
     """Move Tab Group Right / Left, New Tab in Group, Move Tab Group to New Split › Below, to New
     Column, to Workspace… (another seeded workspace), then from there to New Workspace."""
+    close_old_workspaces()
     ws, key, name = seed_group("groups-move", 4, [2, 3], "pair")
     other = t.seed("groups-dest", terminals=1)
     out = {"start": mac_groups(key)}
@@ -204,7 +235,7 @@ def moves(j, label):
     pq.shot(f"moves-{label}-actions")
     if label == "before":
         out["has_moves"] = any((x or "").startswith("Move Tab Group") for x in out["group_actions"])
-        tap(j, "Cancel")
+        close_menu(j)  # the base app's group dialog has no Cancel row on iOS 26: a tap outside closes it
         return out
     tap(j, "Move Tab Group Right")
     out["right"], _ = wait_mac(mac_groups, key, lambda v: v["panes"][0]["tabs"] == ["p2tabs-t1", "p2tabs-t4", "p2tabs-t2", "p2tabs-t3"],
@@ -232,10 +263,19 @@ def moves(j, label):
     time.sleep(1)
     pq.shot("moves-after-column")
     tap(j, prefix="Move Tab Group to Workspace")
-    pick = j.sim.wait(prefix=other.get("name"), kind="Button", timeout=8)
-    check(pick, "the destination workspace is not in the picker")
+    # The picker is a sheet the AX tree does not show: its row is found by OCR, scrolling the sheet.
+    time.sleep(1.2)
+    hits = []
+    for _ in range(8):
+        hits = [h for h in j.sim.ocr_find(other.get("name"), timeout=2) if h[1] > 440]
+        if hits:
+            break
+        j.sim.swipe(200, 780, 200, 560, 0.4)
+        time.sleep(0.8)
+    check(hits, "the destination workspace is not in the picker")
     pq.shot("moves-after-workspace-picker")
-    j.sim.tap_el(pick)
+    x, y, w, h, _ = hits[0]
+    j.sim.tap(x + w / 2, y + h / 2)
     out["to_workspace"], _ = wait_mac(mac_groups, other["key"], lambda v: group(v, "pair") is not None, "the group in the other workspace on the Mac")
     out["source_after"] = mac_groups(key)
     time.sleep(1.5)
@@ -264,12 +304,12 @@ def screens(j, label):
     t.mac_raw({"cmd": "new-screen", "workspace": ws["id"]})
     out = {"start": mac_screens(key)}
     open_ws(j, name)
-    pq.open_grid(j)
+    grid(j)
     time.sleep(1)
     out["cards"] = [e.label for e in j.sim.find(suffix=", tab")]
     out["screen_labels"] = [e.label for e in j.sim.find(prefix="On Screen")]
     pq.shot(f"screens-{label}-grid")
-    t.open_tab(j, "p2tabs-t1")
+    open_tab(j, "p2tabs-t1")
     out["page_menu"] = open_page_menu(j)
     pq.shot(f"screens-{label}-page-menu")
     if label == "before":
@@ -320,7 +360,7 @@ def screens(j, label):
     time.sleep(1.5)
     pq.shot("screens-after-close")
     back(j)
-    pq.open_grid(j)
+    grid(j)
     time.sleep(1)
     out["cards_after"] = [e.label for e in j.sim.find(suffix=", tab")]
     out["screen_labels_after"] = [e.label for e in j.sim.find(prefix="On ")]

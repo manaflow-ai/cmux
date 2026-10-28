@@ -1330,12 +1330,14 @@ struct WorkspaceTabCard: View {
             preview(tab, workspace)
                 // The card shows the top of the page, scaled down: the chip sits there, sized
                 // in page points so it reads like the card's title.
+                // Under the group chip: which of the Mac's screens the tab is on, when the workspace
+                // has more than one (the card shows only the top of the page).
                 .overlay(alignment: .topLeading) {
-                    if let group = tab.group { TabGroupChip(group: group).padding(.leading, 16).padding(.top, 14) }
-                }
-                // Which of the Mac's screens the tab is on, when the workspace has more than one.
-                .overlay(alignment: .bottomLeading) {
-                    if let screen = workspace.screenLabel(ofTab: tab.id) { ScreenChip(title: screen).padding(16) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let group = tab.group { TabGroupChip(group: group) }
+                        if let screen = workspace.screenLabel(ofTab: tab.id) { ScreenChip(title: screen) }
+                    }
+                    .padding(.leading, 16).padding(.top, 14)
                 }
         } else {
             Color.cmuxMobileBackground
