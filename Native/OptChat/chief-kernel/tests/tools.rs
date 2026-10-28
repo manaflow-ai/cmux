@@ -134,9 +134,10 @@ fn call_pure_answers_zoom_and_date_from_the_memory_and_the_context() {
     // The person's offset (UTC+01:00) from ctx, not the machine's.
     let date = call_pure("date", r#"{"id": 1}"#, &ctx, &memory, &store, &dates).unwrap();
     assert_eq!(date, "2026-10-28 02:02:11 +01:00");
-    assert!(
-        call_pure("date", r#"{"id": 0}"#, &ctx, &memory, &store, &dates).is_err(),
-        "no date stored"
+    // As the host answers a message with no stored date.
+    assert_eq!(
+        call_pure("date", r#"{"id": 0}"#, &ctx, &memory, &store, &dates).unwrap(),
+        "No message 0."
     );
     assert!(
         call_pure("send", r#"{"text": "x"}"#, &ctx, &memory, &store, &dates).is_err(),
