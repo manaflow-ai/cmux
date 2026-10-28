@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
+import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -85,7 +86,8 @@ public struct CmuxNextApp {
         // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
         watchdog.startupStep("main.warmup")
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup().start(catalog: actionCatalog)
+        LaunchWarmup(work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } },
+                     decodeIcons: { IconPack.decodeBundledInBackground(then: $0) }, markLaunch: { DebugTimings.markLaunch($0) }).start()
         DebugTimings.markLaunch("main.warmup_started")
         watchdog.startupStep("main.lanes")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
