@@ -88,7 +88,13 @@ final class DeviceLink {
     private let clock: any Clock<Duration>
     private let diagnostics: DeviceLinkDiagnostics?
     private var policy = DeviceLinkReconnectPolicy()
-    private var client: MobileCoreRPCClient?
+    /// The in-flight or active client and the route whose authority governs it.
+    struct Connection {
+        let client: MobileCoreRPCClient
+        let selection: DeviceRouteSelector.Selection
+    }
+    var connection: Connection?
+    private var client: MobileCoreRPCClient? { connection?.client }
     private var connectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var waitTask: Task<Void, Never>?
@@ -126,6 +132,14 @@ final class DeviceLink {
     /// The pairing store changed: a new grant makes this device dialable at
     /// once; a removed one drops the live link.
     func authorizationDidChange() {
+        if let connection, connection.selection.route.kind == .tailscale,
+           (try? routeSelector.select(from: [connection.selection.route], instance: instance, grant: {
+               authorization.authorization(for: instance, route: $0)
+           })) == nil {
+            tearDownClient(notify: phase == .connected)
+            policy = DeviceLinkReconnectPolicy()
+            phase = .idle
+        }
         reevaluate(unblock: true)
     }
 
@@ -172,7 +186,7 @@ final class DeviceLink {
         onChange?()
     }
 
-    private func applyPolicy(_ event: DeviceLinkReconnectPolicy.Event) -> Phase {
+    func applyPolicy(_ event: DeviceLinkReconnectPolicy.Event) -> Phase {
         policy.apply(event, now: runtime.now())
     }
 
@@ -250,7 +264,7 @@ final class DeviceLink {
 
     // MARK: - State machine
 
-    private func transition(_ next: Phase) {
+    func transition(_ next: Phase) {
         guard next != phase else { return }
         let previous = phase
         phase = next
@@ -288,9 +302,10 @@ final class DeviceLink {
         fetchTask?.cancel()
         fetchTask = nil
         if notify { terminalEvents.broadcast(.linkLost) }
-        if let client {
-            self.client = nil
-            Task { await client.disconnect() }
+        if let connection {
+            self.connection = nil
+            connection.client.retire()
+            Task { await connection.client.disconnect() }
         }
     }
 
@@ -301,11 +316,11 @@ final class DeviceLink {
             guard let self else { return }
             do {
                 let (client, events) = try await self.makeConnectedClient(record: record)
-                guard !Task.isCancelled, generation == self.generation else {
+                guard !Task.isCancelled, generation == self.generation,
+                      self.connection?.client === client else {
                     await client.disconnect()
                     return
                 }
-                self.client = client
                 self.lastFailure = nil
                 self.transition(self.applyPolicy(.connectSucceeded))
                 self.startEventConsumer(events, generation: generation)
@@ -333,24 +348,37 @@ final class DeviceLink {
     private func makeConnectedClient(
         record: DeviceDirectoryRecord
     ) async throws -> (client: MobileCoreRPCClient, events: AsyncStream<MobileEventEnvelope>) {
-        try await DeviceLinkConnectionAttempt.connect(
+        try await DeviceLinkConnectionAttempt(selector: routeSelector).connect(
             routes: record.routes,
             instance: record.instance,
             hostName: record.deviceName,
-            selector: routeSelector,
             grant: { [authorization] route in
                 authorization.authorization(for: record.instance, route: route)
             },
             connect: { selection in
-                try await self.makeConnectedClient(record: record, selection: selection)
+                let client = try self.makeClient(record: record, selection: selection)
+                self.connection = Connection(client: client, selection: selection)
+                let timeout = self.runtime.pairingRequestTimeoutNanoseconds
+                let deadline = ContinuousClock.now.advanced(by: .nanoseconds(Int64(clamping: timeout)))
+                do {
+                    try await client.connectTransport(timeoutNanoseconds: timeout)
+                    return (client, deadline)
+                } catch {
+                    if self.connection?.client === client { self.connection = nil }
+                    await client.disconnectAndWaitForTransportDrain()
+                    throw error
+                }
+            },
+            authenticate: { client, deadline in
+                try await self.authenticateClient(client, deadline: deadline)
             }
         )
     }
 
-    private func makeConnectedClient(
+    private func makeClient(
         record: DeviceDirectoryRecord,
         selection: DeviceRouteSelector.Selection
-    ) async throws -> (client: MobileCoreRPCClient, events: AsyncStream<MobileEventEnvelope>) {
+    ) throws -> MobileCoreRPCClient {
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
             terminalID: nil,
@@ -358,7 +386,7 @@ final class DeviceLink {
             macDisplayName: record.deviceName,
             routes: [selection.route]
         )
-        let client = MobileCoreRPCClient(
+        return MobileCoreRPCClient(
             runtime: try runtime.forPeer(record.instance),
             route: selection.route,
             ticket: ticket,
@@ -368,9 +396,19 @@ final class DeviceLink {
             legacyTailscaleAuthorizationEvidence: selection.evidence,
             sessionPurpose: .backgroundControl
         )
+    }
+
+    private func authenticateClient(
+        _ client: MobileCoreRPCClient,
+        deadline: ContinuousClock.Instant
+    ) async throws -> (client: MobileCoreRPCClient, events: AsyncStream<MobileEventEnvelope>) {
         do {
             streamID = UUID().uuidString.lowercased()
-            let timeout = runtime.pairingRequestTimeoutNanoseconds
+            // Transport establishment consumes the existing probe budget.
+            let remaining = ContinuousClock.now.duration(to: deadline)
+            guard remaining > .zero else { throw MobileShellConnectionError.requestTimedOut }
+            let parts = remaining.components
+            let timeout = UInt64(parts.seconds) * 1_000_000_000 + UInt64(parts.attoseconds / 1_000_000_000)
             // Identity first. The probe is read-only and authenticated, and the
             // paired status reply names the Mac that answered; nothing is
             // subscribed or exposed until that matches this row exactly.
@@ -399,6 +437,7 @@ final class DeviceLink {
             }
             return (client, events)
         } catch {
+            if connection?.client === client { connection = nil }
             await client.disconnect()
             throw error
         }

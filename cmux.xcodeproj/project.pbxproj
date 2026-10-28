@@ -2024,6 +2024,7 @@
 				DEC1CE000000000000000008 /* DeviceRegistryDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000007 /* DeviceRegistryDirectoryClient.swift */; };
 				DEC1CE000000000000000012 /* DeviceRouteSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000011 /* DeviceRouteSelector.swift */; };
 				DEC1CE000000000000000044 /* DeviceRouteSelectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000043 /* DeviceRouteSelectorTests.swift */; };
+		F5F268EBE52BA977EB86B38E /* DeviceRouteTestAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6243CD08371A8A060F4764D8 /* DeviceRouteTestAuthorization.swift */; };
 				DEC1CE00000000000000004A /* DevicesCloudTreeBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000049 /* DevicesCloudTreeBuilderTests.swift */; };
 				DEC1CE000000000000000002 /* DevicesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000001 /* DevicesFeature.swift */; };
 				DEC1CE000000000000000028 /* DevicesPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000027 /* DevicesPanelViewModel.swift */; };
@@ -6709,6 +6710,7 @@
 				DEC1CE000000000000000007 /* DeviceRegistryDirectoryClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceRegistryDirectoryClient.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000011 /* DeviceRouteSelector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceRouteSelector.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000043 /* DeviceRouteSelectorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceRouteSelectorTests.swift; sourceTree = "<group>"; };
+		6243CD08371A8A060F4764D8 /* DeviceRouteTestAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeviceRouteTestAuthorization.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000049 /* DevicesCloudTreeBuilderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesCloudTreeBuilderTests.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000001 /* DevicesFeature.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DevicesFeature.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000027 /* DevicesPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DevicesPanelViewModel.swift"; sourceTree = "<group>"; };
@@ -14284,6 +14286,7 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				6243CD08371A8A060F4764D8 /* DeviceRouteTestAuthorization.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18907,6 +18910,7 @@
 				DEC1CE000000000000000040 /* DevicePresenceWireTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,
 				DEC1CE000000000000000044 /* DeviceRouteSelectorTests.swift in Sources */,
+				F5F268EBE52BA977EB86B38E /* DeviceRouteTestAuthorization.swift in Sources */,
 				DEC1CE00000000000000004A /* DevicesCloudTreeBuilderTests.swift in Sources */,
 				DEC1CE00000000000000004C /* DevicesSidebarModeTests.swift in Sources */,
 				DEC1CE00000000000000004E /* DeviceTerminalMirrorTests.swift in Sources */,

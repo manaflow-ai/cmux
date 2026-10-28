@@ -1,23 +1,26 @@
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 
-/// Connects using the preferred route, then an explicitly authorized Tailscale
-/// route if Iroh fails transiently. Each attempt re-reads the pairing grant.
-/// The caller tears down the failed RPC client before returning an error.
+/// Establishes a transport using the preferred route or an authorized fallback,
+/// then authenticates once. RPC failures after admission never select another
+/// route: a generic closure can conceal a remote revocation.
 @MainActor
-enum DeviceLinkConnectionAttempt {
-    static func connect<Connection>(
+struct DeviceLinkConnectionAttempt {
+    let selector: DeviceRouteSelector
+
+    func connect<Connection, Authenticated>(
         routes: [CmxAttachRoute],
         instance: SurfaceDeviceInstanceID,
         hostName: String,
-        selector: DeviceRouteSelector,
         grant: (CmxAttachRoute) -> CmxLegacyTailscaleAuthorizationEvidence?,
-        connect: @MainActor (DeviceRouteSelector.Selection) async throws -> Connection
-    ) async throws -> Connection {
+        connect: @MainActor (DeviceRouteSelector.Selection) async throws -> Connection,
+        authenticate: @MainActor (Connection) async throws -> Authenticated
+    ) async throws -> Authenticated {
         try Task.checkCancellation()
         let selection = try selector.select(from: routes, instance: instance, grant: grant)
+        let connection: Connection
         do {
-            return try await connect(selection)
+            connection = try await connect(selection)
         } catch {
             try Task.checkCancellation()
             guard selection.route.kind == .iroh,
@@ -28,7 +31,9 @@ enum DeviceLinkConnectionAttempt {
                     instance: instance,
                     grant: grant
                   ) else { throw error }
-            return try await connect(fallback)
+            connection = try await connect(fallback)
         }
+        try Task.checkCancellation()
+        return try await authenticate(connection)
     }
 }

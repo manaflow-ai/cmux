@@ -125,14 +125,14 @@ struct DeviceRouteSelectorTests {
         let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0)
         let evidence = try #require(grant(for: tailscale))
         var attempts: [DeviceRouteSelector.Selection] = []
-        let connected = try await DeviceLinkConnectionAttempt.connect(
+        let connected = try await DeviceLinkConnectionAttempt(selector: DeviceRouteSelector(allowsIroh: true)).connect(
             routes: [tailscale, iroh], instance: studio, hostName: "Studio",
-            selector: DeviceRouteSelector(allowsIroh: true), grant: { self.grant(for: $0) }
+            grant: { self.grant(for: $0) }
         ) { selection in
             attempts.append(selection)
             if selection.route.kind == .iroh { throw DeviceLinkError.notConnected }
             return selection.route
-        }
+        } authenticate: { $0 }
         #expect(connected == tailscale)
         #expect(attempts == [.init(route: iroh, evidence: nil), .init(route: tailscale, evidence: evidence)])
     }
@@ -151,14 +151,14 @@ struct DeviceRouteSelectorTests {
         for failure in failures {
             var attempts: [CmxAttachTransportKind] = []
             await #expect(throws: (any Error).self) {
-                try await DeviceLinkConnectionAttempt.connect(
+                try await DeviceLinkConnectionAttempt(selector: DeviceRouteSelector(allowsIroh: true)).connect(
                     routes: routes, instance: studio, hostName: "Studio",
-                    selector: DeviceRouteSelector(allowsIroh: true), grant: { self.grant(for: $0) }
+                    grant: { self.grant(for: $0) }
                 ) { selection -> CmxAttachRoute in
                     attempts.append(selection.route.kind)
                     if selection.route.kind == .iroh { throw failure }
                     return selection.route
-                }
+                } authenticate: { $0 }
             }
             #expect(attempts == [.iroh])
         }
@@ -171,9 +171,10 @@ struct DeviceRouteSelectorTests {
         var attempts: [CmxAttachTransportKind] = []
         var grantAvailable = true
         await #expect(throws: DeviceLinkError.notConnected) {
-            try await DeviceLinkConnectionAttempt.connect(
+            try await DeviceLinkConnectionAttempt(selector: DeviceRouteSelector(
+                allowsIroh: true, allowsLegacyTailscale: allowsFallback
+            )).connect(
                 routes: routes, instance: studio, hostName: "Studio",
-                selector: DeviceRouteSelector(allowsIroh: true, allowsLegacyTailscale: allowsFallback),
                 grant: { grantAvailable ? self.grant(for: $0) : nil }
             ) { selection -> CmxAttachRoute in
                 attempts.append(selection.route.kind)
@@ -182,7 +183,7 @@ struct DeviceRouteSelectorTests {
                     throw DeviceLinkError.notConnected
                 }
                 return selection.route
-            }
+            } authenticate: { $0 }
         }
         #expect(attempts == [.iroh])
     }
@@ -194,14 +195,14 @@ struct DeviceRouteSelectorTests {
         let task = Task { @MainActor in
             var attempts: [CmxAttachTransportKind] = []
             await #expect(throws: CancellationError.self) {
-                try await DeviceLinkConnectionAttempt.connect(
+                try await DeviceLinkConnectionAttempt(selector: DeviceRouteSelector(allowsIroh: true)).connect(
                     routes: routes, instance: studio, hostName: "Studio",
-                    selector: DeviceRouteSelector(allowsIroh: true), grant: { self.grant(for: $0) }
+                    grant: { self.grant(for: $0) }
                 ) { selection -> CmxAttachRoute in
                     attempts.append(selection.route.kind)
                     withUnsafeCurrentTask { $0?.cancel() }
                     throw DeviceLinkError.notConnected
-                }
+                } authenticate: { $0 }
             }
             #expect(attempts == [.iroh])
         }
@@ -214,6 +215,62 @@ struct DeviceRouteSelectorTests {
                 endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: [])),
             route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0),
         ]
+    }
+
+    @MainActor
+    @Test("An RPC closure after successful Iroh admission never triggers fallback")
+    func admittedIrohClosureDoesNotFallBack() async throws {
+        let routes = try connectionRoutes()
+        var attempts: [CmxAttachTransportKind] = []
+        await #expect(throws: MobileShellConnectionError.self) {
+            try await DeviceLinkConnectionAttempt(selector: DeviceRouteSelector(allowsIroh: true)).connect(
+                routes: routes, instance: studio, hostName: "Studio", grant: { self.grant(for: $0) }
+            ) { selection in
+                attempts.append(selection.route.kind)
+                return selection
+            } authenticate: { _ -> Void in
+                // RPC deliberately erases a post-admission revocation to this error.
+                throw MobileShellConnectionError.connectionClosed
+            }
+        }
+        #expect(attempts == [.iroh])
+    }
+
+    @MainActor
+    @Test("Unpairing retires the selected Tailscale client even while Iroh remains discoverable", arguments: [false, true])
+    func unpairingRetiresFallbackConnection(connected: Bool) async throws {
+        let suite = "DeviceRouteSelector-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let runtime = makeRuntime(defaults: defaults, hasAutomaticClient: true)
+        let routes = try connectionRoutes()
+        let tailscale = try #require(routes.first { $0.kind == .tailscale })
+        let evidence = try #require(grant(for: tailscale))
+        let authorization = DeviceRouteTestAuthorization(evidence: evidence)
+        let record = DeviceDirectoryRecord(instance: studio, deviceName: "Studio", platform: "mac",
+            bundleID: nil, presenceState: .online, isPaired: true, lastSeenAt: nil, routes: routes,
+            ownerUserID: "test", accountTrust: .sameAccount)
+        let link = DeviceLink(record: record, runtime: runtime, authorization: authorization)
+        link.update(record: record)
+        let client = MobileCoreRPCClient(runtime: try runtime.forPeer(studio), route: tailscale,
+            ticket: try CmxAttachTicket(workspaceID: "main", terminalID: nil, macDeviceID: studio.deviceID,
+                macDisplayName: "Studio", routes: [tailscale]),
+            allowsStackAuthFallback: true, legacyTailscaleAuthorizationEvidence: evidence)
+        link.connection = .init(client: client, selection: .init(route: tailscale, evidence: evidence))
+        if connected { link.transition(link.applyPolicy(.connectSucceeded)) }
+        link.authorizationDidChange()
+        #expect(link.connection?.client === client)
+        #expect(link.isConnected == connected)
+
+        authorization.evidence = nil
+        link.authorizationDidChange()
+        #expect(link.connection == nil)
+        #expect(!link.isConnected)
+        #expect(link.phase == .connecting(attempt: 1))
+        // The replacement's main-actor task has not run; cancel it before yielding.
+        link.stop()
+        await #expect(throws: (any Error).self) { try await client.connectTransport() }
+        await client.disconnectAndWaitForTransportDrain()
     }
 
     @MainActor

@@ -6,6 +6,7 @@ actor ControllableResponseTransport: CmxByteTransport {
     private let closeEndsReceive: Bool
     private let blocksFirstSend: Bool
     private let automaticallyRespondingRequestIDs: Set<String>
+    private let connectFailure: (any Error)?
     private var queuedFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var sentRequestIDs: [String] = []
@@ -17,14 +18,21 @@ actor ControllableResponseTransport: CmxByteTransport {
     init(
         closeEndsReceive: Bool,
         blocksFirstSend: Bool = false,
-        automaticallyRespondingRequestIDs: Set<String> = []
+        automaticallyRespondingRequestIDs: Set<String> = [],
+        connectFailure: (any Error)? = nil
     ) {
         self.closeEndsReceive = closeEndsReceive
         self.blocksFirstSend = blocksFirstSend
         self.automaticallyRespondingRequestIDs = automaticallyRespondingRequestIDs
+        self.connectFailure = connectFailure
     }
 
-    func connect() async throws {}
+    private(set) var connectCount = 0
+
+    func connect() async throws {
+        connectCount += 1
+        if let connectFailure { throw connectFailure }
+    }
 
     func receive() async throws -> Data? {
         if !queuedFrames.isEmpty { return queuedFrames.removeFirst() }
