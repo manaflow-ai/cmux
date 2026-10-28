@@ -69,6 +69,8 @@ pub struct Conn {
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
+    /// Its pace of full session lists (`hub/list_guard.rs`).
+    list_pace: StdMutex<crate::hub::list_guard::Pacer>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -315,6 +317,23 @@ impl Conn {
                 );
             }
         }
+    }
+    /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
+    /// already for a peer. One larger than a frame goes as its error, as in [`Self::send`].
+    fn send_serialized(&self, id: &Value, result: &str) {
+        let mut line = list_reply::reply_line(id, result);
+        if line.len() > crate::rpc::MAX_MESSAGE_BYTES {
+            line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
+        }
+        enqueue_outbound(
+            &self.out,
+            line,
+            true,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
@@ -1126,6 +1145,7 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        list_pace: Default::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
@@ -1204,7 +1224,18 @@ async fn serve_connection_from(
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let _slot = slot;
-                    let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
+                    let (result, serialized) = list_reply::scope(chats::route(
+                        &hub,
+                        &conn,
+                        &m,
+                        params.unwrap_or(Value::Null),
+                    ))
+                    .await;
+                    // A shared session list, sent as the bytes it was serialized to.
+                    if let (Ok(_), Some(result)) = (&result, serialized) {
+                        conn.send_serialized(&id, &result);
+                        return;
+                    }
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
                         Err(mut e) => {
@@ -1478,6 +1509,7 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 mod lane_parent;
+mod list_reply;
 use lane_parent::lane_parent;
 pub mod local_app;
 pub(crate) mod machine_health;
