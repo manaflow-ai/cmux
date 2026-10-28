@@ -81,7 +81,8 @@ fn cmux_setup_harness_auth_protocol_failure_is_not_sign_out() {
 }
 
 #[test]
-fn cmux_setup_harness_auth_claude_check_failure_retains_profile_login() {
+fn cmux_setup_harness_auth_claude_check_failure_retains_profile_login_and_respects_disabled_launches()
+ {
     let world = World::new("hclaude");
     let agent = world.bin.join("claude");
     World::executable(&agent, "#!/bin/sh\necho 1.0.0\n");
@@ -106,6 +107,21 @@ login = "claude auth login"
     let row = &report["harnesses"][0];
     assert_eq!(row["auth_status"], "signed_out", "{row}");
     assert_eq!(row["recovery"]["command"], "cmux harness login work-claude");
+    for (variable, value) in [("ACPMUX_AGENT_LAUNCH", "deny"), ("CMUX_AGENTS_DISABLED", "1")] {
+        let output = world
+            .command(&["setup", "harness", "work-claude"])
+            .env(variable, value)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let row = &report["harnesses"][0];
+        assert_eq!(row["auth_status"], "unknown", "{row}");
+        assert_eq!(row["signed_in"], Value::Null);
+        assert_eq!(row["state"], "ok");
+        assert_eq!(row["recovery"], Value::Null);
+        assert_eq!(row["auth_detail"], acpmux::launch_policy::DISABLED_MESSAGE);
+    }
 }
 
 #[test]

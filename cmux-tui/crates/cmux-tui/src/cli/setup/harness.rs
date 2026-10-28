@@ -62,6 +62,12 @@ impl CheckedHarness {
             match health.auth {
                 Auth::SignedIn => AuthStatus::Detected,
                 Auth::SignedOut => AuthStatus::SignedOut,
+                Auth::Unknown
+                    if health.auth_detail.as_deref()
+                        == Some(acpmux::launch_policy::DISABLED_MESSAGE) =>
+                {
+                    AuthStatus::Unknown
+                }
                 Auth::Unknown if health.auth_detail.is_some() => AuthStatus::NeedsAction,
                 Auth::Unknown => AuthStatus::Unknown,
             }
