@@ -502,12 +502,14 @@ export function NewTabScreen(props: Props) {
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   const parentSignIn = useSignIn();
-  const targetHost =
-    machine?.peer ??
-    (environment?.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
+  // Auth must follow the same target precedence as askChat: a saved environment wins over a
+  // previously picked machine, so an old machine verdict cannot block this environment's prompt.
+  const targetHost = environment
+    ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
       ? environment.host
-      : undefined);
-  const remoteTarget = Boolean(machine?.peer || environment?.kind === "ssh");
+      : undefined
+    : machine?.peer;
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
   const authQuery =
     harness && (!remoteTarget || targetHost)
       ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
