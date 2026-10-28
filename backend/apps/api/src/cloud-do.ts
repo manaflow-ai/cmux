@@ -8,7 +8,9 @@ import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
-import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
+import { platformCall, type PlatformCall, type PlatformReply } from "./cloud-platform.ts"
 import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
@@ -314,6 +316,31 @@ export class CloudDO extends CloudIdle {
       return
     }
     if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now, 10, first)) this.retryClientIdentities()
+  }
+
+  /**
+   * The platform Worker's environment setups (PlatformMachines, platform-machines.ts) for `user` in this
+   * team: boot, exec, snapshot and delete through the person's own ops (cloud-platform.ts). No public
+   * route reaches it; only a Worker bound to PlatformMachines does.
+   */
+  async platformMachine(entity: string, user: string, call: PlatformCall): Promise<PlatformReply> {
+    const started = Date.now()
+    const rows = () => (this.isBound(entity) ? this.bind(entity).rows : undefined)
+    return platformCall({
+      team: entity,
+      // A shared team: a member with team.resources now, and no departure heard during the read (as automationExec).
+      mayUse: async (u) => entity === personalTeamIdFor(u) || ((await this.creatorIsMember(entity, u)) && (this.leftAt.get(u) ?? -1) < started),
+      submit: (p, f) => this.submit(entity, p, f),
+      machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
+      snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
+      tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
+      exec: async (row, command, stdin, timeoutMs) => {
+        const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null) : null
+      },
+      audit: (e) => this.audit.record(e)
+    }, user, call)
   }
 
   private readonly acpmuxStarting = new Set<string>()
