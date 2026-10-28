@@ -76,6 +76,8 @@ struct AgentPaneMachineLinkTests {
         link.budget = .seconds(30)
         let started = ContinuousClock.now
         let send = Task { await link.awaitLink("box") }
+        // Let it start waiting (both run on the main actor) before the cancel.
+        for _ in 0..<10 { await Task.yield() }
         send.cancel()
         #expect(await send.value == false)
         #expect(ContinuousClock.now - started < .seconds(5))
