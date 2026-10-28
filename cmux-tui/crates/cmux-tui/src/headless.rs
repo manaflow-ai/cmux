@@ -10,6 +10,7 @@ mod dev_orphan_exit;
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
+    exit_with: Option<local_owner::ExitWith>,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -63,6 +64,13 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // `--exit-with-pid`: armed once startup work has begun, so the stop
+    // ends every terminal that work made (a starter already gone stops the
+    // owner at once).
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    local_owner::exit_with(mux, exit_with);
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    let _ = exit_with;
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {

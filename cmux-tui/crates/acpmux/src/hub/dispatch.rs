@@ -126,6 +126,19 @@ impl Briefs {
     }
 }
 
+impl Hub {
+    /// Whether a brief row is one this daemon ran: still being claimed (no session and no host
+    /// yet), or its session is one of this host's, open or closed. A row a peer ran (this host's
+    /// copy of a brief it dispatched there, `server/requests.rs`) names a session it never had.
+    pub(crate) fn brief_ran_here(&self, row: &Value) -> bool {
+        let Some(id) = row.get("sessionId").and_then(Value::as_str) else {
+            return row.get("host").is_none();
+        };
+        self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(id)
+            || matches!(self.store.load(id), Ok(Some(_)))
+    }
+}
+
 pub(crate) fn event(kind: &str, row: &Value) -> Value {
     json!({
         "kind": kind,

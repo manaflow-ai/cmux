@@ -163,6 +163,11 @@ final class SidebarIconButton: NSButton {
         needsDisplay = true
     }
 
+    /// A middle press is the row's, never the button's: it goes up the responder chain to the sidebar list, so a
+    /// middle-click on a hovered row's ✕ closes that row as anywhere else on it does (`SidebarMiddleClick`).
+    override func otherMouseDown(with event: NSEvent) { nextResponder?.otherMouseDown(with: event) }
+    override func otherMouseUp(with event: NSEvent) { nextResponder?.otherMouseUp(with: event) }
+
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return super.mouseDown(with: event) }

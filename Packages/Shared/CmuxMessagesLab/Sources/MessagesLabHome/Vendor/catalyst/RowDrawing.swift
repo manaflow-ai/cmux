@@ -600,7 +600,7 @@ enum PartRenderer {
         let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
         drawQuoteBubble(ctx, pv, box: box)
         if pv.count >= 2 {
-            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 10, weight: .bold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(pv.count)
             let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
             TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
@@ -619,13 +619,21 @@ enum PartRenderer {
         // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
         if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
         let fill = out ? Fixture.outgoing : Fixture.incoming
-        let ink = out ? Fixture.outgoingText : Fixture.incomingText
-        let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)
+        // cmux (2026-10-27, Lawrence's 5:54 PM reference): my root is an outlined blue bubble with blue text,
+        // not a faded fill; the Chief's root keeps its gray fill.
+        let ink = out ? Fixture.outgoing : Fixture.incomingText
+        let shape = BubblePath.balloon(frame: out ? box.insetBy(dx: 0.5, dy: 0.5) : box, row: pv.shapeRow)
         ctx.saveGState()
-        ctx.setAlpha(ThreadPreview.quoteOpacity)
+        ctx.setAlpha(out ? 1 : ThreadPreview.quoteOpacity)
         ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2), auxiliaryInfo: nil)
-        fill.setFill()
-        shape.fill()
+        if out {
+            fill.setStroke()
+            shape.lineWidth = 1
+            shape.stroke()
+        } else {
+            fill.setFill()
+            shape.fill()
+        }
         if pv.isThumbnail, case let .attachment(a) = pv.part {
             ctx.saveGState()
             shape.addClip()

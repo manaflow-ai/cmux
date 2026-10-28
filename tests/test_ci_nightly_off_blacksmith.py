@@ -41,7 +41,7 @@ def code_lines(path: Path):
         yield number, line.split(" # ", 1)[0]
 
 
-class NightlyOffBlacksmithTests(unittest.TestCase):
+class NightlyPooledRoutingTests(unittest.TestCase):
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
@@ -130,7 +130,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
                          + "'blacksmith-4vcpu-ubuntu-2404' }}")
         self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
-                         "${{ " + owned + "'blacksmith-8vcpu-ubuntu-2404' }}")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
+                         + "'blacksmith-8vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
@@ -183,6 +184,15 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertTrue(steps["Put llvm-lipo on PATH as lipo"]["if"].startswith("runner.os == 'Linux' && "))
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
+
+    def test_the_canary_takes_the_owned_side_label_then_blacksmith(self) -> None:
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
+        self.assertIn("vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
+                      "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}", jobs["canary"]["runs-on"])
+        for name in ("pick", "verdict"):
+            with self.subTest(job=name):
+                self.assertRegex(jobs[name]["runs-on"], r"'blacksmith-\d+vcpu-ubuntu-2404' }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.

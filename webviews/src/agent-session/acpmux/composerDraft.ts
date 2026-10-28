@@ -50,6 +50,7 @@ holdWebSwap(() => {
   return pendingDraftWrites.size || flushingDraftWrites || unansweredWrite ? "composer.draft-unsaved" : null;
 });
 
+// l10n-allow: a sentinel matched by identity (writeTimedOut); never shown.
 const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
 
 /** How long one draft write may go unanswered before it counts as failed, and how long after that
