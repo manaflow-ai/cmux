@@ -13,7 +13,9 @@ it, `0` turns hibernation off). The chat may be open on screen. Idle means all o
 - no permission or question pending, and no agent request (a file read, a terminal, a
   permission not shown yet) waiting on its answer;
 - no automatic continuation waiting or starting;
-- no background command, background subagent or sub-session at work;
+- no harness-owned background command (a Claude Code `run_in_background` shell, a Codex
+  background terminal), background subagent or sub-session at work. A background task the
+  daemon owns (below) does not count: it keeps running while the chat hibernates;
 - no start of the agent in progress;
 - for a Claude chat, its turns are in Claude's store (a chat whose turns are not would wake as a
   new conversation);
@@ -40,11 +42,58 @@ long the start took, how long the chat slept).
 
 ## What is stopped, and what is not
 
-Only what acpmux spawned and holds is stopped: the agent's process and its MCP sidecars, and
-only once the census found nothing else under it.
-Work that left the agent's process tree on purpose (a server started with `setsid`, a daemon
-it detached) is out of scope by design. Nothing signals it, so it keeps running after the chat
-hibernates.
+Only what acpmux spawned and holds for the agent is stopped: the agent's process and its MCP
+sidecars, and only once the census found nothing else under it. Work that left the agent's
+process tree on purpose (a server started with `setsid`, a daemon it detached) is out of scope
+by design. Nothing signals it, so it keeps running after the chat hibernates.
+
+Background tasks are never killed by hibernation, by design. Leo, 2026-10-27: "also when it
+comes to hibernation...can't you hibernate the agent but not hibernate the bg tasks?" A
+harness's own background shells cannot outlive their harness. On SIGTERM, Claude Code's exit
+cleanup ends its `run_in_background` shells. On SIGKILL they keep running, but a resumed
+`claude --resume` lists them as stopped and cannot stop them. Codex ends its background terminals
+on any exit (`terminate_all_processes`, and its process handles kill their group on drop), and it
+keeps their output in memory only. So a task that must outlive the agent runs under the daemon
+instead:
+
+- It starts with `_acpmux/bg/start` (the agent's MCP tools for it are a follow-up). The daemon
+  starts a runner (`acpmux __bg-run`, `src/bg_run.rs`) in a session of its own, never in the
+  harness's group. The runner starts the command as the leader of a new session.
+- The task outlives the agent's hibernation, the agent's exit and a daemon restart. Its state is
+  only `<ACPMUX_HOME>/bg/<chat>/`: the runner's record, a lock the runner holds while the task
+  runs, its stop FIFO, and the task's output.
+- Its output is bounded. Each segment holds 4 MiB, and at most two are kept (`<id>.out.<start>`,
+  named by where each starts in the whole output), so a task keeps its newest 8 MiB.
+  `_acpmux/bg/output` reads by offset in the whole output, returns the exact bytes (base64) and
+  the text, and says how much is gone. `_acpmux/bg/list` shows each task's state and its last
+  1 KiB.
+- A woken agent finds its tasks by id. `_acpmux/bg/stop` writes the chat folder's generation to
+  the task's FIFO, which opens only while its runner holds it, so no pid is signalled. A runner
+  acts only on its own generation, so a runner of an earlier folder of the chat id never takes
+  a later chat's stop or purge. The runner then sends
+  SIGTERM to the task's own group, then SIGKILL to the group 5 s later, so a stop takes 5 s.
+  Only the runner signals that group, and only before it reaps the leader, which it reaps only
+  once the pipe ends and a stop's SIGKILL went out. So output a child writes after the leader
+  exited is kept, and a child that ignores SIGTERM is killed even with its output sent
+  elsewhere. Purging a chat stops its tasks and moves their folder aside at once, so the chat is gone
+  without waiting; the moved folder is removed once its runners exit (a background wait of at
+  most 20 s, and every later purge clears any left). A folder that neither moves nor goes fails
+  the purge.
+  Each folder has a generation its records carry, so a runner that outlived a purge never shows
+  in a later folder of the same chat id. Stopping a chat keeps them, and a stopped chat starts none.
+- A task whose spool failed (a full disk) says so in `outputError`: its output is incomplete.
+- Only the chat's own agent (its proven caller token) and the person reach a chat's tasks. A
+  chat moved away and imported back is the same chat, and finds its tasks again.
+- A task runs while anything it started still holds its output, a process that left its group
+  (`setsid cmd &`) included, so it has no deadline. A stop ends the task's group and, after its
+  grace, the runner's wait and the task's record. A process that left the group is never
+  signalled (only the task's own group is), so it keeps running after the stop, and its later
+  output is not kept.
+- The task runs under `bash -c` (`/bin/sh` where there is no bash), in the environment the
+  chat's agent runs with: the daemon builds it the way it launched the agent, so a Codex chat's
+  task sees what its own shell sees although Codex passes an MCP server only a few names.
+- A daemon-owned task never keeps a chat awake. A harness-owned background shell, a Codex
+  background terminal and a background subagent still do, because hibernating would end them.
 
 Sessions waiting on a person (a permission or a question) do not hibernate yet. Keeping only
 the question for them is a follow-up.

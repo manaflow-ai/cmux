@@ -7159,17 +7159,23 @@ jobs:
   # fresh secret-free pooled runner (no environment or secret). Its verified sha256 is the only DMG publish-nightly-identity-legacy
   # publishes.
   verify-nightly-identity-legacy:
-    needs: [legacy-identity-target, sign-nightly-identity-legacy]
+    needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]
     if: "!cancelled() && needs.sign-nightly-identity-legacy.outputs.signed_ok == 'true' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 != ''"
     continue-on-error: true
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # No environment and no secrets, like verify-signed-nightly: a free owned Mac first, then the
+    # Blacksmith label legacy-identity-target picked. Routing order Linux, owned Macs, Blacksmith
+    # last (Leo, 2026-10-24); on 2026-10-28 this job queued over 20 min on blacksmith-6vcpu-macos-26
+    # behind pull request jobs while blacksmith-12vcpu-macos-26 started nothing. A re-run (attempt 2
+    # on, the owned-pool rescue's) takes the Blacksmith alternate as before.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.verify.outputs.tested_sha256 }}
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # An owned Mac has the PR lane's Xcode pin (as verify-signed-nightly); Blacksmith the macOS 26 one.
+      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       SIGNED_SHA256: ${{ needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}

@@ -52,6 +52,13 @@ impl Watcher {
     }
 
     async fn call(&mut self, m: &str, params: Value) -> Value {
+        let (result, error) = self.answer(m, params).await;
+        assert!(error.is_none(), "{m}: {error:?}");
+        result
+    }
+
+    /// The reply to `m`: its result, and its error's message.
+    async fn answer(&mut self, m: &str, params: Value) -> (Value, Option<String>) {
         self.next += 1;
         let id = self.next;
         self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -63,8 +70,7 @@ impl Watcher {
             if let Ok(Message::Response { id: got, result, error }) = Message::parse(&line)
                 && got == json!(id)
             {
-                assert!(error.is_none(), "{m}: {error:?}");
-                return result.unwrap_or(Value::Null);
+                return (result.unwrap_or(Value::Null), error.map(|e| e.message));
             }
         }
     }
@@ -109,13 +115,15 @@ async fn a_peer_connection_hears_and_lists_none_of_this_hosts_peers() {
     assert!(leaked.is_empty(), "a peer's connection heard this host's peers: {leaked:?}");
 
     // Fell behind: more changes than the feed holds, sent before either watcher runs (this
-    // test's runtime has one thread), so each lags and gets the snapshot instead.
+    // test's runtime has one thread), so each lags and gets the snapshot instead. `y` changes
+    // once, first, so its note is pushed out of the feed: only the snapshot carries it.
+    a.peer_states().register("y", 1, seen(PeerLinkState::Connected, None));
     for i in 0..600u32 {
         let state = if i % 2 == 0 { PeerLinkState::Reconnecting } else { PeerLinkState::Connected };
         a.peer_states().changed("x", 1, seen(state, Some("connection refused")));
     }
     let heard = local.notes(quiet).await;
-    assert!(heard.len() > 1, "the unix socket hears the snapshot and the rest: {heard:?}");
+    assert!(heard.iter().any(|n| n["peer"] == "y"), "the unix socket gets the snapshot: {heard:?}");
     let leaked = peer.notes(quiet).await;
     assert!(leaked.is_empty(), "a lagging peer connection got the snapshot: {leaked:?}");
 
@@ -130,4 +138,60 @@ async fn a_peer_connection_hears_and_lists_none_of_this_hosts_peers() {
     assert_eq!(peer_names(&status["peers"]), Vec::<String>::new(), "{status}");
     let status = local.call(method::MUX_STATUS, json!({})).await;
     assert_eq!(peer_names(&status["peers"]), ["gone"], "{status}");
+
+    // Nor does the not-found error of `_acpmux/resolve`, which names where it looked.
+    let query = json!({"query": "no-such-session"});
+    let (_, mine) = local.answer(method::MUX_RESOLVE, query.clone()).await;
+    assert!(mine.as_deref().is_some_and(|e| e.contains("gone")), "{mine:?}");
+    let (_, theirs) = peer.answer(method::MUX_RESOLVE, query).await;
+    let theirs = theirs.expect("not found");
+    assert!(!theirs.contains("gone"), "a peer's resolve named this host's peers: {theirs}");
+}
+
+/// A request for a session of a peer that is down is refused as `peer_unreachable`, with that
+/// peer's name, link state and connection error: one the peer's saved rows list (forwarded, and
+/// refused by the link), and one they do not (`Hub::peer_down_for`). A peer's connection gets the
+/// first refusal without any of that, and for the second the answer a name that is no peer of this
+/// host gets.
+#[tokio::test]
+async fn a_peer_connection_hears_nothing_of_a_down_peer_in_a_refusal() {
+    let dir = std::env::temp_dir().join(format!("acpmux-peer-down-{}", uuid::Uuid::now_v7()));
+    // `gone`'s rows, saved while it was up: this host lists `gone/m1` while it is down.
+    let row = json!({"sessionId": "m1", "name": "gone/kept", "status": "idle", "updatedAt": 5,
+        "sessionReceipt": {"hostId": "gone", "muxSessionId": "m1", "generation": 0}});
+    std::fs::create_dir_all(dir.join("peers")).unwrap();
+    let saved = json!({"lastSeen": 5, "sessions": [row]});
+    std::fs::write(dir.join("peers/gone.json"), saved.to_string()).unwrap();
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let a = Hub::new(cfg, store);
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    a.add_peer("gone", &format!("ws://127.0.0.1:{port}"), None, None, true).await.unwrap();
+    let mut local = Watcher::new(a.clone(), None).await;
+    let mut peer = Watcher::new(a.clone(), Some(Origin::Peer)).await;
+    let info = |id: &str| json!({"sessionId": id});
+
+    for id in ["gone/m1", "gone/lane"] {
+        let (_, mine) = local.answer(method::MUX_INFO, info(id)).await;
+        let mine = mine.expect("refused");
+        assert!(mine.starts_with("peer_unreachable: gone ("), "the unix socket hears why: {mine}");
+        assert!(mine.contains("Connection refused"), "{mine}");
+    }
+
+    let (_, listed) = peer.answer(method::MUX_INFO, info("gone/m1")).await;
+    let listed = listed.expect("refused");
+    assert_eq!(
+        listed, "peer_unreachable: the request was not sent; retry later",
+        "a peer's refusal told it of this host's peer"
+    );
+
+    let (_, theirs) = peer.answer(method::MUX_INFO, info("gone/lane")).await;
+    let theirs = theirs.expect("refused");
+    let (_, nobody) = peer.answer(method::MUX_INFO, info("nosuch/lane")).await;
+    let nobody = nobody.expect("refused").replace("nosuch", "gone");
+    assert_eq!(theirs, nobody, "a peer's refusal told it of this host's peer");
+    assert!(!theirs.contains("unreachable"), "{theirs}");
+    drop(a);
+    let _ = std::fs::remove_dir_all(&dir);
 }
