@@ -216,6 +216,44 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    test("keyboard contract: navigation from Skip returns focus to the option before Enter", async () => {
+      const page = await pendingQuestion();
+      await page.keyboard.press("Tab");
+      expect(await page.locator(".acpmux-question-skip").evaluate((button) => button === document.activeElement)).toBe(
+        true,
+      );
+      await page.keyboard.press("Control+n");
+      expect(await highlighted(page)).toBe("API keys");
+      expect(await page.locator(".acpmux-question-row:focus .acpmux-question-label").innerText()).toBe("API keys");
+      await page.keyboard.press("Enter");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: { permissionId: "perm_toolu_single", optionId: "allow_once", answers: { [prompt]: "API keys" } },
+        },
+      ]);
+      await page.close();
+    });
+
+    test("keyboard contract: Enter preserves the checked multi-select options", async () => {
+      const page = await pendingQuestion("pending-multi");
+      await page.keyboard.press("Space");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Space");
+      await page.keyboard.press("Enter");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: {
+            permissionId: "perm_toolu_multi",
+            optionId: "allow_once",
+            answers: { "Which platforms should the first release support?": "macOS, iOS" },
+          },
+        },
+      ]);
+      await page.close();
+    });
+
     test("one click on an option chooses it and Submit sends it", async () => {
       // Leo 2026-10-24: "just clicking it directly just automatically sends the input. So it makes
       // the skip and submit buttons redundant".

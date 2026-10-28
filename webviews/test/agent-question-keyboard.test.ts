@@ -88,7 +88,8 @@ await requireBrowserLane("agent-question-keyboard.test.ts", async () => {
         answers: { "Which auth method should the API use?": "Signed cookies\nwith rotation" },
       },
     ]);
-    await field.dispatchEvent("keydown", { key: "Enter", repeat: true });
+    await page.locator(".acpmux-question").dispatchEvent("keydown", { key: "Enter", repeat: true });
+    await page.locator(".acpmux-question").dispatchEvent("keydown", { key: "Enter" });
     expect((await replies(page)).length).toBe(1);
     await page.close();
   });
