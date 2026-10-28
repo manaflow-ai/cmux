@@ -56,7 +56,9 @@ struct GhosttyKeyBindingLayer {
     /// key named `shortcut.key` and the codepoint it types (nil: no key).
     static func probe(for shortcut: Shortcut, keyNames: [UInt16: String], commandKeyNames: [UInt16: String]? = nil) -> GhosttyKeyProbe? {
         let names = Self.names(for: shortcut.modifiers, keyNames: keyNames, commandKeyNames: commandKeyNames)
-        guard let code = names.filter({ $0.value == shortcut.key }).keys.min() else { return nil }
+        // The key that types the character, else (a digit AZERTY types only shifted) its digit-row key.
+        guard let code = names.filter({ $0.value == shortcut.key }).keys.min()
+            ?? KeyCodeLayout.digitRow.first(where: { $0.value == shortcut.key })?.key else { return nil }
         let scalars = shortcut.key.unicodeScalars
         // Function keys (arrows, Home) type nothing: Ghostty matches them by the physical key.
         let typed = scalars.count == 1 && !(0xF700...0xF8FF).contains(scalars.first?.value ?? 0) ? scalars.first?.value ?? 0 : 0
@@ -86,12 +88,19 @@ struct GhosttyKeyBindingLayer {
     /// The table key of a trigger: its codepoint, or the physical key's name.
     /// A Command trigger is named by the layout's Command key map: with Command held a key reads
     /// only that map (`ActionRegistry.shortcuts(for:)`), QWERTY on Russian or Dvorak - QWERTY ⌘.
+    /// A digit-row trigger with Command or Control keeps its digit (Ghostty's `digit_1` is Cmd-1 on
+    /// AZERTY too, which types & there): a chord reads the digit row's digit on every layout, so
+    /// the trigger and the key agree, and cmux's own Cmd-1 default beats Ghostty's goto_tab as on US.
     func shortcut(for bind: GhosttyHostKeybind) -> Shortcut? {
         switch bind.key {
         case .unicode(let scalar):
-            UnicodeScalar(scalar).map { Shortcut(String(Character($0)), modifiers: bind.modifiers) }
+            return UnicodeScalar(scalar).map { Shortcut(String(Character($0)), modifiers: bind.modifiers) }
         case .keyCode(let code):
-            Self.names(for: bind.modifiers, keyNames: keyNames, commandKeyNames: commandKeyNames)[code].map { Shortcut($0, modifiers: bind.modifiers) }
+            if !bind.modifiers.isDisjoint(with: [.command, .control]), let digit = KeyCodeLayout.digitRow[code] {
+                return Shortcut(digit, modifiers: bind.modifiers)
+            }
+            return Self.names(for: bind.modifiers, keyNames: keyNames, commandKeyNames: commandKeyNames)[code]
+                .map { Shortcut($0, modifiers: bind.modifiers) }
         }
     }
 

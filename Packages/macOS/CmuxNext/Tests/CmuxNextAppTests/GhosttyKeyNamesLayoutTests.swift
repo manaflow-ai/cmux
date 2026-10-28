@@ -32,11 +32,11 @@ import Testing
         GhosttyKeyBindingLayer(binds: [bind], defaults: [], keyNames: keyNames, commandKeyNames: commandKeyNames).entries.first?.keys.first
     }
 
-    @Test(arguments: 1...8)
+    @Test(arguments: 0...9)
     func aGhosttyDigitKeybindIsNamedByItsDigitOnAZERTY(digit: Int) throws {
-        let codes: [Int: UInt16] = [1: 18, 2: 19, 3: 20, 4: 21, 5: 23, 6: 22, 7: 26, 8: 28]
+        let codes: [Int: UInt16] = [1: 18, 2: 19, 3: 20, 4: 21, 5: 23, 6: 22, 7: 26, 8: 28, 9: 25, 0: 29]
         let code = try #require(codes[digit])
-        let bind = GhosttyHostKeybind(key: .keyCode(code), modifiers: [.command], action: .gotoTab(.index(digit)))
+        let bind = GhosttyHostKeybind(key: .keyCode(code), modifiers: [.command], action: (1...8).contains(digit) ? .gotoTab(.index(digit)) : .newWindow)
         let names = KeyCodeLayout.keyNames(typed: Self.azerty)
         #expect(Self.entry(bind, keyNames: names) == Shortcut(String(digit), modifiers: [.command]))
     }
@@ -45,6 +45,17 @@ import Testing
     @Test func lettersKeepTheirLayoutName() {
         let bind = GhosttyHostKeybind(key: .keyCode(UInt16(kVK_ANSI_Q)), modifiers: [.command, .shift], action: .newWindow)
         #expect(Self.entry(bind, keyNames: KeyCodeLayout.keyNames(typed: Self.azerty)) == Shortcut("a", modifiers: [.command, .shift]))
+    }
+
+    /// The claim probe for a character finds the key that types it, also on a digit-row key
+    /// (French - PC types - on the 6 key), and a digit AZERTY types only shifted on its digit-row key.
+    @Test func claimProbesFindTheKeyThatTypesTheCharacter() {
+        var frenchPC = Self.azerty
+        frenchPC.removeAll { $0.code == 22 }
+        frenchPC.append((22, "-"))
+        let names = KeyCodeLayout.keyNames(typed: frenchPC)
+        #expect(GhosttyKeyBindingLayer.probe(for: Shortcut("-", modifiers: [.control]), keyNames: names)?.keyCode == 22)
+        #expect(GhosttyKeyBindingLayer.probe(for: Shortcut("1", modifiers: [.command]), keyNames: names)?.keyCode == 18)
     }
 
     @Test func aCommandKeybindIsNamedByTheCommandKeyMap() {

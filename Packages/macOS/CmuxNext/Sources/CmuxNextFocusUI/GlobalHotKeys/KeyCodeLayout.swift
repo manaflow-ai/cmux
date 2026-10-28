@@ -89,10 +89,7 @@ package struct KeyCodeLayout: Sendable {
         keyNames(typed: typedKeys(command: true))
     }
 
-    /// The table key names for a layout whose main-row keys type `typed`. The digit row keeps its
-    /// digits (Ghostty's `digit_1` is Cmd-1 on AZERTY too, which types & there): a key-down reads
-    /// the digit row's digit for a chord on every layout (`ActionRegistry.shortcuts(for:)`), so the
-    /// trigger and the key agree, and cmux's own Cmd-1 default beats Ghostty's goto_tab as on US.
+    /// The table key names for a layout whose main-row keys type `typed`.
     package static func keyNames(typed: [(code: UInt16, key: String)]) -> [UInt16: String] {
         var names: [UInt16: String] = [:]
         for (key, code) in ansi.codes where key != Shortcut.deleteKey { names[UInt16(code)] = key }
@@ -101,11 +98,15 @@ package struct KeyCodeLayout: Sendable {
         for (code, character) in navigation {
             if let scalar = UnicodeScalar(UInt32(character)) { names[UInt16(code)] = String(Character(scalar)) }
         }
-        let digitRow: Set<Int> = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8,
-                                  kVK_ANSI_9, kVK_ANSI_0]
-        for (code, key) in typed where !digitRow.contains(Int(code)) { names[code] = key }
+        for (code, key) in typed { names[code] = key }
         return names
     }
+
+    /// The digit each digit-row key names (Ghostty's `digit_1` ... `digit_0`, kVK_ANSI_1 ... kVK_ANSI_0).
+    package static let digitRow: [UInt16: String] = [
+        UInt16(kVK_ANSI_1): "1", UInt16(kVK_ANSI_2): "2", UInt16(kVK_ANSI_3): "3", UInt16(kVK_ANSI_4): "4", UInt16(kVK_ANSI_5): "5",
+        UInt16(kVK_ANSI_6): "6", UInt16(kVK_ANSI_7): "7", UInt16(kVK_ANSI_8): "8", UInt16(kVK_ANSI_9): "9", UInt16(kVK_ANSI_0): "0",
+    ]
 
     /// What each main-row key types unshifted on the selected layout, by
     /// ascending key code; empty when the layout cannot be read
