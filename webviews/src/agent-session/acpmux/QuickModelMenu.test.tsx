@@ -208,6 +208,7 @@ test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", 
 test("inline effort picks a different model and its level together; model names keep effort", async () => {
   const container = installDom();
   const picks: { id: string; effort?: string }[] = [];
+  const effortPicks: string[] = [];
   function InlineHarness({ combined = true }: { combined?: boolean }) {
     const trigger = useRef<HTMLButtonElement | null>(null);
     const [open, setOpen] = useState(false);
@@ -230,7 +231,7 @@ test("inline effort picks a different model and its level together; model names 
               { id: "ultracode", name: "Ultracode" },
             ],
             current: "high",
-            onPick() {},
+            onPick: (value) => effortPicks.push(value),
           },
           families: {
             current: "claude",
@@ -266,6 +267,11 @@ test("inline effort picks a different model and its level together; model names 
   expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(4);
   expect(document.querySelector('[aria-label="Model A · Ultracode"]')).toBeTruthy();
   expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
+  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  expect(effortPicks).toEqual(["ultracode"]);
+  expect(picks).toEqual([]);
+  await settle();
+  await open();
   await act(async () => (document.querySelector('[aria-label="Model B · Low"]') as HTMLElement).click());
   expect(picks.map(({ id, effort }) => ({ id, effort }))).toEqual([{ id: "b", effort: "low" }]);
   await settle();
@@ -281,7 +287,8 @@ test("inline effort picks a different model and its level together; model names 
   await settle();
   await open();
   await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
-  expect(picks.at(-1)?.id).toBe("a");
+  expect(effortPicks).toEqual(["ultracode", "low"]);
+  expect(picks.at(-1)?.id).toBe("b");
   expect(picks.at(-1)?.effort).toBe("low");
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));

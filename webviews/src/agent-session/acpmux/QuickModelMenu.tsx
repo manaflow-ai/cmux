@@ -320,14 +320,22 @@ export function QuickModelMenu({
     const choices = effortChoices(model);
     if (choices.length === 0) return name;
     const running = (!families || model.family === families.current) && model.id === current;
+    const pickEffort = (value: string) => {
+      // The current model is already selected. Apply its effort through the reported
+      // option so the harness updates the same config as the Effort submenu. A different
+      // model still uses the combo path, which waits for that model to be reported first.
+      if (running && effort?.onPick) {
+        onOpenChange(false);
+        effort.onPick(value);
+        return;
+      }
+      pickRow({ ...model, effort: value });
+    };
     return (
       <div className="acpmux-quick-model-effort" key={valueOf(model)} data-effort-look={menu.effortLook ?? "joined"}>
         {name}
         <div className="acpmux-quick-efforts" role="group" aria-label={`${model.name} · ${t("effort.title")}`}>
-          <MenuRadioGroup
-            value={running ? (effort?.current ?? "") : ""}
-            onValueChange={(value) => pickRow({ ...model, effort: value })}
-          >
+          <MenuRadioGroup value={running ? (effort?.current ?? "") : ""} onValueChange={pickEffort}>
             {choices.map((choice) => (
               <MenuRadioItem
                 key={choice.id}
