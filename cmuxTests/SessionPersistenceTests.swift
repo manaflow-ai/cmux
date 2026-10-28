@@ -6390,6 +6390,13 @@ extension SessionPersistenceTests {
         batch.beginRestorePass()
         XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-0"), .owner)
         batch.endRestorePass()
+
+        batch.beginRestorePass()
+        let piUUID = "123e4567-e89b-12d3-a456-426614174000"
+        let piPath = "/Users/test/.pi/sessions/2026-10-27_\(piUUID).jsonl"
+        XCTAssertEqual(batch.claimAgentRestore(kind: "pi", sessionID: piPath), .owner)
+        XCTAssertEqual(batch.claimAgentRestore(kind: "pi", sessionID: piUUID), .duplicate)
+        batch.endRestorePass()
     }
 
     func testAgentRestoreIdentityKeysAgentsAndHookBindingsButNotMultiplexers() {
@@ -6451,7 +6458,29 @@ extension SessionPersistenceTests {
             )?.kind,
             "codex"
         )
-        XCTAssertFalse(SurfaceResumeRunPromptBatch.isConcreteAgentRestoreInput(" cmux restore --surface\n"))
+        let pathBasedPi = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "/Users/test/.pi/sessions/2026-10-27_123e4567-e89b-12d3-a456-426614174000.jsonl",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: pathBasedPi, agentMayAutoResume: true,
+                resumeBinding: nil, bindingWillLaunch: false
+            )?.kind,
+            "pi"
+        )
+
+        let kindlessClaudeInCodexDirectory = legacyCodex
+        var claudeCommand = kindlessClaudeInCodexDirectory
+        claudeCommand.command = "cd /tmp/codex-project && claude --resume pi-session"
+        XCTAssertNil(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: nil, agentMayAutoResume: false,
+                resumeBinding: claudeCommand, bindingWillLaunch: true
+            )
+        )
     }
 
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
