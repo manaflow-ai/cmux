@@ -248,6 +248,22 @@ class GapsTests(unittest.TestCase):
         self.assertLessEqual(sent, sq.VALUE_MARKS)
         self.assertLessEqual(sent, set(bench.VALUE_MARKS))
 
+    def test_launch_picture_key_waits_are_value_marks(self):
+        """The launch picture's key waits (LaunchPictureKeys.WaitReason, sent by the key router as
+        `launch_picture_keys.<wait_ms|keys>.<reason>`) are values in both scripts: a wait's sum and its key count, never
+        a time on the launch timeline."""
+        sources = HERE.parent.parent / "Packages/macOS/CmuxNext/Sources"
+        keys = (sources / "CmuxNextLaunch/LaunchPictureKeys.swift").read_text()
+        reasons = re.search(r"enum WaitReason[^{]*\{(.*?)\n    \}", keys, re.S).group(1)
+        names = [raw or name for name, raw in re.findall(r'case (\w+)(?: = "([a-z_]+)")?', reasons)]
+        self.assertEqual(names, ["undecided", "daemon_not_connected", "live_view"])
+        sent = {f"launch_picture_keys.{kind}.{reason}" for reason in names for kind in ("wait_ms", "keys")}
+        spec = importlib.util.spec_from_file_location("bench_startup", HERE / "bench-startup.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        self.assertLessEqual(sent, sq.VALUE_MARKS)
+        self.assertLessEqual(sent, set(bench.VALUE_MARKS))
+
     def test_bad_input_is_an_input_error_not_a_hit(self):
         files = Files()
         for data in ({"t": "oops"}, {"t": {"warm": "x"}}, {"t": {"warm": [1, 2]}}, [1]):
