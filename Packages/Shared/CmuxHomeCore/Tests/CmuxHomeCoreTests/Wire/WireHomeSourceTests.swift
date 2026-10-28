@@ -367,7 +367,8 @@ import Testing
                 ]])
             case "/home/object":
                 let request = try #require(http.requests.last)
-                let number = try #require(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
+                let url = try #require(request.url)
+                let number = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first { $0.name == "partNumber" }?.value)
                 return HomeWireHTTPReply(status: 200, body: Data(), etag: "\"r2-\(number)\"")
             case complete:
