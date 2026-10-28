@@ -153,6 +153,21 @@ class PerTest(unittest.TestCase):
                              "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.", line)
                 self.assertTrue(reds.classify(shared, log(failed("a()"), SUMMARY), "cmux-next swift test").own)
 
+    def test_a_shell_reporting_a_killed_child_after_a_whole_run_is_a_crash(self):
+        whole = ["◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
+                 "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue."]
+        for line, signal in (("/tmp/run.sh: line 5: 1234 Killed                  ./helper", "9"),
+                             ("/tmp/run.sh: line 5: 1234 Terminated: 15          ./helper", "15")):
+            with self.subTest(line):
+                verdict = reds.classify(log(*whole, line), log(*whole), "cmux-next swift test")
+                self.assertTrue(verdict.own)
+                self.assertIn(f"signal {signal}", verdict.reasons[0])
+
+    def test_a_tools_error_line_is_not_a_unittest_run(self):
+        pip = log("ERROR: Could not find a version that satisfies the requirement foo")
+        self.assertFalse(reds.read(pip).ran)
+        self.assertIsNone(reds.classify(pip, pip, "cmux-next fast tier"))
+
     def test_a_compile_job_that_prints_fatal_error_is_left_to_the_caller(self):
         compile_log = log("Fatal error: module map file not found")
         self.assertIsNone(reds.classify(compile_log, compile_log, "cmux app scheme compile (Debug)"))

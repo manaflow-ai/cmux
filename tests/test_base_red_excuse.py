@@ -291,6 +291,12 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "signal 11"):
             self.judge()
 
+    def test_a_tools_error_in_a_non_test_job_is_still_excused_when_the_base_has_it(self):
+        fast = "cmux-next fast tier"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, fast, "Install"), 2: failed_job(2, 20, BASE_SHA, fast, "Install")}
+        self.gh.logs[1] = self.gh.logs[2] = log(fast, "Install", "##[error]error: Could not find a version for foo")
+        self.assertIn(fast, "\n".join(self.judge()))
+
     def test_a_red_test_the_base_does_not_fail_blocks(self):
         self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER)
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)

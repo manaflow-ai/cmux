@@ -62,6 +62,11 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
                             r"(?:Fatal error: |Thread \d+ Crashed|Exception Type: +EXC_|Abort(?:ed|\s+trap)\b|"
                             r"Segmentation fault|Illegal instruction|Bus error|Trace/breakpoint trap|"
                             r"(?:the )?(?:swift test run|test process|test helper) (?:exited|terminated) (?:with|by) signal)")
+# A shell's report of a child it lost to a signal: `script: line N: PID Killed  cmd` (bash), or the same
+# without the line (`PID Terminated`).
+SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
+                          r"(?::? \d+)? +\S")
+SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
 # A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
 # quotes it.
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
@@ -86,7 +91,7 @@ RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
 # A unittest run (verbose `name (module.Class...) ... ok` lines, or a FAIL/ERROR block) ends with `Ran N tests`.
-UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): |^\w+ \([\w.]+\)(?: \.\.\.|$)")
+UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: \.\.\.|$)")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
@@ -224,6 +229,8 @@ def crashed_tests(stack: list[str], started: set[str]) -> list[str]:
 def signal_of(text: str) -> str | None:
     if match := SIGNAL.search(text):
         return next(group for group in match.groups() if group)
+    if match := SHELL_SIGNAL.search(text):
+        return SHELL_SIGNAL_NUMBERS.get(match.group(1))
     if match := re.search(r"Abort trap: (\d+)", text):
         return match.group(1)
     for name, number in SIGNAL_NAMES.items():
@@ -257,7 +264,7 @@ def read(log: str | None) -> Result:
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
-        runtime = HELPER_KILLED.search(text) or (
+        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True
