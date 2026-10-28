@@ -120,12 +120,12 @@ export function measureComposerAlignment(): ComposerAlignment {
     send: boxOf(send),
     foot: boxOf(foot),
     mode: boxOf(mode),
-    modeText: textOf(
-      mode?.querySelector(".acpmux-mode-text") ?? mode?.querySelector(":scope > span:not(.acpmux-icon)"),
-    ),
+    // A label's own box (its line), not its glyph range: the picker centers the label's box, and the
+    // glyph range sits on the font's ascent and descent, not the visual middle.
+    modeText: boxOf(mode?.querySelector(".acpmux-mode-text") ?? mode?.querySelector(":scope > span:not(.acpmux-icon)")),
     modeGlyph: boxOf(mode?.querySelector("svg") ?? null),
     model: boxOf(model),
-    modelText: textOf(
+    modelText: boxOf(
       q(".acpmux-composer-foot .acpmux-model .acpmux-model-detail") ??
         q(".acpmux-composer-foot .acpmux-model .acpmux-model-name"),
     ),
