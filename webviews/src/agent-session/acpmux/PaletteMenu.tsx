@@ -24,7 +24,7 @@ export type PaletteChoice = {
 export type PaletteSection = {
   title: string;
   choices: PaletteChoice[];
-  onPick?: (id: string) => void | "keep";
+  onPick?: (id: string) => void | "keep" | Promise<void | "keep">;
 };
 
 type Props = {
@@ -38,16 +38,9 @@ type Props = {
   onOpen?: () => void;
 };
 
-/** The + menu invokes the host's shared command registry. */
-export function runPaletteAction(id: string): void {
-  (
-    globalThis.window as typeof window & { cmuxAcpmuxBridge?: { command?(name: string): void } }
-  ).cmuxAcpmuxBridge?.command?.(id);
-}
-
 /** The tools and navigation exposed from the same native action catalog as Cmd-P. */
 export function paletteSections(
-  onAction: (id: string) => void = runPaletteAction,
+  onAction: (id: string) => void | Promise<void>,
   t: Translate,
   extensions: readonly ComposerPlusExtension[] = [],
 ): PaletteSection[] {
@@ -56,7 +49,11 @@ export function paletteSections(
     return entries.length
       ? [
           {
-            title: t(`plus.${section}`),
+            title: t(
+              { tools: "plus.tools", apps: "plus.apps", sessions: "sidebar.sessions", tabs: "newTab.openTabs" }[
+                section
+              ] as Parameters<Translate>[0],
+            ),
             choices: entries.map((entry) => ({
               id: entry.id,
               name: entry.name,
@@ -66,7 +63,8 @@ export function paletteSections(
             })),
             onPick: (id: string) => {
               const entry = entries.find((row) => row.id === id);
-              if (entry?.action.kind === "command") onAction(entry.action.id);
+              if (entry?.action.kind !== "command") return "keep" as const;
+              return onAction(entry.action.id);
             },
           },
         ]
@@ -106,6 +104,8 @@ export function PaletteMenu({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [error, setError] = useState<string>();
+  const dispatch = useRef(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement | null>(null);
@@ -137,6 +137,8 @@ export function PaletteMenu({
   );
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
   const openMenu = useCallback(() => {
+    dispatch.current += 1;
+    setError(undefined);
     setQuery("");
     setActive(0);
     setOpen(true);
@@ -144,6 +146,7 @@ export function PaletteMenu({
     focusWithRing(trigger.current, { focusVisible: false });
   }, [onOpen]);
   const close = useCallback(() => {
+    dispatch.current += 1;
     setOpen(false);
     setQuery("");
     if (returnFocus) trigger.current?.focus();
@@ -171,10 +174,22 @@ export function PaletteMenu({
     scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
   }, [open, rows.length, menuId, selected]);
   useEffect(() => registerPicker(label, openMenu), [label, openMenu]);
-  const pick = (index: number) => {
+  const pick = async (index: number) => {
     const row = rows[index];
     if (!row) return;
-    if (row.section.onPick?.(row.choice.id) !== "keep") close();
+    const attempt = ++dispatch.current;
+    setError(undefined);
+    try {
+      const result = await row.section.onPick?.(row.choice.id);
+      if (dispatch.current === attempt && menu.current && result !== "keep") close();
+    } catch (reason) {
+      if (dispatch.current !== attempt || !menu.current) return;
+      setError(
+        reason instanceof Error
+          ? t("harnesses.commandFailedBecause", { reason: reason.message })
+          : t("harnesses.commandFailed"),
+      );
+    }
   };
   const keyDown = (event: React.KeyboardEvent) => {
     // IME commit keys (including WebKit's keyCode 229 after compositionend) belong to the
@@ -192,12 +207,15 @@ export function PaletteMenu({
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       if (rows.length) setActive((current) => (current + step + rows.length) % rows.length);
-    } else if (event.key === "Home" || event.key === "End") {
+    } else if (
+      (event.key === "Home" || event.key === "End") &&
+      event.currentTarget.getAttribute("role") === "listbox"
+    ) {
       event.preventDefault();
       if (rows.length) setActive(event.key === "Home" ? 0 : rows.length - 1);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      pick(selected);
+      void pick(selected);
     } else if (event.key === "Tab") {
       setOpen(false);
       setQuery("");
@@ -259,12 +277,17 @@ export function PaletteMenu({
               aria-haspopup="listbox"
               aria-expanded={open}
               aria-controls={menuId}
-              aria-label={t("plus.search")}
+              aria-label={t("sidebar.searchPlaceholder")}
               aria-activedescendant={rows.length ? `${menuId}-${selected}` : undefined}
-              placeholder={t("plus.search")}
+              placeholder={t("sidebar.searchPlaceholder")}
               autoComplete="off"
             />
           </div>
+          {error && (
+            <div className="acpmux-palette-empty" role="alert">
+              {error}
+            </div>
+          )}
           {/* A native select cannot hold descriptions, sections or search. */}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" tabIndex={-1} aria-label={label} onKeyDown={keyDown}>
@@ -293,7 +316,7 @@ export function PaletteMenu({
                       onMouseMove={() => at !== selected && setActive(at)}
                       onMouseDown={(event) => {
                         event.preventDefault();
-                        pick(at);
+                        void pick(at);
                       }}
                     >
                       {choice.icon}

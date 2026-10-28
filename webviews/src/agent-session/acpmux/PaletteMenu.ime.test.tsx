@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PaletteMenu } from "./PaletteMenu";
+import { PaletteMenu, paletteSections } from "./PaletteMenu";
+import { translate, type Translate } from "./i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -82,4 +83,92 @@ test("composition Enter does not dispatch or close, then plain Enter does", asyn
   await act(async () => input.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(picks).toBe(1);
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("Home and End edit the search input; only the listbox navigates first and last", async () => {
+  await act(async () =>
+    root!.render(
+      <PaletteMenu
+        label="Add"
+        button="+"
+        sections={[
+          {
+            title: "Tools",
+            choices: [
+              { id: "first", name: "First" },
+              { id: "last", name: "Last" },
+            ],
+          },
+        ]}
+      />,
+    ),
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  const input = container.querySelector<HTMLInputElement>("input")!;
+  const first = input.getAttribute("aria-activedescendant");
+  for (const key of ["Home", "End"])
+    for (const shiftKey of [false, true]) {
+      const event = new dom!.window.KeyboardEvent("keydown", { key, shiftKey, bubbles: true, cancelable: true });
+      await act(async () => input.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+      expect(input.getAttribute("aria-activedescendant")).toBe(first);
+    }
+  const list = container.querySelector<HTMLElement>("[role=listbox]")!;
+  await act(async () => list.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(input.getAttribute("aria-activedescendant")).not.toBe(first);
+  await act(async () => list.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+  expect(input.getAttribute("aria-activedescendant")).toBe(first);
+});
+
+test("a rejected host action keeps the palette open and reports its source error", async () => {
+  const failed = Promise.reject(new Error("Browser unavailable"));
+  void failed.catch(() => {});
+  const calls: string[] = [];
+  const sections = paletteSections(
+    (id) => {
+      calls.push(id);
+      return failed;
+    },
+    translate,
+    [
+      {
+        id: "browser",
+        section: "tools",
+        name: "Browser",
+        description: "Open a browser",
+        icon: "browser",
+        keywords: [],
+        action: { kind: "command", id: "openBrowser" },
+      },
+    ],
+  );
+  await act(async () => root!.render(<PaletteMenu label="Add" button="+" sections={sections} />));
+  const trigger = container.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => trigger.click());
+  await act(async () =>
+    container
+      .querySelector<HTMLInputElement>("input")!
+      .dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+  );
+  expect(calls).toEqual(["openBrowser"]);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector("[role=alert]")?.textContent).toContain("Browser unavailable");
+});
+
+test("palette sections and search use actual Japanese translations", async () => {
+  const t: Translate = (key, values) => translate(key, values, "ja");
+  const sections = paletteSections(
+    () => {},
+    t,
+    ["tools", "apps", "sessions", "tabs"].map((section) => ({
+      id: section,
+      section: section as "tools" | "apps" | "sessions" | "tabs",
+      name: section,
+      description: section,
+      icon: "terminal",
+      keywords: [],
+      action: { kind: "command" as const, id: section },
+    })),
+  );
+  expect(sections.map((section) => section.title)).toEqual(["ツール", "アプリ", "セッション", "開いているタブ"]);
 });
