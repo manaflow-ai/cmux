@@ -331,7 +331,7 @@ export function losesNumbers(printed: string): boolean {
 /// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
 const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
 const LOG_LINE = [
-  /^\s*\[(?:debug|info|warn|error|trace)\]\b/i,
+  /^\s*\[(?:debug|info|warn|error|trace)\]/i,
   /^\s*(?:\[[^\]]+\]\s*)?(?:debug|info|warn|error|trace)\b/i,
   /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i,
 ];
