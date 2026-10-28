@@ -162,9 +162,9 @@ pub(super) fn resolve(
         .filter(|a| !a.trim().is_empty())
         .ok_or_else(|| format!("name the cmux API with --cloud-api URL or {API_ENV}"))?;
     let credential = match &command.credential_file {
-        Some(path) => {
-            std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?
-        }
+        // The error names neither the path nor the file's contents (a pasted secret could be in either).
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?,
         None => env(TOKEN_ENV).ok_or_else(|| {
             format!("give your cmux credential with --cloud-token-file PATH or {TOKEN_ENV}")
         })?,

@@ -362,3 +362,21 @@ fn exec_output_and_the_token_file_path_never_carry_a_secret() {
     assert!(!path.exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn an_unreadable_credential_file_is_not_named() {
+    let command = parse(&strings(&[
+        "exec",
+        "--target",
+        VM,
+        "--cloud-api",
+        "https://api.example",
+        "--cloud-token-file",
+        "/nonexistent/s3cret-cred",
+        "--",
+        "true",
+    ]))
+    .unwrap();
+    let error = resolve(&command, |_| None).unwrap_err();
+    assert!(!error.contains("s3cret"), "{error}");
+}
